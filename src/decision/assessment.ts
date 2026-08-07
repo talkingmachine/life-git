@@ -34,19 +34,19 @@ export function assessRoute(profile: ProfileSnapshot, evidence: Evidence, routeC
     return yellow("housing_not_confirmed", "al-tirana-residence");
   }
 
-  if (!evidence.foreignContractVerified || !hasVerifiedOfficialClaim(evidence, "al-law-79-art-68-contract")) {
+  if (evidence.foreignContractVerified !== "verified" || !hasVerifiedOfficialClaim(evidence, "al-law-79-art-68-contract")) {
     return yellow("foreign_contract_not_verified", "al-law-79-art-68-contract");
   }
 
-  if (!evidence.availableResourcesVerified || new Decimal(profile.profile.availableResourcesAll).lessThan(requiredResourcesAll)) {
+  if (evidence.availableResourcesVerified !== "verified" || new Decimal(profile.profile.availableResourcesAll).lessThan(requiredResourcesAll)) {
     return yellow("available_resources_not_confirmed", "al-tirana-residence");
   }
 
-  if (!evidence.lawfulStayVerified) {
+  if (evidence.lawfulStayVerified !== "verified") {
     return yellow("lawful_stay_not_verified", "al-tirana-residence");
   }
 
-  if (!evidence.stagedFamilyPlanVerified) {
+  if (evidence.stagedFamilyPlanVerified !== "verified") {
     return yellow("staged_family_plan_not_verified", "al-law-79-art-68-spouse");
   }
 

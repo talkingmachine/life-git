@@ -12,10 +12,10 @@ const verifiedEvidence: Evidence = {
     "al-law-79-art-68-spouse": { source: "official", status: "verified" },
     "al-tirana-residence": { source: "official", status: "verified" },
   },
-  foreignContractVerified: true,
-  availableResourcesVerified: true,
-  lawfulStayVerified: true,
-  stagedFamilyPlanVerified: true,
+  foreignContractVerified: "verified",
+  availableResourcesVerified: "verified",
+  lawfulStayVerified: "verified",
+  stagedFamilyPlanVerified: "verified",
 };
 
 function profileFor(overrides: Partial<ProfileDraft> = {}) {
@@ -53,6 +53,17 @@ test("keeps false housing, missing claim, unresearched basis, and unverified rel
   expect(assessRoute(unknownBasisProfile, verifiedEvidence, { housingProvided: true }).marker).toBe("yellow");
   expect(assessRoute(otherFamilyProfile, verifiedEvidence, { housingProvided: true }).reasons[0].code).toBe("relationship_not_verified_in_vs1");
   expect(assessRoute(futureIncomeOnlyProfile, verifiedEvidence, { housingProvided: true }).marker).toBe("yellow");
+});
+
+test.each([
+  ["stale", "foreignContractVerified"],
+  ["conflicting", "availableResourcesVerified"],
+  ["invalid", "lawfulStayVerified"],
+] as const)("keeps %s critical evidence yellow", (status, field) => {
+  const completeProfile = profileFor();
+  const nonVerifiedEvidence: Evidence = { ...verifiedEvidence, [field]: status };
+
+  expect(assessRoute(completeProfile, nonVerifiedEvidence, { housingProvided: true }).marker).toBe("yellow");
 });
 
 test("marks only a verified official hard mismatch red and ignores a non-family assertion", () => {

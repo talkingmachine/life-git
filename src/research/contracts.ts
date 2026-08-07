@@ -22,17 +22,19 @@ export type ClaimId =
   | "al-law-79-art-68-spouse"
   | "al-tirana-residence";
 
+export type EvidenceStatus = "verified" | "missing" | "ambiguous" | "stale" | "conflicting" | "invalid";
+
 export interface ClaimEvidence {
   readonly source: "official" | "unverified";
-  readonly status: "verified" | "missing" | "ambiguous";
+  readonly status: EvidenceStatus;
 }
 
 export interface Evidence {
   readonly claims: Readonly<Partial<Record<ClaimId, ClaimEvidence>>>;
-  readonly foreignContractVerified: boolean;
-  readonly availableResourcesVerified: boolean;
-  readonly lawfulStayVerified: boolean;
-  readonly stagedFamilyPlanVerified: boolean;
+  readonly foreignContractVerified: EvidenceStatus;
+  readonly availableResourcesVerified: EvidenceStatus;
+  readonly lawfulStayVerified: EvidenceStatus;
+  readonly stagedFamilyPlanVerified: EvidenceStatus;
 }
 
 export interface RouteConditions {
