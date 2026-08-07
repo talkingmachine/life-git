@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "spike-evidence-v1",
+  "source": {
+    "id": "SRC-SPIKE-CBR-EUR",
+    "official": true,
+    "publisher": "Bank of Russia",
+    "url": "https://www.cbr.ru/scripts/XML_daily.asp"
+  },
+  "capture": {
+    "artifact": "cbr-eur-2026-08-06.xml",
+    "byteLength": 9513,
+    "charset": "windows-1251",
+    "contentType": "application/xml",
+    "httpStatus": 200,
+    "responseDateHeader": "2026-08-06T09:57:07Z",
+    "sha256": "8648e667d42f8ec5b6fe4fe72e2947b64bc98c72389eb3c6770d8f4028b0440e"
+  },
+  "evidencePackage": {
+    "integrityIndex": "checksums.sha256",
+    "integrityModel": "local checksum prototype with a mutable root",
+    "parserArtifact": "replay.py",
+    "retrievalLog": "retrieval-log.json"
+  },
+  "parser": {
+    "id": "cbr-eur-xml",
+    "version": 1
+  },
+  "claim": {
+    "effectiveDate": "2026-08-06",
+    "nominal": "1",
+    "subject": "EUR",
+    "unit": "RUB per EUR",
+    "value": "93.1901"
+  },
+  "derivation": {
+    "formula": "monthly_income_rub / rub_per_eur",
+    "inputMonthlyIncomeRub": "210000",
+    "outputMonthlyIncomeEur": "2253.46",
+    "rounding": "half-up to 0.01 EUR"
+  }
+}

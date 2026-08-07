@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Поиск подтверждённых стран — концепт</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: light-dark(#f4f5ef, #0b1010);
+      --surface: light-dark(#ffffff, #141b1a);
+      --surface-soft: light-dark(#eef1e9, #1b2422);
+      --text: light-dark(#16201d, #f2f6f1);
+      --muted: light-dark(#61706a, #a3b1ac);
+      --line: light-dark(#cbd3cd, #34413d);
+      --land: light-dark(#dfe5dc, #24302d);
+      --land-stroke: light-dark(#f8faf6, #101615);
+      --origin: light-dark(#1c5550, #8ad8ca);
+      --pending: light-dark(#68746f, #9aa6a1);
+      --success: light-dark(#187c55, #5bdda3);
+      --success-soft: light-dark(#e1f3e8, #163629);
+      --failure: light-dark(#b43b3b, #ff7d78);
+      --failure-soft: light-dark(#f9e3df, #3b2220);
+      --unknown: light-dark(#a36818, #f0bb65);
+      --unknown-soft: light-dark(#f7ecd8, #382e1c);
+      --route: light-dark(#80918b, #61756f);
+      --focus: light-dark(#203d38, #c4f2e8);
+      --shadow: light-dark(0 16px 50px rgba(29, 42, 37, .12), 0 18px 60px rgba(0, 0, 0, .34));
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--origin) 11%, transparent), transparent 30%),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, a { font: inherit; }
+
+    button:focus-visible, a:focus-visible, [role="button"]:focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 18px 28px;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+      background: color-mix(in srgb, var(--bg) 90%, transparent);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 11px;
+      background: var(--text);
+      color: var(--bg);
+      font-weight: 750;
+      letter-spacing: -.04em;
+    }
+    .brand-copy { display: grid; gap: 2px; }
+    .brand-copy strong { font-size: 14px; font-weight: 720; }
+    .brand-copy span { font-size: 12px; color: var(--muted); }
+
+    .demo-badge {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      background: var(--surface);
+    }
+
+    .stage {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .search-view {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      transition: opacity .45s ease, transform .65s cubic-bezier(.2,.75,.25,1);
+    }
+
+    .search-header {
+      position: relative;
+      z-index: 8;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 28px;
+      padding: 28px 32px 4px;
+      pointer-events: none;
+    }
+
+    .headline { max-width: 680px; }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--origin);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 0;
+      max-width: 720px;
+      font-size: clamp(28px, 4vw, 54px);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+      font-weight: 680;
+    }
+    .subtitle {
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .progress {
+      min-width: 230px;
+      padding-top: 4px;
+      text-align: right;
+    }
+    .progress-main {
+      display: flex;
+      justify-content: flex-end;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .progress-main strong { font-size: 30px; letter-spacing: -.04em; }
+    .progress-main span { color: var(--muted); font-size: 13px; }
+    .progress-track {
+      width: 100%;
+      height: 4px;
+      margin-top: 11px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--surface-soft);
+    }
+    .progress-fill {
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--origin);
+      transition: width .55s ease;
+    }
+    .progress-note { margin-top: 8px; color: var(--muted); font-size: 12px; }
+
+    .map-wrap {
+      position: relative;
+      min-height: 0;
+      margin-top: -20px;
+    }
+    #world-map {
+      width: 100%;
+      height: 100%;
+      min-height: 500px;
+      display: block;
+    }
+    .country { fill: var(--land); stroke: var(--land-stroke); stroke-width: .55; }
+    .graticule { fill: none; stroke: color-mix(in srgb, var(--line) 45%, transparent); stroke-width: .55; }
+    .route {
+      fill: none;
+      stroke: var(--route);
+      stroke-width: 1.25;
+      stroke-linecap: round;
+      stroke-dasharray: 4 7;
+      opacity: .55;
+    }
+    .route.active { stroke: var(--origin); opacity: .9; }
+    .route.complete { opacity: .28; }
+
+    .plane { color: var(--origin); font-size: 18px; filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--bg) 70%, transparent)); }
+
+    .marker { cursor: default; }
+    .marker.interactive { cursor: pointer; }
+    .marker .halo { opacity: .18; }
+    .marker .core { stroke: var(--surface); stroke-width: 3; }
+    .marker .state-glyph {
+      fill: var(--surface);
+      font-size: 11px;
+      font-weight: 800;
+      text-anchor: middle;
+      dominant-baseline: central;
+      pointer-events: none;
+    }
+    .marker .hit { fill: transparent; pointer-events: all; }
+    .marker .label-bg,
+    .marker .label-text { opacity: 0; transition: opacity .18s ease; }
+    .marker.pending .label-bg,
+    .marker.pending .label-text,
+    .marker:hover .label-bg,
+    .marker:hover .label-text,
+    .marker:focus-visible .label-bg,
+    .marker:focus-visible .label-text { opacity: 1; }
+    .marker .label-bg { fill: color-mix(in srgb, var(--surface) 92%, transparent); stroke: var(--line); stroke-width: .7; }
+    .marker .label-text { fill: var(--text); font-size: 11px; font-weight: 650; text-anchor: middle; }
+    .marker.pending .core, .marker.pending .halo { fill: var(--pending); }
+    .marker.success .core, .marker.success .halo { fill: var(--success); }
+    .marker.failure .core, .marker.failure .halo { fill: var(--failure); }
+    .marker.unknown .core, .marker.unknown .halo { fill: var(--unknown); }
+    .marker.pending .state-glyph { animation: spin 1s linear infinite; transform-box: fill-box; transform-origin: center; }
+
+    .origin-dot { fill: var(--origin); stroke: var(--surface); stroke-width: 3; }
+    .origin-ring { fill: none; stroke: var(--origin); stroke-width: 1; opacity: .6; }
+    .origin-label { fill: var(--text); font-size: 11px; font-weight: 700; }
+
+    .legend {
+      position: absolute;
+      left: 28px;
+      bottom: 22px;
+      z-index: 8;
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      padding: 10px 13px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      backdrop-filter: blur(16px);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .legend-item { display: flex; align-items: center; gap: 7px; }
+    .legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+    .activity {
+      position: absolute;
+      right: 28px;
+      bottom: 22px;
+      z-index: 8;
+      width: min(390px, calc(100% - 56px));
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: color-mix(in srgb, var(--surface) 90%, transparent);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+    .activity-label { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    .activity-main { margin-top: 5px; font-size: 14px; font-weight: 680; }
+    .activity-source { margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+    .detail-sheet {
+      position: fixed;
+      top: 80px;
+      right: 18px;
+      bottom: 18px;
+      z-index: 30;
+      width: min(430px, calc(100% - 36px));
+      padding: 22px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      transform: translateX(calc(100% + 38px));
+      transition: transform .35s cubic-bezier(.2,.75,.25,1);
+    }
+    .detail-sheet.open { transform: translateX(0); }
+    .sheet-top { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
+    .sheet-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 9px;
+      border-radius: 999px;
+      background: var(--failure-soft);
+      color: var(--failure);
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .sheet-status.unknown { background: var(--unknown-soft); color: var(--unknown); }
+    .sheet-close {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .sheet-city { margin: 24px 0 0; font-size: 30px; line-height: 1; letter-spacing: -.035em; }
+    .sheet-country { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .reason {
+      margin-top: 26px;
+      padding: 18px;
+      border-left: 4px solid var(--failure);
+      background: var(--failure-soft);
+      border-radius: 0 14px 14px 0;
+    }
+    .reason.unknown { border-color: var(--unknown); background: var(--unknown-soft); }
+    .reason-label { color: var(--muted); font-size: 11px; letter-spacing: .09em; text-transform: uppercase; }
+    .reason p { margin: 8px 0 0; font-size: 16px; line-height: 1.48; font-weight: 650; }
+    .source-title { margin: 28px 0 10px; font-size: 13px; font-weight: 730; }
+    .source-list { display: grid; gap: 9px; }
+    .source {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface-soft);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+    .source strong { display: block; font-size: 13px; }
+    .source span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .source-arrow { color: var(--muted); }
+    .checked-at { margin-top: 18px; color: var(--muted); font-size: 11px; }
+
+    .results-view {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 26px;
+      padding: 28px 32px 32px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(20px);
+      transition: opacity .45s .22s ease, transform .55s .22s ease;
+    }
+    .results-main { min-width: 0; overflow: auto; padding-right: 4px; }
+    .results-kicker { margin: 0; color: var(--success); font-size: 12px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+    .results-title { margin: 8px 0 0; font-size: clamp(30px, 4vw, 48px); line-height: 1.02; letter-spacing: -.045em; }
+    .results-subtitle { margin: 10px 0 22px; color: var(--muted); font-size: 14px; }
+    .result-list { display: grid; gap: 10px; }
+    .result-card {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 15px;
+      padding: 16px 17px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+    }
+    .rank {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--success-soft);
+      color: var(--success);
+      font-weight: 800;
+    }
+    .place strong { display: block; font-size: 15px; }
+    .place span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .proof { text-align: right; }
+    .proof strong { display: block; color: var(--success); font-size: 12px; }
+    .proof span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+
+    .mini-column { display: grid; grid-template-rows: auto minmax(240px, 1fr) auto; min-height: 0; }
+    .mini-title { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+    .mini-title strong { font-size: 13px; }
+    .mini-title span { color: var(--muted); font-size: 11px; }
+    .mini-map {
+      position: relative;
+      min-height: 250px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--surface-soft) 68%, transparent);
+    }
+    #mini-map { width: 100%; height: 100%; display: block; }
+    .next-action {
+      margin-top: 12px;
+      width: 100%;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 13px;
+      background: var(--text);
+      color: var(--bg);
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .stage.complete .search-view { opacity: 0; pointer-events: none; transform: scale(.92) translate(12%, -8%); }
+    .stage.complete .results-view { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+    .source-toast {
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      z-index: 50;
+      padding: 10px 14px;
+      border-radius: 11px;
+      background: var(--text);
+      color: var(--bg);
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, 8px);
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    .source-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 800px) {
+      .topbar { padding: 14px 16px; }
+      .demo-badge { display: none; }
+      .search-header { padding: 20px 18px 0; display: block; }
+      .progress { min-width: 0; margin-top: 14px; text-align: left; }
+      .progress-main { justify-content: flex-start; }
+      .map-wrap { margin-top: 0; }
+      .legend { left: 14px; bottom: 104px; }
+      .activity { left: 14px; right: 14px; bottom: 14px; width: auto; }
+      .results-view { grid-template-columns: 1fr; padding: 22px 18px; overflow: auto; }
+      .results-main { overflow: visible; }
+      .mini-column { min-height: 340px; }
+      .result-card { grid-template-columns: 38px 1fr; }
+      .proof { grid-column: 2; text-align: left; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">LB</div>
+        <div class="brand-copy">
+          <strong>Life Branches</strong>
+          <span>проверяем возможные жизни</span>
+        </div>
+      </div>
+      <div class="demo-badge">Концепт интерфейса · данные условные</div>
+    </header>
+
+    <section class="stage" id="stage">
+      <div class="search-view" aria-label="Прогресс исследования стран">
+        <div class="search-header">
+          <div class="headline">
+            <p class="eyebrow">Исследование маршрутов</p>
+            <h1>Ищем места, где ваша жизнь действительно работает</h1>
+            <p class="subtitle">Каждый зелёный маркер подтверждён источниками. Каждый красный объясняет, почему маршрут исключён.</p>
+          </div>
+          <div class="progress" aria-live="polite">
+            <div class="progress-main"><strong id="checked-count">0</strong><span>из <span id="total-count">9</span> проверено</span></div>
+            <div class="progress-track" aria-hidden="true"><div class="progress-fill" id="progress-fill"></div></div>
+            <div class="progress-note" id="progress-note">Составляем очередь кандидатов…</div>
+          </div>
+        </div>
+
+        <div class="map-wrap">
+          <svg id="world-map" role="img" aria-labelledby="map-title map-desc">
+            <title id="map-title">Карта исследования возможных стран для переезда</title>
+            <desc id="map-desc">Серые маркеры проверяются, зелёные подтверждены, красные исключены, жёлтые требуют дополнительных данных.</desc>
+          </svg>
+
+          <div class="legend" aria-label="Легенда статусов">
+            <div class="legend-item"><span class="legend-dot" style="background:var(--pending)"></span>Проверяем</div>
+            <div class="legend-item"><span class="legend-dot" style="background:var(--success)"></span>Подтверждено</div>
+            <div class="legend-item"><span class="legend-dot" style="background:var(--failure)"></span>Исключено</div>
+            <div class="legend-item"><span class="legend-dot" style="background:var(--unknown)"></span>Не хватает данных</div>
+          </div>
+
+          <div class="activity" aria-live="polite">
+            <div class="activity-label">Сейчас</div>
+            <div class="activity-main" id="activity-main">Строим персональный search frontier</div>
+            <div class="activity-source" id="activity-source">Жёсткие ограничения → Pareto-набор → проверка источников</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-view" aria-label="Подтверждённые варианты">
+        <div class="results-main">
+          <p class="results-kicker">Поиск завершён</p>
+          <h2 class="results-title">Пять подтверждённых ветвей</h2>
+          <p class="results-subtitle">Лучшие найденные варианты внутри показанного покрытия на дату прогона.</p>
+          <div class="result-list" id="result-list"></div>
+        </div>
+        <aside class="mini-column">
+          <div class="mini-title"><strong>Покрытие поиска</strong><span>9 стран · 5 подтверждено</span></div>
+          <div class="mini-map"><svg id="mini-map" role="img" aria-label="Свёрнутая карта результатов"></svg></div>
+          <button class="next-action" type="button" id="next-action">Перейти к сравнению ветвей</button>
+        </aside>
+      </div>
+
+      <aside class="detail-sheet" id="detail-sheet" aria-hidden="true" aria-labelledby="sheet-city">
+        <div class="sheet-top">
+          <span class="sheet-status" id="sheet-status">× Исключено</span>
+          <button class="sheet-close" type="button" id="sheet-close" aria-label="Закрыть причину">×</button>
+        </div>
+        <h2 class="sheet-city" id="sheet-city">Город</h2>
+        <p class="sheet-country" id="sheet-country">Страна</p>
+        <div class="reason" id="reason-box">
+          <div class="reason-label">Критичная причина</div>
+          <p id="sheet-reason"></p>
+        </div>
+        <h3 class="source-title">На чём основан вывод</h3>
+        <div class="source-list" id="source-list"></div>
+        <div class="checked-at">Проверено в текущем прогоне · источник откроется в новой вкладке продукта</div>
+      </aside>
+    </section>
+  </main>
+
+  <div class="source-toast" id="source-toast" role="status">В рабочем продукте здесь откроется официальный первоисточник</div>
+
+  <script type="module">
+    import { geoNaturalEarth1, geoPath, geoGraticule10 } from 'https://esm.sh/d3-geo@3.1.1';
+    import { feature } from 'https://esm.sh/topojson-client@3.1.0';
+    import world from 'https://esm.sh/@d3-maps/atlas@1.0.0/world/countries/countries-110m';
+
+    const root = document.getElementById('stage');
+    const svg = document.getElementById('world-map');
+    const miniSvg = document.getElementById('mini-map');
+    const checkedCount = document.getElementById('checked-count');
+    const totalCount = document.getElementById('total-count');
+    const progressFill = document.getElementById('progress-fill');
+    const progressNote = document.getElementById('progress-note');
+    const activityMain = document.getElementById('activity-main');
+    const activitySource = document.getElementById('activity-source');
+    const detailSheet = document.getElementById('detail-sheet');
+    const sheetClose = document.getElementById('sheet-close');
+    const resultList = document.getElementById('result-list');
+    const toast = document.getElementById('source-toast');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const fastPreview = window.location.hash === '#fast';
+
+    const origin = { name: 'Россия', lon: 37.62, lat: 55.75 };
+    const candidates = [
+      { country: 'Португалия', city: 'Брага', lon: -8.42, lat: 41.55, outcome: 'success', fit: 'Баланс бюджета и спокойного ритма', sources: ['Миграционный портал', 'Национальная статистика'] },
+      { country: 'Германия', city: 'Лейпциг', lon: 12.37, lat: 51.34, outcome: 'failure', reason: 'Не удалось подтвердить подходящий маршрут долгосрочного проживания для текущего профиля занятости.', sources: ['Федеральный миграционный портал', 'Официальные требования к пребыванию'] },
+      { country: 'Испания', city: 'Валенсия', lon: -0.38, lat: 39.47, outcome: 'success', fit: 'Инфраструктура без столичной стоимости', sources: ['Государственный миграционный портал', 'Институт статистики'] },
+      { country: 'Нидерланды', city: 'Эйндховен', lon: 5.48, lat: 51.44, outcome: 'failure', reason: 'Подтверждённый диапазон обязательных расходов превышает заданный безопасный бюджет.', sources: ['Национальная статистика жилья', 'Налоговая служба'] },
+      { country: 'Словения', city: 'Любляна', lon: 14.51, lat: 46.06, outcome: 'success', fit: 'Безопасность и компактная инфраструктура', sources: ['Государственный портал', 'Статистическое управление'] },
+      { country: 'Ирландия', city: 'Корк', lon: -8.47, lat: 51.90, outcome: 'unknown', reason: 'Официальных данных недостаточно, чтобы подтвердить стоимость подходящего жилья в выбранном городе.', sources: ['Центральное статистическое управление', 'Государственный жилищный портал'] },
+      { country: 'Чехия', city: 'Брно', lon: 16.61, lat: 49.20, outcome: 'success', fit: 'Технологическая среда и умеренный масштаб', sources: ['Министерство внутренних дел', 'Статистическое управление'] },
+      { country: 'Норвегия', city: 'Берген', lon: 5.32, lat: 60.39, outcome: 'failure', reason: 'Стресс-тест бюджета не выдерживает подтверждённый диапазон базовых расходов.', sources: ['Статистическое управление', 'Налоговая администрация'] },
+      { country: 'Эстония', city: 'Тарту', lon: 26.72, lat: 58.38, outcome: 'success', fit: 'Цифровая среда и спокойный городской масштаб', sources: ['Государственный портал', 'Департамент статистики'] }
+    ];
+
+    totalCount.textContent = String(candidates.length);
+
+    let projection;
+    let path;
+    let mainLayers;
+    let completed = 0;
+    const markerByCity = new Map();
+
+    function svgEl(name, attrs = {}) {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+      Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+      return node;
+    }
+
+    function sizeOf(node) {
+      const box = node.getBoundingClientRect();
+      return { width: Math.max(320, box.width), height: Math.max(260, box.height) };
+    }
+
+    function drawBase(target, compact = false) {
+      const { width, height } = sizeOf(target);
+      target.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      const fitObject = compact
+        ? { type: 'MultiPoint', coordinates: candidates.map(item => [item.lon, item.lat]) }
+        : { type: 'Sphere' };
+      const localProjection = geoNaturalEarth1()
+        .fitExtent(compact ? [[24, 24], [width - 24, height - 24]] : [[24, 8], [width - 24, height - 12]], fitObject);
+      const localPath = geoPath(localProjection);
+      const countries = feature(world, world.objects.features).features;
+
+      const base = svgEl('g');
+      if (!compact) base.append(svgEl('path', { class: 'graticule', d: localPath(geoGraticule10()) }));
+      countries.forEach(country => base.append(svgEl('path', { class: 'country', d: localPath(country) })));
+      target.append(base);
+
+      return { projection: localProjection, path: localPath, width, height };
+    }
+
+    function curvedRoute(from, to, bend = .22) {
+      const dx = to[0] - from[0];
+      const dy = to[1] - from[1];
+      const mx = (from[0] + to[0]) / 2;
+      const my = (from[1] + to[1]) / 2;
+      const cx = mx - dy * bend;
+      const cy = my + dx * bend;
+      return `M ${from[0]} ${from[1]} Q ${cx} ${cy} ${to[0]} ${to[1]}`;
+    }
+
+    function markerLabel(group, text) {
+      const width = Math.max(54, text.length * 6.3 + 16);
+      group.append(svgEl('rect', { class: 'label-bg', x: String(-width / 2), y: '18', width: String(width), height: '22', rx: '8' }));
+      const label = svgEl('text', { class: 'label-text', x: '0', y: '33' });
+      label.textContent = text;
+      group.append(label);
+    }
+
+    function createMarker(candidate) {
+      const [x, y] = projection([candidate.lon, candidate.lat]);
+      const group = svgEl('g', { class: 'marker pending', transform: `translate(${x} ${y})`, opacity: '0' });
+      group.append(svgEl('circle', { class: 'hit', r: '18' }));
+      group.append(svgEl('circle', { class: 'halo', r: '18' }));
+      group.append(svgEl('circle', { class: 'core', r: '10' }));
+      const glyph = svgEl('text', { class: 'state-glyph', x: '0', y: '0' });
+      glyph.textContent = '◌';
+      group.append(glyph);
+      markerLabel(group, candidate.city);
+      mainLayers.markers.append(group);
+      markerByCity.set(candidate.city, group);
+      return group;
+    }
+
+    function setMarkerState(group, candidate) {
+      group.classList.remove('pending');
+      group.classList.add(candidate.outcome);
+      const glyph = group.querySelector('.state-glyph');
+      glyph.textContent = candidate.outcome === 'success' ? '✓' : candidate.outcome === 'failure' ? '×' : '?';
+      if (candidate.outcome !== 'success') {
+        mainLayers.interactive.append(group);
+        group.classList.add('interactive');
+        group.setAttribute('role', 'button');
+        group.setAttribute('tabindex', '0');
+        group.setAttribute('aria-label', `${candidate.city}, ${candidate.country}: показать причину`);
+        group.addEventListener('click', () => openDetails(candidate));
+        group.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openDetails(candidate);
+          }
+        });
+      }
+    }
+
+    function showRoute(candidate, index) {
+      const from = projection([origin.lon, origin.lat]);
+      const to = projection([candidate.lon, candidate.lat]);
+      const route = svgEl('path', { class: 'route active', d: curvedRoute(from, to, .10 + (index % 3) * .055) });
+      mainLayers.routes.append(route);
+
+      const marker = createMarker(candidate);
+      marker.setAttribute('opacity', '1');
+
+      const plane = svgEl('text', { class: 'plane', 'aria-hidden': 'true' });
+      plane.textContent = '✈';
+      mainLayers.planes.append(plane);
+
+      const length = route.getTotalLength();
+      const duration = fastPreview || reducedMotion ? 20 : 1050;
+      const start = performance.now();
+
+      function fly(now) {
+        const t = Math.min(1, (now - start) / duration);
+        const point = route.getPointAtLength(length * t);
+        const ahead = route.getPointAtLength(Math.min(length, length * t + 2));
+        const angle = Math.atan2(ahead.y - point.y, ahead.x - point.x) * 180 / Math.PI;
+        plane.setAttribute('transform', `translate(${point.x} ${point.y}) rotate(${angle})`);
+        if (t < 1) requestAnimationFrame(fly);
+        else {
+          plane.remove();
+          route.classList.remove('active');
+          route.classList.add('complete');
+          window.setTimeout(() => finishCandidate(candidate, marker), fastPreview || reducedMotion ? 20 : 420);
+        }
+      }
+      requestAnimationFrame(fly);
+    }
+
+    function finishCandidate(candidate, marker) {
+      setMarkerState(marker, candidate);
+      completed += 1;
+      checkedCount.textContent = String(completed);
+      progressFill.style.width = `${completed / candidates.length * 100}%`;
+      const successful = candidates.slice(0, completed).filter(item => item.outcome === 'success').length;
+      progressNote.textContent = `${successful} подтверждено · ${completed - successful} не вошли`;
+      activityMain.textContent = candidate.outcome === 'success'
+        ? `${candidate.city}: критичные условия подтверждены`
+        : candidate.outcome === 'failure'
+          ? `${candidate.city}: исключена по жёсткому условию`
+          : `${candidate.city}: оставлена вне top-5 до появления данных`;
+      activitySource.textContent = `Проверены: ${candidate.sources.join(' · ')}`;
+
+      if (completed === candidates.length) {
+        activityMain.textContent = 'Пять устойчивых кандидатов найдены';
+        activitySource.textContent = 'Фиксируем evidence snapshot и собираем карточки стран и городов';
+        progressNote.textContent = 'Поиск завершён · результат подтверждён';
+        window.setTimeout(showResults, fastPreview || reducedMotion ? 80 : 2600);
+      } else {
+        window.setTimeout(() => showRoute(candidates[completed], completed), fastPreview || reducedMotion ? 30 : 650);
+      }
+    }
+
+    function openDetails(candidate) {
+      const unknown = candidate.outcome === 'unknown';
+      const status = document.getElementById('sheet-status');
+      status.textContent = unknown ? '? Не подтверждено' : '× Исключено';
+      status.className = `sheet-status${unknown ? ' unknown' : ''}`;
+      document.getElementById('sheet-city').textContent = candidate.city;
+      document.getElementById('sheet-country').textContent = candidate.country;
+      document.getElementById('sheet-reason').textContent = candidate.reason;
+      document.getElementById('reason-box').className = `reason${unknown ? ' unknown' : ''}`;
+      const list = document.getElementById('source-list');
+      list.innerHTML = '';
+      candidate.sources.forEach((source, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'source';
+        button.innerHTML = `<span><strong>${source}</strong><span>Подтверждает утверждение ${index + 1} · проверено сейчас</span></span><span class="source-arrow" aria-hidden="true">↗</span>`;
+        button.addEventListener('click', showSourceToast);
+        list.append(button);
+      });
+      detailSheet.classList.add('open');
+      detailSheet.setAttribute('aria-hidden', 'false');
+      sheetClose.focus();
+    }
+
+    function closeDetails() {
+      detailSheet.classList.remove('open');
+      detailSheet.setAttribute('aria-hidden', 'true');
+    }
+
+    function showSourceToast() {
+      toast.classList.add('show');
+      window.setTimeout(() => toast.classList.remove('show'), 1800);
+    }
+
+    function renderResults() {
+      const successes = candidates.filter(item => item.outcome === 'success');
+      resultList.innerHTML = '';
+      successes.forEach((item, index) => {
+        const card = document.createElement('article');
+        card.className = 'result-card';
+        card.innerHTML = `
+          <div class="rank">${index + 1}</div>
+          <div class="place"><strong>${item.city}, ${item.country}</strong><span>${item.fit}</span></div>
+          <div class="proof"><strong>Подтверждено ✓</strong><span>${item.sources.length} критичных блока источников</span></div>
+        `;
+        resultList.append(card);
+      });
+    }
+
+    function renderMiniMap() {
+      const mini = drawBase(miniSvg, true);
+      const markerLayer = svgEl('g');
+      const interactiveLayer = svgEl('g');
+      candidates.forEach(candidate => {
+        const point = mini.projection([candidate.lon, candidate.lat]);
+        const group = svgEl('g', { class: `marker ${candidate.outcome}`, transform: `translate(${point[0]} ${point[1]})` });
+        group.append(svgEl('circle', { class: 'hit', r: '14' }));
+        group.append(svgEl('circle', { class: 'halo', r: '9' }));
+        group.append(svgEl('circle', { class: 'core', r: '5.5' }));
+        const glyph = svgEl('text', { class: 'state-glyph', x: '0', y: '0', style: 'font-size:7px' });
+        glyph.textContent = candidate.outcome === 'success' ? '✓' : candidate.outcome === 'failure' ? '×' : '?';
+        group.append(glyph);
+        if (candidate.outcome !== 'success') {
+          group.classList.add('interactive');
+          group.setAttribute('role', 'button');
+          group.setAttribute('tabindex', '0');
+          group.setAttribute('aria-label', `${candidate.city}: показать причину`);
+          group.addEventListener('click', () => openDetails(candidate));
+          group.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') openDetails(candidate);
+          });
+        }
+        (candidate.outcome === 'success' ? markerLayer : interactiveLayer).append(group);
+      });
+      miniSvg.append(markerLayer, interactiveLayer);
+    }
+
+    function showResults() {
+      renderResults();
+      renderMiniMap();
+      closeDetails();
+      root.classList.add('complete');
+    }
+
+    function initialize() {
+      const map = drawBase(svg);
+      projection = map.projection;
+      path = map.path;
+      mainLayers = {
+        routes: svgEl('g'),
+        planes: svgEl('g'),
+        markers: svgEl('g'),
+        interactive: svgEl('g')
+      };
+      svg.append(mainLayers.routes, mainLayers.planes, mainLayers.markers, mainLayers.interactive);
+
+      const [ox, oy] = projection([origin.lon, origin.lat]);
+      const originGroup = svgEl('g', { transform: `translate(${ox} ${oy})` });
+      originGroup.append(svgEl('circle', { class: 'origin-ring', r: '15' }));
+      originGroup.append(svgEl('circle', { class: 'origin-dot', r: '7' }));
+      const label = svgEl('text', { class: 'origin-label', x: '13', y: '-10' });
+      label.textContent = 'Текущий дом · Россия';
+      originGroup.append(label);
+      mainLayers.markers.append(originGroup);
+
+      window.setTimeout(() => showRoute(candidates[0], 0), fastPreview || reducedMotion ? 60 : 700);
+    }
+
+    sheetClose.addEventListener('click', closeDetails);
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeDetails(); });
+    document.getElementById('next-action').addEventListener('click', () => {
+      activityMain.textContent = 'Переходим к сравнению жизненных ветвей';
+      showSourceToast();
+    });
+
+    try {
+      initialize();
+    } catch (error) {
+      activityMain.textContent = 'Не удалось загрузить географию карты';
+      activitySource.textContent = 'Сценарий остановлен: визуализация не подменяет отсутствующие данные';
+      console.error(error);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+.DS_Store
+.env*
+!.env.example
+*.log
+
+node_modules/
+.next/
+out/
+coverage/
+.vercel/
+
+data/*.db
+data/*.db-*
+
+.superpowers/**/state/
+.superpowers/brainstorm/.last-port
+.superpowers/brainstorm/.last-token

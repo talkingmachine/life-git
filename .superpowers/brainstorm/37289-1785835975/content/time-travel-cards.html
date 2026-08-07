@@ -1,0 +1,516 @@
+<div id="life-rewind-mockup">
+  <style>
+    #life-rewind-mockup {
+      color-scheme: light dark;
+      --lr-page: light-dark(#f4f1e8, #111410);
+      --lr-panel: light-dark(#fffdf7, #1a1e18);
+      --lr-panel-strong: light-dark(#ffffff, #20251e);
+      --lr-text: light-dark(#1b211b, #eef4e9);
+      --lr-muted: light-dark(#687066, #aeb8aa);
+      --lr-line: light-dark(#cfd5cb, #3c453a);
+      --lr-accent: light-dark(#276749, #7fd3a4);
+      --lr-accent-soft: light-dark(#dff3e7, #1c3a2a);
+      --lr-warm: light-dark(#9a5a22, #f1b978);
+      --lr-warm-soft: light-dark(#faead8, #402d1e);
+      --lr-danger: light-dark(#9b3a36, #f29a94);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--lr-text);
+      width: 100%;
+    }
+
+    #life-rewind-mockup * { box-sizing: border-box; }
+
+    #life-rewind-mockup .lr-shell {
+      background: var(--lr-page);
+      border: 1px solid var(--lr-line);
+      border-radius: 22px;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    #life-rewind-mockup .lr-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 16px 18px;
+      background: var(--lr-panel);
+      border-bottom: 1px solid var(--lr-line);
+    }
+
+    #life-rewind-mockup .lr-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    #life-rewind-mockup .lr-mark {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: var(--lr-accent);
+      color: var(--lr-page);
+      font-weight: 500;
+    }
+
+    #life-rewind-mockup .lr-brand-copy { min-width: 0; }
+    #life-rewind-mockup .lr-brand-name { font-weight: 500; }
+    #life-rewind-mockup .lr-brand-sub {
+      color: var(--lr-muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    #life-rewind-mockup .lr-live {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--lr-muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    #life-rewind-mockup .lr-live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--lr-accent);
+    }
+
+    #life-rewind-mockup .lr-content { padding: 18px; }
+
+    #life-rewind-mockup .lr-heading-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    #life-rewind-mockup .lr-title {
+      margin: 0;
+      font-size: clamp(20px, 3vw, 28px);
+      line-height: 1.15;
+      font-weight: 500;
+    }
+
+    #life-rewind-mockup .lr-subtitle {
+      color: var(--lr-muted);
+      margin-top: 6px;
+      max-width: 650px;
+    }
+
+    #life-rewind-mockup .lr-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    #life-rewind-mockup .lr-control {
+      appearance: none;
+      border: 1px solid var(--lr-line);
+      background: var(--lr-panel);
+      color: var(--lr-text);
+      border-radius: 11px;
+      padding: 9px 12px;
+      font: inherit;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    #life-rewind-mockup .lr-control:hover { background: var(--lr-panel-strong); }
+    #life-rewind-mockup .lr-control:focus-visible { outline: 3px solid var(--lr-accent-soft); outline-offset: 2px; }
+    #life-rewind-mockup .lr-control[aria-pressed="true"] {
+      background: var(--lr-accent);
+      color: var(--lr-page);
+      border-color: var(--lr-accent);
+    }
+
+    #life-rewind-mockup .lr-timeline {
+      background: var(--lr-panel);
+      border: 1px solid var(--lr-line);
+      border-radius: 16px;
+      padding: 12px 12px 8px;
+      margin-bottom: 14px;
+    }
+
+    #life-rewind-mockup .lr-timeline-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 4px 6px;
+      color: var(--lr-muted);
+      font-size: 12px;
+    }
+
+    #life-rewind-mockup .lr-timeline-state {
+      color: var(--lr-text);
+      font-weight: 500;
+    }
+
+    #life-rewind-mockup .lr-tree {
+      width: 100%;
+      height: auto;
+      min-height: 190px;
+      display: block;
+    }
+
+    #life-rewind-mockup .lr-tree .base-line,
+    #life-rewind-mockup .lr-tree .branch-line {
+      fill: none;
+      stroke: var(--lr-line);
+      stroke-width: 2;
+      vector-effect: non-scaling-stroke;
+    }
+
+    #life-rewind-mockup .lr-tree .active-line { stroke: var(--lr-accent); stroke-width: 3; }
+    #life-rewind-mockup .lr-tree .alt-line { stroke: var(--lr-warm); stroke-width: 3; }
+    #life-rewind-mockup .lr-tree .node { fill: var(--lr-panel-strong); stroke: var(--lr-line); stroke-width: 2; }
+    #life-rewind-mockup .lr-tree .node-active { fill: var(--lr-accent-soft); stroke: var(--lr-accent); stroke-width: 3; }
+    #life-rewind-mockup .lr-tree .node-alt { fill: var(--lr-warm-soft); stroke: var(--lr-warm); stroke-width: 3; }
+    #life-rewind-mockup .lr-tree text { fill: var(--lr-text); font-size: 13px; font-weight: 500; }
+    #life-rewind-mockup .lr-tree .node-caption { fill: var(--lr-muted); font-size: 11px; font-weight: 400; }
+    #life-rewind-mockup .lr-tree .branch-label { fill: var(--lr-warm); font-size: 11px; }
+    #life-rewind-mockup .lr-alt-only { opacity: 0.28; transition: opacity 220ms ease; }
+    #life-rewind-mockup[data-mode="rewind"] .lr-alt-only,
+    #life-rewind-mockup[data-mode="compare"] .lr-alt-only { opacity: 1; }
+    #life-rewind-mockup[data-mode="rewind"] .lr-main-only { opacity: 0.34; }
+
+    #life-rewind-mockup .lr-context {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 2px 12px;
+      color: var(--lr-muted);
+      font-size: 13px;
+    }
+
+    #life-rewind-mockup .lr-context strong { color: var(--lr-text); font-weight: 500; }
+    #life-rewind-mockup .lr-branch-note { color: var(--lr-warm); }
+
+    #life-rewind-mockup .lr-cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    #life-rewind-mockup .lr-card {
+      background: var(--lr-panel);
+      border: 1px solid var(--lr-line);
+      border-radius: 16px;
+      padding: 14px;
+      min-width: 0;
+    }
+
+    #life-rewind-mockup .lr-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    #life-rewind-mockup .lr-card-title { font-weight: 500; }
+    #life-rewind-mockup .lr-card-kind {
+      font-size: 11px;
+      color: var(--lr-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    #life-rewind-mockup .lr-card-value {
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 500;
+      margin-bottom: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    #life-rewind-mockup .lr-facts {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+    }
+
+    #life-rewind-mockup .lr-fact {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr);
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--lr-line);
+      font-size: 12px;
+    }
+
+    #life-rewind-mockup .lr-fact dt { color: var(--lr-muted); }
+    #life-rewind-mockup .lr-fact dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+    #life-rewind-mockup .lr-warning { color: var(--lr-danger); }
+    #life-rewind-mockup .lr-change { color: var(--lr-warm); }
+
+    #life-rewind-mockup .lr-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--lr-line);
+      color: var(--lr-muted);
+      font-size: 12px;
+    }
+
+    #life-rewind-mockup .lr-killer {
+      color: var(--lr-text);
+      font-weight: 500;
+    }
+
+    @media (max-width: 700px) {
+      #life-rewind-mockup .lr-heading-row,
+      #life-rewind-mockup .lr-topbar,
+      #life-rewind-mockup .lr-footer { align-items: flex-start; flex-direction: column; }
+      #life-rewind-mockup .lr-controls { justify-content: flex-start; }
+      #life-rewind-mockup .lr-cards { grid-template-columns: 1fr; }
+      #life-rewind-mockup .lr-tree { min-height: 240px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #life-rewind-mockup .lr-alt-only { transition: none; }
+    }
+  </style>
+
+  <section class="lr-shell" aria-label="Макет ветвящихся жизненных сценариев">
+    <header class="lr-topbar">
+      <div class="lr-brand">
+        <div class="lr-mark" aria-hidden="true">↶</div>
+        <div class="lr-brand-copy">
+          <div class="lr-brand-name">Life Branches</div>
+          <div class="lr-brand-sub">Версионирование жизненных решений</div>
+        </div>
+      </div>
+      <div class="lr-live"><span class="lr-live-dot" aria-hidden="true"></span> Условный сценарий · данные требуют проверки</div>
+    </header>
+
+    <main class="lr-content">
+      <div class="lr-heading-row">
+        <div>
+          <h2 class="lr-title">Не вернуться назад — создать другую жизнь рядом</h2>
+          <div class="lr-subtitle">Откат к прошлому выбору не стирает будущее: он создаёт новую ветку, которую можно сравнивать с исходной.</div>
+        </div>
+        <div class="lr-controls" aria-label="Режим просмотра">
+          <button class="lr-control" id="lr-current" type="button" aria-pressed="true">Текущая линия</button>
+          <button class="lr-control" id="lr-rewind" type="button" aria-pressed="false">↶ Откатиться к городу</button>
+          <button class="lr-control" id="lr-compare" type="button" aria-pressed="false">Сравнить ветки</button>
+        </div>
+      </div>
+
+      <section class="lr-timeline" aria-label="Дерево решений">
+        <div class="lr-timeline-head">
+          <span>Каждый узел — сохранённый выбор</span>
+          <span class="lr-timeline-state" id="lr-mode-label">Ветка A · текущая</span>
+        </div>
+        <svg class="lr-tree" viewBox="0 0 980 250" role="img" aria-labelledby="lr-tree-title lr-tree-desc">
+          <title id="lr-tree-title">Дерево двух жизненных линий</title>
+          <desc id="lr-tree-desc">Общая исходная точка в Москве разветвляется после выбора страны на два варианта города, занятости и жилья.</desc>
+
+          <path class="base-line active-line" d="M95 112 H285 H475 H665 H855" />
+          <path class="branch-line alt-line lr-alt-only" d="M285 112 C360 112 360 205 475 205 H665 H855" />
+
+          <g transform="translate(95 112)">
+            <circle class="node node-active" r="18" />
+            <text x="0" y="-32" text-anchor="middle">Сейчас</text>
+            <text class="node-caption" x="0" y="39" text-anchor="middle">Москва</text>
+          </g>
+          <g transform="translate(285 112)">
+            <circle class="node node-active" r="18" />
+            <text x="0" y="-32" text-anchor="middle">Пакет страны</text>
+            <text class="node-caption" x="0" y="39" text-anchor="middle">точка отката</text>
+          </g>
+
+          <g class="lr-main-only" transform="translate(475 112)">
+            <circle class="node node-active" r="18" />
+            <text x="0" y="-32" text-anchor="middle">Компактный город</text>
+            <text class="node-caption" x="0" y="39" text-anchor="middle">ветка A</text>
+          </g>
+          <g class="lr-main-only" transform="translate(665 112)">
+            <circle class="node node-active" r="18" />
+            <text x="0" y="-32" text-anchor="middle">Текущая работа</text>
+            <text class="node-caption" x="0" y="39" text-anchor="middle">remote</text>
+          </g>
+          <g class="lr-main-only" transform="translate(855 112)">
+            <circle class="node node-active" r="18" />
+            <text x="0" y="-32" text-anchor="middle">Аренда</text>
+            <text class="node-caption" x="0" y="39" text-anchor="middle">12 месяцев</text>
+          </g>
+
+          <g class="lr-alt-only" transform="translate(475 205)">
+            <circle class="node node-alt" r="18" />
+            <text class="branch-label" x="0" y="-32" text-anchor="middle">Крупный город</text>
+            <text class="node-caption" x="0" y="39" text-anchor="middle">ветка B</text>
+          </g>
+          <g class="lr-alt-only" transform="translate(665 205)">
+            <circle class="node node-alt" r="18" />
+            <text class="branch-label" x="0" y="-32" text-anchor="middle">B2B-контракт</text>
+            <text class="node-caption" x="0" y="39" text-anchor="middle">новое условие</text>
+          </g>
+          <g class="lr-alt-only" transform="translate(855 205)">
+            <circle class="node node-alt" r="18" />
+            <text class="branch-label" x="0" y="-32" text-anchor="middle">Меньше жильё</text>
+            <text class="node-caption" x="0" y="39" text-anchor="middle">компромисс</text>
+          </g>
+        </svg>
+      </section>
+
+      <div class="lr-context" aria-live="polite">
+        <span id="lr-context-main"><strong>Ветка A:</strong> исходный пакет жизни</span>
+        <span class="lr-branch-note" id="lr-context-note">Новая ветка пока скрыта</span>
+      </div>
+
+      <section class="lr-cards" aria-label="Карточки выбранной жизненной линии">
+        <article class="lr-card">
+          <div class="lr-card-head"><span class="lr-card-title">Человек</span><span class="lr-card-kind">постоянное ядро</span></div>
+          <div class="lr-card-value">Пара из Москвы</div>
+          <dl class="lr-facts">
+            <div class="lr-fact"><dt>Занятость</dt><dd>Программист · remote</dd></div>
+            <div class="lr-fact"><dt>Доход</dt><dd>210 000 ₽ net / мес.</dd></div>
+            <div class="lr-fact"><dt>Подушка</dt><dd>200–500 тыс. ₽</dd></div>
+            <div class="lr-fact"><dt>Приоритеты</dt><dd>Безопасность · инфраструктура</dd></div>
+            <div class="lr-fact"><dt>Ограничения</dt><dd>2 гражданина РФ · без дипломов</dd></div>
+          </dl>
+        </article>
+
+        <article class="lr-card">
+          <div class="lr-card-head"><span class="lr-card-title">Место</span><span class="lr-card-kind">меняется по ветке</span></div>
+          <div class="lr-card-value" id="lr-place-title">Компактный европейский город</div>
+          <dl class="lr-facts">
+            <div class="lr-fact"><dt>Статус</dt><dd id="lr-place-status">Кандидат, не рекомендация</dd></div>
+            <div class="lr-fact"><dt>Главный плюс</dt><dd id="lr-place-plus">Ниже стартовые расходы</dd></div>
+            <div class="lr-fact"><dt>Компромисс</dt><dd id="lr-place-tradeoff">Меньше выбор сервисов</dd></div>
+            <div class="lr-fact"><dt>Неизвестное</dt><dd class="lr-warning" id="lr-place-unknown">Маршрут ВНЖ</dd></div>
+          </dl>
+        </article>
+
+        <article class="lr-card">
+          <div class="lr-card-head"><span class="lr-card-title">Занятость</span><span class="lr-card-kind">зависит от места</span></div>
+          <div class="lr-card-value" id="lr-work-title">Сохранить текущую работу</div>
+          <dl class="lr-facts">
+            <div class="lr-fact"><dt>Формат</dt><dd id="lr-work-format">Официальный remote</dd></div>
+            <div class="lr-fact"><dt>Доход</dt><dd id="lr-work-income">210 000 ₽ net</dd></div>
+            <div class="lr-fact"><dt>Супруга</dt><dd id="lr-work-spouse">Второй доход позже</dd></div>
+            <div class="lr-fact"><dt>Неизвестное</dt><dd class="lr-warning" id="lr-work-unknown">Договор и налоги</dd></div>
+          </dl>
+        </article>
+      </section>
+
+      <footer class="lr-footer">
+        <span class="lr-killer">Киллер-фича: Git для жизненных решений — branch, rewind, diff.</span>
+        <span>Ни одна линия не удаляется и не объявляется «правильной».</span>
+      </footer>
+    </main>
+  </section>
+
+  <script>
+    (() => {
+      const root = document.getElementById('life-rewind-mockup');
+      if (!root) return;
+
+      const controls = {
+        current: document.getElementById('lr-current'),
+        rewind: document.getElementById('lr-rewind'),
+        compare: document.getElementById('lr-compare')
+      };
+
+      const fields = {
+        mode: document.getElementById('lr-mode-label'),
+        context: document.getElementById('lr-context-main'),
+        note: document.getElementById('lr-context-note'),
+        placeTitle: document.getElementById('lr-place-title'),
+        placeStatus: document.getElementById('lr-place-status'),
+        placePlus: document.getElementById('lr-place-plus'),
+        placeTradeoff: document.getElementById('lr-place-tradeoff'),
+        placeUnknown: document.getElementById('lr-place-unknown'),
+        workTitle: document.getElementById('lr-work-title'),
+        workFormat: document.getElementById('lr-work-format'),
+        workIncome: document.getElementById('lr-work-income'),
+        workSpouse: document.getElementById('lr-work-spouse'),
+        workUnknown: document.getElementById('lr-work-unknown')
+      };
+
+      const states = {
+        current: {
+          mode: 'Ветка A · текущая',
+          context: '<strong>Ветка A:</strong> исходный пакет жизни',
+          note: 'Новая ветка пока скрыта',
+          placeTitle: 'Компактный европейский город',
+          placeStatus: 'Кандидат, не рекомендация',
+          placePlus: 'Ниже стартовые расходы',
+          placeTradeoff: 'Меньше выбор сервисов',
+          placeUnknown: 'Маршрут ВНЖ',
+          workTitle: 'Сохранить текущую работу',
+          workFormat: 'Официальный remote',
+          workIncome: '210 000 ₽ net',
+          workSpouse: 'Второй доход позже',
+          workUnknown: 'Договор и налоги'
+        },
+        rewind: {
+          mode: 'Ветка B · создана после отката',
+          context: '<strong>Ветка B:</strong> другой город и формат работы',
+          note: 'Ветка A сохранена рядом',
+          placeTitle: 'Крупный европейский город',
+          placeStatus: 'Новая альтернативная линия',
+          placePlus: 'Больше инфраструктуры',
+          placeTradeoff: 'Выше стартовые расходы',
+          placeUnknown: 'Помещается ли депозит в подушку',
+          workTitle: 'Перейти на B2B-контракт',
+          workFormat: 'Контракт с зарубежной оплатой',
+          workIncome: 'Диапазон требует расчёта',
+          workSpouse: 'Больше локальных вакансий',
+          workUnknown: 'Налоги и доступность ВНЖ'
+        },
+        compare: {
+          mode: 'Diff · ветка A ↔ ветка B',
+          context: '<strong>Сравнение:</strong> изменились место и занятость',
+          note: 'Профиль человека остался общим',
+          placeTitle: 'Компактный ↔ крупный город',
+          placeStatus: 'Две сохранённые линии',
+          placePlus: 'Расходы ↔ инфраструктура',
+          placeTradeoff: 'Спокойствие ↔ выбор возможностей',
+          placeUnknown: 'Какой параметр меняет решение',
+          workTitle: 'Remote ↔ B2B-контракт',
+          workFormat: 'Стабильность ↔ легализация',
+          workIncome: 'Текущий ↔ новый диапазон',
+          workSpouse: 'Позже ↔ больше возможностей',
+          workUnknown: 'Сравнить налоги и устойчивость'
+        }
+      };
+
+      function setMode(mode) {
+        const state = states[mode];
+        root.dataset.mode = mode;
+        Object.entries(controls).forEach(([key, button]) => button.setAttribute('aria-pressed', String(key === mode)));
+        fields.mode.textContent = state.mode;
+        fields.context.innerHTML = state.context;
+        fields.note.textContent = state.note;
+        fields.placeTitle.textContent = state.placeTitle;
+        fields.placeStatus.textContent = state.placeStatus;
+        fields.placePlus.textContent = state.placePlus;
+        fields.placeTradeoff.textContent = state.placeTradeoff;
+        fields.placeUnknown.textContent = state.placeUnknown;
+        fields.workTitle.textContent = state.workTitle;
+        fields.workFormat.textContent = state.workFormat;
+        fields.workIncome.textContent = state.workIncome;
+        fields.workSpouse.textContent = state.workSpouse;
+        fields.workUnknown.textContent = state.workUnknown;
+      }
+
+      controls.current.addEventListener('click', () => setMode('current'));
+      controls.rewind.addEventListener('click', () => setMode('rewind'));
+      controls.compare.addEventListener('click', () => setMode('compare'));
+      setMode('current');
+    })();
+  </script>
+</div>

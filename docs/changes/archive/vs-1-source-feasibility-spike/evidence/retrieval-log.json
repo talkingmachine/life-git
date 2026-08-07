@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "spike-retrieval-log-v1",
+  "sourceUrl": "https://www.cbr.ru/scripts/XML_daily.asp",
+  "runs": [
+    {
+      "id": "run-1",
+      "httpStatus": 200,
+      "responseDateHeader": "2026-08-06T09:57:07Z",
+      "connectLatencyMs": 124.347,
+      "totalLatencyMs": 269.147,
+      "bodyByteLength": 9513,
+      "bodySha256": "8648e667d42f8ec5b6fe4fe72e2947b64bc98c72389eb3c6770d8f4028b0440e",
+      "responseHeaders": {
+        "contentType": "application/xml; charset=windows-1251",
+        "contentLength": "9513",
+        "cacheControl": "no-cache"
+      }
+    },
+    {
+      "id": "run-2",
+      "httpStatus": 200,
+      "responseDateHeader": "2026-08-06T09:57:22Z",
+      "connectLatencyMs": 43.783,
+      "totalLatencyMs": 150.776,
+      "bodyByteLength": 9513,
+      "bodySha256": "8648e667d42f8ec5b6fe4fe72e2947b64bc98c72389eb3c6770d8f4028b0440e",
+      "responseHeaders": {
+        "contentType": "application/xml; charset=windows-1251",
+        "contentLength": "9513",
+        "cacheControl": "no-cache"
+      }
+    }
+  ],
+  "retention": {
+    "canonicalBody": "cbr-eur-2026-08-06.xml",
+    "duplicateRunBodyRetained": false,
+    "reason": "Both run bodies had identical byte length and SHA-256."
+  }
+}
