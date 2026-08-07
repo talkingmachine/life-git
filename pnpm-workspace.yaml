@@ -1,0 +1,6 @@
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  unrs-resolver: true
+minimumReleaseAgeExclude:
+  - tsx@4.23.11

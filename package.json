@@ -1,0 +1,38 @@
+{
+  "name": "confirmed-life",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+		"better-sqlite3": "13.0.3",
+		"cheerio": "1.2.0",
+		"decimal.js": "10.6.0",
+		"fast-xml-parser": "5.10.1",
+		"iconv-lite": "0.7.3",
+		"next": "16.3.0",
+		"openai": "7.4.0",
+		"pdfjs-dist": "6.2.108",
+		"react": "19.2.8",
+		"react-dom": "19.2.8",
+		"zod": "4.4.3"
+	},
+	"devDependencies": {
+		"@testing-library/react": "16.3.2",
+		"@types/better-sqlite3": "9.6.0",
+		"@types/node": "24.13.3",
+		"@types/react": "19.2.18",
+		"@types/react-dom": "19.2.4",
+		"eslint": "10.8.0",
+		"eslint-config-next": "16.3.0",
+		"jsdom": "30.0.1",
+		"tsx": "4.23.11",
+		"typescript": "6.0.3",
+		"typescript-eslint": "8.66.0",
+		"vitest": "4.1.10"
+	}
+}
