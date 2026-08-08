@@ -65,8 +65,42 @@ export interface ClaimAnchor {
 }
 
 export interface Claim<T> {
+  readonly claimId: string;
+  readonly sourceId: SourceId;
   readonly value: T;
+  readonly scope: string;
+  readonly sourcePeriod: string;
   readonly anchor: ClaimAnchor;
+  readonly status: "verified";
+}
+
+export type EvidenceBlockerKind =
+  | CaptureFailureKind
+  | "integrity_mismatch"
+  | "semantic_mismatch"
+  | "stale"
+  | "conflict"
+  | "deadline";
+
+export interface EvidenceBlocker {
+  readonly sourceId: SourceId;
+  readonly kind: EvidenceBlockerKind;
+  readonly navigationUrl: string;
+  readonly resolvedUrl?: string;
+  readonly artifactIds: readonly string[];
+}
+
+export interface EvidenceSnapshot {
+  readonly id: string;
+  readonly assessmentDate: string;
+  readonly artifactIds: readonly string[];
+  readonly claims: readonly Claim<unknown>[];
+  readonly blockers: readonly EvidenceBlocker[];
+  readonly coverage: Readonly<Record<SourceId, "verified" | "unavailable">>;
+  readonly parserVersions: Readonly<Record<SourceId, string>>;
+  readonly rulesVersion: string;
+  readonly manifestHash: string;
+  readonly hmac: string;
 }
 
 export interface ArtifactBytes {
