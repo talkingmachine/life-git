@@ -21,9 +21,8 @@ const verifiedEvidence: Evidence = {
 function profileFor(overrides: Partial<ProfileDraft> = {}) {
   return confirmProfile(
     {
-      currency: "ALL",
       availableResourcesAll: "408000",
-      futureIncomeAll: "125000",
+      monthlyIncome: { amount: "210000", currency: "RUB" },
       incomeBasis: "foreign_contract",
       companionBasis: "none",
       relationship: "none",
@@ -45,7 +44,10 @@ test("keeps false housing, missing claim, unresearched basis, and unverified rel
   const completeProfile = profileFor();
   const unknownBasisProfile = profileFor({ companionBasis: "unknown", relationship: "none" });
   const otherFamilyProfile = profileFor({ companionBasis: "family", relationship: "other_family" });
-  const futureIncomeOnlyProfile = profileFor({ availableResourcesAll: "0", futureIncomeAll: "999999999.99" });
+  const futureIncomeOnlyProfile = profileFor({
+    availableResourcesAll: "0",
+    monthlyIncome: { amount: "999999999.99", currency: "RUB" },
+  });
   const withoutTiranaClaim: Evidence = { ...verifiedEvidence, claims: { ...verifiedEvidence.claims, "al-tirana-residence": { source: "official", status: "missing" } } };
 
   expect(assessRoute(completeProfile, verifiedEvidence, { housingProvided: false }).marker).toBe("yellow");

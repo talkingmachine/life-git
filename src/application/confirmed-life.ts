@@ -150,13 +150,13 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
       {
         class: "user_fact",
         label: "Available resources",
-        displayValue: `${profile.profile.availableResourcesAll} ${profile.profile.currency}`,
+        displayValue: `${profile.profile.availableResourcesAll} ALL`,
         provenance: "confirmed_profile",
       },
       {
         class: "user_fact",
-        label: "Future income",
-        displayValue: `${profile.profile.futureIncomeAll} ${profile.profile.currency}`,
+        label: "Monthly income",
+        displayValue: `${profile.profile.monthlyIncome.amount} ${profile.profile.monthlyIncome.currency}`,
         provenance: "confirmed_profile",
       },
       {

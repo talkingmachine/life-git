@@ -5,9 +5,8 @@ import { confirmProfile } from "../../src/decision/profile";
 const clock = () => new Date("2026-08-07T12:00:00.000Z");
 
 const completeDraft = {
-  currency: "ALL",
   availableResourcesAll: "408000.00",
-  futureIncomeAll: "125000",
+  monthlyIncome: { amount: "210000.00", currency: "RUB" },
   incomeBasis: "foreign_contract",
   companionBasis: "none",
   relationship: "none",
@@ -20,10 +19,11 @@ describe("confirmProfile", () => {
     expect(() => confirmProfile({ ...completeDraft, companionBasis: "family", relationship: "spouse Anna" }, clock)).toThrow();
   });
 
-  test("rejects a non-ALL currency and out-of-range decimal values", () => {
-    expect(() => confirmProfile({ ...completeDraft, currency: "RUB" }, clock)).toThrow();
+  test("requires strict RUB monthly income and rejects ambiguous or out-of-range amounts", () => {
+    expect(() => confirmProfile({ ...completeDraft, monthlyIncome: { amount: "210000", currency: "ALL" } }, clock)).toThrow();
+    expect(() => confirmProfile({ ...completeDraft, futureIncomeAll: "210000" }, clock)).toThrow();
     expect(() => confirmProfile({ ...completeDraft, availableResourcesAll: "-1" }, clock)).toThrow();
-    expect(() => confirmProfile({ ...completeDraft, futureIncomeAll: "1000000000" }, clock)).toThrow();
+    expect(() => confirmProfile({ ...completeDraft, monthlyIncome: { amount: "1000000000", currency: "RUB" } }, clock)).toThrow();
   });
 
   test("normalizes the profile, fixes confirmation time, and creates a stable SHA-256 id", () => {
@@ -32,9 +32,13 @@ describe("confirmProfile", () => {
 
     expect(first).toMatchObject({
       confirmedAt: "2026-08-07T12:00:00.000Z",
-      profile: { ...completeDraft, availableResourcesAll: "408000" },
+      profile: {
+        ...completeDraft,
+        availableResourcesAll: "408000",
+        monthlyIncome: { amount: "210000", currency: "RUB" },
+      },
     });
-    expect(first.id).toBe("4454d3425ce66ad76cc9f7371e29962f703c8ab10017a8b4689f0296c07f390a");
+    expect(first.id).toBe("378f7e2b940d4ce9e9db9f7668fd5563731519d1699768864e79a17509c0fdf1");
     expect(second.id).toBe(first.id);
   });
 
@@ -43,8 +47,9 @@ describe("confirmProfile", () => {
 
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(Object.isFrozen(snapshot.profile)).toBe(true);
+    expect(Object.isFrozen(snapshot.profile.monthlyIncome)).toBe(true);
     expect(() => {
-      (snapshot.profile as { currency: string }).currency = "RUB";
+      (snapshot.profile.monthlyIncome as { amount: string }).amount = "1";
     }).toThrow();
   });
 });

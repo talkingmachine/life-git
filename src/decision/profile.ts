@@ -10,9 +10,11 @@ const decimalText = /^\d+(?:\.\d{1,2})?$/;
 
 const profileDraftSchema = z
   .object({
-    currency: z.literal("ALL"),
     availableResourcesAll: z.string().regex(decimalText),
-    futureIncomeAll: z.string().regex(decimalText),
+    monthlyIncome: z.object({
+      amount: z.string().regex(decimalText),
+      currency: z.literal("RUB"),
+    }).strict(),
     incomeBasis: z.enum(["foreign_contract", "albanian_employer_only"]),
     companionBasis: z.enum(["none", "family", "independent", "unknown"]),
     relationship: z.enum(["none", "spouse", "non_family", "other_family"]),
@@ -40,9 +42,11 @@ function normalizeAmount(value: string): string {
 export function confirmProfile(draft: unknown, clock: () => Date): ProfileSnapshot {
   const parsed = profileDraftSchema.parse(draft);
   const profile: Profile = Object.freeze({
-    currency: parsed.currency,
     availableResourcesAll: normalizeAmount(parsed.availableResourcesAll),
-    futureIncomeAll: normalizeAmount(parsed.futureIncomeAll),
+    monthlyIncome: Object.freeze({
+      amount: normalizeAmount(parsed.monthlyIncome.amount),
+      currency: parsed.monthlyIncome.currency,
+    }),
     incomeBasis: parsed.incomeBasis,
     companionBasis: parsed.companionBasis,
     relationship: parsed.relationship,

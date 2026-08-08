@@ -4,6 +4,9 @@ import type Database from "better-sqlite3";
 import { z } from "zod";
 
 import { createConfirmedLife } from "../application/confirmed-life";
+import { createHousingBranchApplication, type VerifiedBudgetFacts } from "../application/fork-housing";
+import { createReplayApplication } from "../application/replay";
+import { replayEvidence as replayVerifiedEvidence } from "../application/replay-evidence";
 import { assessRoute } from "../decision/assessment";
 import type {
   Evidence,
@@ -23,6 +26,7 @@ import { captureHttpOnce } from "./sources/gateway";
 import { OfficialSourceAdapter } from "./sources/official-source-adapter";
 import { openEvidenceDatabase } from "./sqlite/db";
 import { SqliteEvidenceStore } from "./sqlite/evidence-store";
+import { SqliteBranchStore } from "./sqlite/branch-store";
 import { SqliteProfileStore } from "./sqlite/profile-store";
 import { SqliteRunStore } from "./sqlite/run-store";
 
@@ -73,6 +77,21 @@ const tiranaFactsSchema = z.object({
     z.literal("Stacionet e Linjave Qytetase"),
   ]),
   checkedAt: z.iso.datetime(),
+}).strict();
+
+const cbrBudgetFactsSchema = z.object({
+  base: z.literal("EUR"),
+  quote: z.literal("RUB"),
+  nominal: z.literal("1"),
+  rate: z.string().regex(/^\d+(?:\.\d+)?$/),
+  effectiveDate: z.iso.date(),
+}).strict();
+
+const boaBudgetFactsSchema = z.object({
+  base: z.literal("EUR"),
+  quote: z.literal("ALL"),
+  rate: z.string().regex(/^\d+(?:\.\d+)?$/),
+  effectiveDate: z.iso.date(),
 }).strict();
 
 const EXPECTED_CLAIM_LOCATORS = Object.freeze({
@@ -188,15 +207,64 @@ export function projectDecisionEvidence(snapshot: EvidenceSnapshot): Evidence {
   };
 }
 
+function exactBudgetClaim(
+  snapshot: EvidenceSnapshot,
+  sourceId: "cbr-eur" | "boa-eur",
+) {
+  const claims = snapshot.claims.filter((claim) => claim.sourceId === sourceId);
+  const claim = claims[0];
+  if (
+    snapshot.coverage[sourceId] !== "verified" ||
+    snapshot.parserVersions[sourceId] !== EVIDENCE_PARSER_VERSIONS[sourceId] ||
+    claims.length !== 1 || claim === undefined || claim.claimId !== `${sourceId}-facts-1` ||
+    claim.status !== "verified" || claim.scope !== "VS-1 confirmed-life" ||
+    !snapshot.artifactIds.includes(claim.anchor.artifactId) || claim.anchor.locator.length === 0 ||
+    !/^[a-f\d]{64}$/i.test(claim.anchor.excerptSha256)
+  ) throw new Error("integrity_mismatch");
+  return claim;
+}
+
+export function projectVerifiedBudgetFacts(snapshot: EvidenceSnapshot): VerifiedBudgetFacts {
+  const cbrClaim = exactBudgetClaim(snapshot, "cbr-eur");
+  const boaClaim = exactBudgetClaim(snapshot, "boa-eur");
+  const cbr = cbrBudgetFactsSchema.safeParse(cbrClaim.value);
+  const boa = boaBudgetFactsSchema.safeParse(boaClaim.value);
+  if (
+    !cbr.success || !boa.success || cbr.data.effectiveDate !== cbrClaim.sourcePeriod ||
+    boa.data.effectiveDate !== boaClaim.sourcePeriod
+  ) throw new Error("integrity_mismatch");
+  return Object.freeze({
+    cbrRate: Object.freeze({
+      sourceId: "cbr-eur" as const,
+      rate: cbr.data.rate,
+      base: cbr.data.base,
+      quote: cbr.data.quote,
+      claimId: cbrClaim.claimId,
+      sourcePeriod: cbrClaim.sourcePeriod,
+      ref: `${cbrClaim.anchor.artifactId}#${cbrClaim.anchor.locator}#${cbrClaim.anchor.excerptSha256}`,
+    }),
+    boaRate: Object.freeze({
+      sourceId: "boa-eur" as const,
+      rate: boa.data.rate,
+      base: boa.data.base,
+      quote: boa.data.quote,
+      claimId: boaClaim.claimId,
+      sourcePeriod: boaClaim.sourcePeriod,
+      ref: `${boaClaim.anchor.artifactId}#${boaClaim.anchor.locator}#${boaClaim.anchor.excerptSha256}`,
+    }),
+  });
+}
+
 export function createConfirmedLifeComposition(options: ConfirmedLifeCompositionOptions) {
   const evidenceStore = new SqliteEvidenceStore(options.database);
+  const branchStore = new SqliteBranchStore(options.database, options.hmacKey);
   const profileStore = new SqliteProfileStore(options.database);
   const runStore = new SqliteRunStore(options.database, options.hmacKey);
   const source = options.source ?? new OfficialSourceAdapter();
   const requestStep = options.requestStep ?? captureHttpOnce;
   const integrity = createEvidenceIntegrity(options.hmacKey);
 
-  return createConfirmedLife({
+  const confirmedLife = createConfirmedLife({
     profileStore,
     runStore,
     evidence: {
@@ -231,6 +299,33 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     nextId: options.nextId ?? ((kind) => `${kind}-${randomUUID()}`),
     deadlineAt: options.deadlineAt ?? ((now) => new Date(now.getTime() + 45_000)),
   });
+  const nextId = options.nextId ?? ((kind: "run" | "revision" | "assessment") => `${kind}-${randomUUID()}`);
+  const housingBranch = createHousingBranchApplication({
+    profileStore,
+    runStore,
+    branchStore,
+    budgetFacts: {
+      loadVerifiedBudgetFacts: async (id, expected) => projectVerifiedBudgetFacts(
+        await evidenceStore.loadVerified(id, options.hmacKey, expected),
+      ),
+    },
+    nextRevisionId: () => nextId("revision"),
+  });
+  const replay = createReplayApplication({
+    profileStore,
+    runStore,
+    branchStore,
+    replayEvidence: (snapshotId) => replayVerifiedEvidence(
+      { snapshotId, hmacKey: options.hmacKey },
+      {
+        store: evidenceStore,
+        ...(options.parsers === undefined ? {} : { parsers: options.parsers }),
+      },
+    ),
+    projectDecisionEvidence,
+    projectBudgetFacts: projectVerifiedBudgetFacts,
+  });
+  return Object.freeze({ ...confirmedLife, ...housingBranch, ...replay });
 }
 
 let application: ReturnType<typeof createConfirmedLifeComposition> | undefined;

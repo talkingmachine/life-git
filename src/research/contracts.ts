@@ -3,9 +3,11 @@ export type Relationship = "none" | "spouse" | "non_family" | "other_family";
 export type IncomeBasis = "foreign_contract" | "albanian_employer_only";
 
 export interface Profile {
-  readonly currency: "ALL";
   readonly availableResourcesAll: string;
-  readonly futureIncomeAll: string;
+  readonly monthlyIncome: {
+    readonly amount: string;
+    readonly currency: "RUB";
+  };
   readonly incomeBasis: IncomeBasis;
   readonly companionBasis: CompanionBasis;
   readonly relationship: Relationship;

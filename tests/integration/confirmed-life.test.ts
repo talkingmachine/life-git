@@ -9,6 +9,7 @@ import { confirmProfile } from "../../src/decision/profile";
 import {
   createConfirmedLifeComposition,
   projectDecisionEvidence,
+  projectVerifiedBudgetFacts,
 } from "../../src/infrastructure/composition-root";
 import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
@@ -381,9 +382,8 @@ function assessmentEvidence(snapshot: EvidenceSnapshot): Evidence {
 }
 
 const completeDraft = {
-  currency: "ALL" as const,
   availableResourcesAll: "408000.00",
-  futureIncomeAll: "125000",
+  monthlyIncome: { amount: "210000", currency: "RUB" as const },
   incomeBasis: "foreign_contract" as const,
   companionBasis: "none" as const,
   relationship: "none" as const,
@@ -713,6 +713,7 @@ describe("confirmed-life orchestration", () => {
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
     ).all()).toEqual([
       { name: "artifacts" },
+      { name: "branch_commits" },
       { name: "evidence_snapshots" },
       { name: "profile_snapshots" },
       { name: "run_revisions" },
@@ -832,18 +833,26 @@ describe("confirmed-life orchestration", () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM run_revisions").get()).toEqual({ count: 1 });
   });
 
-  test("composition promotes only exact typed sealed predicates into the scoped green assessment", async () => {
+  test("composition saves and fully replays exact typed sealed assessment and budget offline without appends", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     const db = database();
+    let sourceCaptures = 0;
+    const composedSource: OfficialSourcePort = {
+      async capture(request, requestStep) {
+        sourceCaptures += 1;
+        return source().capture(request, requestStep);
+      },
+    };
+    const ids = { run: 0, revision: 0, assessment: 0 };
     const application = createConfirmedLifeComposition({
       database: db,
       hmacKey: KEY,
-      source: source(),
+      source: composedSource,
       requestStep: (request) => Promise.resolve(artifact(request)),
       parsers: typedParsers(),
       clock: () => NOW,
-      nextId: (kind) => `${kind}-typed`,
+      nextId: (kind) => `${kind}-typed-${++ids[kind]}`,
       deadlineAt: (now) => new Date(now.getTime() + 45_000),
     });
 
@@ -853,9 +862,39 @@ describe("confirmed-life orchestration", () => {
     );
 
     expect(result).toMatchObject({
-      assessmentId: "assessment-typed",
+      assessmentId: "assessment-typed-1",
       assessment: { marker: "green" },
     });
+    const branch = await application.saveInitialHousingBranch(result.runId);
+    const beforeReplay = {
+      artifacts: db.prepare("SELECT COUNT(*) AS count FROM artifacts").get(),
+      snapshots: db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get(),
+      revisions: db.prepare("SELECT COUNT(*) AS count FROM run_revisions").get(),
+      commits: db.prepare("SELECT COUNT(*) AS count FROM branch_commits").get(),
+    };
+
+    const historical = await application.replayRun(result.runId);
+
+    expect(historical).toMatchObject({
+      runId: result.runId,
+      runRevisionId: branch.revision.id,
+      branchCommitId: branch.commit.id,
+      assessment: { marker: "green" },
+      budget: { incomeAll: "209864.57", housingAll: "70000.00", knownResidualAll: "139864.57" },
+      mode: "historical",
+    });
+    expect(sourceCaptures).toBe(5);
+    expect({
+      artifacts: db.prepare("SELECT COUNT(*) AS count FROM artifacts").get(),
+      snapshots: db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get(),
+      revisions: db.prepare("SELECT COUNT(*) AS count FROM run_revisions").get(),
+      commits: db.prepare("SELECT COUNT(*) AS count FROM branch_commits").get(),
+    }).toEqual(beforeReplay);
+
+    db.exec("DROP TRIGGER artifacts_no_update");
+    db.prepare("UPDATE artifacts SET bytes = ? WHERE source_id = 'cbr-eur'").run(Uint8Array.of(0));
+    await expect(application.replayRun(result.runId)).rejects.toThrow("integrity_mismatch");
+    expect(sourceCaptures).toBe(5);
   });
 
   test.each([
@@ -878,6 +917,14 @@ describe("confirmed-life orchestration", () => {
       );
       expect(assessRoute(hardMismatchProfile, projected, { housingProvided: true }).marker).toBe("yellow");
     }
+  });
+
+  test("rejects a sealed CBR/BoA projection unless exact typed rate claims are present", async () => {
+    const mixedCbr = await verifiedMixedSnapshot("cbr-eur");
+    const mixedBoa = await verifiedMixedSnapshot("boa-eur");
+
+    expect(() => projectVerifiedBudgetFacts(mixedCbr)).toThrow("integrity_mismatch");
+    expect(() => projectVerifiedBudgetFacts(mixedBoa)).toThrow("integrity_mismatch");
   });
 
   test.each([

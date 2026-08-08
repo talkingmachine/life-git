@@ -38,14 +38,18 @@ CREATE TABLE IF NOT EXISTS profile_snapshots (
 CREATE TABLE IF NOT EXISTS run_revisions (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
-  stage TEXT NOT NULL CHECK (stage = 'assessment'),
+  stage TEXT NOT NULL CHECK (stage IN ('assessment', 'branch')),
   assessment_date TEXT NOT NULL,
-  initial_housing_json TEXT NOT NULL,
+  initial_housing_json TEXT,
   profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
   evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
   assessment_id TEXT NOT NULL,
-  assessment_json TEXT NOT NULL,
+  assessment_json TEXT,
   rules_version TEXT NOT NULL,
+  parent_revision_id TEXT REFERENCES run_revisions(id),
+  branch_commit_id TEXT,
+  formula_hash TEXT,
+  output_hash TEXT,
   revision_json TEXT NOT NULL,
   hmac TEXT NOT NULL
 );
@@ -53,6 +57,26 @@ CREATE TABLE IF NOT EXISTS run_revisions (
 CREATE UNIQUE INDEX IF NOT EXISTS run_revisions_one_assessment_per_run
 ON run_revisions (run_id)
 WHERE stage = 'assessment';
+
+CREATE UNIQUE INDEX IF NOT EXISTS run_revisions_one_revision_per_commit
+ON run_revisions (branch_commit_id)
+WHERE stage = 'branch';
+
+CREATE TABLE IF NOT EXISTS branch_commits (
+  id TEXT PRIMARY KEY,
+  parent_id TEXT REFERENCES branch_commits(id),
+  forked_from TEXT REFERENCES branch_commits(id),
+  profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  assessment_id TEXT NOT NULL,
+  rules_version TEXT NOT NULL,
+  formula_hash TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  output_hash TEXT NOT NULL,
+  commit_json TEXT NOT NULL,
+  commit_hash TEXT NOT NULL,
+  hmac TEXT NOT NULL
+);
 
 CREATE TRIGGER IF NOT EXISTS artifacts_no_update
 BEFORE UPDATE ON artifacts
@@ -102,4 +126,16 @@ CREATE TRIGGER IF NOT EXISTS run_revisions_no_delete
 BEFORE DELETE ON run_revisions
 BEGIN
   SELECT RAISE(ABORT, 'run_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS branch_commits_no_update
+BEFORE UPDATE ON branch_commits
+BEGIN
+  SELECT RAISE(ABORT, 'branch_commit_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS branch_commits_no_delete
+BEFORE DELETE ON branch_commits
+BEGIN
+  SELECT RAISE(ABORT, 'branch_commit_is_immutable');
 END;

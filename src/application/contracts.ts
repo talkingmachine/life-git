@@ -25,6 +25,27 @@ export interface AssessmentRunRevision extends AssessmentRunRevisionPayload {
   readonly hmac: string;
 }
 
+export interface BranchRunRevisionPayload {
+  readonly id: string;
+  readonly runId: string;
+  readonly stage: "branch";
+  readonly assessmentDate: string;
+  readonly parentRevisionId: string;
+  readonly profileId: string;
+  readonly evidenceSnapshotId: string;
+  readonly assessmentId: string;
+  readonly rulesVersion: string;
+  readonly branchCommitId: string;
+  readonly formulaHash: string;
+  readonly outputHash: string;
+}
+
+export interface BranchRunRevision extends BranchRunRevisionPayload {
+  readonly hmac: string;
+}
+
+export type RunRevision = AssessmentRunRevision | BranchRunRevision;
+
 export interface RunResult {
   readonly runId: string;
   readonly runRevisionId: string;
@@ -42,6 +63,17 @@ export interface CalculationInput {
   readonly unit: string;
   readonly provenance: "profile" | "claim";
   readonly ref: string;
+}
+
+export interface HousingBranchDiff {
+  readonly housing: { readonly before: string; readonly after: string; readonly delta: string };
+  readonly knownResidual: {
+    readonly before: string;
+    readonly after: string;
+    readonly delta: string;
+    readonly cause: "housing";
+  };
+  readonly reused: readonly ["profile", "evidence", "rules"];
 }
 
 export type EvidenceReadItem =
@@ -112,7 +144,7 @@ export interface ProfileStorePort {
   loadVerified(id: string): Promise<ProfileSnapshot>;
 }
 
-export interface RunStorePort {
+export interface AssessmentRunStorePort {
   appendAssessment(input: AssessmentRunRevisionPayload & {
     readonly assessment: Assessment;
   }): Promise<{ readonly revision: AssessmentRunRevision; readonly assessment: Assessment }>;
@@ -120,6 +152,12 @@ export interface RunStorePort {
     readonly revision: AssessmentRunRevision;
     readonly assessment: Assessment;
   }>;
+}
+
+export interface RunStorePort extends AssessmentRunStorePort {
+  appendBranch(input: BranchRunRevisionPayload): Promise<BranchRunRevision>;
+  loadBranchByCommitId(commitId: string): Promise<BranchRunRevision>;
+  loadInitialBranchByRunId(runId: string, assessmentRevisionId: string): Promise<BranchRunRevision>;
 }
 
 export interface EvidenceLoadExpectations {
@@ -145,7 +183,7 @@ export interface EvidenceReadPort {
 
 export interface ConfirmedLifePorts {
   readonly profileStore: ProfileStorePort;
-  readonly runStore: RunStorePort;
+  readonly runStore: AssessmentRunStorePort;
   readonly evidence: EvidenceReadPort;
   readonly research: ResearchPort;
   readonly assess: (
