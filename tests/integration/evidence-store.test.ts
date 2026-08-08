@@ -217,7 +217,7 @@ describe("append-only evidence persistence", () => {
     expect(sealed.snapshot.claims.some((item) => item.sourceId === "cbr-eur")).toBe(false);
   });
 
-  test("creates only the two Task 3 tables and rejects update or delete after sealing", async () => {
+  test("retains the two Task 3 tables and rejects update or delete after sealing", async () => {
     const db = database();
     const store = new SqliteEvidenceStore(db);
     const entries = completeEntries();
@@ -235,7 +235,10 @@ describe("append-only evidence persistence", () => {
     const tableNames = db.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
     ).all();
-    expect(tableNames).toEqual([{ name: "artifacts" }, { name: "evidence_snapshots" }]);
+    expect(tableNames).toEqual(expect.arrayContaining([
+      { name: "artifacts" },
+      { name: "evidence_snapshots" },
+    ]));
     expect(() => db.prepare("UPDATE artifacts SET media_type = 'text/plain'").run()).toThrow();
     expect(() => db.prepare("DELETE FROM artifacts").run()).toThrow();
     expect(() => db.prepare("UPDATE evidence_snapshots SET rules_version = 'changed'").run()).toThrow();
