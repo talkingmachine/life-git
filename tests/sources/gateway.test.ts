@@ -57,12 +57,16 @@ function liveArtifact(step: HttpStepRequest, body: string, url = step.url): Live
   };
 }
 
-function captureRequest(sourceId: CaptureRequest["sourceId"]): CaptureRequest {
+function captureRequest(
+  sourceId: CaptureRequest["sourceId"],
+  signal = new AbortController().signal,
+): CaptureRequest {
   return {
     runId: "run-1",
     sourceId,
     assessmentDate: "2026-08-08",
     deadlineAt: "2026-08-08T10:01:00.000Z",
+    signal,
   };
 }
 
@@ -180,6 +184,30 @@ describe("captureHttpOnce", () => {
     );
   });
 
+  test("classifies an AbortError raised while streaming the body as timeout", async () => {
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads += 1;
+        if (reads === 1) controller.enqueue(Uint8Array.of(1, 2, 3));
+        else controller.error(new DOMException("stream aborted", "AbortError"));
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response(body, {
+          status: 200,
+          headers: { "content-type": "application/xml" },
+        }),
+      ),
+    );
+
+    await expect(
+      captureHttpOnce(request, new AbortController().signal),
+    ).rejects.toMatchObject({ kind: "timeout", retryable: true });
+  });
+
   test.each([
     ["https://mirror.example/XML_daily.asp", "application/xml", "navigation_mismatch"],
     [request.url, "text/html", "wrong_media_type"],
@@ -248,6 +276,8 @@ describe("resolveLatestApplicableQbzAct", () => {
             items: [
               {
                 nodeType: "qbz:actVersion",
+                name: "cons-2025-07-18",
+                path: "/base/cons-2025-07-18",
                 mediaType: "application/pdf",
                 url: "https://qbz.gov.al/media/law-79-consolidated.pdf",
               },
@@ -303,6 +333,136 @@ describe("resolveLatestApplicableQbzAct", () => {
       ),
     ).rejects.toMatchObject({ kind: "navigation_mismatch" });
   });
+
+  test("rejects duplicate latest applicable consolidated versions", async () => {
+    const step: RequestStep = async (httpRequest) => {
+      if (httpRequest.role === "eli-search") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [{
+            nodeType: "qbz:act",
+            path: "/base",
+            actNumber: "79",
+            actDate: "2021-06-24",
+            actType: "ligj",
+            "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
+          }],
+        }));
+      }
+      if (httpRequest.role === "eli-root") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [
+            { nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" },
+            { nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" },
+          ],
+        }));
+      }
+      if (httpRequest.role === "eli-version") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [{
+            nodeType: "qbz:actVersion",
+            name: "cons-2025-07-18",
+            path: "/base/cons-2025-07-18",
+            mediaType: "application/pdf",
+            url: "https://qbz.gov.al/media/law-79.pdf",
+          }],
+        }));
+      }
+      return liveArtifact(httpRequest, "%PDF-1.7");
+    };
+
+    await expect(
+      resolveLatestApplicableQbzAct(
+        "al-law-79",
+        "2026-08-08",
+        step,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ kind: "navigation_mismatch" });
+  });
+
+  test("rejects a consolidated version outside the searched act root", async () => {
+    const step: RequestStep = async (httpRequest) => {
+      if (httpRequest.role === "eli-search") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [{
+            nodeType: "qbz:act",
+            path: "/base",
+            actNumber: "79",
+            actDate: "2021-06-24",
+            actType: "ligj",
+            "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
+          }],
+        }));
+      }
+      if (httpRequest.role === "eli-root") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [{
+            nodeType: "qbz:actVersion",
+            name: "cons-2025-07-18",
+            path: "/another-act/cons-2025-07-18",
+          }],
+        }));
+      }
+      throw new Error("an unrelated version must not be traversed");
+    };
+
+    await expect(
+      resolveLatestApplicableQbzAct(
+        "al-law-79",
+        "2026-08-08",
+        step,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ kind: "navigation_mismatch" });
+  });
+
+  test("rejects a PDF item that does not belong to the selected version", async () => {
+    const step: RequestStep = async (httpRequest) => {
+      if (httpRequest.role === "eli-search") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [{
+            nodeType: "qbz:act",
+            path: "/base",
+            actNumber: "79",
+            actDate: "2021-06-24",
+            actType: "ligj",
+            "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
+          }],
+        }));
+      }
+      if (httpRequest.role === "eli-root") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [{ nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" }],
+        }));
+      }
+      return liveArtifact(httpRequest, JSON.stringify({
+        hasMoreItems: false,
+        items: [{
+          nodeType: "qbz:actVersion",
+          name: "cons-2024-01-01",
+          path: "/base/cons-2024-01-01",
+          mediaType: "application/pdf",
+          url: "https://qbz.gov.al/media/wrong-version.pdf",
+        }],
+      }));
+    };
+
+    await expect(
+      resolveLatestApplicableQbzAct(
+        "al-law-79",
+        "2026-08-08",
+        step,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ kind: "navigation_mismatch" });
+  });
 });
 
 describe("OfficialSourceAdapter direct captures", () => {
@@ -316,12 +476,16 @@ describe("OfficialSourceAdapter direct captures", () => {
     ],
   ] as const)("captures %s only from its official fixed path", async (sourceId, url, host, mediaType) => {
     const seen: HttpStepRequest[] = [];
-    const step: RequestStep = async (httpRequest) => {
+    const signals: AbortSignal[] = [];
+    const step: RequestStep = async (httpRequest, signal) => {
       seen.push(httpRequest);
+      signals.push(signal);
       return liveArtifact(httpRequest, "official bytes");
     };
 
-    const result = await new OfficialSourceAdapter().capture(captureRequest(sourceId), step);
+    const signal = new AbortController().signal;
+
+    const result = await new OfficialSourceAdapter().capture(captureRequest(sourceId, signal), step);
 
     expect(result.ok).toBe(true);
     expect(seen).toHaveLength(1);
@@ -331,12 +495,15 @@ describe("OfficialSourceAdapter direct captures", () => {
       allowedHosts: [host],
       allowedMediaTypes: [mediaType],
     });
+    expect(signals).toEqual([signal]);
   });
 
   test("retains the municipal page and its one allowlisted GIS iframe", async () => {
     const seen: HttpStepRequest[] = [];
-    const step: RequestStep = async (httpRequest) => {
+    const signals: AbortSignal[] = [];
+    const step: RequestStep = async (httpRequest, signal) => {
       seen.push(httpRequest);
+      signals.push(signal);
       if (httpRequest.role === "municipality-page") {
         return liveArtifact(
           httpRequest,
@@ -346,8 +513,9 @@ describe("OfficialSourceAdapter direct captures", () => {
       return liveArtifact(httpRequest, "<html><title>Transporti</title></html>");
     };
 
+    const signal = new AbortController().signal;
     const result = await new OfficialSourceAdapter().capture(
-      captureRequest("tirana-urban-lines"),
+      captureRequest("tirana-urban-lines", signal),
       step,
     );
 
@@ -361,6 +529,7 @@ describe("OfficialSourceAdapter direct captures", () => {
       allowedHosts: ["gis.tirana.al"],
       allowedMediaTypes: ["text/html"],
     });
+    expect(signals).toEqual([signal, signal]);
   });
 
   test("rejects a municipal page with more than one iframe", async () => {
@@ -376,5 +545,90 @@ describe("OfficialSourceAdapter direct captures", () => {
     );
 
     expect(result).toMatchObject({ ok: false, kind: "navigation_mismatch", attempts: 1 });
+  });
+
+  test("preserves the municipal page when the GIS request fails", async () => {
+    const step: RequestStep = async (httpRequest) => {
+      if (httpRequest.role === "municipality-page") {
+        return liveArtifact(
+          httpRequest,
+          '<iframe src="https://gis.tirana.al/transporti"></iframe>',
+        );
+      }
+      throw new SourceCaptureError("timeout", "GIS timed out");
+    };
+
+    const result = await new OfficialSourceAdapter().capture(
+      captureRequest("tirana-urban-lines"),
+      step,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.partialArtifacts.map((artifact) => artifact.role)).toEqual([
+      "municipality-page",
+    ]);
+  });
+
+  test("rejects a GIS artifact whose resolved URL differs from the iframe URL", async () => {
+    const step: RequestStep = async (httpRequest) => {
+      if (httpRequest.role === "municipality-page") {
+        return liveArtifact(
+          httpRequest,
+          '<iframe src="https://gis.tirana.al/transporti"></iframe>',
+        );
+      }
+      return liveArtifact(httpRequest, "<title>Transporti</title>", "https://gis.tirana.al/other");
+    };
+
+    const result = await new OfficialSourceAdapter().capture(
+      captureRequest("tirana-urban-lines"),
+      step,
+    );
+
+    expect(result).toMatchObject({ ok: false, kind: "navigation_mismatch" });
+    expect(!result.ok && result.partialArtifacts.map((artifact) => artifact.role)).toEqual([
+      "municipality-page",
+      "municipal-gis-app",
+    ]);
+  });
+
+  test("preserves QBZ JSON artifacts when a later network step fails", async () => {
+    const signals: AbortSignal[] = [];
+    const step: RequestStep = async (httpRequest, signal) => {
+      signals.push(signal);
+      if (httpRequest.role === "eli-search") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [{
+            nodeType: "qbz:act",
+            path: "/base",
+            actNumber: "79",
+            actDate: "2021-06-24",
+            actType: "ligj",
+            "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
+          }],
+        }));
+      }
+      if (httpRequest.role === "eli-root") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          hasMoreItems: false,
+          items: [{ nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" }],
+        }));
+      }
+      throw new SourceCaptureError("server_error", "version request failed");
+    };
+
+    const signal = new AbortController().signal;
+    const result = await new OfficialSourceAdapter().capture(
+      captureRequest("al-law-79", signal),
+      step,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.partialArtifacts.map((artifact) => artifact.role)).toEqual([
+      "eli-search",
+      "eli-root",
+    ]);
+    expect(signals).toEqual([signal, signal, signal]);
   });
 });

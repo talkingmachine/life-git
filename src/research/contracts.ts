@@ -96,6 +96,7 @@ export interface CaptureRequest {
   readonly sourceId: SourceId;
   readonly assessmentDate: string;
   readonly deadlineAt: string;
+  readonly signal: AbortSignal;
 }
 
 export interface HttpStepRequest {

@@ -103,7 +103,7 @@ expect(assessRoute(albanianEmployerProfile, verifiedEvidence, {housingProvided:t
 
 **Interfaces:** `OfficialSourcePort.capture(request, requestStep): Promise<CaptureResult>` returns only live artifacts. `requestStep` is run-scoped; source adapters never retry. Pure parsers accept fixture/live bytes and cannot mark them verified.
 ```ts
-interface CaptureRequest { runId:string; sourceId:SourceId; assessmentDate:string; deadlineAt:string }
+interface CaptureRequest { runId:string; sourceId:SourceId; assessmentDate:string; deadlineAt:string; signal:AbortSignal }
 interface HttpStepRequest { sourceId:SourceId;role:string;method:"GET"|"POST";url:string;headers:Readonly<Record<string,string>>;bodyMediaType?:"application/json";bodyBytes?:Uint8Array;allowedHosts:readonly string[];allowedMediaTypes:readonly string[] }
 type RequestStep = (request:HttpStepRequest, signal:AbortSignal)=>Promise<LiveCapturedArtifact>;
 interface ParserEntry { sourceId:SourceId; navigationUrl:string; indexedSourceUrl?:string; resolvedEvidenceUrl:string; artifacts:readonly ArtifactBytes[]; versionHint?:string }
@@ -115,8 +115,8 @@ interface Decision858Facts { proof:"self_declaration";availableAmount:"408000";c
 interface CbrEurFacts { base:"EUR";quote:"RUB";nominal:"1";rate:DecimalString;effectiveDate:string }
 interface BoaEurFacts { base:"EUR";quote:"ALL";rate:DecimalString;effectiveDate:string }
 interface TiranaTransitFacts { municipalUrbanRoutesMapPublished:true;applicationTitle:"Transporti";layers:readonly ["Linjat Qytetase","Stacionet e Linjave Qytetase"];checkedAt:string }
-declare function parseLaw79(entry:ParserEntry): ParseResult<Law79Facts>;
-declare function parseDecision858(entry:ParserEntry): ParseResult<Decision858Facts>;
+declare function parseLaw79(entry:ParserEntry): Promise<ParseResult<Law79Facts>>;
+declare function parseDecision858(entry:ParserEntry): Promise<ParseResult<Decision858Facts>>;
 declare function parseCbrEur(entry:ParserEntry): ParseResult<CbrEurFacts>;
 declare function parseBoaEur(entry:ParserEntry): ParseResult<BoaEurFacts>;
 declare function parseTiranaUrbanLines(entry:ParserEntry): ParseResult<TiranaTransitFacts>;
@@ -145,7 +145,7 @@ expect(networkCapture).not.toHaveBeenCalled();
 ```
 - [ ] **Step 2: Run `pnpm vitest run tests/integration/evidence-store.test.ts`; expect FAIL because schema/store do not exist.**
 - [ ] **Step 3: Implement only `artifacts` and `evidence_snapshots`.** Add triggers rejecting update/delete on sealed rows; do not pre-create run/branch tables and do not add a generic repository or ORM.
-- [ ] **Step 4: Add failing current-evidence/replay cases.** Five explicit entries run concurrently; QBZ/Tirana substeps stay sequential; one shared deadline-derived `AbortSignal` reaches every fetch; `RequestStep` retries only the failed step once for retryable kinds and never starts it after budget expiry. Terminal semantic failure seals blocker plus `coverage:"unavailable"`. Offline replay reuses the sealed assessment cutoff and calls no network. Tamper/date/version/key failures reject.
+- [ ] **Step 4: Add failing current-evidence/replay cases.** Five explicit entries run concurrently; QBZ/Tirana substeps stay sequential. Research creates one shared deadline-derived `AbortSignal`, places that exact signal in every required `CaptureRequest.signal`, and the source adapter only forwards its identity to every `RequestStep`; adapters create no controller/timer. `RequestStep` retries only the failed step once for retryable kinds and never starts it after budget expiry. Terminal semantic failure seals blocker plus `coverage:"unavailable"`. Offline replay reuses the sealed assessment cutoff and calls no network. Tamper/date/version/key failures reject.
 - [ ] **Step 5: Run both integration files; expect FAIL because `runCurrentEvidence`/integrity are absent.**
 - [ ] **Step 6: Implement canonical HMAC, run-scoped retry executor and async `runCurrentEvidence`.** Research creates/clears the shared deadline timer and abort controller, owns entry list, sequencing, immediate raw persistence, pure parsers and terminal seal; it reuses `captureHttpOnce` through the source port.
 - [ ] **Step 7: Implement `replayEvidence`; verify HMAC/hashes first, then invoke the same parse/seal primitives without capture.**

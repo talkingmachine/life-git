@@ -87,6 +87,19 @@ export async function resolveLatestApplicableQbzAct(
 ): Promise<CapturedEntry> {
   const policy = SOURCE_POLICIES[sourceId];
   const artifacts: LiveCapturedArtifact[] = [];
+  const captureStep = async (request: HttpStepRequest): Promise<LiveCapturedArtifact> => {
+    try {
+      const artifact = await requestStep(request, signal);
+      assertLive(artifact);
+      artifacts.push(artifact);
+      return artifact;
+    } catch (error) {
+      if (error instanceof SourceCaptureError) {
+        Object.assign(error, { partialArtifacts: [...artifacts] });
+      }
+      throw error;
+    }
+  };
   const exactSearchBody = encoder.encode(
     JSON.stringify({
       nodeType: "qbz:act",
@@ -98,12 +111,9 @@ export async function resolveLatestApplicableQbzAct(
     }),
   );
 
-  const searchArtifact = await requestStep(
+  const searchArtifact = await captureStep(
     jsonRequest(sourceId, "eli-search", "POST", QBZ_SEARCH_URL, exactSearchBody),
-    signal,
   );
-  assertLive(searchArtifact);
-  artifacts.push(searchArtifact);
   const search = parseListing(searchArtifact, artifacts);
   const matches = search.items.filter(
     (item) =>
@@ -118,38 +128,44 @@ export async function resolveLatestApplicableQbzAct(
     throw navigationError("QBZ exact ELI search did not return one base act", artifacts);
   }
 
-  const rootArtifact = await requestStep(
+  const rootArtifact = await captureStep(
     jsonRequest(sourceId, "eli-root", "GET", nodeUrl("/base")),
-    signal,
   );
-  assertLive(rootArtifact);
-  artifacts.push(rootArtifact);
   const root = parseListing(rootArtifact, artifacts);
-  const versions = root.items
+  const versionNodes = root.items.filter(
+    (item): item is Record<string, unknown> & { name: string; path: string } =>
+      item.nodeType === "qbz:actVersion" &&
+      typeof item.name === "string" &&
+      /^cons-\d{4}-\d{2}-\d{2}$/.test(item.name) &&
+      typeof item.path === "string",
+  );
+  if (versionNodes.some((item) => item.path !== `/base/${item.name}`)) {
+    throw navigationError("QBZ consolidated version is outside the searched act root", artifacts);
+  }
+  const versions = versionNodes
     .filter(
-      (item): item is Record<string, unknown> & { name: string; path: string } =>
-        item.nodeType === "qbz:actVersion" &&
-        typeof item.name === "string" &&
-        /^cons-\d{4}-\d{2}-\d{2}$/.test(item.name) &&
-        item.name.slice(5) <= assessmentDate &&
-        typeof item.path === "string",
+      (item) => item.name.slice(5) <= assessmentDate,
     )
     .sort((left, right) => left.name.localeCompare(right.name));
-  const selected = versions.at(-1);
-  if (selected === undefined) {
+  const latestName = versions.at(-1)?.name;
+  if (latestName === undefined) {
     throw navigationError("QBZ has no applicable consolidated version", artifacts);
   }
+  const latestVersions = versions.filter((item) => item.name === latestName);
+  if (latestVersions.length !== 1) {
+    throw navigationError("QBZ latest applicable consolidated version is not unique", artifacts);
+  }
+  const selected = latestVersions[0]!;
 
-  const versionArtifact = await requestStep(
+  const versionArtifact = await captureStep(
     jsonRequest(sourceId, "eli-version", "GET", nodeUrl(selected.path)),
-    signal,
   );
-  assertLive(versionArtifact);
-  artifacts.push(versionArtifact);
   const version = parseListing(versionArtifact, artifacts);
   const pdfItems = version.items.filter(
     (item): item is Record<string, unknown> & { url: string } =>
       item.nodeType === "qbz:actVersion" &&
+      item.name === selected.name &&
+      item.path === selected.path &&
       item.mediaType === "application/pdf" &&
       typeof item.url === "string",
   );
@@ -167,7 +183,7 @@ export async function resolveLatestApplicableQbzAct(
     throw navigationError("QBZ PDF URL leaves the official host", artifacts);
   }
 
-  const pdfArtifact = await requestStep(
+  await captureStep(
     {
       sourceId,
       role: "act-pdf",
@@ -177,10 +193,7 @@ export async function resolveLatestApplicableQbzAct(
       allowedHosts: [QBZ_API_HOST],
       allowedMediaTypes: ["application/pdf"],
     },
-    signal,
   );
-  assertLive(pdfArtifact);
-  artifacts.push(pdfArtifact);
 
   return {
     sourceId,

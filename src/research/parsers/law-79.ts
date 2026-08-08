@@ -12,7 +12,7 @@ function includesAll(text: string, values: readonly string[]): boolean {
   return values.every((value) => lower.includes(value));
 }
 
-export function parseLaw79(entry: ParserEntry): ParseResult<Law79Facts> {
+export async function parseLaw79(entry: ParserEntry): Promise<ParseResult<Law79Facts>> {
   if (!entryHasValidIntegrity(entry)) {
     return { ok: false, kind: "integrity_mismatch" };
   }
@@ -27,12 +27,21 @@ export function parseLaw79(entry: ParserEntry): ParseResult<Law79Facts> {
   ) {
     return { ok: false, kind: "semantic_mismatch" };
   }
-  const extracted = extractPdfText(artifact.bytes);
+  const extracted = await extractPdfText(artifact.bytes);
   if (extracted === null) return { ok: false, kind: "semantic_mismatch" };
 
-  const article68 = normalizedText(extracted.pages.get(68) ?? "");
-  const article3 = normalizedText(extracted.pages.get(3) ?? "");
-  const article41 = normalizedText(extracted.pages.get(41) ?? "");
+  const findArticle = (article: string): string | null => {
+    const matches = [...extracted.pages.values()]
+      .map(normalizedText)
+      .filter((page) => page.toLowerCase().includes(article.toLowerCase()));
+    return matches.length === 1 ? matches[0]! : null;
+  };
+  const article68 = findArticle("Article 68");
+  const article3 = findArticle("Article 3(1)");
+  const article41 = findArticle("Article 41");
+  if (article68 === null || article3 === null || article41 === null) {
+    return { ok: false, kind: "semantic_mismatch" };
+  }
   const digitalWorkerPresent = includesAll(article68, [
     "article 68",
     "lawfully staying",

@@ -43,7 +43,7 @@ async function captureDirect(
       allowedHosts: [policy.host],
       allowedMediaTypes: [policy.mediaType],
     },
-    new AbortController().signal,
+    request.signal,
   );
   return {
     sourceId: request.sourceId,
@@ -58,7 +58,6 @@ async function captureTirana(
   requestStep: RequestStep,
 ): Promise<CapturedEntry> {
   const policy = SOURCE_POLICIES["tirana-urban-lines"];
-  const signal = new AbortController().signal;
   const page = await runStep(
     requestStep,
     {
@@ -70,7 +69,7 @@ async function captureTirana(
       allowedHosts: [policy.host],
       allowedMediaTypes: [policy.mediaType],
     },
-    signal,
+    request.signal,
   );
   const $ = load(decoder.decode(page.bytes));
   const iframeUrls = $("iframe[src]")
@@ -103,19 +102,33 @@ async function captureTirana(
     throw error;
   }
 
-  const gis = await runStep(
-    requestStep,
-    {
-      sourceId: request.sourceId,
-      role: "municipal-gis-app",
-      method: "GET",
-      url: iframeUrl.href,
-      headers: { accept: "text/html" },
-      allowedHosts: [policy.iframeHost],
-      allowedMediaTypes: ["text/html"],
-    },
-    signal,
-  );
+  let gis: LiveCapturedArtifact;
+  try {
+    gis = await runStep(
+      requestStep,
+      {
+        sourceId: request.sourceId,
+        role: "municipal-gis-app",
+        method: "GET",
+        url: iframeUrl.href,
+        headers: { accept: "text/html" },
+        allowedHosts: [policy.iframeHost],
+        allowedMediaTypes: ["text/html"],
+      },
+      request.signal,
+    );
+  } catch (error) {
+    if (error instanceof SourceCaptureError) Object.assign(error, { partialArtifacts: [page] });
+    throw error;
+  }
+  if (gis.responseUrl !== iframeUrl.href) {
+    const error = new SourceCaptureError(
+      "navigation_mismatch",
+      "Municipal GIS artifact does not resolve to the exact iframe URL",
+    );
+    Object.assign(error, { partialArtifacts: [page, gis] });
+    throw error;
+  }
   return {
     sourceId: request.sourceId,
     navigationUrl: policy.url,
@@ -140,7 +153,7 @@ export class OfficialSourceAdapter implements OfficialSourcePort {
             request.sourceId,
             request.assessmentDate,
             requestStep,
-            new AbortController().signal,
+            request.signal,
           );
           break;
         case "cbr-eur":

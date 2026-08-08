@@ -44,13 +44,17 @@ export function parseTiranaUrbanLines(entry: ParserEntry): ParseResult<TiranaTra
   }
 
   const application = load(new TextDecoder().decode(gis.bytes));
+  if (gis.url !== iframeSources[0]) return { ok: false, kind: "semantic_mismatch" };
   if (normalizedText(application("title").text()) !== "Transporti") {
     return { ok: false, kind: "semantic_mismatch" };
   }
   const visibleWmsLayers = application('[data-service="WMS"][data-visible="true"]')
     .map((_, layer) => normalizedText(application(layer).text()))
     .get();
-  if (!LAYERS.every((layer) => visibleWmsLayers.includes(layer))) {
+  if (
+    visibleWmsLayers.length !== LAYERS.length ||
+    !LAYERS.every((layer) => visibleWmsLayers.includes(layer))
+  ) {
     return { ok: false, kind: "semantic_mismatch" };
   }
   const checkedDate = new Date(checkedAt).toISOString().slice(0, 10);

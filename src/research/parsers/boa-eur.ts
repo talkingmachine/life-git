@@ -17,17 +17,32 @@ export function parseBoaEur(entry: ParserEntry): ParseResult<BoaEurFacts> {
     .map((_, element) => $(element).attr("datetime"))
     .get()
     .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value));
-  const eurRows = $("tr")
-    .filter((_, row) => {
-      const cells = $(row).find("th,td").map((__, cell) => normalizedText($(cell).text())).get();
-      return cells[0] === "EUR";
+  const officialTables = $("table")
+    .map((_, table) => {
+      const headers = $(table).find("tr").first().find("th,td")
+        .map((__, cell) => normalizedText($(cell).text()))
+        .get();
+      const currencyColumn = headers.findIndex((header) => header.toLowerCase() === "currency");
+      const allRateColumn = headers.findIndex((header) => /\bALL\b/i.test(header));
+      return currencyColumn >= 0 && allRateColumn >= 0
+        ? { table, currencyColumn, allRateColumn }
+        : null;
     })
-    .toArray();
-  if (dateValues.length !== 1 || eurRows.length !== 1) {
+    .get()
+    .filter((value) => value !== null);
+  if (dateValues.length !== 1 || officialTables.length !== 1) {
     return { ok: false, kind: "semantic_mismatch" };
   }
+  const officialTable = officialTables[0]!;
+  const eurRows = $(officialTable.table).find("tr")
+    .filter((_, row) => {
+      const cells = $(row).find("th,td").map((__, cell) => normalizedText($(cell).text())).get();
+      return cells[officialTable.currencyColumn] === "EUR";
+    })
+    .toArray();
+  if (eurRows.length !== 1) return { ok: false, kind: "semantic_mismatch" };
   const cells = $(eurRows[0]).find("th,td").map((_, cell) => normalizedText($(cell).text())).get();
-  const rateText = cells[1]?.replace(",", ".") ?? "";
+  const rateText = cells[officialTable.allRateColumn]?.replace(",", ".") ?? "";
   if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(rateText) || Number(rateText) <= 0) {
     return { ok: false, kind: "semantic_mismatch" };
   }

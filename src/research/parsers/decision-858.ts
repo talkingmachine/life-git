@@ -7,7 +7,7 @@ import {
   normalizedText,
 } from "./parser-support";
 
-export function parseDecision858(entry: ParserEntry): ParseResult<Decision858Facts> {
+export async function parseDecision858(entry: ParserEntry): Promise<ParseResult<Decision858Facts>> {
   if (!entryHasValidIntegrity(entry)) {
     return { ok: false, kind: "integrity_mismatch" };
   }
@@ -22,13 +22,25 @@ export function parseDecision858(entry: ParserEntry): ParseResult<Decision858Fac
   ) {
     return { ok: false, kind: "semantic_mismatch" };
   }
-  const extracted = extractPdfText(artifact.bytes);
+  const extracted = await extractPdfText(artifact.bytes);
   if (extracted === null) return { ok: false, kind: "semantic_mismatch" };
-  const point8 = normalizedText(extracted.pages.get(8) ?? "");
-  const amount = normalizedText(extracted.pages.get(23) ?? "");
+  const pages = [...extracted.pages.values()].map(normalizedText);
+  const point8Pages = pages.filter((page) => /point 8\./i.test(page));
+  const amountPages = pages.filter((page) => /408\s*000\s+ALL/i.test(page));
+  if (point8Pages.length !== 1 || amountPages.length !== 1) {
+    return { ok: false, kind: "semantic_mismatch" };
+  }
+  const point8 = point8Pages[0]!;
+  const amount = amountPages[0]!;
   if (
     !/point 8\..*unless otherwise provided.*general rule/i.test(point8) ||
-    !/self-declaration.*408\s*000\s+ALL.*persons depending/i.test(amount)
+    !/self-declaration.*408\s*000\s+ALL.*persons depending/i.test(amount) ||
+    /\b(?:per|each)\s+(?:day|week|month|year)\b|\b(?:daily|weekly|monthly|annually|annual)\b/i.test(
+      amount,
+    ) ||
+    /\b(?:multiply|multiplied|multiplies)\b.*\b(?:each|per)\s+dependant\b|\bper\s+dependant\b/i.test(
+      amount,
+    )
   ) {
     return { ok: false, kind: "semantic_mismatch" };
   }

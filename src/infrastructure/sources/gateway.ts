@@ -121,7 +121,15 @@ export async function captureHttpOnce(
     throw new SourceCaptureError("wrong_media_type", `Unexpected response media type: ${mediaType}`);
   }
 
-  const bytes = await boundedBytes(response);
+  let bytes: Uint8Array;
+  try {
+    bytes = await boundedBytes(response);
+  } catch (error) {
+    if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+      throw new SourceCaptureError("timeout", "HTTP response stream was aborted", { cause: error });
+    }
+    throw error;
+  }
   const bodySha256 = request.bodyBytes === undefined ? undefined : sha256(request.bodyBytes);
   const artifactSha256 = sha256(bytes);
 
