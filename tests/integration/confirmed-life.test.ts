@@ -191,8 +191,8 @@ function typedParsers(): EvidenceParsers {
       sourcePeriod: standardSourcePeriod(sourceId),
       anchors: Array.from({ length: expectedClaimCounts[sourceId] }, (_, index) => ({
         artifactId: entry.artifacts[0]!.artifactId,
-        locator: `${sourceId} typed integration fixture ${index + 1}`,
-        excerptSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        locator: standardLocator(sourceId, index),
+        excerptSha256: String(index + 1).repeat(64),
       })),
     }),
   ])) as unknown as EvidenceParsers;
@@ -212,7 +212,27 @@ function standardSourcePeriod(sourceId: SourceId): string {
     : ASSESSMENT_DATE;
 }
 
-async function verifiedMixedSnapshot(mixedSource: SourceId): Promise<EvidenceSnapshot> {
+function standardLocator(sourceId: SourceId, index: number): string {
+  const locators: Record<SourceId, readonly string[]> = {
+    "al-law-79": ["Art. 68", "Art. 3(1)", "Art. 41"],
+    "al-decision-858": ["Decision 858, amount", "Decision 858, p.8"],
+    "cbr-eur": ["CBR rate"],
+    "boa-eur": ["BoA rate"],
+    "tirana-urban-lines": ["municipality page iframe", "visible WMS layers"],
+  };
+  return locators[sourceId][index]!;
+}
+
+type SealedClaimDefect =
+  | "duplicate_law_anchor"
+  | "wrong_law_locator"
+  | "tirana_period_mismatch"
+  | "mixed_tirana_checked_at";
+
+async function verifiedMixedSnapshot(
+  mixedSource: SourceId,
+  defect?: SealedClaimDefect,
+): Promise<EvidenceSnapshot> {
   const db = database();
   const store = new SqliteEvidenceStore(db);
   const entries = EVIDENCE_SOURCE_IDS.map((sourceId): TerminalEvidenceEntry => {
@@ -236,21 +256,41 @@ async function verifiedMixedSnapshot(mixedSource: SourceId): Promise<EvidenceSna
         artifacts: [sourceArtifact],
       },
       coverage: "verified",
-      claims: Array.from({ length: count }, (_, index) => ({
-        claimId: `${sourceId}-facts-${index + 1}`,
-        sourceId,
-        value: sourceId === mixedSource && index === count - 1
-          ? { unexpected: true }
-          : typedFacts(sourceId),
-        scope: "VS-1 confirmed-life",
-        sourcePeriod: standardSourcePeriod(sourceId),
-        anchor: {
+      claims: Array.from({ length: count }, (_, index) => {
+        let anchor = {
           artifactId: sourceArtifact.artifactId,
-          locator: `${sourceId} anchor ${index + 1}`,
-          excerptSha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-        },
-        status: "verified",
-      })),
+          locator: standardLocator(sourceId, index),
+          excerptSha256: String(index + 1).repeat(64),
+        };
+        if (sourceId === "al-law-79" && index === 2 && defect === "duplicate_law_anchor") {
+          anchor = {
+            artifactId: sourceArtifact.artifactId,
+            locator: standardLocator(sourceId, 1),
+            excerptSha256: String(2).repeat(64),
+          };
+        }
+        if (sourceId === "al-law-79" && index === 2 && defect === "wrong_law_locator") {
+          anchor = { ...anchor, locator: "Art. 42" };
+        }
+        const facts = typedFacts(sourceId);
+        return {
+          claimId: `${sourceId}-facts-${index + 1}`,
+          sourceId,
+          value: sourceId === mixedSource && index === count - 1
+            ? { unexpected: true }
+            : sourceId === "tirana-urban-lines" &&
+                index === 1 &&
+                defect === "mixed_tirana_checked_at"
+              ? { ...(facts as Record<string, unknown>), checkedAt: "2026-08-08T11:00:01.000Z" }
+              : facts,
+          scope: "VS-1 confirmed-life",
+          sourcePeriod: sourceId === "tirana-urban-lines" && defect === "tirana_period_mismatch"
+            ? "2026-08-09"
+            : standardSourcePeriod(sourceId),
+          anchor,
+          status: "verified" as const,
+        };
+      }),
     };
   });
   const sealed = await sealEvidence({
@@ -842,5 +882,25 @@ describe("confirmed-life orchestration", () => {
     const verified = await verifiedMixedSnapshot("cbr-eur");
 
     expect(projectDecisionEvidence(defectLawClaims(verified, defect)).foreignContractVerified).toBe("invalid");
+  });
+
+  test.each([
+    ["duplicate_law_anchor", "foreignContractVerified"],
+    ["wrong_law_locator", "foreignContractVerified"],
+    ["tirana_period_mismatch", "tirana"],
+    ["mixed_tirana_checked_at", "tirana"],
+  ] as const)("rejects a sealed %s defect", async (defect, field) => {
+    const snapshot = await verifiedMixedSnapshot("cbr-eur", defect);
+    const projected = projectDecisionEvidence(snapshot);
+    const status = field === "tirana"
+      ? projected.claims["al-tirana-residence"]?.status
+      : projected.foreignContractVerified;
+
+    expect(status).toBe("invalid");
+    expect(assessRoute(
+      confirmProfile(completeDraft, () => NOW),
+      projected,
+      { housingProvided: true },
+    ).marker).toBe("yellow");
   });
 });

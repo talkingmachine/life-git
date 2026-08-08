@@ -125,6 +125,44 @@ pnpm exec next build — PASS, compiled and generated successfully
 git diff --check — PASS
 ```
 
+## Fix round 2
+
+Base: `ed63ecc7c207c2e0ddb9d718dc75fb899102d3f0`
+
+Finding mapping:
+
+- Added the exact current Task 2 locator mapping for Law 79, Decision 858, and Tirana claim IDs.
+- Every source claim set now requires canonically identical typed facts, canonical anchor-tuple uniqueness, and distinct excerpt hashes in addition to the round 1 checks.
+- Tirana `checkedAt` is converted to its UTC date and must equal the one common source period.
+- Application still consumes only sealed claim metadata; no raw bytes or excerpt re-verification crossed the infrastructure boundary.
+
+Sealed/HMAC RED:
+
+```text
+duplicated Law anchor: expected invalid, received verified
+wrong non-empty Law locator: expected invalid, received verified
+Tirana checkedAt/sourcePeriod mismatch: expected invalid, received verified
+Test Files 1 failed; Tests 3 failed | 28 passed
+```
+
+Focused GREEN, including a shaped-valid mixed Tirana `checkedAt` case:
+
+```text
+Test Files 1 passed; Tests 32 passed
+pnpm typecheck — PASS
+pnpm lint — PASS
+```
+
+Fix round 2 full gate:
+
+```text
+pnpm test — PASS, 8 files / 109 tests
+pnpm typecheck — PASS
+pnpm lint — PASS
+pnpm exec next build — PASS, compiled and generated successfully
+git diff --check — PASS
+```
+
 ## Files
 
 Created:

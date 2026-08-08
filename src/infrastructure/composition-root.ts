@@ -18,7 +18,7 @@ import {
   runCurrentEvidence,
   type EvidenceParsers,
 } from "../research/run";
-import { createEvidenceIntegrity } from "./integrity";
+import { canonicalJson, createEvidenceIntegrity } from "./integrity";
 import { captureHttpOnce } from "./sources/gateway";
 import { OfficialSourceAdapter } from "./sources/official-source-adapter";
 import { openEvidenceDatabase } from "./sqlite/db";
@@ -75,6 +75,12 @@ const tiranaFactsSchema = z.object({
   checkedAt: z.iso.datetime(),
 }).strict();
 
+const EXPECTED_CLAIM_LOCATORS = Object.freeze({
+  "al-law-79": ["Art. 68", "Art. 3(1)", "Art. 41"],
+  "al-decision-858": ["Decision 858, amount", "Decision 858, p.8"],
+  "tirana-urban-lines": ["municipality page iframe", "visible WMS layers"],
+} as const);
+
 function statusFor(snapshot: EvidenceSnapshot, sourceId: SourceId): EvidenceStatus {
   if (snapshot.coverage[sourceId] === "verified") return "verified";
   const blocker = snapshot.blockers.find((item) => item.sourceId === sourceId);
@@ -101,22 +107,27 @@ function semanticStatus(
   snapshot: EvidenceSnapshot,
   sourceId: SourceId,
   schema: z.ZodType,
-  expectedClaimCount: number,
+  expectedLocators: readonly string[],
 ): EvidenceStatus {
   const coverage = statusFor(snapshot, sourceId);
   if (coverage !== "verified") return coverage;
   if (snapshot.parserVersions[sourceId] !== EVIDENCE_PARSER_VERSIONS[sourceId]) return "invalid";
   const claims = snapshot.claims.filter((claim) => claim.sourceId === sourceId);
+  const expectedClaimCount = expectedLocators.length;
   const expectedClaimIds = new Set(Array.from(
     { length: expectedClaimCount },
     (_, index) => `${sourceId}-facts-${index + 1}`,
   ));
   const periods = new Set(claims.map((claim) => claim.sourcePeriod));
   const artifactIds = new Set(snapshot.artifactIds);
+  const facts = new Set(claims.map((claim) => canonicalJson(claim.value)));
+  const anchorTuples = new Set(claims.map((claim) => canonicalJson(claim.anchor)));
+  const excerptHashes = new Set(claims.map((claim) => claim.anchor.excerptSha256));
   return claims.length === expectedClaimCount &&
     new Set(claims.map((claim) => claim.claimId)).size === expectedClaimCount &&
     claims.every((claim) =>
       expectedClaimIds.has(claim.claimId) &&
+      claim.anchor.locator === expectedLocators[Number(claim.claimId.slice(claim.claimId.lastIndexOf("-") + 1)) - 1] &&
       claim.status === "verified" &&
       claim.scope === "VS-1 confirmed-life" &&
       claim.sourcePeriod.length > 0 &&
@@ -124,22 +135,40 @@ function semanticStatus(
       artifactIds.has(claim.anchor.artifactId) &&
       claim.anchor.locator.trim().length > 0 &&
       /^[a-f\d]{64}$/i.test(claim.anchor.excerptSha256) &&
-      schema.safeParse(claim.value).success
+      schema.safeParse(claim.value).success &&
+      (sourceId !== "tirana-urban-lines" || (() => {
+        const parsed = tiranaFactsSchema.safeParse(claim.value);
+        return parsed.success &&
+          new Date(parsed.data.checkedAt).toISOString().slice(0, 10) === claim.sourcePeriod;
+      })())
     ) &&
-    periods.size === 1
+    periods.size === 1 &&
+    facts.size === 1 &&
+    anchorTuples.size === expectedClaimCount &&
+    excerptHashes.size === expectedClaimCount
     ? "verified"
     : "invalid";
 }
 
 export function projectDecisionEvidence(snapshot: EvidenceSnapshot): Evidence {
-  const law = semanticStatus(snapshot, "al-law-79", law79FactsSchema, 3);
+  const law = semanticStatus(
+    snapshot,
+    "al-law-79",
+    law79FactsSchema,
+    EXPECTED_CLAIM_LOCATORS["al-law-79"],
+  );
   return {
     claims: {
       "al-law-79-art-68-contract": { source: "official", status: law },
       "al-law-79-art-68-spouse": { source: "official", status: law },
       "al-tirana-residence": {
         source: "official",
-        status: semanticStatus(snapshot, "tirana-urban-lines", tiranaFactsSchema, 2),
+        status: semanticStatus(
+          snapshot,
+          "tirana-urban-lines",
+          tiranaFactsSchema,
+          EXPECTED_CLAIM_LOCATORS["tirana-urban-lines"],
+        ),
       },
     },
     foreignContractVerified: law,
@@ -147,7 +176,7 @@ export function projectDecisionEvidence(snapshot: EvidenceSnapshot): Evidence {
       snapshot,
       "al-decision-858",
       decision858FactsSchema,
-      2,
+      EXPECTED_CLAIM_LOCATORS["al-decision-858"],
     ),
     lawfulStayVerified: law,
     stagedFamilyPlanVerified: law,
