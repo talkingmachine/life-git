@@ -135,6 +135,8 @@ export async function captureHttpOnce(
 
   return {
     artifactId: `${request.sourceId}:${request.role}:${artifactSha256}`,
+    runId: request.runId,
+    sourceId: request.sourceId,
     role: request.role,
     url: response.url,
     mediaType,

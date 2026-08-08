@@ -113,6 +113,8 @@ export interface ArtifactBytes {
 }
 
 export interface LiveCapturedArtifact extends ArtifactBytes {
+  readonly runId: string;
+  readonly sourceId: SourceId;
   readonly origin: "live";
   readonly capturedAt: string;
   readonly responseStatus: number;
@@ -134,6 +136,7 @@ export interface CaptureRequest {
 }
 
 export interface HttpStepRequest {
+  readonly runId: string;
   readonly sourceId: SourceId;
   readonly role: string;
   readonly method: "GET" | "POST";

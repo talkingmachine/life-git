@@ -40,27 +40,34 @@ function database(): Database.Database {
   return value;
 }
 
-function artifact(sourceId: SourceId, byte = 1): LiveCapturedArtifact {
+function artifact(
+  sourceId: SourceId,
+  byte = 1,
+  runId = "persistence-run",
+  capturedAt = "2026-08-08T10:00:00.000Z",
+): LiveCapturedArtifact {
   const bytes = Uint8Array.of(byte);
   const sha256 = byte === 1
     ? "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"
     : "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986";
   return {
     artifactId: `${sourceId}:official-document:${sha256}`,
+    runId,
+    sourceId,
     role: "official-document",
     url: `https://official.example/${sourceId}`,
     mediaType: "application/octet-stream",
     sha256,
     bytes,
     origin: "live",
-    capturedAt: "2026-08-08T10:00:00.000Z",
+    capturedAt,
     responseStatus: 200,
     responseUrl: `https://official.example/${sourceId}`,
     request: {
       method: "GET",
       url: `https://official.example/${sourceId}`,
     },
-  };
+  } as LiveCapturedArtifact;
 }
 
 function claim(sourceId: SourceId, sourceArtifact: LiveCapturedArtifact): Claim<unknown> {
@@ -266,5 +273,43 @@ describe("verified evidence load", () => {
     db.exec("DROP TRIGGER artifacts_no_update");
     db.prepare("UPDATE artifacts SET bytes = ? WHERE source_id = ?").run(Uint8Array.of(2), "cbr-eur");
     await expect(store.loadVerified("snapshot-verified-load", KEY)).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("rejects a conflicting duplicate artifact inside one run", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    const first = artifact("cbr-eur", 1, "duplicate-run", "2026-08-08T10:00:01.000Z");
+
+    await store.appendArtifact(first);
+    await expect(store.appendArtifact({
+      ...first,
+      capturedAt: "2026-08-08T10:00:02.000Z",
+    })).rejects.toThrow("integrity_mismatch");
+  });
+
+  test.each([
+    ["identity", "run_id = 'tampered-run', source_id = 'boa-eur', role = 'tampered-role'"],
+    ["request", "request_json = '{\"method\":\"POST\",\"url\":\"https://evil.example\"}'"],
+    ["response", "url = 'https://evil.example', response_url = 'https://evil.example', response_status = 201"],
+    ["media/time/length", "media_type = 'text/plain', captured_at = '2099-01-01T00:00:00.000Z', byte_length = 999"],
+  ])("rejects sealed %s provenance tampering", async (className, mutation) => {
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    const entries = completeEntries();
+    for (const entry of entries) {
+      await store.appendArtifact(entry.parserEntry.artifacts[0]! as LiveCapturedArtifact);
+    }
+    const snapshotId = `snapshot-provenance-${className}`;
+    await store.seal(await sealEvidence({
+      id: snapshotId,
+      assessmentDate: ASSESSMENT_DATE,
+      entries,
+      parserVersions: EVIDENCE_PARSER_VERSIONS,
+      rulesVersion: EVIDENCE_RULES_VERSION,
+    }, INTEGRITY));
+    db.exec("DROP TRIGGER artifacts_no_update");
+    db.prepare(`UPDATE artifacts SET ${mutation} WHERE source_id = 'cbr-eur'`).run();
+
+    await expect(store.loadVerified(snapshotId, KEY)).rejects.toThrow("integrity_mismatch");
   });
 });

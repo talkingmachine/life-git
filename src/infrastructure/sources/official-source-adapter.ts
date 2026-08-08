@@ -35,6 +35,7 @@ async function captureDirect(
   const artifact = await runStep(
     requestStep,
     {
+      runId: request.runId,
       sourceId: request.sourceId,
       role: "official-document",
       method: "GET",
@@ -61,6 +62,7 @@ async function captureTirana(
   const page = await runStep(
     requestStep,
     {
+      runId: request.runId,
       sourceId: request.sourceId,
       role: "municipality-page",
       method: "GET",
@@ -107,6 +109,7 @@ async function captureTirana(
     gis = await runStep(
       requestStep,
       {
+        runId: request.runId,
         sourceId: request.sourceId,
         role: "municipal-gis-app",
         method: "GET",
@@ -150,6 +153,7 @@ export class OfficialSourceAdapter implements OfficialSourcePort {
         case "al-law-79":
         case "al-decision-858":
           entry = await resolveLatestApplicableQbzAct(
+            request.runId,
             request.sourceId,
             request.assessmentDate,
             requestStep,

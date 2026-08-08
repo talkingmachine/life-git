@@ -1,17 +1,20 @@
 CREATE TABLE IF NOT EXISTS artifacts (
-  artifact_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  artifact_id TEXT NOT NULL,
   source_id TEXT NOT NULL,
   role TEXT NOT NULL,
   url TEXT NOT NULL,
   media_type TEXT NOT NULL,
   sha256 TEXT NOT NULL,
   bytes BLOB NOT NULL,
+  byte_length INTEGER NOT NULL,
   origin TEXT NOT NULL CHECK (origin = 'live'),
   captured_at TEXT NOT NULL,
   response_status INTEGER NOT NULL,
   response_url TEXT NOT NULL,
   request_json TEXT NOT NULL,
-  sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1))
+  sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+  PRIMARY KEY (run_id, artifact_id)
 );
 
 CREATE TABLE IF NOT EXISTS evidence_snapshots (

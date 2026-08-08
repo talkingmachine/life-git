@@ -10,7 +10,8 @@ import type {
   SourceId,
 } from "../../research/contracts";
 import {
-  EVIDENCE_SOURCE_IDS,
+  evidenceArtifactProvenance,
+  type EvidenceArtifactProvenance,
   type EvidenceManifest,
   type SealedEvidence,
 } from "../../research/run";
@@ -26,12 +27,16 @@ interface SnapshotRow {
 }
 
 interface ArtifactRow {
+  readonly run_id: string;
   readonly artifact_id: string;
+  readonly source_id: SourceId;
   readonly role: string;
   readonly url: string;
   readonly media_type: string;
   readonly sha256: string;
   readonly bytes: Uint8Array;
+  readonly byte_length: number;
+  readonly origin: "live";
   readonly captured_at: string;
   readonly response_status: number;
   readonly response_url: string;
@@ -53,15 +58,42 @@ function integrityMismatch(): never {
   throw new Error("integrity_mismatch");
 }
 
-function sourceIdFromArtifactId(artifactId: string): SourceId {
-  const sourceId = EVIDENCE_SOURCE_IDS.find((value) => artifactId.startsWith(`${value}:`));
-  if (sourceId === undefined) throw new Error("artifact_source_missing");
-  return sourceId;
-}
-
 function bytesHash(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]);
+}
+
+function rowProvenance(row: ArtifactRow): EvidenceArtifactProvenance {
+  let request: LiveCapturedArtifact["request"];
+  try {
+    request = JSON.parse(row.request_json) as LiveCapturedArtifact["request"];
+  } catch {
+    integrityMismatch();
+  }
+  return {
+    artifactId: row.artifact_id,
+    runId: row.run_id,
+    sourceId: row.source_id,
+    role: row.role,
+    request,
+    url: row.url,
+    responseUrl: row.response_url,
+    capturedAt: row.captured_at,
+    responseStatus: row.response_status,
+    mediaType: row.media_type,
+    origin: row.origin,
+    byteLength: row.byte_length,
+    sha256: row.sha256,
+  };
+}
+
+const ARTIFACT_COLUMNS = `
+  run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
+  byte_length, origin, captured_at, response_status, response_url, request_json
+`;
 
 function snapshotPayload(snapshot: EvidenceSnapshot): EvidenceManifest["snapshot"] {
   return {
@@ -80,31 +112,40 @@ export class SqliteEvidenceStore {
   constructor(private readonly database: Database.Database) {}
 
   async appendArtifact(artifact: LiveCapturedArtifact): Promise<void> {
-    if (artifact.origin !== "live" || bytesHash(artifact.bytes) !== artifact.sha256) {
+    if (
+      artifact.origin !== "live" ||
+      artifact.runId.length === 0 ||
+      bytesHash(artifact.bytes) !== artifact.sha256
+    ) {
       integrityMismatch();
     }
     const existing = this.database.prepare(
-      "SELECT sha256, bytes FROM artifacts WHERE artifact_id = ?",
-    ).get(artifact.artifactId) as Pick<ArtifactRow, "sha256" | "bytes"> | undefined;
+      `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
+    ).get(artifact.runId, artifact.artifactId) as ArtifactRow | undefined;
     if (existing !== undefined) {
-      if (existing.sha256 !== artifact.sha256 || bytesHash(existing.bytes) !== artifact.sha256) {
+      if (
+        !bytesEqual(existing.bytes, artifact.bytes) ||
+        canonicalJson(rowProvenance(existing)) !== canonicalJson(evidenceArtifactProvenance(artifact))
+      ) {
         integrityMismatch();
       }
       return;
     }
     this.database.prepare(`
       INSERT INTO artifacts (
-        artifact_id, source_id, role, url, media_type, sha256, bytes, origin,
-        captured_at, response_status, response_url, request_json, sealed
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?, 0)
+        run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
+        byte_length, origin, captured_at, response_status, response_url, request_json, sealed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?, 0)
     `).run(
+      artifact.runId,
       artifact.artifactId,
-      sourceIdFromArtifactId(artifact.artifactId),
+      artifact.sourceId,
       artifact.role,
       artifact.url,
       artifact.mediaType,
       artifact.sha256,
       artifact.bytes,
+      artifact.bytes.byteLength,
       artifact.capturedAt,
       artifact.responseStatus,
       artifact.responseUrl,
@@ -114,22 +155,25 @@ export class SqliteEvidenceStore {
 
   async seal(sealed: SealedEvidence): Promise<void> {
     const sealTransaction = this.database.transaction(() => {
-      for (const expected of sealed.manifest.artifactHashes) {
+      for (const expected of sealed.manifest.artifacts) {
         const row = this.database.prepare(
-          "SELECT artifact_id, sha256, bytes FROM artifacts WHERE artifact_id = ?",
-        ).get(expected.artifactId) as ArtifactRow | undefined;
+          `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
+        ).get(expected.runId, expected.artifactId) as ArtifactRow | undefined;
         if (
           row === undefined ||
-          row.sha256 !== expected.sha256 ||
+          canonicalJson(rowProvenance(row)) !== canonicalJson(expected) ||
+          row.byte_length !== row.bytes.byteLength ||
           bytesHash(row.bytes) !== expected.sha256
         ) {
           integrityMismatch();
         }
       }
-      const placeholders = sealed.snapshot.artifactIds.map(() => "?").join(", ");
-      this.database.prepare(
-        `UPDATE artifacts SET sealed = 1 WHERE sealed = 0 AND artifact_id IN (${placeholders})`,
-      ).run(...sealed.snapshot.artifactIds);
+      for (const artifact of sealed.manifest.artifacts) {
+        this.database.prepare(`
+          UPDATE artifacts SET sealed = 1
+          WHERE sealed = 0 AND run_id = ? AND artifact_id = ?
+        `).run(artifact.runId, artifact.artifactId);
+      }
       this.database.prepare(`
         INSERT INTO evidence_snapshots (
           id, assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
@@ -188,19 +232,21 @@ export class SqliteEvidenceStore {
       integrityMismatch();
     }
     if (
-      snapshot.artifactIds.length !== manifest.artifactHashes.length ||
+      snapshot.artifactIds.length !== manifest.artifacts.length ||
       canonicalJson(snapshot.artifactIds) !==
-        canonicalJson(manifest.artifactHashes.map((artifact) => artifact.artifactId))
+        canonicalJson(manifest.artifacts.map((artifact) => artifact.artifactId))
     ) {
       integrityMismatch();
     }
-    for (const expectedArtifact of manifest.artifactHashes) {
+    for (const expectedArtifact of manifest.artifacts) {
       const artifact = this.database.prepare(
-        "SELECT artifact_id, sha256, bytes FROM artifacts WHERE artifact_id = ? AND sealed = 1",
-      ).get(expectedArtifact.artifactId) as ArtifactRow | undefined;
+        `SELECT ${ARTIFACT_COLUMNS} FROM artifacts
+         WHERE run_id = ? AND artifact_id = ? AND sealed = 1`,
+      ).get(expectedArtifact.runId, expectedArtifact.artifactId) as ArtifactRow | undefined;
       if (
         artifact === undefined ||
-        artifact.sha256 !== expectedArtifact.sha256 ||
+        canonicalJson(rowProvenance(artifact)) !== canonicalJson(expectedArtifact) ||
+        artifact.byte_length !== artifact.bytes.byteLength ||
         bytesHash(artifact.bytes) !== expectedArtifact.sha256
       ) {
         integrityMismatch();
@@ -226,20 +272,25 @@ export class SqliteEvidenceStore {
       ...(entry.indexedSourceUrl === undefined ? {} : { indexedSourceUrl: entry.indexedSourceUrl }),
       resolvedEvidenceUrl: entry.resolvedEvidenceUrl,
       artifacts: entry.artifactIds.map((artifactId) => {
+        const provenance = manifest.artifacts.find(
+          (artifact) => artifact.artifactId === artifactId,
+        );
+        if (provenance === undefined) integrityMismatch();
         const artifact = this.database.prepare(`
-          SELECT artifact_id, role, url, media_type, sha256, bytes, captured_at,
-                 response_status, response_url, request_json
-          FROM artifacts WHERE artifact_id = ? AND sealed = 1
-        `).get(artifactId) as ArtifactRow | undefined;
+          SELECT ${ARTIFACT_COLUMNS}
+          FROM artifacts WHERE run_id = ? AND artifact_id = ? AND sealed = 1
+        `).get(provenance.runId, artifactId) as ArtifactRow | undefined;
         if (artifact === undefined) integrityMismatch();
         return {
           artifactId: artifact.artifact_id,
+          runId: artifact.run_id,
+          sourceId: artifact.source_id,
           role: artifact.role,
           url: artifact.url,
           mediaType: artifact.media_type,
           sha256: artifact.sha256,
           bytes: new Uint8Array(artifact.bytes),
-          origin: "live" as const,
+          origin: artifact.origin,
           capturedAt: artifact.captured_at,
           responseStatus: artifact.response_status,
           responseUrl: artifact.response_url,

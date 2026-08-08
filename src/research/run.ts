@@ -62,11 +62,24 @@ export interface EvidenceManifest {
     readonly artifactIds: readonly string[];
     readonly versionHint?: string;
   }[];
-  readonly artifactHashes: readonly {
+  readonly artifacts: readonly {
     readonly artifactId: string;
+    readonly runId: string;
+    readonly sourceId: SourceId;
+    readonly role: string;
+    readonly request: LiveCapturedArtifact["request"];
+    readonly url: string;
+    readonly responseUrl: string;
+    readonly capturedAt: string;
+    readonly responseStatus: number;
+    readonly mediaType: string;
+    readonly origin: "live";
+    readonly byteLength: number;
     readonly sha256: string;
   }[];
 }
+
+export type EvidenceArtifactProvenance = EvidenceManifest["artifacts"][number];
 
 export interface SealedEvidence {
   readonly snapshot: EvidenceSnapshot;
@@ -132,6 +145,15 @@ function validateEntries(entries: readonly TerminalEvidenceEntry[]): void {
   for (const entry of entries) {
     const artifactIds = new Set(entry.parserEntry.artifacts.map((artifact) => artifact.artifactId));
     if (entry.parserEntry.sourceId !== entry.sourceId) throw new Error("invalid_terminal_evidence");
+    if (entry.parserEntry.artifacts.some((artifact) => {
+      const captured = artifact as Partial<LiveCapturedArtifact>;
+      return captured.origin !== "live" ||
+        typeof captured.runId !== "string" ||
+        captured.runId.length === 0 ||
+        captured.sourceId !== entry.sourceId;
+    })) {
+      throw new Error("invalid_terminal_evidence");
+    }
     if (entry.coverage === "verified") {
       if (
         entry.claims.length === 0 ||
@@ -166,6 +188,12 @@ export async function sealEvidence(
     entry.parserEntry.artifacts.map((artifact) => artifact.artifactId),
   );
   if (new Set(artifactIds).size !== artifactIds.length) throw new Error("invalid_terminal_evidence");
+  const artifactRunIds = new Set(orderedEntries.flatMap((entry) =>
+    entry.parserEntry.artifacts.map((artifact) =>
+      (artifact as LiveCapturedArtifact).runId,
+    ),
+  ));
+  if (artifactRunIds.size > 1) throw new Error("invalid_terminal_evidence");
 
   const coverage = Object.fromEntries(
     orderedEntries.map((entry) => [entry.sourceId, entry.coverage]),
@@ -198,11 +226,10 @@ export async function sealEvidence(
         ? {}
         : { versionHint: entry.parserEntry.versionHint }),
     })),
-    artifactHashes: orderedEntries.flatMap((entry) =>
-      entry.parserEntry.artifacts.map((artifact) => ({
-        artifactId: artifact.artifactId,
-        sha256: artifact.sha256,
-      })),
+    artifacts: orderedEntries.flatMap((entry) =>
+      entry.parserEntry.artifacts.map((artifact) =>
+        evidenceArtifactProvenance(artifact as LiveCapturedArtifact),
+      ),
     ),
   };
   const canonicalManifest = integrity.canonical(manifest);
@@ -212,6 +239,26 @@ export async function sealEvidence(
     snapshot: Object.freeze({ ...snapshotPayload, manifestHash, hmac }),
     manifest,
     canonicalManifest,
+  };
+}
+
+export function evidenceArtifactProvenance(
+  artifact: LiveCapturedArtifact,
+): EvidenceArtifactProvenance {
+  return {
+    artifactId: artifact.artifactId,
+    runId: artifact.runId,
+    sourceId: artifact.sourceId,
+    role: artifact.role,
+    request: artifact.request,
+    url: artifact.url,
+    responseUrl: artifact.responseUrl,
+    capturedAt: artifact.capturedAt,
+    responseStatus: artifact.responseStatus,
+    mediaType: artifact.mediaType,
+    origin: artifact.origin,
+    byteLength: artifact.bytes.byteLength,
+    sha256: artifact.sha256,
   };
 }
 
@@ -319,6 +366,19 @@ function captureFailure(error: unknown): {
   };
 }
 
+class CurrentArtifactOwnershipError extends Error {
+  readonly kind = "navigation_mismatch" as const;
+  readonly partialArtifacts: readonly LiveCapturedArtifact[] = [];
+}
+
+function isCurrentArtifact(
+  artifact: LiveCapturedArtifact,
+  runId: string,
+  sourceId: SourceId,
+): boolean {
+  return artifact.origin === "live" && artifact.runId === runId && artifact.sourceId === sourceId;
+}
+
 export function applyEvidenceRules(
   entries: readonly TerminalEvidenceEntry[],
   assessmentDate: string,
@@ -355,11 +415,19 @@ export async function runCurrentEvidence(
   const deadline = Date.parse(input.deadlineAt);
   if (!Number.isFinite(deadline)) throw new Error("invalid_deadline");
   const controller = new AbortController();
+  let announceDeadline!: () => void;
+  const deadlineReached = new Promise<void>((resolve) => {
+    announceDeadline = resolve;
+  });
+  const expireDeadline = (): void => {
+    if (!controller.signal.aborted) controller.abort("deadline");
+    announceDeadline();
+  };
   const remaining = deadline - Date.now();
   const deadlineTimer = remaining > 0
-    ? setTimeout(() => controller.abort("deadline"), remaining)
+    ? setTimeout(expireDeadline, remaining)
     : undefined;
-  if (remaining <= 0) controller.abort("deadline");
+  if (remaining <= 0) expireDeadline();
   const parsers = ports.parsers ?? STANDARD_EVIDENCE_PARSERS;
 
   try {
@@ -367,9 +435,18 @@ export async function runCurrentEvidence(
       if (controller.signal.aborted) return unavailableEntry(sourceId, "deadline", []);
       let retryAvailable = true;
       const requestStep: RequestStep = async (request, signal) => {
-        if (signal !== controller.signal) throw new Error("signal_identity_mismatch");
+        if (
+          signal !== controller.signal ||
+          request.runId !== input.runId ||
+          request.sourceId !== sourceId
+        ) {
+          throw new CurrentArtifactOwnershipError("request ownership mismatch");
+        }
         try {
           const capturedArtifact = await ports.requestStep(request, signal);
+          if (!isCurrentArtifact(capturedArtifact, input.runId, sourceId)) {
+            throw new CurrentArtifactOwnershipError("artifact ownership mismatch");
+          }
           await ports.store.appendArtifact(capturedArtifact);
           return capturedArtifact;
         } catch (error) {
@@ -381,6 +458,9 @@ export async function runCurrentEvidence(
           ) {
             retryAvailable = false;
             const capturedArtifact = await ports.requestStep(request, signal);
+            if (!isCurrentArtifact(capturedArtifact, input.runId, sourceId)) {
+              throw new CurrentArtifactOwnershipError("artifact ownership mismatch");
+            }
             await ports.store.appendArtifact(capturedArtifact);
             return capturedArtifact;
           }
@@ -408,14 +488,35 @@ export async function runCurrentEvidence(
         };
       }
       if (!result.ok) {
+        if (
+          result.sourceId !== sourceId ||
+          result.partialArtifacts.some((artifact) =>
+            !isCurrentArtifact(artifact, input.runId, sourceId),
+          )
+        ) {
+          return unavailableEntry(sourceId, "integrity_mismatch", []);
+        }
         for (const artifact of result.partialArtifacts) await ports.store.appendArtifact(artifact);
         return unavailableEntry(sourceId, result.kind, result.partialArtifacts);
       }
+      if (
+        result.entry.sourceId !== sourceId ||
+        result.entry.artifacts.some((artifact) =>
+          !isCurrentArtifact(artifact, input.runId, sourceId),
+        )
+      ) {
+        return unavailableEntry(sourceId, "integrity_mismatch", []);
+      }
       for (const artifact of result.entry.artifacts) await ports.store.appendArtifact(artifact);
-      const terminal = await parseEvidenceEntry(result.entry, parsers);
-      return controller.signal.aborted
-        ? unavailableEntry(sourceId, "deadline", result.entry.artifacts, result.entry)
-        : terminal;
+      if (controller.signal.aborted) {
+        return unavailableEntry(sourceId, "deadline", result.entry.artifacts, result.entry);
+      }
+      return Promise.race([
+        parseEvidenceEntry(result.entry, parsers),
+        deadlineReached.then(() =>
+          unavailableEntry(sourceId, "deadline", result.entry.artifacts, result.entry),
+        ),
+      ]);
     }));
     const terminalEntries = applyEvidenceRules(captured, input.assessmentDate);
     const sealed = await sealEvidence({

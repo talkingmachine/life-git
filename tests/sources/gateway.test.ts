@@ -15,6 +15,7 @@ import { OfficialSourceAdapter } from "../../src/infrastructure/sources/official
 import { resolveLatestApplicableQbzAct } from "../../src/infrastructure/sources/qbz-navigation";
 
 const request: HttpStepRequest = {
+  runId: "run-1",
   sourceId: "cbr-eur",
   role: "daily-rates",
   method: "POST",
@@ -44,6 +45,8 @@ function liveArtifact(step: HttpStepRequest, body: string, url = step.url): Live
   const bytes = new TextEncoder().encode(body);
   return {
     artifactId: `${step.sourceId}:${step.role}`,
+    runId: step.runId,
+    sourceId: step.sourceId,
     role: step.role,
     url,
     mediaType: step.allowedMediaTypes[0]!,
@@ -289,6 +292,7 @@ describe("resolveLatestApplicableQbzAct", () => {
     };
 
     const result = await resolveLatestApplicableQbzAct(
+      "run-1",
       "al-law-79",
       "2026-08-08",
       step,
@@ -326,6 +330,7 @@ describe("resolveLatestApplicableQbzAct", () => {
 
     await expect(
       resolveLatestApplicableQbzAct(
+        "run-1",
         "al-decision-858",
         "2026-08-08",
         step,
@@ -375,6 +380,7 @@ describe("resolveLatestApplicableQbzAct", () => {
 
     await expect(
       resolveLatestApplicableQbzAct(
+        "run-1",
         "al-law-79",
         "2026-08-08",
         step,
@@ -413,6 +419,7 @@ describe("resolveLatestApplicableQbzAct", () => {
 
     await expect(
       resolveLatestApplicableQbzAct(
+        "run-1",
         "al-law-79",
         "2026-08-08",
         step,
@@ -456,6 +463,7 @@ describe("resolveLatestApplicableQbzAct", () => {
 
     await expect(
       resolveLatestApplicableQbzAct(
+        "run-1",
         "al-law-79",
         "2026-08-08",
         step,

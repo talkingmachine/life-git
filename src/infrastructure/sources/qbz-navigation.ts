@@ -50,6 +50,7 @@ function nodeUrl(path: string): string {
 }
 
 function jsonRequest(
+  runId: string,
   sourceId: QbzSourceId,
   role: string,
   method: "GET" | "POST",
@@ -57,6 +58,7 @@ function jsonRequest(
   bodyBytes?: Uint8Array,
 ): HttpStepRequest {
   return {
+    runId,
     sourceId,
     role,
     method,
@@ -80,6 +82,7 @@ function assertLive(artifact: LiveCapturedArtifact): void {
 }
 
 export async function resolveLatestApplicableQbzAct(
+  runId: string,
   sourceId: QbzSourceId,
   assessmentDate: string,
   requestStep: RequestStep,
@@ -112,7 +115,7 @@ export async function resolveLatestApplicableQbzAct(
   );
 
   const searchArtifact = await captureStep(
-    jsonRequest(sourceId, "eli-search", "POST", QBZ_SEARCH_URL, exactSearchBody),
+    jsonRequest(runId, sourceId, "eli-search", "POST", QBZ_SEARCH_URL, exactSearchBody),
   );
   const search = parseListing(searchArtifact, artifacts);
   const matches = search.items.filter(
@@ -129,7 +132,7 @@ export async function resolveLatestApplicableQbzAct(
   }
 
   const rootArtifact = await captureStep(
-    jsonRequest(sourceId, "eli-root", "GET", nodeUrl("/base")),
+    jsonRequest(runId, sourceId, "eli-root", "GET", nodeUrl("/base")),
   );
   const root = parseListing(rootArtifact, artifacts);
   const versionNodes = root.items.filter(
@@ -158,7 +161,7 @@ export async function resolveLatestApplicableQbzAct(
   const selected = latestVersions[0]!;
 
   const versionArtifact = await captureStep(
-    jsonRequest(sourceId, "eli-version", "GET", nodeUrl(selected.path)),
+    jsonRequest(runId, sourceId, "eli-version", "GET", nodeUrl(selected.path)),
   );
   const version = parseListing(versionArtifact, artifacts);
   const pdfItems = version.items.filter(
@@ -185,6 +188,7 @@ export async function resolveLatestApplicableQbzAct(
 
   await captureStep(
     {
+      runId,
       sourceId,
       role: "act-pdf",
       method: "GET",

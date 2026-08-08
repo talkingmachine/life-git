@@ -42,11 +42,23 @@ function database(): Database.Database {
   return value;
 }
 
-function artifact(request: HttpStepRequest, suffix = request.role): LiveCapturedArtifact {
+type RunScopedHttpStepRequest = HttpStepRequest & { readonly runId: string };
+
+function artifact(
+  request: HttpStepRequest,
+  suffix = request.role,
+  overrides: Partial<LiveCapturedArtifact> & {
+    readonly runId?: string;
+    readonly sourceId?: SourceId;
+  } = {},
+): LiveCapturedArtifact {
+  const runId = (request as RunScopedHttpStepRequest).runId;
   const bytes = new TextEncoder().encode(`${request.sourceId}:${suffix}`);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   return {
     artifactId: `${request.sourceId}:${request.role}:${sha256}`,
+    runId,
+    sourceId: request.sourceId,
     role: request.role,
     url: request.url,
     mediaType: request.allowedMediaTypes[0]!,
@@ -61,11 +73,17 @@ function artifact(request: HttpStepRequest, suffix = request.role): LiveCaptured
       url: request.url,
       ...(request.bodyMediaType === undefined ? {} : { bodyMediaType: request.bodyMediaType }),
     },
-  };
+    ...overrides,
+  } as LiveCapturedArtifact;
 }
 
-function httpRequest(sourceId: SourceId, role = "official-document"): HttpStepRequest {
+function httpRequest(
+  sourceId: SourceId,
+  role = "official-document",
+  runId = "fixture-run",
+): HttpStepRequest {
   return {
+    runId,
     sourceId,
     role,
     method: "GET",
@@ -73,7 +91,7 @@ function httpRequest(sourceId: SourceId, role = "official-document"): HttpStepRe
     headers: { accept: "application/octet-stream" },
     allowedHosts: ["official.example"],
     allowedMediaTypes: ["application/octet-stream"],
-  };
+  } as HttpStepRequest;
 }
 
 function parsers(
@@ -104,7 +122,10 @@ function singleStepSource(
   return {
     async capture(request, requestStep): Promise<CaptureResult> {
       await beforeStep(request.sourceId);
-      const sourceArtifact = await requestStep(httpRequest(request.sourceId), request.signal);
+      const sourceArtifact = await requestStep(
+        httpRequest(request.sourceId, "official-document", request.runId),
+        request.signal,
+      );
       return {
         ok: true,
         entry: {
@@ -141,7 +162,10 @@ describe("runCurrentEvidence", () => {
         captureSignals.push(request.signal);
         if (capturesStarted.length === EVIDENCE_SOURCE_IDS.length) releaseGate();
         await gate;
-        const sourceArtifact = await requestStep(httpRequest(request.sourceId), request.signal);
+        const sourceArtifact = await requestStep(
+          httpRequest(request.sourceId, "official-document", request.runId),
+          request.signal,
+        );
         return {
           ok: true,
           entry: {
@@ -196,7 +220,10 @@ describe("runCurrentEvidence", () => {
         const artifacts: LiveCapturedArtifact[] = [];
         try {
           for (const role of roles) {
-            artifacts.push(await requestStep(httpRequest(request.sourceId, role), request.signal));
+            artifacts.push(await requestStep(
+              httpRequest(request.sourceId, role, request.runId),
+              request.signal,
+            ));
           }
         } catch (error) {
           if (!(error instanceof SourceCaptureError)) throw error;
@@ -313,7 +340,7 @@ describe("runCurrentEvidence", () => {
     const parserGate = new Promise<void>((resolve) => {
       releaseParsers = resolve;
     });
-    const partial = artifact(httpRequest("cbr-eur", "partial-page"));
+    const partial = artifact(httpRequest("cbr-eur", "partial-page", "run-partial"));
     const source: OfficialSourcePort = {
       async capture(request, requestStep) {
         if (request.sourceId === "cbr-eur") {
@@ -353,6 +380,90 @@ describe("runCurrentEvidence", () => {
 
     const snapshot = await running;
     expect(snapshot.coverage["cbr-eur"]).toBe("unavailable");
+  });
+
+  test("keeps same-byte artifact provenance separate across current runs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-08-08T10:00:00.000Z");
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    const execute = async (runId: string, capturedAt: string) => runCurrentEvidence(
+      { runId, assessmentDate: ASSESSMENT_DATE, deadlineAt: DEADLINE_AT },
+      {
+        source: singleStepSource(),
+        requestStep: async (request) => artifact(request, request.role, { capturedAt }),
+        store,
+        integrity: INTEGRITY,
+        parsers: parsers(),
+      },
+    );
+
+    await execute("run-1", "2026-08-08T10:00:01.000Z");
+    const second = await execute("run-2", "2026-08-08T10:00:02.000Z");
+    const secondBundle = await store.loadVerifiedBundle(second.id, KEY);
+    const secondArtifacts = secondBundle.entries.flatMap((entry) => entry.artifacts) as LiveCapturedArtifact[];
+
+    expect(secondArtifacts).toHaveLength(5);
+    expect(secondArtifacts.every((item) => item.runId === "run-2")).toBe(true);
+    expect(secondArtifacts.every((item) => item.sourceId === item.artifactId.split(":", 1)[0])).toBe(true);
+    expect(secondArtifacts.every((item) => item.capturedAt === "2026-08-08T10:00:02.000Z")).toBe(true);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM artifacts").get()).toEqual({ count: 10 });
+  });
+
+  test.each([
+    ["wrong run", { runId: "historical-run" }],
+    ["wrong source", { sourceId: "boa-eur" as const }],
+    ["fixture origin", { origin: "fixture" as const }],
+  ])("terminalizes a %s artifact without a verified claim", async (_label, override) => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-08-08T10:00:00.000Z");
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    const snapshot = await runCurrentEvidence(
+      { runId: "run-owned", assessmentDate: ASSESSMENT_DATE, deadlineAt: DEADLINE_AT },
+      {
+        source: singleStepSource(),
+        requestStep: async (request) => artifact(
+          request,
+          request.role,
+          request.sourceId === "cbr-eur" ? override as Partial<LiveCapturedArtifact> : {},
+        ),
+        store,
+        integrity: INTEGRITY,
+        parsers: parsers(),
+      },
+    );
+
+    expect(snapshot.coverage["cbr-eur"]).toBe("unavailable");
+    expect(snapshot.claims.some((claim) => claim.sourceId === "cbr-eur")).toBe(false);
+  });
+
+  test("seals a deadline blocker when an async parser never resolves", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-08-08T10:00:00.000Z");
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    const evidenceParsers = parsers();
+    evidenceParsers["cbr-eur"] = () => new Promise(() => undefined);
+
+    const running = runCurrentEvidence(
+      { runId: "run-parser-deadline", assessmentDate: ASSESSMENT_DATE, deadlineAt: DEADLINE_AT },
+      {
+        source: singleStepSource(),
+        requestStep: async (request) => artifact(request),
+        store,
+        integrity: INTEGRITY,
+        parsers: evidenceParsers,
+      },
+    );
+    await vi.advanceTimersByTimeAsync(45_000);
+    const snapshot = await running;
+
+    expect(snapshot.coverage["cbr-eur"]).toBe("unavailable");
+    expect(snapshot.blockers.find((blocker) => blocker.sourceId === "cbr-eur")?.kind).toBe("deadline");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 1 });
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
   });
 });
 
