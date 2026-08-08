@@ -37,10 +37,14 @@ const labels: Record<CandidateState, string> = {
 
 export function ResearchMap({ mode, candidates, previousRun, onRetry }: ResearchMapProps) {
   const [openCandidateId, setOpenCandidateId] = useState<string>();
-  const [retriedRun, setRetriedRun] = useState<{
-    readonly runId: string;
-    readonly evidenceSnapshotId: string;
+  const [retryRecord, setRetryRecord] = useState<{
+    readonly previous: NonNullable<ResearchMapProps["previousRun"]>;
+    readonly next: {
+      readonly runId: string;
+      readonly evidenceSnapshotId: string;
+    };
   }>();
+  const [retryError, setRetryError] = useState<string>();
 
   if (mode === "green") {
     return (
@@ -62,6 +66,16 @@ export function ResearchMap({ mode, candidates, previousRun, onRetry }: Research
   const reveal = (candidateId: string) => setOpenCandidateId((current) =>
     current === candidateId ? undefined : candidateId
   );
+  const retry = async () => {
+    if (previousRun === undefined || onRetry === undefined) return;
+    const previous = previousRun;
+    setRetryError(undefined);
+    try {
+      setRetryRecord({ previous, next: await onRetry(previous.runId) });
+    } catch {
+      setRetryError("Повторная проверка не выполнена. Предыдущий снимок сохранён.");
+    }
+  };
 
   return (
     <section
@@ -86,12 +100,6 @@ export function ResearchMap({ mode, candidates, previousRun, onRetry }: Research
                   aria-expanded={openCandidateId === candidate.id}
                   className="research-map__marker-button"
                   onClick={() => reveal(candidate.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      reveal(candidate.id);
-                    }
-                  }}
                   type="button"
                 >
                   <span aria-hidden="true" className="research-map__status-icon">{candidate.status === "yellow" ? "!" : "×"}</span>
@@ -120,19 +128,20 @@ export function ResearchMap({ mode, candidates, previousRun, onRetry }: Research
       </ul>
       {mode === "yellow" && previousRun !== undefined && onRetry !== undefined ? (
         <div className="research-map__retry">
-          <p>Предыдущий снимок: {previousRun.evidenceSnapshotId}</p>
+          <p>Предыдущий снимок: {retryRecord?.previous.evidenceSnapshotId ?? previousRun.evidenceSnapshotId}</p>
           <button
-            onClick={async () => setRetriedRun(await onRetry(previousRun.runId))}
+            onClick={retry}
             type="button"
           >
             Проверить ещё раз
           </button>
-          {retriedRun === undefined ? null : (
+          {retryRecord === undefined ? null : (
             <div aria-live="polite">
-              <p>Новый запуск: {retriedRun.runId}</p>
-              <p>Снимок: {retriedRun.evidenceSnapshotId}</p>
+              <p>Новый запуск: {retryRecord.next.runId}</p>
+              <p>Новый снимок: {retryRecord.next.evidenceSnapshotId}</p>
             </div>
           )}
+          {retryError === undefined ? null : <p role="alert">{retryError}</p>}
         </div>
       ) : null}
     </section>

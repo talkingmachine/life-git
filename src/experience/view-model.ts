@@ -25,15 +25,37 @@ const reasonLabels: Readonly<Record<string, string>> = Object.freeze({
   relationship_not_verified_in_vs1: "Статус отношений требует отдельного подтверждения",
   housing_not_confirmed: "Условие по жилью ещё не подтверждено",
   foreign_contract_not_verified: "Не подтверждён официальный источник о договоре",
-  available_resources_not_confirmed: "Доступные ресурсы не подтверждены официальным правилом",
+  available_resources_rule_unavailable: "Официальное правило о доступных средствах недоступно",
+  available_resources_below_threshold: "Заявленные ресурсы ниже подтверждённого официального порога",
   lawful_stay_not_verified: "Законное пребывание требует официального подтверждения",
   staged_family_plan_not_verified: "Поэтапный маршрут спутника требует подтверждения",
+  cbr_rate_not_verified: "Официальный курс Банка России недоступен",
+  boa_rate_not_verified: "Официальный курс Банка Албании недоступен",
   tirana_claim_not_verified: "Данные по Тиране требуют повторной проверки",
   spouse_claim_not_verified: "Основание для супруга требует повторной проверки",
 });
 
-function sourceIdForClaim(claimId: string): "al-law-79" | "tirana-urban-lines" {
-  return claimId === "al-tirana-residence" ? "tirana-urban-lines" : "al-law-79";
+const blockerLabels: Readonly<Record<string, string>> = Object.freeze({
+  timeout: "не ответил вовремя",
+  deadline: "не ответил в отведённый срок",
+  rate_limited: "временно ограничил доступ",
+  server_error: "временно недоступен",
+  http_error: "вернул ошибку",
+  wrong_media_type: "вернул неподдерживаемый формат",
+  too_large: "вернул слишком большой документ",
+  navigation_mismatch: "не подтвердил официальный адрес",
+  integrity_mismatch: "не прошёл проверку целостности",
+  semantic_mismatch: "не прошло смысловую проверку",
+  stale: "устарел для даты оценки",
+  conflict: "содержит конфликтующие данные",
+});
+
+function reasonSummary(code: string, blockerKind?: string): string {
+  if (code === "available_resources_rule_unavailable" && blockerKind === "semantic_mismatch") {
+    return "Официальное правило о доступных средствах не прошло смысловую проверку";
+  }
+  const base = reasonLabels[code] ?? "Официальное основание требует проверки";
+  return blockerKind === undefined ? base : `${base}: ${blockerLabels[blockerKind] ?? blockerKind}`;
 }
 
 function housingFrom(details: RunDetails): string {
@@ -60,14 +82,14 @@ function officialUrl(details: RunDetails, sourceId: string): string | undefined 
 
 export function createJourneyView(details: RunDetails) {
   const firstReason = details.run.assessment.reasons[0];
-  const reasonSourceId = firstReason === undefined ? undefined : sourceIdForClaim(firstReason.claimId);
+  const reasonSourceId = firstReason?.sourceId;
   const reasonUrl = reasonSourceId === undefined ? undefined : officialUrl(details, reasonSourceId);
   return Object.freeze({
     profile: Object.freeze({
       housingAll: housingFrom(details),
-      hasContract: details.profile.profile.incomeBasis === "foreign_contract",
-      hasResources: details.profile.profile.availableResourcesAll.length > 0,
-      hasLawfulStay: true,
+      incomeBasis: details.profile.profile.incomeBasis,
+      monthlyIncomeRub: details.profile.profile.monthlyIncome.amount,
+      availableResourcesAll: details.profile.profile.availableResourcesAll,
       companionMode: details.profile.profile.companionBasis === "family"
         ? "staged" as const
         : details.profile.profile.companionBasis === "none"
@@ -81,7 +103,7 @@ export function createJourneyView(details: RunDetails) {
       status: details.run.assessment.marker,
       ...(firstReason === undefined || reasonUrl === undefined ? {} : {
         reason: Object.freeze({
-          summary: reasonLabels[firstReason.code] ?? "Официальное основание требует проверки",
+          summary: reasonSummary(firstReason.code, firstReason.blockerKind),
           officialUrl: reasonUrl,
         }),
       }),

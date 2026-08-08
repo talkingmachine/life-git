@@ -151,6 +151,9 @@ const verifiedDecisionEvidence: Evidence = {
   availableResourcesVerified: "verified",
   lawfulStayVerified: "verified",
   stagedFamilyPlanVerified: "verified",
+  cbrRateVerified: "verified",
+  boaRateVerified: "verified",
+  sourceBlockers: {},
 };
 
 function writeCounts(db: Database.Database) {

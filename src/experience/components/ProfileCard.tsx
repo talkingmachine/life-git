@@ -1,35 +1,34 @@
-"use client";
-
-import { useState } from "react";
-
 export interface ProfileCardData {
   housingAll: string;
-  hasContract: boolean;
-  hasResources: boolean;
-  hasLawfulStay: boolean;
+  incomeBasis: "foreign_contract" | "albanian_employer_only";
+  monthlyIncomeRub: string;
+  availableResourcesAll: string;
   companionMode: "staged" | "none" | "separate";
 }
 
 interface ProfileCardProps {
   profile: ProfileCardData;
-  onConfirm: () => void;
+  canSaveC0: boolean;
+  onSaveC0: () => void;
 }
 
 function formatAll(value: string): string {
   return value.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
-export function ProfileCard({ profile, onConfirm }: ProfileCardProps) {
-  const [confirmed, setConfirmed] = useState(false);
-
+export function ProfileCard({ profile, canSaveC0, onSaveC0 }: ProfileCardProps) {
   return (
     <section aria-labelledby="profile-heading" className="profile-card">
-      <h2 id="profile-heading">Исходный профиль</h2>
+      <h2 id="profile-heading">Подтверждённый снимок условий</h2>
       <ul>
-        <li>Жильё: {formatAll(profile.housingAll)} ALL</li>
-        <li>{profile.hasContract ? "Контракт: ввод пользователя" : "Контракт: не указан пользователем"}</li>
-        <li>{profile.hasResources ? "Ресурсы: ввод пользователя" : "Ресурсы: не указаны пользователем"}</li>
-        <li>{profile.hasLawfulStay ? "Законное пребывание: условие сценария" : "Законное пребывание: не заявлено"}</li>
+        <li>Жильё: {formatAll(profile.housingAll)} ALL · сценарий C0</li>
+        <li>Основание дохода: {
+          profile.incomeBasis === "foreign_contract"
+            ? "иностранный контракт"
+            : "только албанский работодатель"
+        } · ввод пользователя</li>
+        <li>Месячный доход: {formatAll(profile.monthlyIncomeRub)} RUB · ввод пользователя</li>
+        <li>Ресурсы: {formatAll(profile.availableResourcesAll)} ALL · ввод пользователя</li>
         <li>{
           profile.companionMode === "staged"
             ? "Спутник: поэтапно — условие сценария"
@@ -38,17 +37,10 @@ export function ProfileCard({ profile, onConfirm }: ProfileCardProps) {
               : "Спутник: отдельный маршрут требует проверки"
         }</li>
       </ul>
-      <label className="profile-card__confirmation">
-        <input
-          checked={confirmed}
-          onChange={(event) => setConfirmed(event.currentTarget.checked)}
-          type="checkbox"
-        />
-        Подтверждаю исходные условия
-      </label>
-      <button disabled={!confirmed} onClick={onConfirm} type="button">
-        Подтвердить профиль
-      </button>
+      <p>Это неизменяемый снимок пользовательских данных и сценарных условий, а не подтверждение официальных требований.</p>
+      {canSaveC0 ? (
+        <button onClick={onSaveC0} type="button">Зафиксировать C0</button>
+      ) : null}
     </section>
   );
 }

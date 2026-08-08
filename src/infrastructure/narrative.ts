@@ -2,33 +2,32 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
-import {
-  FALLBACK_NARRATIVE,
-} from "../application/present-run";
 import type {
   NarrativeInput,
   NarrativePort,
-  NarrativeRead,
 } from "../application/contracts";
-
-export { FALLBACK_NARRATIVE };
 
 const MODEL = "gpt-5.6" as const;
 const TIMEOUT_MS = 8_000;
-const DIGIT = /\p{Decimal_Number}/u;
 const INSTRUCTIONS = [
-  "Составь краткий русский вывод только по переданным типизированным фактам.",
-  "Не добавляй числа, имена, советы или сведения вне указанных claimIds.",
-  "Каждое утверждение свяжи с claimIds из входа.",
+  "Выбери только допустимые идентификаторы готовых фраз для краткого русского вывода.",
+  "Не создавай и не возвращай свободный текст.",
+  "Каждую выбранную фразу свяжи только с claimIds из входа.",
 ].join(" ");
 
 const referencedTextSchema = z.object({
-  text: z.string().trim().min(1).max(180),
+  phraseId: z.enum([
+    "scoped_official_route",
+    "official_facts_separated",
+    "unknowns_explicit",
+  ]),
   claimIds: z.array(z.string().min(1)).min(1).max(12),
 }).strict();
 
 const narrativeSchema = z.object({
-  headline: referencedTextSchema,
+  headline: referencedTextSchema.extend({
+    phraseId: z.literal("scoped_official_route"),
+  }).strict(),
   bullets: z.array(referencedTextSchema).min(1).max(3),
 }).strict();
 
@@ -74,29 +73,11 @@ function parsedOutput(value: unknown): unknown {
   return isRecord(value) ? value.output_parsed : undefined;
 }
 
-function acceptedNarrative(
-  output: z.infer<typeof narrativeSchema>,
-  allowedClaimIds: ReadonlySet<string>,
-): NarrativeRead | undefined {
-  const sections = [output.headline, ...output.bullets];
-  if (
-    sections.some((section) =>
-      DIGIT.test(section.text) ||
-      section.claimIds.some((claimId) => !allowedClaimIds.has(claimId))
-    )
-  ) return undefined;
-  return Object.freeze({
-    headline: output.headline.text,
-    bullets: Object.freeze(output.bullets.map((bullet) => bullet.text)),
-    origin: "model" as const,
-  });
-}
-
 export function createOpenAiNarrative(options: OpenAiNarrativeOptions): NarrativePort {
   return Object.freeze({
-    async render(input: NarrativeInput): Promise<NarrativeRead> {
+    async select(input: NarrativeInput): Promise<unknown> {
       if (options.apiKey === undefined || options.apiKey.trim().length === 0 || input.claimIds.length === 0) {
-        return FALLBACK_NARRATIVE;
+        return undefined;
       }
       const body: NarrativeRequestBody = {
         model: MODEL,
@@ -111,12 +92,11 @@ export function createOpenAiNarrative(options: OpenAiNarrativeOptions): Narrativ
         const response = options.parse === undefined
           ? await new OpenAI({ apiKey: options.apiKey }).responses.parse(body, requestOptions)
           : await options.parse(body, requestOptions);
-        if (containsRefusal(response)) return FALLBACK_NARRATIVE;
+        if (containsRefusal(response)) return undefined;
         const parsed = narrativeSchema.safeParse(parsedOutput(response));
-        if (!parsed.success) return FALLBACK_NARRATIVE;
-        return acceptedNarrative(parsed.data, new Set(input.claimIds)) ?? FALLBACK_NARRATIVE;
+        return parsed.success ? parsed.data : undefined;
       } catch {
-        return FALLBACK_NARRATIVE;
+        return undefined;
       }
     },
   });

@@ -146,6 +146,9 @@ export function createHousingBranchApplication(ports: HousingBranchPorts) {
   ): Promise<HousingBranchResult> => {
     const cursor = validCursor(cursorInput);
     const parent = await ports.branchStore.loadVerified(cursor.commitId);
+    if (parent.parentId !== undefined || parent.forkedFrom !== undefined) {
+      throw new Error("fork_requires_c0");
+    }
     const parentRevision = await ports.runStore.loadBranchByCommitId(parent.id);
     if (
       parentRevision.branchCommitId !== parent.id || parentRevision.profileId !== parent.profileId ||

@@ -1,4 +1,5 @@
 import { Vs1Journey } from "../experience/components/Vs1Journey";
+import { Vs1Start } from "../experience/components/Vs1Start";
 
 export const dynamic = "force-dynamic";
 
@@ -16,25 +17,7 @@ function one(value: string | readonly string[] | undefined): string | undefined 
 export default async function Page({ searchParams }: PageProps) {
   const runId = one((await searchParams).run);
   if (runId === undefined) {
-    return (
-      <main className="landing">
-        <section className="landing__copy">
-          <p className="eyebrow">VS-1 · подтверждённая жизнь</p>
-          <h1>Один маршрут.<br />Проверяемые основания.</h1>
-          <p>
-            Здесь рассматривается один заранее выбранный кандидат: переезд из России в Тирану.
-            Это не мировой поиск, не рейтинг и не подборка лучших вариантов.
-          </p>
-          <p className="landing__instruction">
-            Чтобы открыть сохранённый запуск, передайте его идентификатор в параметре <code>?run=…</code>.
-          </p>
-        </section>
-        <figure className="landing__map">
-          <img alt="Схема единственного маршрута Россия — Тирана" src="/world-map.svg" />
-          <figcaption><span aria-hidden="true">✈</span> Россия → Тирана</figcaption>
-        </figure>
-      </main>
-    );
+    return <Vs1Start />;
   }
 
   try {

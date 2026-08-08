@@ -4,7 +4,10 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHousingBranchApplication } from "../../src/application/fork-housing";
-import { createPresentRun } from "../../src/application/present-run";
+import {
+  createPresentRun,
+  FALLBACK_NARRATIVE,
+} from "../../src/application/present-run";
 import type {
   BranchRunRevision,
   NarrativeInput,
@@ -16,6 +19,7 @@ import {
   retryConfirmedLifeRun as retryConfirmedLifeRunAction,
   rewindHousingBranch as rewindHousingBranchAction,
   saveInitialHousingBranch as saveInitialHousingBranchAction,
+  startConfirmedLife as startConfirmedLifeAction,
 } from "../../src/app/actions";
 import type { BranchCommit } from "../../src/branch/life-git";
 import { EvidencePassport } from "../../src/experience/components/EvidencePassport";
@@ -24,26 +28,27 @@ import { LifeGitDiff } from "../../src/experience/components/LifeGitDiff";
 import { ProfileCard } from "../../src/experience/components/ProfileCard";
 import { ResearchMap } from "../../src/experience/components/ResearchMap";
 import { Vs1Journey } from "../../src/experience/components/Vs1Journey";
+import { createJourneyView } from "../../src/experience/view-model";
 import {
   createOpenAiNarrative,
-  FALLBACK_NARRATIVE,
 } from "../../src/infrastructure/narrative";
 import type { NarrativeParse } from "../../src/infrastructure/narrative";
 
 afterEach(cleanup);
 
 describe("confirmed-life visual journey", () => {
-  it("requires explicit confirmation of every initial profile condition", () => {
-    const confirm = vi.fn();
+  it("shows the confirmed snapshot read-only and offers an explicit green C0 action", () => {
+    const saveC0 = vi.fn();
 
     render(
       <ProfileCard
-        onConfirm={confirm}
+        canSaveC0
+        onSaveC0={saveC0}
         profile={{
           housingAll: "70000",
-          hasContract: true,
-          hasResources: true,
-          hasLawfulStay: true,
+          incomeBasis: "foreign_contract",
+          monthlyIncomeRub: "210000",
+          availableResourcesAll: "500000",
           companionMode: "staged",
         }}
       />,
@@ -51,49 +56,48 @@ describe("confirmed-life visual journey", () => {
 
     expect(screen.getByText(/жильё.*70 000 ALL/i)).toBeTruthy();
     expect(screen.getByText(/контракт/i)).toBeTruthy();
+    expect(screen.getByText(/месячный доход.*210 000 RUB.*ввод пользователя/i)).toBeTruthy();
     expect(screen.getByText(/ресурс/i)).toBeTruthy();
-    expect(screen.getByText(/законн/i)).toBeTruthy();
     expect(screen.getByText(/спутник.*поэтапно/i)).toBeTruthy();
-
-    const submit = screen.getByRole("button", { name: /подтвердить профиль/i });
-    expect((submit as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю исходные условия/i }));
-    fireEvent.click(submit);
-
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText(/законное пребывание/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /зафиксировать C0/i }));
+    expect(saveC0).toHaveBeenCalledOnce();
   });
 
   it("labels profile inputs as user/scenario conditions rather than official verification", () => {
     render(
       <ProfileCard
-        onConfirm={() => undefined}
+        canSaveC0={false}
+        onSaveC0={() => undefined}
         profile={{
           housingAll: "70000",
-          hasContract: true,
-          hasResources: true,
-          hasLawfulStay: true,
+          incomeBasis: "albanian_employer_only",
+          monthlyIncomeRub: "210000",
+          availableResourcesAll: "407999",
           companionMode: "staged",
         }}
       />,
     );
 
-    expect(screen.getByText(/контракт.*ввод пользователя/i)).toBeTruthy();
-    expect(screen.getByText(/ресурсы.*ввод пользователя/i)).toBeTruthy();
-    expect(screen.getByText(/законное пребывание.*условие сценария/i)).toBeTruthy();
+    expect(screen.getByText(/основание дохода.*только албанский работодатель.*ввод пользователя/i)).toBeTruthy();
+    expect(screen.getByText(/ресурсы.*407 999 ALL.*ввод пользователя/i)).toBeTruthy();
     expect(screen.queryByText(/ресурсы подтверждены/i)).toBeNull();
     expect(screen.queryByText(/законное пребывание подтверждено/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /зафиксировать C0/i })).toBeNull();
   });
 
   it("supports a route without a companion without implying a couple", () => {
     render(
       <ProfileCard
-        onConfirm={() => undefined}
+        canSaveC0={false}
+        onSaveC0={() => undefined}
         profile={{
           housingAll: "70000",
-          hasContract: true,
-          hasResources: true,
-          hasLawfulStay: true,
-          companionMode: "none" as "staged",
+          incomeBasis: "foreign_contract",
+          monthlyIncomeRub: "210000",
+          availableResourcesAll: "500000",
+          companionMode: "none",
         }}
       />,
     );
@@ -152,7 +156,7 @@ describe("confirmed-life visual journey", () => {
   it.each([
     ["yellow", "Enter", "Не подтверждён официальный источник о договоре"],
     ["red", " ", "Доход зависит только от местного работодателя"],
-  ] as const)("reveals a concise official-linked %s reason from the native marker button", (status, key, reason) => {
+  ] as const)("reveals a concise official-linked %s reason from the native marker button", (status, _key, reason) => {
     render(
       <ResearchMap
         mode={status}
@@ -172,11 +176,95 @@ describe("confirmed-life visual journey", () => {
     const marker = screen.getByRole("button", { name: new RegExp(`Тирана.*${status === "yellow" ? "уточнить" : "не подходит"}`, "i") });
     expect(marker.tagName).toBe("BUTTON");
     expect(screen.queryByText(reason)).toBeNull();
-    fireEvent.keyDown(marker, { key });
+    fireEvent.click(marker);
 
     expect(screen.getByText(reason)).toBeTruthy();
     expect(screen.getByRole("link", { name: /официальный источник/i }).getAttribute("href"))
       .toBe("https://official.example/al-law-79");
+  });
+
+  it("uses exact reason source lineage and distinguishes an unavailable rule from a verified mismatch", () => {
+    const base: RunDetails = {
+      run: {
+        runId: "run-reason",
+        runRevisionId: "revision-reason",
+        assessmentDate: "2026-08-08",
+        profileId: "profile-reason",
+        evidenceSnapshotId: "snapshot-reason",
+        assessmentId: "assessment-reason",
+        assessment: { marker: "yellow", reasons: [] },
+        mode: "current",
+      },
+      profile: {
+        id: "profile-reason",
+        confirmedAt: "2026-08-08T10:00:00.000Z",
+        profile: {
+          availableResourcesAll: "407999",
+          monthlyIncome: { amount: "210000", currency: "RUB" },
+          incomeBasis: "foreign_contract",
+          companionBasis: "none",
+          relationship: "none",
+        },
+      },
+      evidenceItems: [{
+        class: "unknown",
+        label: "Правило доступных средств",
+        provenance: "source_unavailable",
+        sourceId: "al-decision-858",
+        blockerKind: "semantic_mismatch",
+        navigationUrl: "https://official.example/decision-858",
+      }],
+      narrative: FALLBACK_NARRATIVE,
+    };
+    const unavailable = createJourneyView({
+      ...base,
+      run: {
+        ...base.run,
+        assessment: {
+          marker: "yellow",
+          reasons: [{
+            code: "available_resources_rule_unavailable",
+            claimId: "al-tirana-residence",
+            sourceId: "al-decision-858",
+            blockerKind: "semantic_mismatch",
+          }],
+        },
+      },
+    });
+    const threshold = createJourneyView({
+      ...base,
+      run: {
+        ...base.run,
+        assessment: {
+          marker: "yellow",
+          reasons: [{
+            code: "available_resources_below_threshold",
+            claimId: "al-tirana-residence",
+            sourceId: "al-decision-858",
+          }],
+        },
+      },
+      evidenceItems: [{
+        class: "official_fact",
+        label: "al-decision-858-facts-1",
+        displayValue: JSON.stringify({ availableAmount: "408000" }),
+        sourceId: "al-decision-858",
+        scope: "VS-1 confirmed-life",
+        sourcePeriod: "cons-2026-08-01",
+        anchor: "Decision 858#abc",
+        resolvedUrl: "https://official.example/decision-858",
+        integrity: "verified",
+      }],
+    });
+
+    expect(unavailable.candidate.reason).toEqual({
+      summary: "Официальное правило о доступных средствах не прошло смысловую проверку",
+      officialUrl: "https://official.example/decision-858",
+    });
+    expect(threshold.candidate.reason).toEqual({
+      summary: "Заявленные ресурсы ниже подтверждённого официального порога",
+      officialUrl: "https://official.example/decision-858",
+    });
   });
 
   it("keeps the old yellow snapshot while retry reports a new run and snapshot", async () => {
@@ -205,7 +293,7 @@ describe("confirmed-life visual journey", () => {
     fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
 
     expect(await screen.findByText(/Новый запуск: run-new/i)).toBeTruthy();
-    expect(screen.getByText(/Снимок: snapshot-new/i)).toBeTruthy();
+    expect(screen.getByText(/Новый снимок: snapshot-new/i)).toBeTruthy();
     expect(screen.getByText(/Предыдущий снимок: snapshot-old/i)).toBeTruthy();
     expect(retry).toHaveBeenCalledWith("run-old");
     expect(JSON.stringify(oldRun)).toBe(before);
@@ -232,6 +320,16 @@ describe("confirmed-life visual journey", () => {
     expect(within(bars[1]!).getByText("70 000,00 ALL")).toBeTruthy();
     expect(within(bars[2]!).getByText("Известный остаток")).toBeTruthy();
     expect(within(bars[2]!).getByText("139 864,57 ALL")).toBeTruthy();
+    const meters = flow.querySelectorAll("meter");
+    expect(meters).toHaveLength(3);
+    expect([...meters].map((meter) => ({
+      max: meter.getAttribute("max"),
+      value: meter.getAttribute("value"),
+    }))).toEqual([
+      { max: "209864.57", value: "209864.57" },
+      { max: "209864.57", value: "70000.00" },
+      { max: "209864.57", value: "139864.57" },
+    ]);
     expect(within(flow).getByText(/налоги.*неизвестно/i)).toBeTruthy();
     expect(within(flow).getByText(/стоимость жизни.*неизвестно/i)).toBeTruthy();
   });
@@ -242,12 +340,23 @@ describe("confirmed-life visual journey", () => {
         items={[
           {
             class: "official_fact",
-            label: "Требования к договору",
-            displayValue: "Иностранный договор допустим",
+            label: "al-law-79-facts-1",
+            displayValue: JSON.stringify({ digitalWorker: { requiresLawfulStay: true } }),
             sourceId: "al-law-79",
             scope: "VS-1 confirmed-life",
             sourcePeriod: "cons-2026-08-01",
             anchor: "Art. 68#abc",
+            resolvedUrl: "https://official.example/law-79",
+            integrity: "verified",
+          },
+          {
+            class: "official_fact",
+            label: "al-law-79-facts-2",
+            displayValue: JSON.stringify({ digitalWorker: { requiresLawfulStay: true } }),
+            sourceId: "al-law-79",
+            scope: "VS-1 confirmed-life",
+            sourcePeriod: "cons-2026-08-01",
+            anchor: "Art. 3(1)#def",
             resolvedUrl: "https://official.example/law-79",
             integrity: "verified",
           },
@@ -317,6 +426,17 @@ describe("confirmed-life visual journey", () => {
     ]) {
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
+    expect(screen.getAllByRole("heading", { name: /Закон № 79.*цифровой работник/i })).toHaveLength(1);
+    expect(screen.getByText(/официальные условия для цифрового работника и семейного маршрута/i)).toBeTruthy();
+    const rawOfficial = screen.getByText(JSON.stringify({ digitalWorker: { requiresLawfulStay: true } }));
+    const officialTechnical = rawOfficial.closest("details");
+    expect(officialTechnical?.textContent).toContain("al-law-79-facts-1");
+    expect(officialTechnical?.textContent).toContain("al-law-79-facts-2");
+    expect(officialTechnical?.hasAttribute("open")).toBe(false);
+    expect(officialTechnical?.querySelector("summary")?.textContent).toMatch(/технические данные и якоря/i);
+    const blockerTechnical = screen.getByText("timeout").closest("details");
+    expect(blockerTechnical?.hasAttribute("open")).toBe(false);
+    expect(screen.getByText(/источник не ответил вовремя/i)).toBeTruthy();
     const officialLink = screen.getByRole("link", { name: /проверенный официальный источник/i });
     expect(officialLink.getAttribute("href")).toBe("https://official.example/law-79");
     expect(officialLink.getAttribute("target")).toBe("_blank");
@@ -435,6 +555,10 @@ describe("confirmed-life visual journey", () => {
       knownResidual: { before: "139864.57", after: "119864.57", delta: "-20000.00", cause: "housing" },
       reused: ["profile", "evidence", "rules"],
     });
+    await expect(application.forkHousingBranch(
+      { commitId: c1.commit.id },
+      "100000",
+    )).rejects.toThrow("fork_requires_c0");
 
     render(<LifeGitDiff diff={c1.diff} />);
     expect(screen.getByText(/70 000,00.*90 000,00.*\+20 000,00 ALL/i)).toBeTruthy();
@@ -449,11 +573,11 @@ describe("confirmed-life visual journey", () => {
         output: [],
         output_parsed: {
           headline: {
-            text: "Маршрут опирается на официальные данные",
+            phraseId: "scoped_official_route",
             claimIds: ["al-law-79-facts-1"],
           },
           bullets: [{
-            text: "Договор и законное пребывание подтверждены источником",
+            phraseId: "official_facts_separated",
             claimIds: ["al-law-79-facts-1"],
           }],
         },
@@ -465,12 +589,11 @@ describe("confirmed-life visual journey", () => {
       typedValues: [{ claimId: "al-law-79-facts-1", value: { requiresLawfulStay: true } }],
     };
 
-    const narrative = await adapter.render(input);
+    const selection = await adapter.select(input);
 
-    expect(narrative).toEqual({
-      headline: "Маршрут опирается на официальные данные",
-      bullets: ["Договор и законное пребывание подтверждены источником"],
-      origin: "model",
+    expect(selection).toEqual({
+      headline: { phraseId: "scoped_official_route", claimIds: ["al-law-79-facts-1"] },
+      bullets: [{ phraseId: "official_facts_separated", claimIds: ["al-law-79-facts-1"] }],
     });
     expect(parse).toHaveBeenCalledOnce();
     const [body, requestOptions] = parse.mock.calls[0]!;
@@ -484,7 +607,7 @@ describe("confirmed-life visual journey", () => {
     const parse = vi.fn();
     const adapter = createOpenAiNarrative({ apiKey: "", parse });
 
-    await expect(adapter.render({ claimIds: [], typedValues: [] })).resolves.toEqual(FALLBACK_NARRATIVE);
+    await expect(adapter.select({ claimIds: [], typedValues: [] })).resolves.toBeUndefined();
     expect(parse).not.toHaveBeenCalled();
   });
 
@@ -493,32 +616,18 @@ describe("confirmed-life visual journey", () => {
     ["refusal", async () => ({
       output: [{ type: "message", content: [{ type: "refusal", refusal: "no" }] }],
       output_parsed: {
-        headline: { text: "Маршрут проверен", claimIds: ["al-law-79-facts-1"] },
-        bullets: [{ text: "Источник доступен", claimIds: ["al-law-79-facts-1"] }],
+        headline: { phraseId: "scoped_official_route", claimIds: ["al-law-79-facts-1"] },
+        bullets: [{ phraseId: "official_facts_separated", claimIds: ["al-law-79-facts-1"] }],
       },
     })],
     ["invalid schema", async () => ({ output: [], output_parsed: { headline: "неверная схема" } })],
-    ["unknown claim ID", async () => ({
-      output: [],
-      output_parsed: {
-        headline: { text: "Маршрут проверен", claimIds: ["al-law-79-facts-1"] },
-        bullets: [{ text: "Источник доступен", claimIds: ["unknown-claim"] }],
-      },
-    })],
-    ["digit in generated prose", async () => ({
-      output: [],
-      output_parsed: {
-        headline: { text: "Маршрут проверен", claimIds: ["al-law-79-facts-1"] },
-        bullets: [{ text: "Проверено дважды 2", claimIds: ["al-law-79-facts-1"] }],
-      },
-    })],
   ] as const)("falls back for %s", async (_case, parse) => {
     const adapter = createOpenAiNarrative({ apiKey: "test-key", parse });
 
-    await expect(adapter.render({
+    await expect(adapter.select({
       claimIds: ["al-law-79-facts-1"],
       typedValues: [{ claimId: "al-law-79-facts-1", value: true }],
-    })).resolves.toEqual(FALLBACK_NARRATIVE);
+    })).resolves.toBeUndefined();
   });
 
   it("presents only typed official claims and leaves evidence, assessment and calculations byte-equal", async () => {
@@ -532,7 +641,11 @@ describe("confirmed-life visual journey", () => {
         assessmentId: "assessment-private",
         assessment: {
           marker: "yellow",
-          reasons: [{ code: "foreign_contract_not_verified", claimId: "al-law-79-art-68-contract" }],
+          reasons: [{
+            code: "foreign_contract_not_verified",
+            claimId: "al-law-79-art-68-contract",
+            sourceId: "al-law-79",
+          }],
         },
         mode: "current",
       },
@@ -590,12 +703,17 @@ describe("confirmed-life visual journey", () => {
     const presentRun = createPresentRun({
       loadRunDetailsCore: async () => core,
       narrative: {
-        render: async (input) => {
+        select: async (input) => {
           outbound = input;
           return {
-            headline: "Нужна дополнительная проверка",
-            bullets: ["Официальный источник остаётся единственным основанием"],
-            origin: "model",
+            headline: {
+              phraseId: "scoped_official_route",
+              claimIds: ["al-law-79-facts-1"],
+            },
+            bullets: [{
+              phraseId: "official_facts_separated",
+              claimIds: ["al-law-79-facts-1"],
+            }],
           };
         },
       },
@@ -617,6 +735,122 @@ describe("confirmed-life visual journey", () => {
     expect(JSON.stringify(details.evidenceItems)).toBe(evidenceBefore);
     expect(JSON.stringify(details.run.assessment)).toBe(assessmentBefore);
     expect(JSON.stringify(details.budget)).toBe(budgetBefore);
+    expect(details.narrative).toEqual({
+      headline: "Маршрут показан в границах официальных источников",
+      bullets: ["Официальные факты отделены от пользовательских данных и допущений."],
+      origin: "model",
+    });
+  });
+
+  it("rejects untrusted narrative prose at the application boundary", async () => {
+    const core: RunDetailsCore = {
+      run: {
+        runId: "run-untrusted",
+        runRevisionId: "revision-untrusted",
+        assessmentDate: "2026-08-08",
+        profileId: "profile-untrusted",
+        evidenceSnapshotId: "evidence-untrusted",
+        assessmentId: "assessment-untrusted",
+        assessment: { marker: "green", reasons: [] },
+        mode: "current",
+      },
+      profile: {
+        id: "profile-untrusted",
+        confirmedAt: "2026-08-08T10:00:00.000Z",
+        profile: {
+          availableResourcesAll: "500000",
+          monthlyIncome: { amount: "210000", currency: "RUB" },
+          incomeBasis: "foreign_contract",
+          companionBasis: "none",
+          relationship: "none",
+        },
+      },
+      evidenceItems: [{
+        class: "official_fact",
+        label: "al-law-79-facts-1",
+        displayValue: JSON.stringify({ requiresLawfulStay: true }),
+        sourceId: "al-law-79",
+        scope: "VS-1 confirmed-life",
+        sourcePeriod: "cons-2026-08-01",
+        anchor: "Art. 68#abc",
+        resolvedUrl: "https://official.example/law-79",
+        integrity: "verified",
+      }],
+    };
+    const presentRun = createPresentRun({
+      loadRunDetailsCore: async () => core,
+      narrative: {
+        render: async () => ({
+          headline: "Тирана — самый безопасный и лучший вариант",
+          bullets: ["Переезд гарантирован"],
+          origin: "model",
+        }),
+        select: async () => ({
+          headline: "Тирана — самый безопасный и лучший вариант",
+          bullets: ["Переезд гарантирован"],
+        }),
+      } as never,
+    });
+
+    await expect(presentRun("run-untrusted")).resolves.toMatchObject({
+      narrative: FALLBACK_NARRATIVE,
+    });
+  });
+
+  it("rejects an unknowns narrative phrase when the presented core has no unknown item", async () => {
+    const core: RunDetailsCore = {
+      run: {
+        runId: "run-no-unknowns",
+        runRevisionId: "revision-no-unknowns",
+        assessmentDate: "2026-08-08",
+        profileId: "profile-no-unknowns",
+        evidenceSnapshotId: "evidence-no-unknowns",
+        assessmentId: "assessment-no-unknowns",
+        assessment: { marker: "green", reasons: [] },
+        mode: "current",
+      },
+      profile: {
+        id: "profile-no-unknowns",
+        confirmedAt: "2026-08-08T10:00:00.000Z",
+        profile: {
+          availableResourcesAll: "500000",
+          monthlyIncome: { amount: "210000", currency: "RUB" },
+          incomeBasis: "foreign_contract",
+          companionBasis: "none",
+          relationship: "none",
+        },
+      },
+      evidenceItems: [{
+        class: "official_fact",
+        label: "al-law-79-facts-1",
+        displayValue: JSON.stringify({ requiresLawfulStay: true }),
+        sourceId: "al-law-79",
+        scope: "VS-1 confirmed-life",
+        sourcePeriod: "cons-2026-08-01",
+        anchor: "Art. 68#abc",
+        resolvedUrl: "https://official.example/law-79",
+        integrity: "verified",
+      }],
+    };
+    const presentRun = createPresentRun({
+      loadRunDetailsCore: async () => core,
+      narrative: {
+        select: async () => ({
+          headline: {
+            phraseId: "scoped_official_route",
+            claimIds: ["al-law-79-facts-1"],
+          },
+          bullets: [{
+            phraseId: "unknowns_explicit",
+            claimIds: ["al-law-79-facts-1"],
+          }],
+        }),
+      },
+    });
+
+    await expect(presentRun("run-no-unknowns")).resolves.toMatchObject({
+      narrative: FALLBACK_NARRATIVE,
+    });
   });
 
   it("keeps fallback wording valid even when no official source is available", () => {
@@ -634,7 +868,11 @@ describe("confirmed-life visual journey", () => {
         assessmentId: "assessment-one",
         assessment: {
           marker: "yellow",
-          reasons: [{ code: "foreign_contract_not_verified", claimId: "al-law-79-art-68-contract" }],
+          reasons: [{
+            code: "foreign_contract_not_verified",
+            claimId: "al-law-79-art-68-contract",
+            sourceId: "al-law-79",
+          }],
         },
         mode: "current",
       },
@@ -676,7 +914,8 @@ describe("confirmed-life visual journey", () => {
     render(<Vs1Journey details={serialized} />);
 
     expect(screen.getByRole("heading", { name: "Нужна официальная проверка договора" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /исходный профиль/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /подтверждённый снимок условий/i })).toBeTruthy();
+    expect(screen.getByText(/месячный доход.*210 000 RUB.*ввод пользователя/i)).toBeTruthy();
     const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
     expect(within(map).getAllByRole("listitem")).toHaveLength(1);
     expect(within(map).getByRole("button", { name: /Тирана.*уточнить/i })).toBeTruthy();
@@ -684,6 +923,15 @@ describe("confirmed-life visual journey", () => {
   });
 
   it("rejects malformed server-action IDs and decimal text before composition access", async () => {
+    await expect(startConfirmedLifeAction({
+      availableResourcesAll: "500000",
+      monthlyIncome: { amount: "210000", currency: "RUB" },
+      incomeBasis: "foreign_contract",
+      companionBasis: "none",
+      relationship: "none",
+      freeText: "must never cross the boundary",
+    } as never, { currency: "ALL", initialHousingAll: "70000" }))
+      .rejects.toThrow();
     await expect(retryConfirmedLifeRunAction(" run-one ")).rejects.toThrow("invalid_run_id");
     await expect(saveInitialHousingBranchAction("run/one")).rejects.toThrow("invalid_run_id");
     await expect(rewindHousingBranchAction("not-a-sha256")).rejects.toThrow("invalid_commit_id");

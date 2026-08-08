@@ -37,6 +37,9 @@ export interface Evidence {
   readonly availableResourcesVerified: EvidenceStatus;
   readonly lawfulStayVerified: EvidenceStatus;
   readonly stagedFamilyPlanVerified: EvidenceStatus;
+  readonly cbrRateVerified: EvidenceStatus;
+  readonly boaRateVerified: EvidenceStatus;
+  readonly sourceBlockers: Readonly<Partial<Record<SourceId, EvidenceBlockerKind>>>;
 }
 
 export interface RouteConditions {
@@ -46,6 +49,8 @@ export interface RouteConditions {
 export interface AssessmentReason {
   readonly code: string;
   readonly claimId: ClaimId;
+  readonly sourceId: SourceId;
+  readonly blockerKind?: EvidenceBlockerKind;
 }
 
 export interface Assessment {

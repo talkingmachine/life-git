@@ -3,6 +3,7 @@ import type { BranchCursor, HousingBranchDiff } from "../branch/life-git";
 import type { CalculationInput } from "../branch/budget";
 import type {
   Assessment,
+  Evidence,
   EvidenceBlockerKind,
   EvidenceSnapshot,
   ProfileSnapshot,
@@ -145,12 +146,27 @@ export interface NarrativeRead {
   readonly origin: "model" | "fallback";
 }
 
+export type NarrativePhraseId =
+  | "scoped_official_route"
+  | "official_facts_separated"
+  | "unknowns_explicit";
+
+export interface NarrativeSelectionSection {
+  readonly phraseId: NarrativePhraseId;
+  readonly claimIds: readonly string[];
+}
+
+export interface NarrativeSelection {
+  readonly headline: NarrativeSelectionSection;
+  readonly bullets: readonly NarrativeSelectionSection[];
+}
+
 export interface RunDetails extends RunDetailsCore {
   readonly narrative: NarrativeRead;
 }
 
 export interface NarrativePort {
-  render(input: NarrativeInput): Promise<NarrativeRead>;
+  select(input: NarrativeInput): Promise<unknown>;
 }
 
 export interface ResearchPort {
@@ -210,7 +226,7 @@ export interface ConfirmedLifePorts {
   readonly research: ResearchPort;
   readonly assess: (
     profile: ProfileSnapshot,
-    evidence: EvidenceSnapshot,
+    evidence: Evidence,
     conditions: { readonly housingProvided: true },
   ) => Assessment;
   readonly clock: () => Date;

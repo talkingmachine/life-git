@@ -39,7 +39,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -132,6 +133,49 @@ h3 {
   margin-top: 2rem;
   padding-top: 1.25rem;
   border-top: 1px solid var(--line);
+}
+
+.landing--start {
+  align-items: start;
+}
+
+.landing--start .landing__copy h1 {
+  font-size: clamp(2.8rem, 6vw, 5.4rem);
+}
+
+.start-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-top: 1.6rem;
+}
+
+.start-form > label:not(.profile-card__confirmation) {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 720;
+}
+
+.start-form input,
+.start-form select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.78rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--ink);
+}
+
+.start-form > .profile-card__confirmation,
+.start-form > button {
+  grid-column: 1 / -1;
+}
+
+.journey-shell--pending {
+  padding: 1rem 0;
 }
 
 .landing code {
@@ -433,24 +477,22 @@ h3 {
   background: var(--paper-deep);
 }
 
-.budget-flow__bar::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  height: 0.55rem;
-  background: var(--coral);
-}
-
-.budget-flow__bar--housing::after {
-  background: #d49a45;
-}
-
-.budget-flow__bar--residual::after {
-  background: var(--green);
-}
-
 .budget-flow__bar strong {
   font-size: clamp(1.2rem, 3vw, 2rem);
+}
+
+.budget-flow__bar meter {
+  width: 100%;
+  height: 0.8rem;
+  accent-color: var(--coral);
+}
+
+.budget-flow__bar--housing meter {
+  accent-color: #d49a45;
+}
+
+.budget-flow__bar--residual meter {
+  accent-color: var(--green);
 }
 
 .budget-flow__unknowns {
@@ -547,6 +589,31 @@ h3 {
   margin-bottom: 0.55rem;
 }
 
+.evidence-passport__technical {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--line);
+}
+
+.evidence-passport__technical > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.evidence-passport__technical pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.evidence-passport__technical li {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.5rem;
+}
+
 .evidence-passport dl > div {
   display: grid;
   grid-template-columns: minmax(5rem, 0.35fr) 1fr;
@@ -603,6 +670,7 @@ h3 {
   }
 
   .profile-card ul,
+  .start-form,
   .budget-flow__bars,
   .evidence-passport__grid {
     grid-template-columns: 1fr;

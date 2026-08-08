@@ -11,6 +11,7 @@ import {
   saveInitialHousingBranch,
 } from "../../app/actions";
 import { createJourneyView } from "../view-model";
+import { replaceRunUrl } from "../run-url";
 import { EvidencePassport } from "./EvidencePassport";
 import { LifeBranch } from "./LifeBranch";
 import { LifeGitDiff } from "./LifeGitDiff";
@@ -53,7 +54,7 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
 
   const submitFork = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (cursor === undefined) return;
+    if (cursor === undefined || initialCursor === undefined || cursor.commitId !== initialCursor.commitId) return;
     runAction(() => forkHousingBranch(cursor, housingAll));
   };
 
@@ -69,7 +70,8 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
       </header>
 
       <ProfileCard
-        onConfirm={() => runAction(() => saveInitialHousingBranch(current.run.runId))}
+        canSaveC0={current.run.assessment.marker === "green" && initialCursor === undefined}
+        onSaveC0={() => runAction(() => saveInitialHousingBranch(current.run.runId))}
         profile={view.profile}
       />
 
@@ -80,6 +82,7 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
           setResearchPending(true);
           try {
             const next = await retryConfirmedLifeRun(previousRunId);
+            replaceRunUrl(next.run.runId);
             setCurrent(next);
             setInitialCursor(next.initialBranchCursor ?? next.branchCursor);
             setCursor(next.branchCursor);
@@ -122,7 +125,15 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
               onChange={(event) => setHousingAll(event.currentTarget.value)}
               value={housingAll}
             />
-            <button disabled={cursor === undefined || isBranchPending} type="submit">Создать C1</button>
+            <button
+              disabled={
+                cursor === undefined || initialCursor === undefined ||
+                cursor.commitId !== initialCursor.commitId || isBranchPending
+              }
+              type="submit"
+            >
+              Создать C1
+            </button>
           </form>
         </section>
       )}

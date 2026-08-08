@@ -25,6 +25,12 @@ export function LifeBranch({ budget }: LifeBranchProps) {
           <div className={`budget-flow__bar budget-flow__bar--${stage.key}`} data-testid="budget-bar" key={stage.key}>
             <span>{stage.label}</span>
             <strong>{formatDecimal(stage.value)} ALL</strong>
+            <meter
+              aria-label={`${stage.label}: ${formatDecimal(stage.value)} ALL`}
+              max={budget.incomeAll}
+              min="0"
+              value={stage.value}
+            />
           </div>
         ))}
       </div>

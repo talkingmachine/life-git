@@ -10,6 +10,7 @@ import {
   type RunDetailsCore,
   type RunResult,
 } from "./contracts";
+import { projectValidatedEvidence } from "./verified-evidence";
 
 function validNow(clock: () => Date): Date {
   const now = clock();
@@ -40,7 +41,11 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
     if (evidence.id !== expectedEvidenceId || evidence.assessmentDate !== assessmentDate) {
       throw new Error("integrity_mismatch");
     }
-    const assessment = ports.assess(profile, evidence, { housingProvided: true });
+    const assessment = ports.assess(
+      profile,
+      projectValidatedEvidence(evidence).decisionEvidence,
+      { housingProvided: true },
+    );
     const assessmentId = ports.nextId("assessment");
     const record = await ports.runStore.appendAssessment({
       id: ports.nextId("revision"),
@@ -122,7 +127,8 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
     ) {
       throw new Error("integrity_mismatch");
     }
-    const officialFacts: EvidenceReadItem[] = evidenceDetails.snapshot.claims.map((claim) => {
+    const validatedEvidence = projectValidatedEvidence(evidenceDetails.snapshot);
+    const officialFacts: EvidenceReadItem[] = validatedEvidence.acceptedClaims.map((claim) => {
       const source = evidenceDetails.sources.find((candidate) => candidate.sourceId === claim.sourceId);
       if (source === undefined) throw new Error("integrity_mismatch");
       return {
@@ -146,6 +152,19 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
       navigationUrl: blocker.navigationUrl,
       ...(blocker.resolvedUrl === undefined ? {} : { resolvedUrl: blocker.resolvedUrl }),
     }));
+    const rejectedSources: EvidenceReadItem[] = validatedEvidence.rejectedSources.map((rejected) => {
+      const source = evidenceDetails.sources.find((candidate) => candidate.sourceId === rejected.sourceId);
+      if (source === undefined) throw new Error("integrity_mismatch");
+      return {
+        class: "unknown",
+        label: `${rejected.sourceId} semantically unavailable`,
+        provenance: "source_unavailable",
+        sourceId: rejected.sourceId,
+        blockerKind: rejected.blockerKind,
+        navigationUrl: source.navigationUrl,
+        resolvedUrl: source.resolvedEvidenceUrl,
+      };
+    });
     const userFacts: EvidenceReadItem[] = [
       {
         class: "user_fact",
@@ -197,7 +216,7 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
     return Object.freeze({
       run,
       profile,
-      evidenceItems: Object.freeze([...userFacts, ...officialFacts, ...blockers]),
+      evidenceItems: Object.freeze([...userFacts, ...officialFacts, ...blockers, ...rejectedSources]),
     });
   };
 

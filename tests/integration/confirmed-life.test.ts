@@ -4,12 +4,15 @@ import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { createConfirmedLife } from "../../src/application/confirmed-life";
+import { createPresentRun } from "../../src/application/present-run";
+import {
+  projectDecisionEvidence,
+  projectVerifiedBudgetFacts,
+} from "../../src/application/verified-evidence";
 import { assessRoute } from "../../src/decision/assessment";
 import { confirmProfile } from "../../src/decision/profile";
 import {
   createConfirmedLifeComposition,
-  projectDecisionEvidence,
-  projectVerifiedBudgetFacts,
 } from "../../src/infrastructure/composition-root";
 import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
@@ -26,7 +29,6 @@ import type {
   LiveCapturedArtifact,
   OfficialSourcePort,
   ParserEntry,
-  Evidence,
   EvidenceSnapshot,
   SourceId,
 } from "../../src/research/contracts";
@@ -94,9 +96,18 @@ function artifact(request: HttpStepRequest): LiveCapturedArtifact {
   };
 }
 
-function source(): OfficialSourcePort {
+function source(outageSource?: SourceId): OfficialSourcePort {
   return {
     async capture(request, requestStep): Promise<CaptureResult> {
+      if (request.sourceId === outageSource) {
+        return {
+          ok: false,
+          sourceId: request.sourceId,
+          kind: "server_error",
+          attempts: 1,
+          partialArtifacts: [],
+        };
+      }
       const sourceArtifact = await requestStep({
         runId: request.runId,
         sourceId: request.sourceId,
@@ -183,19 +194,21 @@ function typedFacts(sourceId: SourceId): unknown {
   }
 }
 
-function typedParsers(): EvidenceParsers {
+function typedParsers(unavailableSource?: SourceId): EvidenceParsers {
   return Object.fromEntries(EVIDENCE_SOURCE_IDS.map((sourceId) => [
     sourceId,
-    async (entry: ParserEntry) => ({
-      ok: true as const,
-      facts: typedFacts(sourceId),
-      sourcePeriod: standardSourcePeriod(sourceId),
-      anchors: Array.from({ length: expectedClaimCounts[sourceId] }, (_, index) => ({
-        artifactId: entry.artifacts[0]!.artifactId,
-        locator: standardLocator(sourceId, index),
-        excerptSha256: String(index + 1).repeat(64),
-      })),
-    }),
+    async (entry: ParserEntry) => sourceId === unavailableSource
+      ? { ok: false as const, kind: "semantic_mismatch" as const }
+      : ({
+          ok: true as const,
+          facts: typedFacts(sourceId),
+          sourcePeriod: standardSourcePeriod(sourceId),
+          anchors: Array.from({ length: expectedClaimCounts[sourceId] }, (_, index) => ({
+            artifactId: entry.artifacts[0]!.artifactId,
+            locator: standardLocator(sourceId, index),
+            excerptSha256: String(index + 1).repeat(64),
+          })),
+        }),
   ])) as unknown as EvidenceParsers;
 }
 
@@ -365,22 +378,6 @@ function defectLawClaims(snapshot: EvidenceSnapshot, defect: ClaimSetDefect): Ev
   return { ...snapshot, claims: [...otherClaims, ...changed] };
 }
 
-function assessmentEvidence(snapshot: EvidenceSnapshot): Evidence {
-  const verified = (sourceId: SourceId) => snapshot.coverage[sourceId] === "verified" ? "verified" as const : "missing" as const;
-  const law = verified("al-law-79");
-  return {
-    claims: {
-      "al-law-79-art-68-contract": { source: "official", status: law },
-      "al-law-79-art-68-spouse": { source: "official", status: law },
-      "al-tirana-residence": { source: "official", status: verified("tirana-urban-lines") },
-    },
-    foreignContractVerified: law,
-    availableResourcesVerified: verified("al-decision-858"),
-    lawfulStayVerified: law,
-    stagedFamilyPlanVerified: law,
-  };
-}
-
 const completeDraft = {
   availableResourcesAll: "408000.00",
   monthlyIncome: { amount: "210000", currency: "RUB" as const },
@@ -437,13 +434,13 @@ function testHarness(options: { readonly unavailableSource?: SourceId } = {}) {
           requestStep: (request: HttpStepRequest) => Promise.resolve(artifact(request)),
           store: evidenceStore,
           integrity: createEvidenceIntegrity(KEY),
-          parsers: parsers(state.unavailableSource),
+          parsers: typedParsers(state.unavailableSource),
         });
       },
     },
-    assess: (profile, snapshot, conditions) => {
+    assess: (profile, evidence, conditions) => {
       state.assessmentCalls += 1;
-      return assessRoute(profile, assessmentEvidence(snapshot), conditions);
+      return assessRoute(profile, evidence, conditions);
     },
     clock: () => NOW,
     nextId: (kind) => `${kind}-${++ids[kind]}`,
@@ -495,7 +492,7 @@ describe("confirmed-life orchestration", () => {
             requestStep: (request: HttpStepRequest) => Promise.resolve(artifact(request)),
             store: evidenceStore,
             integrity: createEvidenceIntegrity(KEY),
-            parsers: parsers(),
+            parsers: typedParsers(),
           });
           events.push("evidence-sealed");
           return snapshot;
@@ -506,7 +503,7 @@ describe("confirmed-life orchestration", () => {
         events.push("assessed");
         expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 1 });
         expect(db.prepare("SELECT COUNT(*) AS count FROM artifacts WHERE sealed = 1").get()).toEqual({ count: 5 });
-        return assessRoute(profile, assessmentEvidence(evidence), conditions);
+        return assessRoute(profile, evidence, conditions);
       },
       clock: () => NOW,
       nextId: (kind) => `${kind}-1`,
@@ -583,15 +580,11 @@ describe("confirmed-life orchestration", () => {
             requestStep: (request: HttpStepRequest) => Promise.resolve(artifact(request)),
             store: evidenceStore,
             integrity: createEvidenceIntegrity(KEY),
-            parsers: parsers(unavailableSource),
+            parsers: typedParsers(unavailableSource),
           });
         },
       },
-      assess: (profile, snapshot, conditions) => assessRoute(
-        profile,
-        assessmentEvidence(snapshot),
-        conditions,
-      ),
+      assess: assessRoute,
       clock: () => NOW,
       nextId: (kind) => `${kind}-${++ids[kind]}`,
       deadlineAt: (now) => new Date(now.getTime() + 45_000),
@@ -802,6 +795,80 @@ describe("confirmed-life orchestration", () => {
     expect(details.evidenceItems.some((item) => item.class === "projection")).toBe(false);
   });
 
+  test("keeps sealed but semantically rejected claims out of Passport and narrative input", async () => {
+    const snapshot = await verifiedMixedSnapshot("al-law-79");
+    const profile = confirmProfile(completeDraft, () => NOW);
+    const revision = Object.freeze({
+      id: "projection-revision",
+      runId: "projection-run",
+      stage: "assessment" as const,
+      assessmentDate: ASSESSMENT_DATE,
+      initialHousing: Object.freeze({ currency: "ALL" as const, initialHousingAll: "70000" }),
+      profileId: profile.id,
+      evidenceSnapshotId: snapshot.id,
+      assessmentId: "projection-assessment",
+      rulesVersion: "vs1-assessment@1",
+      hmac: "trusted-port-fixture",
+    });
+    const application = createConfirmedLife({
+      profileStore: {
+        append: async () => undefined,
+        loadVerified: async () => profile,
+      },
+      runStore: {
+        appendAssessment: async () => ({
+          revision,
+          assessment: { marker: "yellow" as const, reasons: [] },
+        }),
+        loadAssessmentByRunId: async () => ({
+          revision,
+          assessment: { marker: "yellow" as const, reasons: [] },
+        }),
+      },
+      evidence: {
+        loadVerified: async () => snapshot,
+        loadVerifiedDetails: async () => ({
+          snapshot,
+          sources: EVIDENCE_SOURCE_IDS.map((sourceId) => ({
+            sourceId,
+            navigationUrl: `https://official.example/${sourceId}`,
+            resolvedEvidenceUrl: `https://official.example/${sourceId}`,
+          })),
+        }),
+      },
+      research: { runCurrentEvidence: async () => snapshot },
+      assess: () => ({ marker: "yellow", reasons: [] }),
+      clock: () => NOW,
+      nextId: (kind) => `${kind}-unused`,
+      deadlineAt: (now) => new Date(now.getTime() + 45_000),
+    });
+
+    const core = await application.loadRunDetailsCore("projection-run");
+    let outboundClaimIds: readonly string[] = [];
+    await createPresentRun({
+      loadRunDetailsCore: async () => core,
+      narrative: {
+        select: async (input) => {
+          outboundClaimIds = input.claimIds;
+          return undefined;
+        },
+      },
+    })("projection-run");
+
+    expect(core.evidenceItems.some((item) =>
+      item.class === "official_fact" && item.sourceId === "al-law-79"
+    )).toBe(false);
+    expect(core.evidenceItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        class: "unknown",
+        provenance: "source_unavailable",
+        sourceId: "al-law-79",
+        blockerKind: "semantic_mismatch",
+      }),
+    ]));
+    expect(outboundClaimIds.some((claimId) => claimId.startsWith("al-law-79-"))).toBe(false);
+  });
+
   test("adds a staged companion projection only when the confirmed profile has a family route", async () => {
     const { application } = testHarness();
     const result = await application.startConfirmedLife(
@@ -852,6 +919,37 @@ describe("confirmed-life orchestration", () => {
     expect(sourceCaptures).toBe(5);
     expect(db.prepare("SELECT COUNT(*) AS count FROM run_revisions").get()).toEqual({ count: 1 });
   });
+
+  test.each(["cbr-eur", "boa-eur"] as const)(
+    "keeps a critical %s source outage terminal yellow and refuses C0",
+    async (sourceId) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+      const ids = { run: 0, revision: 0, assessment: 0 };
+      const application = createConfirmedLifeComposition({
+        database: database(),
+        hmacKey: KEY,
+        source: source(sourceId),
+        requestStep: (request) => Promise.resolve(artifact(request)),
+        parsers: typedParsers(),
+        clock: () => NOW,
+        nextId: (kind) => `${kind}-${sourceId}-${++ids[kind]}`,
+        deadlineAt: (now) => new Date(now.getTime() + 45_000),
+      });
+
+      const result = await application.startConfirmedLife(
+        completeDraft,
+        { currency: "ALL", initialHousingAll: "70000" },
+      );
+
+      expect(result.assessment).toMatchObject({
+        marker: "yellow",
+        reasons: [{ sourceId, blockerKind: "server_error" }],
+      });
+      await expect(application.saveInitialHousingBranch(result.runId))
+        .rejects.toThrow("branch_requires_green_assessment");
+    },
+  );
 
   test("composition saves and fully replays exact typed sealed assessment and budget offline without appends", async () => {
     vi.useFakeTimers();

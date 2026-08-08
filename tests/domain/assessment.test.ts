@@ -16,6 +16,9 @@ const verifiedEvidence: Evidence = {
   availableResourcesVerified: "verified",
   lawfulStayVerified: "verified",
   stagedFamilyPlanVerified: "verified",
+  cbrRateVerified: "verified",
+  boaRateVerified: "verified",
+  sourceBlockers: {},
 };
 
 function profileFor(overrides: Partial<ProfileDraft> = {}) {
@@ -75,4 +78,86 @@ test("marks only a verified official hard mismatch red and ignores a non-family 
   expect(assessRoute(albanianEmployerProfile, verifiedEvidence, { housingProvided: true }).reasons[0].claimId).toBe("al-law-79-art-68-contract");
   expect(assessRoute(albanianEmployerProfile, verifiedEvidence, { housingProvided: true }).marker).toBe("red");
   expect(assessRoute(nonFamilyProfile, verifiedEvidence, { housingProvided: true }).marker).toBe("yellow");
+});
+
+test("binds each reason to its exact source and separates a verified threshold mismatch", () => {
+  const belowThreshold = assessRoute(
+    profileFor({ availableResourcesAll: "407999" }),
+    verifiedEvidence,
+    { housingProvided: true },
+  );
+  const unavailableResources = assessRoute(profileFor(), {
+    ...verifiedEvidence,
+    availableResourcesVerified: "invalid",
+    sourceBlockers: { "al-decision-858": "semantic_mismatch" },
+  }, { housingProvided: true });
+  const unavailableLaw = assessRoute(profileFor(), {
+    ...verifiedEvidence,
+    lawfulStayVerified: "missing",
+    sourceBlockers: { "al-law-79": "timeout" },
+  }, { housingProvided: true });
+  const unavailableTransit = assessRoute(profileFor(), {
+    ...verifiedEvidence,
+    claims: {
+      ...verifiedEvidence.claims,
+      "al-tirana-residence": { source: "official", status: "missing" },
+    },
+    sourceBlockers: { "tirana-urban-lines": "server_error" },
+  }, { housingProvided: true });
+
+  expect(belowThreshold.reasons[0]).toEqual({
+    code: "available_resources_below_threshold",
+    claimId: "al-tirana-residence",
+    sourceId: "al-decision-858",
+  });
+  expect(unavailableResources.reasons[0]).toEqual({
+    code: "available_resources_rule_unavailable",
+    claimId: "al-tirana-residence",
+    sourceId: "al-decision-858",
+    blockerKind: "semantic_mismatch",
+  });
+  expect(unavailableLaw.reasons[0]).toMatchObject({
+    code: "lawful_stay_not_verified",
+    sourceId: "al-law-79",
+    blockerKind: "timeout",
+  });
+  expect(unavailableTransit.reasons[0]).toMatchObject({
+    code: "tirana_claim_not_verified",
+    sourceId: "tirana-urban-lines",
+    blockerKind: "server_error",
+  });
+});
+
+test.each([
+  ["cbr-eur", "cbrRateVerified", "cbr_rate_not_verified"],
+  ["boa-eur", "boaRateVerified", "boa_rate_not_verified"],
+] as const)("keeps a %s outage terminal yellow with exact lineage", (sourceId, field, code) => {
+  const assessment = assessRoute(profileFor(), {
+    ...verifiedEvidence,
+    [field]: "missing",
+    sourceBlockers: { [sourceId]: "server_error" },
+  }, { housingProvided: true });
+
+  expect(assessment).toEqual({
+    marker: "yellow",
+    reasons: [{
+      code,
+      claimId: "al-tirana-residence",
+      sourceId,
+      blockerKind: "server_error",
+    }],
+  });
+  expect(assessRoute(profileFor({ incomeBasis: "albanian_employer_only" }), {
+    ...verifiedEvidence,
+    [field]: "missing",
+    sourceBlockers: { [sourceId]: "server_error" },
+  }, { housingProvided: true }).marker).toBe("yellow");
+  expect(assessRoute(profileFor({
+    availableResourcesAll: "0",
+    incomeBasis: "albanian_employer_only",
+  }), {
+    ...verifiedEvidence,
+    [field]: "missing",
+    sourceBlockers: { [sourceId]: "server_error" },
+  }, { housingProvided: true }).reasons[0].code).toBe(code);
 });
