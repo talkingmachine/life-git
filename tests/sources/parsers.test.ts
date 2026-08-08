@@ -268,6 +268,42 @@ describe("legal semantic parsers", () => {
       await parseDecision858(entry("al-decision-858", [decision], "cons-2024-04-03")),
     ).toEqual({ ok: false, kind: "semantic_mismatch" });
   });
+
+  test("Decision 858 rejects a period formula continuing on the next page of item gj", async () => {
+    const decision = artifactWithComputedHash(
+      "act-pdf",
+      "application/pdf",
+      validTextPdf([
+        { logicalPage: 8, text: DECISION_POINT_8 },
+        { logicalPage: 23, text: `Item gj. ${DECISION_AMOUNT}` },
+        { logicalPage: 24, text: "The amount is required per month." },
+        { logicalPage: 25, text: "Item h. A separate residence provision begins here." },
+      ]),
+    );
+
+    expect(
+      await parseDecision858(entry("al-decision-858", [decision], "cons-2024-04-03")),
+    ).toEqual({ ok: false, kind: "semantic_mismatch" });
+  });
+
+  test("Decision 858 ignores period formulas in a later unrelated item", async () => {
+    const decision = artifactWithComputedHash(
+      "act-pdf",
+      "application/pdf",
+      validTextPdf([
+        { logicalPage: 8, text: DECISION_POINT_8 },
+        { logicalPage: 23, text: `Item gj. ${DECISION_AMOUNT}` },
+        { logicalPage: 24, text: "Item h. A different residence amount is required per month." },
+      ]),
+    );
+
+    expect(
+      await parseDecision858(entry("al-decision-858", [decision], "cons-2024-04-03")),
+    ).toMatchObject({
+      ok: true,
+      facts: { periodFormula: "not_stated", headcountFormula: "not_stated" },
+    });
+  });
 });
 
 describe("official FX semantic parsers", () => {

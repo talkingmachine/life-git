@@ -7,6 +7,24 @@ import {
   normalizedText,
 } from "./parser-support";
 
+function digitalWorkerItem(pages: readonly string[], amountPage: string): string {
+  const documentText = pages.join("\n");
+  const amountOffset = documentText.indexOf(amountPage);
+  const itemMarkers = [...documentText.matchAll(/\b(?:item|pika)\s+gj\b/gi)]
+    .filter((match) => (match.index ?? -1) <= amountOffset);
+  const itemMarker = itemMarkers.at(-1);
+  if (itemMarker?.index === undefined) return amountPage;
+
+  const itemText = documentText.slice(itemMarker.index);
+  const nextItem = /\b(?:item|pika)\s+(?!gj\b)[a-zçë]+\b/i.exec(
+    itemText.slice(itemMarker[0].length),
+  );
+  const endOffset = nextItem === null
+    ? itemText.length
+    : itemMarker[0].length + (nextItem.index ?? 0);
+  return normalizedText(itemText.slice(0, endOffset));
+}
+
 export async function parseDecision858(entry: ParserEntry): Promise<ParseResult<Decision858Facts>> {
   if (!entryHasValidIntegrity(entry)) {
     return { ok: false, kind: "integrity_mismatch" };
@@ -31,7 +49,7 @@ export async function parseDecision858(entry: ParserEntry): Promise<ParseResult<
     return { ok: false, kind: "semantic_mismatch" };
   }
   const point8 = point8Pages[0]!;
-  const amount = amountPages[0]!;
+  const amount = digitalWorkerItem(pages, amountPages[0]!);
   if (
     !/point 8\..*unless otherwise provided.*general rule/i.test(point8) ||
     !/self-declaration.*408\s*000\s+ALL.*persons depending/i.test(amount) ||
