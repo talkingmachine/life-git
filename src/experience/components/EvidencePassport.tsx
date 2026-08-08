@@ -1,6 +1,7 @@
 import type { EvidenceReadItem } from "../../application/contracts";
 
 interface EvidencePassportProps {
+  companionMode: "staged" | "none" | "separate";
   items: readonly EvidenceReadItem[];
 }
 
@@ -65,11 +66,13 @@ function OfficialSource({ items }: { readonly items: readonly OfficialFact[] }) 
     summary: "Факт подтверждён официальным источником.",
   };
   const rawValues = [...new Set(items.map((item) => item.displayValue))];
+  const sourcePeriods = [...new Set(items.map((item) => item.sourcePeriod))];
 
   return (
     <article>
       <h4>{copy.title}</h4>
       <p>{copy.summary}</p>
+      <p>Период источника: {sourcePeriods.join(", ")}</p>
       <a href={first.resolvedUrl} rel="noreferrer noopener" target="_blank">
         Проверенный официальный источник
       </a>
@@ -152,7 +155,7 @@ function officialGroups(items: readonly EvidenceReadItem[]): readonly (readonly 
   return [...groups.values()];
 }
 
-export function EvidencePassport({ items }: EvidencePassportProps) {
+export function EvidencePassport({ companionMode, items }: EvidencePassportProps) {
   const groupedOfficialFacts = officialGroups(items);
   return (
     <details className="evidence-passport">
@@ -161,20 +164,31 @@ export function EvidencePassport({ items }: EvidencePassportProps) {
         <small>Понятный срез · раскрыть шесть классов</small>
       </summary>
       <div className="evidence-passport__grid">
-        {classes.map(([className, title]) => (
-          <section aria-labelledby={`evidence-${className}`} key={className}>
-            <h3 id={`evidence-${className}`}>{title}</h3>
-            <div>
-              {className === "official_fact"
-                ? groupedOfficialFacts.map((group) => (
-                  <OfficialSource items={group} key={group[0]?.sourceId} />
-                ))
-                : items.filter((item) => item.class === className).map((item, index) => (
-                  <EvidenceItem item={item} key={`${item.label}:${index}`} />
-                ))}
-            </div>
-          </section>
-        ))}
+        {classes.map(([className, title]) => {
+          const classItems = items.filter((item) => item.class === className);
+          return (
+            <section aria-labelledby={`evidence-${className}`} key={className}>
+              <h3 id={`evidence-${className}`}>{title}</h3>
+              <div>
+                {className === "official_fact"
+                  ? groupedOfficialFacts.map((group) => (
+                    <OfficialSource items={group} key={group[0]?.sourceId} />
+                  ))
+                  : classItems.map((item, index) => (
+                    <EvidenceItem item={item} key={`${item.label}:${index}`} />
+                  ))}
+                {className === "projection" && companionMode === "none" && classItems.length === 0
+                  ? (
+                    <article>
+                      <h4>Без спутника</h4>
+                      <p>Сценарий без спутника: отдельная семейная проекция не требуется.</p>
+                    </article>
+                  )
+                  : null}
+              </div>
+            </section>
+          );
+        })}
       </div>
     </details>
   );

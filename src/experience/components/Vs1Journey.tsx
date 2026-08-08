@@ -167,7 +167,7 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
       )}
 
       {current.branchDiff === undefined ? null : <LifeGitDiff diff={current.branchDiff} />}
-      <EvidencePassport items={current.evidenceItems} />
+      <EvidencePassport companionMode={view.profile.companionMode} items={current.evidenceItems} />
       {error === undefined ? null : <p role="alert">{error}</p>}
     </main>
   );

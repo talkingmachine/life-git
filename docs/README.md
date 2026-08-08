@@ -175,3 +175,6 @@ pnpm eval:live -- --mode outage
 Live-команды используют synthetic solo profile, сохраняют raw capture только в игнорируемую локальную
 SQLite `data/evals/current-run/vs1.sqlite` и создают redacted JSON в `artifacts/evals/vs1/`.
 Reset ограничен точным SQLite-файлом и его `-wal`/`-shm`; каталоги, glob и другие базы не удаляются.
+
+Для локального UI создайте каталог `data`, скопируйте `.env.example` в игнорируемый `.env.local`,
+задайте непустой `EVIDENCE_HMAC_KEY` и запустите `pnpm dev`.

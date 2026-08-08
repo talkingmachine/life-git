@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import Database from "better-sqlite3";
 
-const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
+const schema = readFileSync(resolve("src/infrastructure/sqlite/schema.sql"), "utf8");
 
 const CURRENT_RUN_REVISIONS_STAGE_CHECK = normalizeSchemaSql(`
   CHECK (

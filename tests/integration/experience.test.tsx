@@ -400,6 +400,7 @@ describe("confirmed-life visual journey", () => {
   it("renders all six Evidence Passport classes with verified and blocked provenance", () => {
     render(
       <EvidencePassport
+        companionMode="staged"
         items={[
           {
             class: "official_fact",
@@ -491,6 +492,7 @@ describe("confirmed-life visual journey", () => {
     }
     expect(screen.getAllByRole("heading", { name: /Закон № 79.*цифровой работник/i })).toHaveLength(1);
     expect(screen.getByText(/официальные условия для цифрового работника и семейного маршрута/i)).toBeTruthy();
+    expect(screen.getByText("Период источника: cons-2026-08-01")).toBeTruthy();
     const rawOfficial = screen.getByText(JSON.stringify({ digitalWorker: { requiresLawfulStay: true } }));
     const officialTechnical = rawOfficial.closest("details");
     expect(officialTechnical?.textContent).toContain("al-law-79-facts-1");
@@ -511,6 +513,26 @@ describe("confirmed-life visual journey", () => {
     expect(screen.getByRole("link", { name: /открыть официальный источник для повторной проверки/i }).getAttribute("href"))
       .toBe("https://official.example/tirana");
     expect(screen.getByText(/timeout/i)).toBeTruthy();
+  });
+
+  it("explains why a solo route has no companion projection", () => {
+    render(
+      <EvidencePassport
+        companionMode="none"
+        items={[{
+          class: "user_fact",
+          label: "Companion route",
+          displayValue: "none:none",
+          provenance: "confirmed_profile",
+        }]}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Паспорт доказательств"));
+
+    expect(
+      screen.getByText("Сценарий без спутника: отдельная семейная проекция не требуется."),
+    ).toBeTruthy();
   });
 
   it("drives bound C0 through rewind to C1 and renders the server-produced causal diff", async () => {

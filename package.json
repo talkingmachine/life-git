@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "next build",
+    "dev": "next dev",
     "eval:live": "node --import tsx evals/live.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

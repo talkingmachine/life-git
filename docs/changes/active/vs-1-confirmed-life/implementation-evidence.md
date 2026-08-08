@@ -47,5 +47,6 @@ Both commands reset only `data/evals/current-run/vs1.sqlite` and its exact `-wal
 They never delete a directory or use a glob. Each report is created once under `artifacts/evals/vs1/`;
 raw SQLite, HMAC keys, profiles and source bodies are not written to the report.
 
-The manual rubric remains [`not-run`](../../../../evals/visual-truth.md). Until it passes, this package
-must not claim `demo-verified` even though source, replay, fail-closed and recovery gates are earned.
+The manual rubric remains [`needs-keyboard-confirmation`](../../../../evals/visual-truth.md). Until it
+passes, this package must not claim `demo-verified` even though source, replay, fail-closed and
+recovery gates are earned.
