@@ -27,6 +27,7 @@ import { OfficialSourceAdapter } from "./sources/official-source-adapter";
 import { openEvidenceDatabase } from "./sqlite/db";
 import { SqliteEvidenceStore } from "./sqlite/evidence-store";
 import { SqliteBranchStore } from "./sqlite/branch-store";
+import { SqliteHousingBranchWriter } from "./sqlite/housing-branch-writer";
 import { SqliteProfileStore } from "./sqlite/profile-store";
 import { SqliteRunStore } from "./sqlite/run-store";
 
@@ -260,6 +261,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
   const branchStore = new SqliteBranchStore(options.database, options.hmacKey);
   const profileStore = new SqliteProfileStore(options.database);
   const runStore = new SqliteRunStore(options.database, options.hmacKey);
+  const housingBranchAppend = new SqliteHousingBranchWriter(options.database, branchStore, runStore);
   const source = options.source ?? new OfficialSourceAdapter();
   const requestStep = options.requestStep ?? captureHttpOnce;
   const integrity = createEvidenceIntegrity(options.hmacKey);
@@ -304,6 +306,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     profileStore,
     runStore,
     branchStore,
+    housingBranchAppend,
     budgetFacts: {
       loadVerifiedBudgetFacts: async (id, expected) => projectVerifiedBudgetFacts(
         await evidenceStore.loadVerified(id, options.hmacKey, expected),

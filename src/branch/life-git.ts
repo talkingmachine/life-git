@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 
-import Decimal from "decimal.js";
-
-import type { HousingBranchDiff } from "../application/contracts";
-import { calculateBudget, type BudgetCalculation, type BudgetInput } from "./budget";
+import { calculateBudget, calculateDisplayDelta, confirmBudgetInput, type BudgetCalculation, type BudgetInput } from "./budget";
 import { confirmHousingDecision, type HousingDecision } from "./housing";
 
 export interface BranchCommitPayload {
@@ -27,6 +24,17 @@ export interface BranchCommit extends BranchCommitPayload {
 
 export interface BranchCursor {
   readonly commitId: string;
+}
+
+export interface HousingBranchDiff {
+  readonly housing: { readonly before: string; readonly after: string; readonly delta: string };
+  readonly knownResidual: {
+    readonly before: string;
+    readonly after: string;
+    readonly delta: string;
+    readonly cause: "housing";
+  };
+  readonly reused: readonly ["profile", "evidence", "rules"];
 }
 
 export interface CreateCommitInput {
@@ -84,7 +92,7 @@ export function createCommit(input: CreateCommitInput): BranchCommit {
   const decision = confirmHousingDecision(input.decision);
   const calculationHousing = confirmHousingDecision(input.calculationInput.housing);
   if (canonicalJson(decision) !== canonicalJson(calculationHousing)) throw new Error("integrity_mismatch");
-  const calculationInput = Object.freeze({ ...input.calculationInput, housing: decision });
+  const calculationInput = confirmBudgetInput(input.calculationInput);
   const calculation = calculateBudget(calculationInput);
   const payload: BranchCommitPayload = Object.freeze({
     ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
@@ -123,10 +131,6 @@ export function forkHousingCommit(parent: BranchCommit, decisionInput: unknown):
   });
 }
 
-function displayDelta(after: string, before: string): string {
-  return new Decimal(after).minus(before).toFixed(2);
-}
-
 export function diffCommits(before: BranchCommit, after: BranchCommit): HousingBranchDiff {
   replayCommit(before);
   replayCommit(after);
@@ -135,26 +139,19 @@ export function diffCommits(before: BranchCommit, after: BranchCommit): HousingB
     after.profileId !== before.profileId || after.evidenceSnapshotId !== before.evidenceSnapshotId ||
     after.assessmentId !== before.assessmentId || after.rulesVersion !== before.rulesVersion ||
     after.calculation.formulaHash !== before.calculation.formulaHash ||
-    canonicalJson({
-      income: after.calculationInput.income,
-      cbrRate: after.calculationInput.cbrRate,
-      boaRate: after.calculationInput.boaRate,
-    }) !== canonicalJson({
-      income: before.calculationInput.income,
-      cbrRate: before.calculationInput.cbrRate,
-      boaRate: before.calculationInput.boaRate,
-    })
+    canonicalJson(nonHousingInput(after.calculationInput)) !==
+      canonicalJson(nonHousingInput(before.calculationInput))
   ) throw new Error("invalid_housing_fork");
   return Object.freeze({
     housing: Object.freeze({
       before: before.calculation.housingAll,
       after: after.calculation.housingAll,
-      delta: displayDelta(after.calculation.housingAll, before.calculation.housingAll),
+      delta: calculateDisplayDelta(after.calculation.housingAll, before.calculation.housingAll),
     }),
     knownResidual: Object.freeze({
       before: before.calculation.knownResidualAll,
       after: after.calculation.knownResidualAll,
-      delta: displayDelta(after.calculation.knownResidualAll, before.calculation.knownResidualAll),
+      delta: calculateDisplayDelta(after.calculation.knownResidualAll, before.calculation.knownResidualAll),
       cause: "housing" as const,
     }),
     reused: Object.freeze(["profile", "evidence", "rules"] as const),
@@ -175,5 +172,11 @@ export function replayCommit(commit: BranchCommit): BranchCommit {
   if (commit.id !== idFor(payloadOf(commit)) || canonicalJson(expected) !== canonicalJson(commit)) {
     throw new Error("integrity_mismatch");
   }
-  return commit;
+  return expected;
+}
+
+function nonHousingInput(input: BudgetInput): Omit<BudgetInput, "housing"> {
+  const remaining: { -readonly [Key in keyof BudgetInput]?: BudgetInput[Key] } = { ...input };
+  delete remaining.housing;
+  return remaining as Omit<BudgetInput, "housing">;
 }

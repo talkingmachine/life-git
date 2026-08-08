@@ -2,10 +2,9 @@ import { calculateBudget, type BudgetInput } from "../branch/budget";
 import { replayCommit, type BranchCommit } from "../branch/life-git";
 import { confirmHousingDecision } from "../branch/housing";
 import { assessRoute } from "../decision/assessment";
-import { canonicalJson } from "../infrastructure/integrity";
 import type { Assessment, Evidence, EvidenceSnapshot } from "../research/contracts";
 import type { BranchStorePort, VerifiedBudgetFacts } from "./fork-housing";
-import type { ProfileStorePort, RunStorePort } from "./contracts";
+import { ASSESSMENT_RULES_VERSION, type ProfileStorePort, type RunStorePort } from "./contracts";
 
 export interface ReplayRunPorts {
   readonly profileStore: ProfileStorePort;
@@ -35,12 +34,30 @@ function integrityMismatch(): never {
   throw new Error("integrity_mismatch");
 }
 
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalValue(item)]));
+  }
+  return value;
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalValue(value));
+}
+
 export function createReplayApplication(ports: ReplayRunPorts) {
   const replayRun = async (runId: string): Promise<HistoricalRunResult> => {
     if (typeof runId !== "string" || runId.length === 0) throw new Error("invalid_run_id");
     const assessmentRecord = await ports.runStore.loadAssessmentByRunId(runId);
     const assessmentRevision = assessmentRecord.revision;
-    if (assessmentRevision.runId !== runId || assessmentRevision.stage !== "assessment") integrityMismatch();
+    if (
+      assessmentRevision.runId !== runId || assessmentRevision.stage !== "assessment" ||
+      assessmentRevision.rulesVersion !== ASSESSMENT_RULES_VERSION
+    ) integrityMismatch();
     const profile = await ports.profileStore.loadVerified(assessmentRevision.profileId);
     const evidence = await ports.replayEvidence(assessmentRevision.evidenceSnapshotId);
     if (
@@ -58,6 +75,7 @@ export function createReplayApplication(ports: ReplayRunPorts) {
     const commit = await ports.branchStore.loadVerified(branchRevision.branchCommitId);
     if (
       branchRevision.runId !== runId || branchRevision.parentRevisionId !== assessmentRevision.id ||
+      branchRevision.assessmentDate !== assessmentRevision.assessmentDate ||
       commit.profileId !== assessmentRevision.profileId ||
       commit.evidenceSnapshotId !== assessmentRevision.evidenceSnapshotId ||
       commit.assessmentId !== assessmentRevision.assessmentId || commit.rulesVersion !== assessmentRevision.rulesVersion ||

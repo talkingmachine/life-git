@@ -1,4 +1,5 @@
 import type { HousingDecision } from "../branch/housing";
+import type { CalculationInput } from "../branch/budget";
 import type {
   Assessment,
   EvidenceBlockerKind,
@@ -55,25 +56,6 @@ export interface RunResult {
   readonly assessmentId: string;
   readonly assessment: Assessment;
   readonly mode: "current" | "historical";
-}
-
-export interface CalculationInput {
-  readonly binding: string;
-  readonly value: string;
-  readonly unit: string;
-  readonly provenance: "profile" | "claim";
-  readonly ref: string;
-}
-
-export interface HousingBranchDiff {
-  readonly housing: { readonly before: string; readonly after: string; readonly delta: string };
-  readonly knownResidual: {
-    readonly before: string;
-    readonly after: string;
-    readonly delta: string;
-    readonly cause: "housing";
-  };
-  readonly reused: readonly ["profile", "evidence", "rules"];
 }
 
 export type EvidenceReadItem =
@@ -155,7 +137,7 @@ export interface AssessmentRunStorePort {
 }
 
 export interface RunStorePort extends AssessmentRunStorePort {
-  appendBranch(input: BranchRunRevisionPayload): Promise<BranchRunRevision>;
+  appendBranch(input: BranchRunRevisionPayload): BranchRunRevision | Promise<BranchRunRevision>;
   loadBranchByCommitId(commitId: string): Promise<BranchRunRevision>;
   loadInitialBranchByRunId(runId: string, assessmentRevisionId: string): Promise<BranchRunRevision>;
 }

@@ -25,6 +25,32 @@
    evidence projection, Task 3 offline byte/HMAC replay, no source capture, no append; changed CBR byte
    rejects with `integrity_mismatch`.
 
+## Fix round 1 TDD evidence
+
+1. Atomicity RED: duplicate branch revision IDs left orphan C0 `{commits:1,revisions:0}` and C1
+   `{commits:2,revisions:1}`. GREEN: housing-specific SQLite writer appends commit + branch revision
+   in one transaction; both failures roll back and exact retries with new revision IDs succeed.
+2. Decimal context RED: global `Decimal.set({precision:5,rounding:ROUND_DOWN})` changed income to
+   `209850.00` and residual to `139850.00`. GREEN: private `Decimal.clone` fixes precision 64 and
+   HALF_UP; the formula descriptor binds numeric context plus income/residual expressions. A narrow
+   pure delta helper remains stable under mutated global Decimal without exposing the constructor.
+   A second RED caught legal negative residuals rejected by the unsigned money parser; GREEN uses a
+   strict signed-decimal parser only for display deltas, while income/housing inputs stay nonnegative.
+3. DTO RED: created/loaded nested rate objects were mutable, and extra root/nested BudgetInput
+   bindings could enter a commit and be ignored by housing-only diff. GREEN: strict exact-key
+   canonical copy, deep freeze, frozen replay return and comparison of the entire input after removing
+   only housing.
+4. Replay RED: an HMAC-valid unsupported rules version reached Decision, while an HMAC-valid branch
+   date mismatch replayed successfully. GREEN: exact supported assessment rules are required before
+   Decision, and all duplicated date/rules links must match.
+5. Integrity RED: 63/65-character hex aliases passed `secureHexEqual`; a 65th HMAC nibble passed the
+   branch store. GREEN: all SHA-256/HMAC comparisons require exactly 64 case-insensitive hex chars.
+6. Stage-shape RED: schema accepted mixed assessment/branch columns and orphan commit references;
+   loaders accepted bypassed NULL/non-NULL shape tampering with matching HMAC. GREEN: stage-specific
+   CHECK, branch-commit FK and defensive assessment/branch load validation.
+7. Boundary refactor: Branch-owned calculation/diff DTOs no longer depend on Application, and
+   Application replay no longer imports Infrastructure canonical helpers.
+
 ## Decisions and bindings
 
 - Confirmed profile is the only income authority; `saveInitialHousingBranch(runId)` has no client
@@ -47,22 +73,27 @@
 
 ## Hash evidence
 
-- Formula hash: `ed02a65cc7f09bbf9ab5ae1d15d0ff74a570a9c1a3f3c49eab6ce3582ce11186`.
+- Formula hash after fixed numeric-context binding:
+  `5d911ebc44a21e5f10245bcd77ef6d04d5f61b36306fd7833d5e2e22513e2f25`.
 - Canonical scenario input hash: `ba0ac864f191b4f81adbde6249535995323308d36992964bba7953784c57c208`.
 - Canonical scenario output hash: `fd0ed9c34d6410ddbe62eb3d1f23b5b72bebe887b02c245a19a8356aa95143c3`.
 - Pre-report staged implementation diff SHA-256:
   `97f4d9ed86ea513a7e929fda1ee17b53aac98e3f2249a52ca454e2b45342a9ff`.
+- Fix-round pre-report staged diff SHA-256:
+  `5e01825620d0cd229f5b5e41f5fa38b2560ab43eafd32d7e63a771eeb2a762ae`.
 
 ## Gates and self-review
 
 - Targeted domain/branch/replay RED/GREEN cycles: PASS.
-- Full Vitest suite: 128 tests, 10 files, 0 failures.
+- Full Vitest suite after fix round 1: 152 tests, 10 files, 0 failures.
 - TypeScript `tsc --noEmit`: PASS.
 - ESLint: PASS.
 - Next 16.3.0 production build: PASS; generated `tsconfig.json` changes and `next-env.d.ts`
   were restored/removed via `apply_patch`.
 - `git diff --check`: PASS.
 - Self-review: no JS number/coercion for money; no client-provided save inputs; yellow/red produce
-  zero branch writes; forged/tampered cursor/commit/evidence fail closed; rewind deletes nothing;
-  fork lineage and HMAC branch revision parent are exact; replay has neither network nor write port;
-  schema has exactly five application tables; no UI/narrative/Task 6 changes.
+  zero branch writes; C0/C1 transaction failures leave zero new rows and retry cleanly;
+  forged/tampered cursor/commit/evidence fail closed; rewind deletes nothing; strict commit state is
+  deep immutable; negative residual deltas use strict signed Decimal text without weakening money
+  inputs; fork lineage and HMAC branch revision parent/date/rules are exact; replay has neither network
+  nor write port; schema has exactly five application tables; no UI/narrative/Task 6 changes.

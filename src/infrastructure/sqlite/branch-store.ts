@@ -31,7 +31,7 @@ export class SqliteBranchStore {
     if (hmacKey.length === 0) throw new Error("integrity_key_missing");
   }
 
-  async append(commit: BranchCommit): Promise<void> {
+  append(commit: BranchCommit): void {
     replayCommit(commit);
     const commitJson = canonicalJson(commit);
     const commitHash = sha256Text(commitJson);

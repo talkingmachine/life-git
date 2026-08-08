@@ -126,6 +126,8 @@ export class SqliteRunStore {
     }
     const canonicalPayload = canonicalJson({ revision: payload(revision), assessment });
     if (
+      row.parent_revision_id !== null || row.branch_commit_id !== null ||
+      row.formula_hash !== null || row.output_hash !== null ||
       revision.id !== row.id ||
       revision.runId !== row.run_id ||
       revision.stage !== row.stage ||
@@ -145,7 +147,7 @@ export class SqliteRunStore {
     return { revision, assessment };
   }
 
-  async appendBranch(input: BranchRunRevisionPayload): Promise<BranchRunRevision> {
+  appendBranch(input: BranchRunRevisionPayload): BranchRunRevision {
     if (input.stage !== "branch" || input.parentRevisionId.length === 0 || input.branchCommitId.length === 0) {
       integrityMismatch();
     }
@@ -194,6 +196,8 @@ export class SqliteRunStore {
     }
     if (
       row.stage !== "branch" || row.initial_housing_json !== null || row.assessment_json !== null ||
+      row.parent_revision_id === null || row.branch_commit_id === null ||
+      row.formula_hash === null || row.output_hash === null ||
       revision.id !== row.id || revision.runId !== row.run_id || revision.stage !== row.stage ||
       revision.assessmentDate !== row.assessment_date || revision.profileId !== row.profile_id ||
       revision.evidenceSnapshotId !== row.evidence_snapshot_id || revision.assessmentId !== row.assessment_id ||

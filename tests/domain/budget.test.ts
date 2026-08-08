@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
+import Decimal from "decimal.js";
 
-import { calculateBudget } from "../../src/branch/budget";
+import { calculateBudget, calculateDisplayDelta } from "../../src/branch/budget";
 
 const input = {
   income: {
@@ -30,6 +31,46 @@ const input = {
 };
 
 describe("calculateBudget", () => {
+  test("uses a fixed numeric context even when Decimal global precision and rounding change", () => {
+    const original = { precision: Decimal.precision, rounding: Decimal.rounding };
+    const baseline = calculateBudget(input);
+    let changed;
+    try {
+      Decimal.set({ precision: 5, rounding: Decimal.ROUND_DOWN });
+      changed = calculateBudget(input);
+    } finally {
+      Decimal.set(original);
+    }
+
+    expect(changed).toEqual(baseline);
+    expect(changed).toMatchObject({
+      incomeAll: "209864.57",
+      knownResidualAll: "139864.57",
+      formulaHash: "5d911ebc44a21e5f10245bcd77ef6d04d5f61b36306fd7833d5e2e22513e2f25",
+    });
+  });
+
+  test("exposes a pure display delta without exposing or inheriting mutable Decimal context", () => {
+    const original = { precision: Decimal.precision, rounding: Decimal.rounding };
+    let delta;
+    try {
+      Decimal.set({ precision: 2, rounding: Decimal.ROUND_DOWN });
+      delta = calculateDisplayDelta("70000.02", "70000.01");
+    } finally {
+      Decimal.set(original);
+    }
+
+    expect(delta).toBe("0.01");
+  });
+
+  test("calculates a signed delta between negative known residuals", () => {
+    expect(calculateDisplayDelta("-120.02", "-100.01")).toBe("-20.01");
+  });
+
+  test.each(["+1.00", "1e2", "--1", "-NaN"])("rejects malformed signed display decimal %s", (value) => {
+    expect(() => calculateDisplayDelta(value, "0.00")).toThrow("invalid_decimal");
+  });
+
   test("uses unrounded Decimal intermediates and rounds only the final ALL values HALF_UP", () => {
     const budget = calculateBudget(input);
 
@@ -52,7 +93,7 @@ describe("calculateBudget", () => {
       { binding: "CBR_RUB_PER_EUR", value: "93.1901", unit: "RUB/EUR", provenance: "claim", ref: "cbr-eur-facts-1@2026-08-06#cbr-artifact#rate" },
       { binding: "BOA_ALL_PER_EUR", value: "93.13", unit: "ALL/EUR", provenance: "claim", ref: "boa-eur-facts-1@2026-08-05#boa-artifact#rate" },
     ]);
-    expect(first.formulaHash).toBe("ed02a65cc7f09bbf9ab5ae1d15d0ff74a570a9c1a3f3c49eab6ce3582ce11186");
+    expect(first.formulaHash).toBe("5d911ebc44a21e5f10245bcd77ef6d04d5f61b36306fd7833d5e2e22513e2f25");
     expect(first.inputHash).toBe("ba0ac864f191b4f81adbde6249535995323308d36992964bba7953784c57c208");
     expect(first.outputHash).toBe("fd0ed9c34d6410ddbe62eb3d1f23b5b72bebe887b02c245a19a8356aa95143c3");
     expect(second).toEqual(first);

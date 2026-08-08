@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
-import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
+import { createEvidenceIntegrity, secureHexEqual } from "../../src/infrastructure/integrity";
 import type {
   Claim,
   EvidenceBlocker,
@@ -29,6 +29,12 @@ const SOURCE_IDS = [
 ] as const satisfies readonly SourceId[];
 
 const databases: Database.Database[] = [];
+
+test("accepts only exact 64-character SHA-256 hex values", () => {
+  expect(secureHexEqual("a".repeat(64), "A".repeat(64))).toBe(true);
+  expect(secureHexEqual("a".repeat(63), "a".repeat(63))).toBe(false);
+  expect(secureHexEqual("a".repeat(65), "a".repeat(65))).toBe(false);
+});
 
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();

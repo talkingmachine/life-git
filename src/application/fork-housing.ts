@@ -8,6 +8,7 @@ import {
 import { confirmHousingDecision, type HousingDecision } from "../branch/housing";
 import type {
   BranchRunRevision,
+  BranchRunRevisionPayload,
   ProfileStorePort,
   RunStorePort,
 } from "./contracts";
@@ -25,14 +26,21 @@ export interface VerifiedBudgetFactsPort {
 }
 
 export interface BranchStorePort {
-  append(commit: BranchCommit): Promise<void>;
   loadVerified(id: string): Promise<BranchCommit>;
+}
+
+export interface HousingBranchAppendPort {
+  append(
+    commit: BranchCommit,
+    revision: BranchRunRevisionPayload,
+  ): BranchRunRevision | Promise<BranchRunRevision>;
 }
 
 export interface HousingBranchPorts {
   readonly profileStore: ProfileStorePort;
   readonly runStore: RunStorePort;
   readonly branchStore: BranchStorePort;
+  readonly housingBranchAppend: HousingBranchAppendPort;
   readonly budgetFacts: VerifiedBudgetFactsPort;
   readonly nextRevisionId: () => string;
 }
@@ -67,7 +75,7 @@ export function createHousingBranchApplication(ports: HousingBranchPorts) {
     parentRevisionId: string,
     runId: string,
     assessmentDate: string,
-  ): Promise<BranchRunRevision> => ports.runStore.appendBranch({
+  ): Promise<BranchRunRevision> => Promise.resolve(ports.housingBranchAppend.append(commit, {
     id: ports.nextRevisionId(),
     runId,
     stage: "branch",
@@ -80,7 +88,7 @@ export function createHousingBranchApplication(ports: HousingBranchPorts) {
     branchCommitId: commit.id,
     formulaHash: commit.formulaHash,
     outputHash: commit.outputHash,
-  });
+  }));
 
   const saveInitialHousingBranch = async (runId: string): Promise<HousingBranchResult> => {
     validRunId(runId);
@@ -116,7 +124,6 @@ export function createHousingBranchApplication(ports: HousingBranchPorts) {
       decision,
       calculationInput,
     });
-    await ports.branchStore.append(commit);
     const revision = await appendBranchRevision(
       commit,
       assessmentRevision.id,
@@ -141,7 +148,6 @@ export function createHousingBranchApplication(ports: HousingBranchPorts) {
     ) throw new Error("integrity_mismatch");
     const decision = confirmHousingDecision(decisionInput);
     const commit = forkHousingCommit(parent, decision);
-    await ports.branchStore.append(commit);
     const revision = await appendBranchRevision(
       commit,
       parentRevision.id,

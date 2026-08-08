@@ -47,11 +47,24 @@ CREATE TABLE IF NOT EXISTS run_revisions (
   assessment_json TEXT,
   rules_version TEXT NOT NULL,
   parent_revision_id TEXT REFERENCES run_revisions(id),
-  branch_commit_id TEXT,
+  branch_commit_id TEXT REFERENCES branch_commits(id),
   formula_hash TEXT,
   output_hash TEXT,
   revision_json TEXT NOT NULL,
-  hmac TEXT NOT NULL
+  hmac TEXT NOT NULL,
+  CHECK (
+    (
+      stage = 'assessment' AND
+      initial_housing_json IS NOT NULL AND assessment_json IS NOT NULL AND
+      parent_revision_id IS NULL AND branch_commit_id IS NULL AND
+      formula_hash IS NULL AND output_hash IS NULL
+    ) OR (
+      stage = 'branch' AND
+      initial_housing_json IS NULL AND assessment_json IS NULL AND
+      parent_revision_id IS NOT NULL AND branch_commit_id IS NOT NULL AND
+      formula_hash IS NOT NULL AND output_hash IS NOT NULL
+    )
+  )
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS run_revisions_one_assessment_per_run

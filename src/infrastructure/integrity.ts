@@ -29,7 +29,7 @@ export function hmacSha256(value: string, key: string): string {
 }
 
 export function secureHexEqual(left: string, right: string): boolean {
-  if (!/^[a-f\d]+$/i.test(left) || !/^[a-f\d]+$/i.test(right)) return false;
+  if (!/^[a-f\d]{64}$/i.test(left) || !/^[a-f\d]{64}$/i.test(right)) return false;
   const leftBytes = Buffer.from(left, "hex");
   const rightBytes = Buffer.from(right, "hex");
   return leftBytes.byteLength === rightBytes.byteLength && timingSafeEqual(leftBytes, rightBytes);
