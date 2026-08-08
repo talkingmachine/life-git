@@ -465,6 +465,90 @@ describe("runCurrentEvidence", () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 1 });
     expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
   });
+
+  test("retains only verified current partials when a later step has wrong ownership", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-08-08T10:00:00.000Z");
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    let firstArtifact!: LiveCapturedArtifact;
+    let contaminatedArtifact!: LiveCapturedArtifact;
+    const source: OfficialSourcePort = {
+      async capture(request, requestStep) {
+        const first = await requestStep(
+          httpRequest(request.sourceId, "first-step", request.runId),
+          request.signal,
+        );
+        if (request.sourceId !== "cbr-eur") {
+          return {
+            ok: true,
+            entry: {
+              sourceId: request.sourceId,
+              navigationUrl: `https://official.example/${request.sourceId}`,
+              resolvedEvidenceUrl: first.responseUrl,
+              artifacts: [first],
+              versionHint: "fixture-v1",
+            },
+          };
+        }
+        firstArtifact = first;
+        const second = await requestStep(
+          httpRequest(request.sourceId, "second-step", request.runId),
+          request.signal,
+        );
+        return {
+          ok: true,
+          entry: {
+            sourceId: request.sourceId,
+            navigationUrl: `https://official.example/${request.sourceId}`,
+            resolvedEvidenceUrl: second.responseUrl,
+            artifacts: [first, second],
+            versionHint: "fixture-v1",
+          },
+        };
+      },
+    };
+    const evidenceParsers = parsers();
+    const snapshot = await runCurrentEvidence(
+      { runId: "run-partial-ownership", assessmentDate: ASSESSMENT_DATE, deadlineAt: DEADLINE_AT },
+      {
+        source,
+        requestStep: async (request) => {
+          const current = artifact(request);
+          if (request.sourceId !== "cbr-eur" || request.role !== "second-step") return current;
+          contaminatedArtifact = artifact(request, request.role, { runId: "historical-run" });
+          return contaminatedArtifact;
+        },
+        store,
+        integrity: INTEGRITY,
+        parsers: evidenceParsers,
+      },
+    );
+
+    expect(snapshot.coverage["cbr-eur"]).toBe("unavailable");
+    expect(snapshot.blockers.find((blocker) => blocker.sourceId === "cbr-eur")).toEqual(
+      expect.objectContaining({
+        kind: "navigation_mismatch",
+        artifactIds: [firstArtifact.artifactId],
+      }),
+    );
+    expect(db.prepare(
+      "SELECT artifact_id, sealed FROM artifacts WHERE run_id = ? AND source_id = ?",
+    ).all("run-partial-ownership", "cbr-eur")).toEqual([
+      { artifact_id: firstArtifact.artifactId, sealed: 1 },
+    ]);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM artifacts WHERE run_id = ?").get(
+      contaminatedArtifact.runId,
+    )).toEqual({ count: 0 });
+
+    const bundle = await store.loadVerifiedBundle(snapshot.id, KEY);
+    const cbrEntry = bundle.entries.find((entry) => entry.sourceId === "cbr-eur")!;
+    expect(cbrEntry.artifacts.map((item) => item.artifactId)).toEqual([firstArtifact.artifactId]);
+    await expect(replayEvidence(
+      { snapshotId: snapshot.id, hmacKey: KEY },
+      { store, parsers: evidenceParsers },
+    )).resolves.toEqual(snapshot);
+  });
 });
 
 describe("replayEvidence", () => {

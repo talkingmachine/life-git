@@ -368,7 +368,13 @@ function captureFailure(error: unknown): {
 
 class CurrentArtifactOwnershipError extends Error {
   readonly kind = "navigation_mismatch" as const;
-  readonly partialArtifacts: readonly LiveCapturedArtifact[] = [];
+
+  constructor(
+    message: string,
+    readonly partialArtifacts: readonly LiveCapturedArtifact[],
+  ) {
+    super(message);
+  }
 }
 
 function isCurrentArtifact(
@@ -434,20 +440,28 @@ export async function runCurrentEvidence(
     const captured = await Promise.all(EVIDENCE_SOURCE_IDS.map(async (sourceId) => {
       if (controller.signal.aborted) return unavailableEntry(sourceId, "deadline", []);
       let retryAvailable = true;
+      const persistedCurrentArtifacts: LiveCapturedArtifact[] = [];
       const requestStep: RequestStep = async (request, signal) => {
         if (
           signal !== controller.signal ||
           request.runId !== input.runId ||
           request.sourceId !== sourceId
         ) {
-          throw new CurrentArtifactOwnershipError("request ownership mismatch");
+          throw new CurrentArtifactOwnershipError(
+            "request ownership mismatch",
+            [...persistedCurrentArtifacts],
+          );
         }
         try {
           const capturedArtifact = await ports.requestStep(request, signal);
           if (!isCurrentArtifact(capturedArtifact, input.runId, sourceId)) {
-            throw new CurrentArtifactOwnershipError("artifact ownership mismatch");
+            throw new CurrentArtifactOwnershipError(
+              "artifact ownership mismatch",
+              [...persistedCurrentArtifacts],
+            );
           }
           await ports.store.appendArtifact(capturedArtifact);
+          persistedCurrentArtifacts.push(capturedArtifact);
           return capturedArtifact;
         } catch (error) {
           if (
@@ -459,9 +473,13 @@ export async function runCurrentEvidence(
             retryAvailable = false;
             const capturedArtifact = await ports.requestStep(request, signal);
             if (!isCurrentArtifact(capturedArtifact, input.runId, sourceId)) {
-              throw new CurrentArtifactOwnershipError("artifact ownership mismatch");
+              throw new CurrentArtifactOwnershipError(
+                "artifact ownership mismatch",
+                [...persistedCurrentArtifacts],
+              );
             }
             await ports.store.appendArtifact(capturedArtifact);
+            persistedCurrentArtifacts.push(capturedArtifact);
             return capturedArtifact;
           }
           throw error;
