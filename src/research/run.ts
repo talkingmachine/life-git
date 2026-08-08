@@ -19,6 +19,7 @@ import { parseTiranaUrbanLines } from "./parsers/tirana-urban-lines";
 import { SOURCE_POLICIES } from "./source-policy";
 
 export const EVIDENCE_PARSER_VERSIONS = Object.freeze({
+  // This is the first source-verified baseline. A future bump requires an explicit legacy dispatcher.
   "al-law-79": "law-79@1",
   "al-decision-858": "decision-858@1",
   "cbr-eur": "cbr-eur@1",

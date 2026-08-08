@@ -26,7 +26,7 @@ export const SOURCE_POLICIES = {
     mediaType: "text/html",
   },
   "tirana-urban-lines": {
-    url: "https://tirana.al/pika-interesi/transporti/",
+    url: "https://tirana.al/pikat-e-interesit/linjat-urbane",
     host: "tirana.al",
     mediaType: "text/html",
     iframeHost: "gis.tirana.al",

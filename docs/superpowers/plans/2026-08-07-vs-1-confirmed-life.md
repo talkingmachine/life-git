@@ -200,11 +200,11 @@ expect(networkCapture).not.toHaveBeenCalled();
 
 **Interfaces:** Produces runtime evidence for `source-verified`/`demo-verified`; adds no product behavior.
 
-- [ ] **Step 1: Write and run a failing reset test.** It removes only the exact configured SQLite file plus its `-wal/-shm` siblings inside an injected temporary demo directory and rejects empty, unresolved or directory/root targets.
-- [ ] **Step 2: Implement minimal `resetDemo(databasePath, allowedDemoDir)` and rerun the integration test; expect PASS.**
-- [ ] **Step 3: Run `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`; require all four logical groups and zero failures.**
-- [ ] **Step 4: Implement and run `pnpm eval:live`.** Use the synthetic approved fixture, capture all five sources, retain raw in SQLite, seal, require exact periods/anchors and save a redacted manifest; dynamic-source failure remains yellow and blocks `source-verified`.
-- [ ] **Step 5: Inject one outage spanning two retryable failures of one entry; require exactly two attempts and terminal yellow.** Start a separate healthy recovery run and require a new snapshot. Perform two equal offline replays; corrupt one test-copy byte and require rejection.
+- [x] **Step 1: Write and run a failing reset test.** It removes only the exact configured SQLite file plus its `-wal/-shm` siblings inside an injected temporary demo directory and rejects empty, unresolved or directory/root targets.
+- [x] **Step 2: Implement minimal `resetDemo(databasePath, allowedDemoDir)` and rerun the integration test; expect PASS.**
+- [x] **Step 3: Run `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`; require all four logical groups and zero failures.**
+- [x] **Step 4: Implement and run `pnpm eval:live`.** Use the synthetic approved fixture, capture all five sources, retain raw in SQLite, seal, require exact periods/anchors and save a redacted manifest; dynamic-source failure remains yellow and blocks `source-verified`.
+- [x] **Step 5: Inject one outage spanning two retryable failures of one entry; require exactly two attempts and terminal yellow.** Start a separate healthy recovery run and require a new snapshot. Perform two equal offline replays; corrupt one test-copy byte and require rejection.
 - [ ] **Step 6: Run the 60–90-second visual rubric.** Verify map transition, icon/text marker semantics without color, Tab plus Enter/Space for yellow/red reasons, six Passport classes, official outbound links, unknowns and housing causal diff without oral correction.
-- [ ] **Step 7: Record observed latency/request cost and only earned readiness levels in the active change package.** Do not archive/canonicalize before implementation evidence is complete.
-- [ ] **Step 8: Commit generated redacted evidence and docs as `test: verify VS-1 live journey`; never commit raw DB, HMAC key or API key.**
+- [x] **Step 7: Record observed latency/request cost and only earned readiness levels in the active change package.** Do not archive/canonicalize before implementation evidence is complete.
+- [x] **Step 8: Commit generated redacted evidence and docs as `test: verify VS-1 live journey`; never commit raw DB, HMAC key or API key.**

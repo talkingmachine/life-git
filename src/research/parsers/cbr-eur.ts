@@ -27,7 +27,8 @@ export function parseCbrEur(entry: ParserEntry): ParseResult<CbrEurFacts> {
     return { ok: false, kind: "semantic_mismatch" };
   }
   try {
-    const parsed = new XMLParser({ ignoreAttributes: false }).parse(artifact.bytes) as {
+    const xml = new TextDecoder("windows-1251").decode(artifact.bytes);
+    const parsed = new XMLParser({ ignoreAttributes: false }).parse(xml) as {
       ValCurs?: { "@_Date"?: unknown; Valute?: unknown };
     };
     const effectiveDate = isoDateFromDotted(parsed.ValCurs?.["@_Date"]);

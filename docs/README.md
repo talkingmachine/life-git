@@ -81,7 +81,7 @@ Discovery-вход может содержать сильную идею или 
 
 | Пакет | Следующий gate |
 | --- | --- |
-| [`vs-1-confirmed-life`](changes/active/vs-1-confirmed-life/change.md) | Baseline `approved`; [implementation plan](superpowers/plans/2026-08-07-vs-1-confirmed-life.md) готов к execution choice |
+| [`vs-1-confirmed-life`](changes/active/vs-1-confirmed-life/change.md) | Baseline `approved`; [source/replay evidence](changes/active/vs-1-confirmed-life/implementation-evidence.md) пройдено; visual `demo-verified` pending |
 
 ## Архив change-пакетов
 
@@ -155,7 +155,23 @@ docs/
 
 Stage 2 из [`ROADMAP.md`](ROADMAP.md) утверждён 2026-08-06; feasibility spike утверждён и архивирован.
 Компактная JIT requirements/design/acceptance спецификация `VS-1` утверждена 2026-08-07;
-implementation plan создан, продуктовая реализация ещё не начата.
+walking skeleton реализован, а live source, offline replay, fail-closed и recovery gates пройдены
+2026-08-08. Ручной visual-truth gate пока не выполнен, поэтому `demo-verified` не заявляется.
 
 Реализация не начинается из устного контекста. Первый вертикальный срез допускается к реализации
 только после собственных approved requirements, design, acceptance/eval criteria и задач.
+
+## Локальная проверка VS-1
+
+```bash
+pnpm test
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm eval:live -- --mode clean
+pnpm eval:live -- --mode outage
+```
+
+Live-команды используют synthetic solo profile, сохраняют raw capture только в игнорируемую локальную
+SQLite `data/evals/current-run/vs1.sqlite` и создают redacted JSON в `artifacts/evals/vs1/`.
+Reset ограничен точным SQLite-файлом и его `-wal`/`-shm`; каталоги, glob и другие базы не удаляются.

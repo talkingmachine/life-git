@@ -111,6 +111,10 @@ const DECISION_POINT_8 =
   "Point 8. Unless otherwise provided by this decision, the general rule applies.";
 const DECISION_AMOUNT =
   "For the digital mobile worker, proof is a self-declaration of an available amount of 408 000 ALL for himself or herself and the persons depending on him or her.";
+const DECISION_ALBANIAN_POINT =
+  "10. Per kategorite e lejeve, te cilat kerkojne deshmi te burimeve te mjaftueshme financiare, me perjashtim te rasteve kur parashikohet ndryshe ne kete vendim, ajo konsiston ne vertetim bankar. 11. Test.";
+const DECISION_ALBANIAN_AMOUNT =
+  "iii. vetedeklarim mbi disponimin e burimeve financiare te mjaftueshme per te mbajtur veten dhe personat ne ngarkim gjate qendrimit ne Republiken e Shqiperise, ne vlere jo me pak se 408 000 (katerqind e tete mije) leke, sipas aneksit nr. 10, qe i bashkelidhet ketij vendimi;";
 
 test("extracts TJ text from every page of a realistic compressed PDF", async () => {
   const extracted = await extractPdfText(fixture("law-79-realistic.pdf"));
@@ -161,6 +165,53 @@ describe("legal semantic parsers", () => {
     expect(result).not.toHaveProperty("status");
   });
 
+  test("Law 79 verifies current Albanian sections when Article 68 crosses a page", async () => {
+    const law = artifactWithComputedHash(
+      "act-pdf",
+      "application/pdf",
+      validTextPdf([
+        {
+          logicalPage: 2,
+          text: "Neni 3 Perkufizime 1. Anetare te familjes se te huajit jane bashkeshorti/bashkeshortja. Neni 4 Test.",
+        },
+        {
+          logicalPage: 26,
+          text: "Neni 41 Bashkimi familjar i te huajit me anetaret e familjes. Anetaret e familjes se tij ndodhen jashte territorit. Eshte i pajisur me leje qendrimi me afat se paku 1-vjecar dhe ka mundesi ta riperterije lejen. Siguron strehim, ka sigurim shendetesor dhe garanton burime te qendrueshme te te ardhurave financiare. Neni 42 Test.",
+        },
+        {
+          logicalPage: 38,
+          text: "Neni 68 Leje unike qendrimi per punonjes levizes digjital. Leje me afat deri ne 1 vit kur shtetasi i huaj eshte me qendrim te ligjshem. Kontrate te vlefshme punesimi me punedhenesin jashte shtetit apo kontrate sherbimi me kontraktuesin ose porositesin jashte shtetit. Zoteron deshmi te akomodimit dhe adreses.",
+        },
+        {
+          logicalPage: 39,
+          text: "Ka nje police te sigurimit shendetesor te vlefshme per te pakten 1 vit. Zoteron nje certifikate/deshmi penaliteti nga vendi i tij i origjines dhe ne vendin ku eshte rezident. Neni 69 Test.",
+        },
+      ]),
+    );
+
+    expect(await parseLaw79(entry("al-law-79", [law], "cons-2025-07-14"))).toMatchObject({
+      ok: true,
+      sourcePeriod: "cons-2025-07-14",
+      facts: {
+        digitalWorker: {
+          requiresLawfulStay: true,
+          initialPermitMaxMonths: 12,
+          contractTypes: ["foreign_employment", "foreign_service"],
+          accommodation: true,
+          insuranceMinMonths: 12,
+          criminalRecords: "origin_and_residence",
+        },
+        family: {
+          spouseIsFamilyMember: true,
+          sponsorPermitMinMonths: 12,
+          renewable: true,
+          familyNormallyOutside: true,
+          housingInsuranceStableIncome: true,
+        },
+      },
+    });
+  });
+
   test("Decision 858 preserves the 408000 ALL self-and-dependants statement without formulas", async () => {
     const decision = artifactWithComputedHash(
       "act-pdf",
@@ -192,6 +243,61 @@ describe("legal semantic parsers", () => {
         expect.objectContaining({ artifactId: "fixture:act-pdf", locator: "Decision 858, p.8" }),
       ],
     });
+  });
+
+  test("Decision 858 verifies the current Albanian exception and digital-worker subitem", async () => {
+    const decision = artifactWithComputedHash(
+      "act-pdf",
+      "application/pdf",
+      validTextPdf([
+        {
+          logicalPage: 8,
+          text: DECISION_ALBANIAN_POINT,
+        },
+        {
+          logicalPage: 13,
+          text: `gj) Dokumentacioni shtese per leje unike per punonjes levizes digjital: ii. vetedeklarim mbi kontraten; ${DECISION_ALBANIAN_AMOUNT} iv. Police sigurimi. h) Test.`,
+        },
+      ]),
+    );
+
+    expect(
+      await parseDecision858(entry("al-decision-858", [decision], "cons-2026-04-16")),
+    ).toMatchObject({
+      ok: true,
+      sourcePeriod: "cons-2026-04-16",
+      facts: {
+        proof: "self_declaration",
+        availableAmount: "408000",
+        currency: "ALL",
+        scope: "self_and_dependants",
+        periodFormula: "not_stated",
+        headcountFormula: "not_stated",
+        generalRuleExceptionAnchored: true,
+      },
+    });
+  });
+
+  test("Decision 858 rejects a new Albanian period qualifier in the amount subitem", async () => {
+    const qualifiedAmount = DECISION_ALBANIAN_AMOUNT.replace(
+      ";",
+      " per nje muaj;",
+    );
+    const decision = artifactWithComputedHash(
+      "act-pdf",
+      "application/pdf",
+      validTextPdf([
+        { logicalPage: 8, text: DECISION_ALBANIAN_POINT },
+        {
+          logicalPage: 13,
+          text: `gj) Dokumentacioni shtese per leje unike per punonjes levizes digjital: ${qualifiedAmount} iv. Police sigurimi. h) Test.`,
+        },
+      ]),
+    );
+
+    expect(
+      await parseDecision858(entry("al-decision-858", [decision], "cons-2026-04-16")),
+    ).toEqual({ ok: false, kind: "semantic_mismatch" });
   });
 
   test("an exact-byte mismatch fails before legal semantics are accepted", async () => {
@@ -246,6 +352,27 @@ describe("legal semantic parsers", () => {
       validTextPdf([
         { logicalPage: 8, text: DECISION_POINT_8 },
         { logicalPage: 23, text: `${DECISION_AMOUNT} The amount is required per month.` },
+      ]),
+    );
+
+    expect(
+      await parseDecision858(entry("al-decision-858", [decision], "cons-2024-04-03")),
+    ).toEqual({ ok: false, kind: "semantic_mismatch" });
+  });
+
+  test("Decision 858 rejects an English period qualifier embedded in the amount sentence", async () => {
+    const decision = artifactWithComputedHash(
+      "act-pdf",
+      "application/pdf",
+      validTextPdf([
+        { logicalPage: 8, text: DECISION_POINT_8 },
+        {
+          logicalPage: 23,
+          text: DECISION_AMOUNT.replace(
+            "for himself or herself",
+            "for one month for himself or herself",
+          ),
+        },
       ]),
     );
 
@@ -337,6 +464,29 @@ describe("official FX semantic parsers", () => {
     });
   });
 
+  test("CBR parses archived XML restored from SQLite as a generic Uint8Array", () => {
+    const archivedBytes = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../../docs/changes/archive/vs-1-source-feasibility-spike/evidence/cbr-eur-2026-08-06.xml",
+          import.meta.url,
+        ),
+      ),
+    );
+    const sqliteBytes = Uint8Array.from(archivedBytes);
+    const cbr = artifactWithComputedHash("official-document", "application/xml", sqliteBytes);
+
+    expect(parseCbrEur(entry("cbr-eur", [cbr]))).toMatchObject({
+      ok: true,
+      facts: {
+        base: "EUR",
+        quote: "RUB",
+        rate: "93.1901",
+        effectiveDate: "2026-08-06",
+      },
+    });
+  });
+
   test("BoA selects EUR and its date rather than the first number on the page", () => {
     const boa = artifact(
       "official-document",
@@ -351,6 +501,52 @@ describe("official FX semantic parsers", () => {
         base: "EUR",
         quote: "ALL",
         rate: "96.12",
+        effectiveDate: "2026-08-07",
+      },
+      sourcePeriod: "2026-08-07",
+      anchors: [expect.objectContaining({ artifactId: "fixture:official-document", locator: "table row EUR" })],
+    });
+  });
+
+  test("BoA selects the main EUR rate from the current official table rather than bid or ask", () => {
+    const bytes = new TextEncoder().encode(`
+      <!doctype html>
+      <html lang="en">
+        <head><title>Official exchange rate</title></head>
+        <body>
+          <div>Last update: <b>07.08.2026</b> <em><b>12:13:40</b></em></div>
+          <table>
+            <thead><tr>
+              <th colspan="3">Main Currency</th>
+              <th colspan="2">Albanian Lek per Foreign Currency Unit</th>
+            </tr></thead>
+            <tr><td>US Dollar</td><td>USD</td><td>80.86</td><td>+0.09</td><td></td></tr>
+            <tr><td>Euro</td><td>EUR</td><td>93.19</td><td>-0.01</td><td></td></tr>
+          </table>
+          <div>Last update: <b>31.07.2026</b> <em><b>12:48:00</b></em></div>
+          <table>
+            <thead><tr><th>Currency</th><th>Albanian Lek per Foreign Currency Unit</th></tr></thead>
+            <tr><td>Russian Ruble</td><td>RUB</td><td>102.24</td></tr>
+          </table>
+          <div>Last update: <b>07.08.2026</b> <em><b>12:13:40</b></em></div>
+          <table>
+            <thead><tr>
+              <th colspan="3">Average buying price (Bid)</th>
+              <th colspan="3">Average sales price (Ask)</th>
+            </tr></thead>
+            <tr><td>Euro</td><td>EUR</td><td>92.90</td><td>+0.03</td><td>93.51</td><td>-0.03</td></tr>
+          </table>
+        </body>
+      </html>
+    `);
+    const boa = artifactWithComputedHash("official-document", "text/html", bytes);
+
+    expect(parseBoaEur(entry("boa-eur", [boa]))).toEqual({
+      ok: true,
+      facts: {
+        base: "EUR",
+        quote: "ALL",
+        rate: "93.19",
         effectiveDate: "2026-08-07",
       },
       sourcePeriod: "2026-08-07",

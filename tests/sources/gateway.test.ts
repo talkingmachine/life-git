@@ -233,61 +233,179 @@ describe("captureHttpOnce", () => {
 });
 
 describe("resolveLatestApplicableQbzAct", () => {
-  test("keeps public and indexed URLs separate and chooses the latest applicable cons version", async () => {
+  const nodesUrl =
+    "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes";
+  const searchUrl =
+    "https://qbz.gov.al/alfresco/api/-default-/public/search/versions/1/search";
+  const actRoot = "/Company Home/Aktet/ligj/kuvendi-i-shqiperise/2021/06/24/79";
+  const rootId = "bcd20d38-719e-4764-bc68-6dd8b04bdccb";
+  const baseId = "468e0185-69ff-4117-b844-37d1529a25c4";
+  const versionId = "9e7cfadd-33d1-4a3c-b1fc-38919599752f";
+  const pdfId = "2eb73d6c-4d6c-4665-827e-02307371dac8";
+
+  const listing = (
+    entries: readonly Record<string, unknown>[],
+    pagination: Partial<{
+      readonly count: number;
+      readonly hasMoreItems: boolean;
+      readonly totalItems: number;
+      readonly skipCount: number;
+      readonly maxItems: number;
+    }> = {},
+  ) => JSON.stringify({
+    list: {
+      pagination: {
+        count: entries.length,
+        hasMoreItems: false,
+        totalItems: entries.length,
+        skipCount: 0,
+        maxItems: 1000,
+        ...pagination,
+      },
+      entries: entries.map((entry) => ({ entry })),
+    },
+  });
+
+  const exactLawEntry = (): Record<string, unknown> => ({
+    id: "a2ff0be0-d4a8-4089-94c4-3a7ba1846a9b",
+    name: "ligj-2021-06-24-79.pdf",
+    nodeType: "qbz:act",
+    parentId: baseId,
+    isFile: true,
+    isFolder: false,
+    content: { mimeType: "application/pdf", sizeInBytes: 449853 },
+    path: {
+      name: `${actRoot}/base`,
+      isComplete: true,
+      elements: [
+        { id: rootId, name: "79" },
+        { id: baseId, name: "base" },
+      ],
+    },
+    properties: {
+      "qbz:actNumber": "79",
+      "qbz:actActType": "http://qbz.gov.al/resource/authority/document-type/ligj",
+      "qbz:actDate": "2021-06-23T22:00:00.000+0000",
+      "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
+      "qbz:actType": "Akt bazë",
+      "qbz:status": "Approved",
+    },
+  });
+
+  const baseFolderEntry = (): Record<string, unknown> => ({
+    id: baseId,
+    name: "base",
+    nodeType: "cm:folder",
+    parentId: rootId,
+    isFile: false,
+    isFolder: true,
+    path: {
+      name: actRoot,
+      isComplete: true,
+      elements: [{ id: rootId, name: "79" }],
+    },
+  });
+
+  const versionFolderEntry = (
+    name: string,
+    id = versionId,
+    parentId = rootId,
+  ): Record<string, unknown> => ({
+    id,
+    name,
+    nodeType: "cm:folder",
+    parentId,
+    isFile: false,
+    isFolder: true,
+    path: {
+      name: actRoot,
+      isComplete: true,
+      elements: [{ id: rootId, name: "79" }],
+    },
+  });
+
+  const pdfEntry = (
+    id = pdfId,
+    parentId = versionId,
+  ): Record<string, unknown> => ({
+    id,
+    name: "ligj-2021-06-24-79-perditesuar.pdf",
+    nodeType: "qbz:actVersion",
+    parentId,
+    isFile: true,
+    isFolder: false,
+    content: { mimeType: "application/pdf", sizeInBytes: 449853 },
+    path: {
+      name: `${actRoot}/cons-2025-07-14`,
+      isComplete: true,
+      elements: [
+        { id: rootId, name: "79" },
+        { id: versionId, name: "cons-2025-07-14" },
+      ],
+    },
+    properties: {
+      "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79/cons/202508-18",
+      "qbz:publishDate": "2025-08-18T12:24:28.660+0000",
+    },
+  });
+
+  test("uses the bounded Alfresco API and chooses the latest applicable cons PDF", async () => {
     const seen: HttpStepRequest[] = [];
     const step: RequestStep = async (httpRequest) => {
       seen.push(httpRequest);
-      if (httpRequest.role === "eli-search") {
+      if (httpRequest.role === "alfresco-search") {
         return liveArtifact(
           httpRequest,
-          JSON.stringify({
-            hasMoreItems: false,
-            items: [
-              {
-                nodeType: "qbz:act",
-                path: "/base",
-                actNumber: "79",
-                actDate: "2021-06-24",
-                actType: "ligj",
-                "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
-                modifiedAt: "2099-01-01",
-                id: "do-not-pin-this-node",
+          listing([
+            {
+              ...exactLawEntry(),
+              id: "wrong-act",
+              properties: {
+                ...(exactLawEntry().properties as Record<string, unknown>),
+                "qbz:url": "http://qbz.gov.al/eli/ligj/2001/01/01/79",
               },
-            ],
-          }),
+            },
+            exactLawEntry(),
+          ]),
         );
       }
-      if (httpRequest.role === "eli-root") {
+      if (httpRequest.role === "alfresco-base-folder") {
         return liveArtifact(
           httpRequest,
-          JSON.stringify({
-            hasMoreItems: false,
-            items: [
-              { nodeType: "qbz:actVersion", name: "cons-2024-01-01", path: "/base/cons-2024-01-01" },
-              { nodeType: "qbz:actVersion", name: "cons-2026-08-09", path: "/base/cons-2026-08-09" },
-              { nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" },
-            ],
-          }),
+          JSON.stringify({ entry: baseFolderEntry() }),
         );
       }
-      if (httpRequest.role === "eli-version") {
-        expect(httpRequest.url).toContain("cons-2025-07-18");
+      if (httpRequest.role === "alfresco-root-children") {
         return liveArtifact(
           httpRequest,
-          JSON.stringify({
-            hasMoreItems: false,
-            items: [
-              {
-                nodeType: "qbz:actVersion",
-                name: "cons-2025-07-18",
-                path: "/base/cons-2025-07-18",
-                mediaType: "application/pdf",
-                url: "https://qbz.gov.al/media/law-79-consolidated.pdf",
+          listing([
+            baseFolderEntry(),
+            versionFolderEntry("cons-2024-01-01", "old-version"),
+            versionFolderEntry("cons-2026-08-09", "future-version"),
+            versionFolderEntry("cons-2025-07-14"),
+          ]),
+        );
+      }
+      if (httpRequest.role === "alfresco-version-children") {
+        expect(httpRequest.url).toContain(versionId);
+        return liveArtifact(
+          httpRequest,
+          listing([
+            {
+              ...pdfEntry("docx-node"),
+              name: "ligj-2021-06-24-79-perditesuar.docx",
+              nodeType: "cm:content",
+              content: {
+                mimeType:
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                sizeInBytes: 182556,
               },
-            ],
-          }),
+            },
+            pdfEntry(),
+          ]),
         );
       }
+      expect(httpRequest.role).toBe("act-pdf");
       return liveArtifact(httpRequest, "%PDF-1.4\nfixture", httpRequest.url);
     };
 
@@ -302,30 +420,41 @@ describe("resolveLatestApplicableQbzAct", () => {
     expect(result.navigationUrl).toBe("https://qbz.gov.al/eli/ligj/2021/06/24/79");
     expect(result.indexedSourceUrl).toBe("http://qbz.gov.al/eli/ligj/2021/06/24/79");
     expect(result.resolvedEvidenceUrl).toBe(
-      "https://qbz.gov.al/media/law-79-consolidated.pdf",
+      `${nodesUrl}/${pdfId}/content`,
     );
-    expect(result.versionHint).toBe("cons-2025-07-18");
+    expect(result.versionHint).toBe("cons-2025-07-14");
     expect(result.artifacts.map((artifact) => artifact.role)).toEqual([
-      "eli-search",
-      "eli-root",
-      "eli-version",
+      "alfresco-search",
+      "alfresco-base-folder",
+      "alfresco-root-children",
+      "alfresco-version-children",
       "act-pdf",
     ]);
     expect(seen[0]).toMatchObject({
       method: "POST",
+      url: searchUrl,
       bodyMediaType: "application/json",
       headers: { "content-type": "application/json" },
     });
-    expect(new TextDecoder().decode(seen[0]!.bodyBytes)).toBe(
-      '{"nodeType":"qbz:act","path":"/base","actNumber":"79","actDate":"2021-06-24","actType":"ligj","qbz:url":"http://qbz.gov.al/eli/ligj/2021/06/24/79"}',
-    );
+    expect(JSON.parse(new TextDecoder().decode(seen[0]!.bodyBytes))).toEqual({
+      query: { language: "afts", query: "=qbz\\:actNumber:'79'" },
+      paging: { maxItems: 1000, skipCount: 0 },
+      include: ["properties", "path"],
+    });
+    expect(seen.map(({ url }) => url)).toEqual([
+      searchUrl,
+      `${nodesUrl}/${baseId}?include=path`,
+      `${nodesUrl}/${rootId}/children?include=path%2Cproperties&maxItems=1000&skipCount=0`,
+      `${nodesUrl}/${versionId}/children?include=path%2Cproperties&maxItems=1000&skipCount=0`,
+      `${nodesUrl}/${pdfId}/content`,
+    ]);
   });
 
-  test("rejects paginated or non-unique exact search results", async () => {
+  test("rejects a paginated Alfresco search result", async () => {
     const step: RequestStep = async (httpRequest) =>
       liveArtifact(
         httpRequest,
-        JSON.stringify({ hasMoreItems: true, items: [] }),
+        listing([], { hasMoreItems: true, totalItems: 1001 }),
       );
 
     await expect(
@@ -339,43 +468,10 @@ describe("resolveLatestApplicableQbzAct", () => {
     ).rejects.toMatchObject({ kind: "navigation_mismatch" });
   });
 
-  test("rejects duplicate latest applicable consolidated versions", async () => {
+  test("rejects non-unique exact acts after the bounded number search", async () => {
     const step: RequestStep = async (httpRequest) => {
-      if (httpRequest.role === "eli-search") {
-        return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [{
-            nodeType: "qbz:act",
-            path: "/base",
-            actNumber: "79",
-            actDate: "2021-06-24",
-            actType: "ligj",
-            "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
-          }],
-        }));
-      }
-      if (httpRequest.role === "eli-root") {
-        return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [
-            { nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" },
-            { nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" },
-          ],
-        }));
-      }
-      if (httpRequest.role === "eli-version") {
-        return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [{
-            nodeType: "qbz:actVersion",
-            name: "cons-2025-07-18",
-            path: "/base/cons-2025-07-18",
-            mediaType: "application/pdf",
-            url: "https://qbz.gov.al/media/law-79.pdf",
-          }],
-        }));
-      }
-      return liveArtifact(httpRequest, "%PDF-1.7");
+      expect(httpRequest.role).toBe("alfresco-search");
+      return liveArtifact(httpRequest, listing([exactLawEntry(), exactLawEntry()]));
     };
 
     await expect(
@@ -389,32 +485,24 @@ describe("resolveLatestApplicableQbzAct", () => {
     ).rejects.toMatchObject({ kind: "navigation_mismatch" });
   });
 
-  test("rejects a consolidated version outside the searched act root", async () => {
+  test("rejects a consolidated version outside the exact act root", async () => {
     const step: RequestStep = async (httpRequest) => {
-      if (httpRequest.role === "eli-search") {
-        return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [{
-            nodeType: "qbz:act",
-            path: "/base",
-            actNumber: "79",
-            actDate: "2021-06-24",
-            actType: "ligj",
-            "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
-          }],
-        }));
+      if (httpRequest.role === "alfresco-search") {
+        return liveArtifact(httpRequest, listing([exactLawEntry()]));
       }
-      if (httpRequest.role === "eli-root") {
-        return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [{
-            nodeType: "qbz:actVersion",
-            name: "cons-2025-07-18",
-            path: "/another-act/cons-2025-07-18",
-          }],
-        }));
+      if (httpRequest.role === "alfresco-base-folder") {
+        return liveArtifact(httpRequest, JSON.stringify({ entry: baseFolderEntry() }));
       }
-      throw new Error("an unrelated version must not be traversed");
+      expect(httpRequest.role).toBe("alfresco-root-children");
+      return liveArtifact(
+        httpRequest,
+        listing([
+          {
+            ...versionFolderEntry("cons-2025-07-14", versionId, "another-root"),
+            path: { name: "/Company Home/Aktet/another-act", isComplete: true },
+          },
+        ]),
+      );
     };
 
     await expect(
@@ -428,37 +516,25 @@ describe("resolveLatestApplicableQbzAct", () => {
     ).rejects.toMatchObject({ kind: "navigation_mismatch" });
   });
 
-  test("rejects a PDF item that does not belong to the selected version", async () => {
+  test("rejects multiple PDF actVersions in the selected folder", async () => {
     const step: RequestStep = async (httpRequest) => {
-      if (httpRequest.role === "eli-search") {
-        return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [{
-            nodeType: "qbz:act",
-            path: "/base",
-            actNumber: "79",
-            actDate: "2021-06-24",
-            actType: "ligj",
-            "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
-          }],
-        }));
+      if (httpRequest.role === "alfresco-search") {
+        return liveArtifact(httpRequest, listing([exactLawEntry()]));
       }
-      if (httpRequest.role === "eli-root") {
-        return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [{ nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" }],
-        }));
+      if (httpRequest.role === "alfresco-base-folder") {
+        return liveArtifact(httpRequest, JSON.stringify({ entry: baseFolderEntry() }));
       }
-      return liveArtifact(httpRequest, JSON.stringify({
-        hasMoreItems: false,
-        items: [{
-          nodeType: "qbz:actVersion",
-          name: "cons-2024-01-01",
-          path: "/base/cons-2024-01-01",
-          mediaType: "application/pdf",
-          url: "https://qbz.gov.al/media/wrong-version.pdf",
-        }],
-      }));
+      if (httpRequest.role === "alfresco-root-children") {
+        return liveArtifact(
+          httpRequest,
+          listing([versionFolderEntry("cons-2025-07-14")]),
+        );
+      }
+      expect(httpRequest.role).toBe("alfresco-version-children");
+      return liveArtifact(
+        httpRequest,
+        listing([pdfEntry(), pdfEntry("another-pdf")]),
+      );
     };
 
     await expect(
@@ -604,23 +680,78 @@ describe("OfficialSourceAdapter direct captures", () => {
     const signals: AbortSignal[] = [];
     const step: RequestStep = async (httpRequest, signal) => {
       signals.push(signal);
-      if (httpRequest.role === "eli-search") {
+      if (httpRequest.role === "alfresco-search") {
         return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [{
-            nodeType: "qbz:act",
-            path: "/base",
-            actNumber: "79",
-            actDate: "2021-06-24",
-            actType: "ligj",
-            "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
-          }],
+          list: {
+            pagination: {
+              count: 1,
+              hasMoreItems: false,
+              totalItems: 1,
+              skipCount: 0,
+              maxItems: 1000,
+            },
+            entries: [{ entry: {
+              id: "act-id",
+              name: "ligj-2021-06-24-79.pdf",
+              nodeType: "qbz:act",
+              parentId: "base-id",
+              isFile: true,
+              isFolder: false,
+              content: { mimeType: "application/pdf" },
+              path: {
+                name: "/Company Home/Aktet/ligj/kuvendi-i-shqiperise/2021/06/24/79/base",
+                isComplete: true,
+              },
+              properties: {
+                "qbz:actNumber": "79",
+                "qbz:actActType": "http://qbz.gov.al/resource/authority/document-type/ligj",
+                "qbz:url": "http://qbz.gov.al/eli/ligj/2021/06/24/79",
+                "qbz:actType": "Akt bazë",
+                "qbz:status": "Approved",
+              },
+            } }],
+          },
         }));
       }
-      if (httpRequest.role === "eli-root") {
+      if (httpRequest.role === "alfresco-base-folder") {
         return liveArtifact(httpRequest, JSON.stringify({
-          hasMoreItems: false,
-          items: [{ nodeType: "qbz:actVersion", name: "cons-2025-07-18", path: "/base/cons-2025-07-18" }],
+          entry: {
+            id: "base-id",
+            name: "base",
+            nodeType: "cm:folder",
+            parentId: "root-id",
+            isFile: false,
+            isFolder: true,
+            path: {
+              name: "/Company Home/Aktet/ligj/kuvendi-i-shqiperise/2021/06/24/79",
+              isComplete: true,
+            },
+          },
+        }));
+      }
+      if (httpRequest.role === "alfresco-root-children") {
+        return liveArtifact(httpRequest, JSON.stringify({
+          list: {
+            pagination: {
+              count: 1,
+              hasMoreItems: false,
+              totalItems: 1,
+              skipCount: 0,
+              maxItems: 1000,
+            },
+            entries: [{ entry: {
+              id: "version-id",
+              name: "cons-2025-07-14",
+              nodeType: "cm:folder",
+              parentId: "root-id",
+              isFile: false,
+              isFolder: true,
+              path: {
+                name: "/Company Home/Aktet/ligj/kuvendi-i-shqiperise/2021/06/24/79",
+                isComplete: true,
+              },
+            } }],
+          },
         }));
       }
       throw new SourceCaptureError("server_error", "version request failed");
@@ -634,9 +765,10 @@ describe("OfficialSourceAdapter direct captures", () => {
 
     expect(result.ok).toBe(false);
     expect(!result.ok && result.partialArtifacts.map((artifact) => artifact.role)).toEqual([
-      "eli-search",
-      "eli-root",
+      "alfresco-search",
+      "alfresco-base-folder",
+      "alfresco-root-children",
     ]);
-    expect(signals).toEqual([signal, signal, signal]);
+    expect(signals).toEqual([signal, signal, signal, signal]);
   });
 });

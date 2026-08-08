@@ -4,6 +4,39 @@ import type { ParseResult, ParserEntry, TiranaTransitFacts } from "../contracts"
 import { anchor, artifactByRole, entryHasValidIntegrity, normalizedText } from "./parser-support";
 
 const LAYERS = ["Linjat Qytetase", "Stacionet e Linjave Qytetase"] as const;
+const CURRENT_TITLE = "Transporti - Public GIS Portal";
+
+function occurrenceCount(value: string, pattern: RegExp): number {
+  return value.match(pattern)?.length ?? 0;
+}
+
+function currentVisibleWmsLayers(script: string): readonly string[] {
+  const groupStartPattern = /title\s*:\s*['"]Transporti Publik Urban['"]/g;
+  const nextGroupPattern = /title\s*:\s*['"]Transporti Publik Rrethqytetas['"]/g;
+  if (
+    occurrenceCount(script, groupStartPattern) !== 1 ||
+    occurrenceCount(script, nextGroupPattern) !== 1
+  ) return [];
+
+  const start = script.search(groupStartPattern);
+  const next = script.search(nextGroupPattern);
+  if (start < 0 || next <= start) return [];
+  const urbanGroup = script.slice(start, next);
+  const requiredLayerProperties = [
+    /title\s*:\s*['"]Linjat Qytetase['"]/g,
+    /title\s*:\s*['"]Stacionet e Linjave Qytetase['"]/g,
+    /['"]LAYERS['"]\s*:\s*['"]nexus_gis_tirana:Linjat Qytetase['"]/g,
+    /['"]LAYERS['"]\s*:\s*['"]nexus_gis_tirana:Stacionet e linjave Qytetase['"]/g,
+  ];
+  const hasExactUrbanGroup = requiredLayerProperties.every(
+    (pattern) => occurrenceCount(urbanGroup, pattern) === 1,
+  ) && occurrenceCount(urbanGroup, /new\s+ol\.layer\.Tile\s*\(/g) === 2 &&
+    occurrenceCount(urbanGroup, /new\s+ol\.source\.TileWMS\s*\(/g) === 2 &&
+    occurrenceCount(urbanGroup, /visible\s*:\s*true/g) === 3 &&
+    occurrenceCount(urbanGroup, /visible\s*:\s*false/g) === 0 &&
+    occurrenceCount(urbanGroup, /title\s*:/g) === 3;
+  return hasExactUrbanGroup ? LAYERS : [];
+}
 
 export function parseTiranaUrbanLines(entry: ParserEntry): ParseResult<TiranaTransitFacts> {
   if (!entryHasValidIntegrity(entry)) {
@@ -45,12 +78,16 @@ export function parseTiranaUrbanLines(entry: ParserEntry): ParseResult<TiranaTra
 
   const application = load(new TextDecoder().decode(gis.bytes));
   if (gis.url !== iframeSources[0]) return { ok: false, kind: "semantic_mismatch" };
-  if (normalizedText(application("title").text()) !== "Transporti") {
+  const sourceTitle = normalizedText(application("title").text());
+  if (sourceTitle !== "Transporti" && sourceTitle !== CURRENT_TITLE) {
     return { ok: false, kind: "semantic_mismatch" };
   }
-  const visibleWmsLayers = application('[data-service="WMS"][data-visible="true"]')
+  const legacyVisibleWmsLayers = application('[data-service="WMS"][data-visible="true"]')
     .map((_, layer) => normalizedText(application(layer).text()))
     .get();
+  const visibleWmsLayers = legacyVisibleWmsLayers.length > 0
+    ? legacyVisibleWmsLayers
+    : currentVisibleWmsLayers(application("script").map((_, node) => application(node).text()).get().join("\n"));
   if (
     visibleWmsLayers.length !== LAYERS.length ||
     !LAYERS.every((layer) => visibleWmsLayers.includes(layer))
