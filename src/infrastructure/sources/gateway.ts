@@ -82,7 +82,7 @@ export async function captureHttpOnce(
     response = await fetch(request.url, {
       method: request.method,
       headers: request.headers,
-      body: request.bodyBytes,
+      body: request.bodyBytes === undefined ? undefined : new Uint8Array(request.bodyBytes),
       redirect: "follow",
       signal,
     });

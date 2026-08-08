@@ -1,9 +1,12 @@
 import type { CbrBudgetRate, BoaBudgetRate, BudgetInput } from "../branch/budget";
 import {
   createCommit,
+  diffCommits,
   forkHousingCommit,
+  rewindTo,
   type BranchCommit,
   type BranchCursor,
+  type HousingBranchDiff,
 } from "../branch/life-git";
 import { confirmHousingDecision, type HousingDecision } from "../branch/housing";
 import type {
@@ -48,6 +51,10 @@ export interface HousingBranchPorts {
 export interface HousingBranchResult {
   readonly commit: BranchCommit;
   readonly revision: BranchRunRevision;
+}
+
+export interface HousingBranchForkResult extends HousingBranchResult {
+  readonly diff: HousingBranchDiff;
 }
 
 function validRunId(runId: string): void {
@@ -157,5 +164,26 @@ export function createHousingBranchApplication(ports: HousingBranchPorts) {
     return Object.freeze({ commit, revision });
   };
 
-  return Object.freeze({ saveInitialHousingBranch, forkHousing });
+  const rewindHousingBranch = async (commitId: string): Promise<BranchCursor> => {
+    if (typeof commitId !== "string" || commitId.length === 0) throw new Error("invalid_commit_id");
+    return rewindTo(await ports.branchStore.loadVerified(commitId));
+  };
+
+  const forkHousingBranch = async (
+    cursorInput: BranchCursor,
+    housingAll: string,
+  ): Promise<HousingBranchForkResult> => {
+    const cursor = validCursor(cursorInput);
+    const parent = await ports.branchStore.loadVerified(cursor.commitId);
+    const decision = confirmHousingDecision({ currency: "ALL", initialHousingAll: housingAll });
+    const result = await forkHousing(cursor, decision);
+    return Object.freeze({ ...result, diff: diffCommits(parent, result.commit) });
+  };
+
+  return Object.freeze({
+    saveInitialHousingBranch,
+    forkHousing,
+    rewindHousingBranch,
+    forkHousingBranch,
+  });
 }

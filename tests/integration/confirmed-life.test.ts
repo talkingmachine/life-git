@@ -799,6 +799,26 @@ describe("confirmed-life orchestration", () => {
     expect(JSON.stringify(details)).not.toContain(KEY);
     expect(JSON.stringify(details)).not.toMatch(/"(?:bytes|hmac)"/);
     expect(JSON.stringify(details)).not.toMatch(/name|passport/i);
+    expect(details.evidenceItems.some((item) => item.class === "projection")).toBe(false);
+  });
+
+  test("adds a staged companion projection only when the confirmed profile has a family route", async () => {
+    const { application } = testHarness();
+    const result = await application.startConfirmedLife(
+      { ...completeDraft, companionBasis: "family", relationship: "spouse" },
+      { currency: "ALL", initialHousingAll: "70000" },
+    );
+
+    const details = await application.loadRunDetailsCore(result.runId);
+
+    expect(details.evidenceItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        class: "projection",
+        label: "Staged companion route",
+        displayValue: "family:spouse",
+        provenance: "scenario",
+      }),
+    ]));
   });
 
   test("composition does not promote covered but semantically wrong source claims into a verdict", async () => {
@@ -866,6 +886,11 @@ describe("confirmed-life orchestration", () => {
       assessment: { marker: "green" },
     });
     const branch = await application.saveInitialHousingBranch(result.runId);
+    const presented = await application.presentRun(result.runId);
+    expect(presented.evidenceItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ class: "unknown", provenance: "unmodelled", label: "Налоги" }),
+      expect.objectContaining({ class: "unknown", provenance: "unmodelled", label: "Стоимость жизни" }),
+    ]));
     const beforeReplay = {
       artifacts: db.prepare("SELECT COUNT(*) AS count FROM artifacts").get(),
       snapshots: db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get(),

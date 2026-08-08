@@ -177,6 +177,12 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
         displayValue: `${revision.initialHousing.initialHousingAll} ${revision.initialHousing.currency}`,
         provenance: "scenario",
       },
+      ...(profile.profile.companionBasis === "family" ? [{
+        class: "projection" as const,
+        label: "Staged companion route",
+        displayValue: `${profile.profile.companionBasis}:${profile.profile.relationship}`,
+        provenance: "scenario" as const,
+      }] : []),
     ];
     const run: RunResult = {
       runId: revision.runId,

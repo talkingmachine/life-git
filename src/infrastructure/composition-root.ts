@@ -5,8 +5,15 @@ import { z } from "zod";
 
 import { createConfirmedLife } from "../application/confirmed-life";
 import { createHousingBranchApplication, type VerifiedBudgetFacts } from "../application/fork-housing";
+import { createPresentRun, renderRunDetails } from "../application/present-run";
 import { createReplayApplication } from "../application/replay";
 import { replayEvidence as replayVerifiedEvidence } from "../application/replay-evidence";
+import type {
+  EvidenceReadItem,
+  NarrativePort,
+  RunDetailsCore,
+} from "../application/contracts";
+import type { BranchCommit, HousingBranchDiff } from "../branch/life-git";
 import { assessRoute } from "../decision/assessment";
 import type {
   Evidence,
@@ -22,6 +29,7 @@ import {
   type EvidenceParsers,
 } from "../research/run";
 import { canonicalJson, createEvidenceIntegrity } from "./integrity";
+import { createOpenAiNarrative } from "./narrative";
 import { captureHttpOnce } from "./sources/gateway";
 import { OfficialSourceAdapter } from "./sources/official-source-adapter";
 import { openEvidenceDatabase } from "./sqlite/db";
@@ -40,6 +48,8 @@ export interface ConfirmedLifeCompositionOptions {
   readonly clock?: () => Date;
   readonly nextId?: (kind: "run" | "revision" | "assessment") => string;
   readonly deadlineAt?: (now: Date) => Date;
+  readonly narrative?: NarrativePort;
+  readonly openAiApiKey?: string;
 }
 
 const law79FactsSchema = z.object({
@@ -256,6 +266,49 @@ export function projectVerifiedBudgetFacts(snapshot: EvidenceSnapshot): Verified
   });
 }
 
+function withBranch(
+  core: RunDetailsCore,
+  commit: BranchCommit,
+  branchDiff?: HousingBranchDiff,
+): RunDetailsCore {
+  const calculation: EvidenceReadItem = Object.freeze({
+    class: "calculation",
+    label: "Бюджет ветки жилья",
+    displayValue: `${commit.calculation.knownResidualAll} ALL`,
+    formulaId: commit.calculation.formulaId,
+    formulaVersion: commit.calculation.formulaVersion,
+    inputs: commit.calculation.inputs,
+    rounding: commit.calculation.rounding,
+    outputHash: commit.calculation.outputHash,
+  });
+  const budgetUnknowns: EvidenceReadItem[] = commit.calculation.unknowns.map((unknown) => Object.freeze({
+    class: "unknown" as const,
+    label: unknown.kind === "taxes" ? "Налоги" : "Стоимость жизни",
+    provenance: "unmodelled" as const,
+  }));
+  return Object.freeze({
+    ...core,
+    evidenceItems: Object.freeze([
+      ...core.evidenceItems.filter((item) => item.class !== "calculation"),
+      calculation,
+      ...budgetUnknowns,
+    ]),
+    budget: Object.freeze({
+      incomeAll: commit.calculation.incomeAll,
+      housingAll: commit.calculation.housingAll,
+      knownResidualAll: commit.calculation.knownResidualAll,
+      unknowns: Object.freeze(commit.calculation.unknowns.map((unknown) => unknown.kind)),
+    }),
+    ...(branchDiff === undefined ? {} : { branchDiff }),
+    initialBranchCursor: Object.freeze({ commitId: commit.forkedFrom ?? commit.id }),
+    branchCursor: Object.freeze({ commitId: commit.id }),
+  });
+}
+
+function isMissingInitialBranch(error: unknown): boolean {
+  return error instanceof Error && error.message === "branch_revision_not_found";
+}
+
 export function createConfirmedLifeComposition(options: ConfirmedLifeCompositionOptions) {
   const evidenceStore = new SqliteEvidenceStore(options.database);
   const branchStore = new SqliteBranchStore(options.database, options.hmacKey);
@@ -328,7 +381,45 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     projectDecisionEvidence,
     projectBudgetFacts: projectVerifiedBudgetFacts,
   });
-  return Object.freeze({ ...confirmedLife, ...housingBranch, ...replay });
+  const narrative = options.narrative ?? createOpenAiNarrative({ apiKey: options.openAiApiKey });
+  const loadPresentableCore = async (runId: string): Promise<RunDetailsCore> => {
+    const core = await confirmedLife.loadRunDetailsCore(runId);
+    try {
+      const branchRevision = await runStore.loadInitialBranchByRunId(runId, core.run.runRevisionId);
+      const commit = await branchStore.loadVerified(branchRevision.branchCommitId);
+      if (
+        branchRevision.runId !== runId || branchRevision.profileId !== commit.profileId ||
+        branchRevision.evidenceSnapshotId !== commit.evidenceSnapshotId ||
+        branchRevision.assessmentId !== commit.assessmentId ||
+        branchRevision.rulesVersion !== commit.rulesVersion ||
+        branchRevision.formulaHash !== commit.formulaHash ||
+        branchRevision.outputHash !== commit.outputHash
+      ) throw new Error("integrity_mismatch");
+      return withBranch(core, commit);
+    } catch (error) {
+      if (isMissingInitialBranch(error)) return core;
+      throw error;
+    }
+  };
+  const presentRun = createPresentRun({ loadRunDetailsCore: loadPresentableCore, narrative });
+  const saveInitialHousingJourney = async (runId: string) => {
+    const branch = await housingBranch.saveInitialHousingBranch(runId);
+    const core = await confirmedLife.loadRunDetailsCore(runId);
+    return renderRunDetails(withBranch(core, branch.commit), narrative);
+  };
+  const forkHousingJourney = async (cursor: { readonly commitId: string }, housingAll: string) => {
+    const branch = await housingBranch.forkHousingBranch(cursor, housingAll);
+    const core = await confirmedLife.loadRunDetailsCore(branch.revision.runId);
+    return renderRunDetails(withBranch(core, branch.commit, branch.diff), narrative);
+  };
+  return Object.freeze({
+    ...confirmedLife,
+    ...housingBranch,
+    ...replay,
+    presentRun,
+    saveInitialHousingJourney,
+    forkHousingJourney,
+  });
 }
 
 let application: ReturnType<typeof createConfirmedLifeComposition> | undefined;
@@ -342,6 +433,7 @@ export function getConfirmedLifeApplication(): ReturnType<typeof createConfirmed
   application = createConfirmedLifeComposition({
     database: openEvidenceDatabase(databasePath),
     hmacKey,
+    openAiApiKey: process.env.OPENAI_API_KEY,
   });
   return application;
 }

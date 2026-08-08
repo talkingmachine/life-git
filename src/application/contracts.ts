@@ -1,4 +1,5 @@
 import type { HousingDecision } from "../branch/housing";
+import type { BranchCursor, HousingBranchDiff } from "../branch/life-git";
 import type { CalculationInput } from "../branch/budget";
 import type {
   Assessment,
@@ -111,6 +112,45 @@ export interface RunDetailsCore {
   readonly run: RunResult;
   readonly profile: ProfileSnapshot;
   readonly evidenceItems: readonly EvidenceReadItem[];
+  readonly budget?: {
+    readonly incomeAll: string;
+    readonly housingAll: string;
+    readonly knownResidualAll: string;
+    readonly unknowns: readonly string[];
+  };
+  readonly branchDiff?: HousingBranchDiff;
+  readonly initialBranchCursor?: BranchCursor;
+  readonly branchCursor?: BranchCursor;
+}
+
+export type NarrativeTypedValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly NarrativeTypedValue[]
+  | { readonly [key: string]: NarrativeTypedValue };
+
+export interface NarrativeInput {
+  readonly claimIds: readonly string[];
+  readonly typedValues: readonly {
+    readonly claimId: string;
+    readonly value: NarrativeTypedValue;
+  }[];
+}
+
+export interface NarrativeRead {
+  readonly headline: string;
+  readonly bullets: readonly string[];
+  readonly origin: "model" | "fallback";
+}
+
+export interface RunDetails extends RunDetailsCore {
+  readonly narrative: NarrativeRead;
+}
+
+export interface NarrativePort {
+  render(input: NarrativeInput): Promise<NarrativeRead>;
 }
 
 export interface ResearchPort {
