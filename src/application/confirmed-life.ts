@@ -191,15 +191,29 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
         provenance: "confirmed_profile",
       },
       {
+        class: "user_fact",
+        label: "Income continues 12 months",
+        displayValue: profile.profile.conditions.incomeContinues12Months ? "confirmed" : "not confirmed",
+        provenance: "confirmed_profile",
+      },
+      {
         class: "assumption",
         label: "Initial housing",
         displayValue: `${revision.initialHousing.initialHousingAll} ${revision.initialHousing.currency}`,
         provenance: "scenario",
       },
-      ...(profile.profile.companionBasis === "family" ? [{
+      {
+        class: "assumption",
+        label: "Lawful-stay prerequisite accepted",
+        displayValue: profile.profile.conditions.lawfulStayPrerequisiteAccepted ? "accepted" : "not accepted",
+        provenance: "scenario",
+      },
+      ...(profile.profile.companionBasis === "family" && profile.profile.relationship === "spouse" ? [{
         class: "projection" as const,
         label: "Staged companion route",
-        displayValue: `${profile.profile.companionBasis}:${profile.profile.relationship}`,
+        displayValue: profile.profile.conditions.stagedSpouseRouteAccepted
+          ? `${profile.profile.companionBasis}:${profile.profile.relationship}:accepted`
+          : `${profile.profile.companionBasis}:${profile.profile.relationship}:not accepted`,
         provenance: "scenario" as const,
       }] : []),
     ];

@@ -18,6 +18,11 @@ const profileDraftSchema = z
     incomeBasis: z.enum(["foreign_contract", "albanian_employer_only"]),
     companionBasis: z.enum(["none", "family", "independent", "unknown"]),
     relationship: z.enum(["none", "spouse", "non_family", "other_family"]),
+    conditions: z.object({
+      incomeContinues12Months: z.boolean(),
+      lawfulStayPrerequisiteAccepted: z.boolean(),
+      stagedSpouseRouteAccepted: z.boolean(),
+    }).strict(),
   })
   .strict()
   .superRefine((draft, context) => {
@@ -26,6 +31,15 @@ const profileDraftSchema = z
     }
     if (draft.companionBasis !== "family" && draft.relationship !== "none") {
       context.addIssue({ code: "custom", message: "Only a family basis can include a relationship." });
+    }
+    if (
+      draft.conditions.stagedSpouseRouteAccepted &&
+      (draft.companionBasis !== "family" || draft.relationship !== "spouse")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Only a spouse family route can accept the staged spouse condition.",
+      });
     }
   });
 
@@ -50,6 +64,7 @@ export function confirmProfile(draft: unknown, clock: () => Date): ProfileSnapsh
     incomeBasis: parsed.incomeBasis,
     companionBasis: parsed.companionBasis,
     relationship: parsed.relationship,
+    conditions: Object.freeze({ ...parsed.conditions }),
   });
   const confirmedAt = clock().toISOString();
   const id = createHash("sha256")

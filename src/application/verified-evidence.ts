@@ -233,6 +233,18 @@ export function projectValidatedEvidence(snapshot: EvidenceSnapshot): ValidatedE
         source: "official" as const,
         status: sourceStatuses["tirana-urban-lines"],
       }),
+      "al-decision-858-facts-1": Object.freeze({
+        source: "official" as const,
+        status: sourceStatuses["al-decision-858"],
+      }),
+      "cbr-eur-facts-1": Object.freeze({
+        source: "official" as const,
+        status: sourceStatuses["cbr-eur"],
+      }),
+      "boa-eur-facts-1": Object.freeze({
+        source: "official" as const,
+        status: sourceStatuses["boa-eur"],
+      }),
     }),
     foreignContractVerified: law,
     availableResourcesVerified: sourceStatuses["al-decision-858"],

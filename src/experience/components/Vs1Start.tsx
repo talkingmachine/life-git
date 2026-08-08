@@ -16,6 +16,11 @@ const INITIAL_PROFILE: ProfileDraft = Object.freeze({
   incomeBasis: "foreign_contract" as const,
   companionBasis: "none" as const,
   relationship: "none" as const,
+  conditions: Object.freeze({
+    incomeContinues12Months: false,
+    lawfulStayPrerequisiteAccepted: false,
+    stagedSpouseRouteAccepted: false,
+  }),
 });
 
 export function Vs1Start() {
@@ -25,6 +30,13 @@ export function Vs1Start() {
   const [isPending, setPending] = useState(false);
   const [details, setDetails] = useState<RunDetails>();
   const [error, setError] = useState<string>();
+
+  const setCondition = (condition: keyof ProfileDraft["conditions"], value: boolean) => {
+    setDraft((current) => ({
+      ...current,
+      conditions: { ...current.conditions, [condition]: value },
+    }));
+  };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -114,6 +126,9 @@ export function Vs1Start() {
                   ...draft,
                   companionBasis,
                   relationship: companionBasis === "family" ? draft.relationship : "none",
+                  conditions: companionBasis === "family"
+                    ? draft.conditions
+                    : { ...draft.conditions, stagedSpouseRouteAccepted: false },
                 });
               }}
               value={draft.companionBasis}
@@ -128,10 +143,16 @@ export function Vs1Start() {
             Отношение
             <select
               disabled={draft.companionBasis !== "family"}
-              onChange={(event) => setDraft({
-                ...draft,
-                relationship: event.currentTarget.value as ProfileDraft["relationship"],
-              })}
+              onChange={(event) => {
+                const relationship = event.currentTarget.value as ProfileDraft["relationship"];
+                setDraft({
+                  ...draft,
+                  relationship,
+                  conditions: relationship === "spouse"
+                    ? draft.conditions
+                    : { ...draft.conditions, stagedSpouseRouteAccepted: false },
+                });
+              }}
               value={draft.relationship}
             >
               <option value="none">Не указано</option>
@@ -148,6 +169,35 @@ export function Vs1Start() {
               value={housingAll}
             />
           </label>
+          <fieldset className="start-form__conditions">
+            <legend>Условия сценария, которые войдут в неизменяемый снимок</legend>
+            <label>
+              <input
+                checked={draft.conditions.incomeContinues12Months}
+                onChange={(event) => setCondition("incomeContinues12Months", event.currentTarget.checked)}
+                type="checkbox"
+              />
+              Доход продолжает поступать следующие 12 месяцев
+            </label>
+            <label>
+              <input
+                checked={draft.conditions.lawfulStayPrerequisiteAccepted}
+                onChange={(event) => setCondition("lawfulStayPrerequisiteAccepted", event.currentTarget.checked)}
+                type="checkbox"
+              />
+              Принимаю законное пребывание как предварительное условие; это не подтверждение документа
+            </label>
+            {draft.companionBasis === "family" && draft.relationship === "spouse" ? (
+              <label>
+                <input
+                  checked={draft.conditions.stagedSpouseRouteAccepted}
+                  onChange={(event) => setCondition("stagedSpouseRouteAccepted", event.currentTarget.checked)}
+                  type="checkbox"
+                />
+                Принимаю поэтапный маршрут супруга после разрешения спонсора
+              </label>
+            ) : null}
+          </fieldset>
           <label className="profile-card__confirmation">
             <input
               checked={confirmed}

@@ -24,6 +24,11 @@ const core: RunDetailsCore = {
       incomeBasis: "foreign_contract",
       companionBasis: "none",
       relationship: "none",
+      conditions: {
+        incomeContinues12Months: true,
+        lawfulStayPrerequisiteAccepted: true,
+        stagedSpouseRouteAccepted: false,
+      },
     },
   },
   evidenceItems: [],

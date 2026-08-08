@@ -11,6 +11,11 @@ export interface Profile {
   readonly incomeBasis: IncomeBasis;
   readonly companionBasis: CompanionBasis;
   readonly relationship: Relationship;
+  readonly conditions: {
+    readonly incomeContinues12Months: boolean;
+    readonly lawfulStayPrerequisiteAccepted: boolean;
+    readonly stagedSpouseRouteAccepted: boolean;
+  };
 }
 
 export interface ProfileSnapshot {
@@ -22,7 +27,10 @@ export interface ProfileSnapshot {
 export type ClaimId =
   | "al-law-79-art-68-contract"
   | "al-law-79-art-68-spouse"
-  | "al-tirana-residence";
+  | "al-tirana-residence"
+  | "al-decision-858-facts-1"
+  | "cbr-eur-facts-1"
+  | "boa-eur-facts-1";
 
 export type EvidenceStatus = "verified" | "missing" | "ambiguous" | "stale" | "conflicting" | "invalid";
 

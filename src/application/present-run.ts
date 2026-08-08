@@ -12,7 +12,7 @@ export const FALLBACK_NARRATIVE: NarrativeRead = Object.freeze({
   headline: "Маршрут показан без недоказанных выводов",
   bullets: Object.freeze([
     "Вывод не расширяет официальные факты.",
-    "Пробелы отмечены в паспорте доказательств.",
+    "Подробные основания доступны в паспорте доказательств.",
   ]),
   origin: "fallback",
 });

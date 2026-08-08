@@ -63,6 +63,11 @@ function details(marker: "green" | "yellow", suffix: string, branch = false): Ru
         incomeBasis: "foreign_contract",
         companionBasis: "none",
         relationship: "none",
+        conditions: {
+          incomeContinues12Months: true,
+          lawfulStayPrerequisiteAccepted: true,
+          stagedSpouseRouteAccepted: false,
+        },
       },
     },
     evidenceItems: [{
@@ -107,8 +112,18 @@ describe("journey action pending states", () => {
     render(<Vs1Start />);
 
     expect(screen.queryByRole("region", { name: /карта проверки маршрута/i })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: /доход продолжает.*12 месяцев/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /законное пребывание.*предварительное условие/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю синтетический снимок/i }));
     fireEvent.click(screen.getByRole("button", { name: /начать проверку/i }));
+
+    expect(actionMocks.startConfirmedLife).toHaveBeenCalledWith(expect.objectContaining({
+      conditions: {
+        incomeContinues12Months: true,
+        lawfulStayPrerequisiteAccepted: true,
+        stagedSpouseRouteAccepted: false,
+      },
+    }), { currency: "ALL", initialHousingAll: "70000" });
 
     await waitFor(() => {
       const map = screen.getByRole("region", { name: /карта проверки маршрута/i });

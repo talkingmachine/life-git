@@ -384,6 +384,11 @@ const completeDraft = {
   incomeBasis: "foreign_contract" as const,
   companionBasis: "none" as const,
   relationship: "none" as const,
+  conditions: {
+    incomeContinues12Months: true,
+    lawfulStayPrerequisiteAccepted: true,
+    stagedSpouseRouteAccepted: false,
+  },
 };
 
 function immutableRunRows(db: Database.Database, runId: string) {
@@ -788,6 +793,16 @@ describe("confirmed-life orchestration", () => {
         navigationUrl: "https://official.example/al-law-79",
       }),
       expect.objectContaining({ class: "assumption", displayValue: "70000 ALL" }),
+      expect.objectContaining({
+        class: "user_fact",
+        label: "Income continues 12 months",
+        displayValue: "confirmed",
+      }),
+      expect.objectContaining({
+        class: "assumption",
+        label: "Lawful-stay prerequisite accepted",
+        displayValue: "accepted",
+      }),
     ]));
     expect(JSON.stringify(details)).not.toContain(KEY);
     expect(JSON.stringify(details)).not.toMatch(/"(?:bytes|hmac)"/);
@@ -869,10 +884,15 @@ describe("confirmed-life orchestration", () => {
     expect(outboundClaimIds.some((claimId) => claimId.startsWith("al-law-79-"))).toBe(false);
   });
 
-  test("adds a staged companion projection only when the confirmed profile has a family route", async () => {
+  test("adds a staged companion projection only for a confirmed spouse route", async () => {
     const { application } = testHarness();
     const result = await application.startConfirmedLife(
-      { ...completeDraft, companionBasis: "family", relationship: "spouse" },
+      {
+        ...completeDraft,
+        companionBasis: "family",
+        relationship: "spouse",
+        conditions: { ...completeDraft.conditions, stagedSpouseRouteAccepted: true },
+      },
       { currency: "ALL", initialHousingAll: "70000" },
     );
 
@@ -882,7 +902,7 @@ describe("confirmed-life orchestration", () => {
       expect.objectContaining({
         class: "projection",
         label: "Staged companion route",
-        displayValue: "family:spouse",
+        displayValue: "family:spouse:accepted",
         provenance: "scenario",
       }),
     ]));
@@ -950,6 +970,21 @@ describe("confirmed-life orchestration", () => {
         .rejects.toThrow("branch_requires_green_assessment");
     },
   );
+
+  test("binds declined scenario conditions into a yellow run", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const application = testHarness().application;
+    const result = await application.startConfirmedLife({
+      ...completeDraft,
+      conditions: { ...completeDraft.conditions, incomeContinues12Months: false },
+    }, { currency: "ALL", initialHousingAll: "70000" });
+
+    expect(result.assessment).toMatchObject({
+      marker: "yellow",
+      reasons: [{ code: "income_continuation_not_confirmed", sourceId: "al-law-79" }],
+    });
+  });
 
   test("composition saves and fully replays exact typed sealed assessment and budget offline without appends", async () => {
     vi.useFakeTimers();

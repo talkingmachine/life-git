@@ -170,8 +170,36 @@ h3 {
 }
 
 .start-form > .profile-card__confirmation,
+.start-form__conditions,
 .start-form > button {
   grid-column: 1 / -1;
+}
+
+.start-form__conditions {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.start-form__conditions legend {
+  padding: 0 0.35rem;
+  font-weight: 750;
+}
+
+.start-form__conditions label {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+
+.start-form__conditions input {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.12rem;
+  accent-color: var(--coral);
 }
 
 .journey-shell--pending {

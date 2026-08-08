@@ -29,6 +29,11 @@ function profileFor(overrides: Partial<ProfileDraft> = {}) {
       incomeBasis: "foreign_contract",
       companionBasis: "none",
       relationship: "none",
+      conditions: {
+        incomeContinues12Months: true,
+        lawfulStayPrerequisiteAccepted: true,
+        stagedSpouseRouteAccepted: false,
+      },
       ...overrides,
     },
     clock,
@@ -37,10 +42,54 @@ function profileFor(overrides: Partial<ProfileDraft> = {}) {
 
 test("marks the researched no-companion and source-verified spouse routes green", () => {
   const completeProfile = profileFor();
-  const spouseProfile = profileFor({ companionBasis: "family", relationship: "spouse" });
+  const spouseProfile = profileFor({
+    companionBasis: "family",
+    relationship: "spouse",
+    conditions: {
+      incomeContinues12Months: true,
+      lawfulStayPrerequisiteAccepted: true,
+      stagedSpouseRouteAccepted: true,
+    },
+  });
 
   expect(assessRoute(completeProfile, verifiedEvidence, { housingProvided: true }).marker).toBe("green");
   expect(assessRoute(spouseProfile, verifiedEvidence, { housingProvided: true }).marker).toBe("green");
+});
+
+test("keeps unconfirmed scenario conditions yellow and applies spouse staging only to a spouse route", () => {
+  expect(assessRoute(profileFor({
+    conditions: {
+      incomeContinues12Months: false,
+      lawfulStayPrerequisiteAccepted: true,
+      stagedSpouseRouteAccepted: false,
+    },
+  }), verifiedEvidence, { housingProvided: true }).reasons[0].code)
+    .toBe("income_continuation_not_confirmed");
+  expect(assessRoute(profileFor({
+    conditions: {
+      incomeContinues12Months: true,
+      lawfulStayPrerequisiteAccepted: false,
+      stagedSpouseRouteAccepted: false,
+    },
+  }), verifiedEvidence, { housingProvided: true }).reasons[0].code)
+    .toBe("lawful_stay_prerequisite_not_accepted");
+  expect(assessRoute(profileFor({
+    conditions: {
+      incomeContinues12Months: true,
+      lawfulStayPrerequisiteAccepted: true,
+      stagedSpouseRouteAccepted: false,
+    },
+  }), verifiedEvidence, { housingProvided: true }).marker).toBe("green");
+  expect(assessRoute(profileFor({
+    companionBasis: "family",
+    relationship: "spouse",
+    conditions: {
+      incomeContinues12Months: true,
+      lawfulStayPrerequisiteAccepted: true,
+      stagedSpouseRouteAccepted: false,
+    },
+  }), verifiedEvidence, { housingProvided: true }).reasons[0].code)
+    .toBe("staged_spouse_route_not_accepted");
 });
 
 test("keeps false housing, missing claim, unresearched basis, and unverified relationships yellow", () => {
@@ -107,12 +156,12 @@ test("binds each reason to its exact source and separates a verified threshold m
 
   expect(belowThreshold.reasons[0]).toEqual({
     code: "available_resources_below_threshold",
-    claimId: "al-tirana-residence",
+    claimId: "al-decision-858-facts-1",
     sourceId: "al-decision-858",
   });
   expect(unavailableResources.reasons[0]).toEqual({
     code: "available_resources_rule_unavailable",
-    claimId: "al-tirana-residence",
+    claimId: "al-decision-858-facts-1",
     sourceId: "al-decision-858",
     blockerKind: "semantic_mismatch",
   });
@@ -142,7 +191,7 @@ test.each([
     marker: "yellow",
     reasons: [{
       code,
-      claimId: "al-tirana-residence",
+      claimId: `${sourceId}-facts-1`,
       sourceId,
       blockerKind: "server_error",
     }],

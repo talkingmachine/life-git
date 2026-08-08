@@ -48,6 +48,11 @@ function draft(monthlyIncome = "210000") {
     incomeBasis: "foreign_contract" as const,
     companionBasis: "none" as const,
     relationship: "none" as const,
+    conditions: {
+      incomeContinues12Months: true,
+      lawfulStayPrerequisiteAccepted: true,
+      stagedSpouseRouteAccepted: false,
+    },
   };
 }
 

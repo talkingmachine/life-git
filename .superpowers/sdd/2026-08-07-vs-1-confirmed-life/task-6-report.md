@@ -82,17 +82,26 @@
   только связывает stores/use cases. C2 нельзя создать напрямую: server и UI требуют исходный C0.
 - Evidence Passport группирует claims по official source, показывает human summary и link первым,
   а raw JSON/claim IDs/anchors/blocker codes — только во вложенных technical details.
+- Second independent review found that the general confirmation checkbox did not bind three
+  required scenario conditions. `Profile.conditions` now stores exact booleans for twelve-month
+  income continuation, lawful-stay prerequisite acceptance and spouse-only staged routing; they
+  participate in the profile SHA/run HMAC, are visible in the form/card/Passport, and a declined
+  required condition keeps the assessment yellow. Solo profiles never depend on the spouse flag.
+- Decision 858, CBR and Bank of Albania reasons now carry their own expected source claim IDs;
+  lawful-stay lineage points to Article 68 instead of Tirana. Deterministic fallback copy no longer
+  says that unknowns exist when the presented Passport has no unknown item.
 
 ## Gates and self-review
 
 - Focused final assessment/composition gate: 47 tests, 2 files, 0 failures.
-- Full Vitest: 211 tests, 14 files, 0 failures.
+- Full Vitest: 214 tests, 14 files, 0 failures.
 - TypeScript `tsc --noEmit`: PASS.
 - ESLint: PASS.
 - Next 16.3.0 production build: PASS; `/` dynamic and `/_not-found` static.
 - `git diff --check`: PASS.
 - Review-fix journey/application gates: 28/28 experience/action, 40/40 presentation/composition,
   23/23 Passport/budget, and 47/47 assessment/composition: PASS.
+- Second-review profile/assessment/experience gate: 84/84 PASS.
 - Next-generated `next-env.d.ts`, tsbuild info and automatic tsconfig rewrites were removed/restored
   after build evidence; intentional tsconfig change is limited to DOM libs needed by React UI.
 - No browser/network was used. No push, PR, merge or trunk operation was performed.

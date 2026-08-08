@@ -32,11 +32,11 @@ export function assessRoute(profile: ProfileSnapshot, evidence: Evidence, routeC
   }
 
   if (evidence.availableResourcesVerified !== "verified") {
-    return yellow(evidence, "available_resources_rule_unavailable", "al-tirana-residence", "al-decision-858");
+    return yellow(evidence, "available_resources_rule_unavailable", "al-decision-858-facts-1", "al-decision-858");
   }
 
   if (evidence.lawfulStayVerified !== "verified") {
-    return yellow(evidence, "lawful_stay_not_verified", "al-tirana-residence", "al-law-79");
+    return yellow(evidence, "lawful_stay_not_verified", "al-law-79-art-68-contract", "al-law-79");
   }
 
   if (evidence.stagedFamilyPlanVerified !== "verified") {
@@ -44,11 +44,11 @@ export function assessRoute(profile: ProfileSnapshot, evidence: Evidence, routeC
   }
 
   if (evidence.cbrRateVerified !== "verified") {
-    return yellow(evidence, "cbr_rate_not_verified", "al-tirana-residence", "cbr-eur");
+    return yellow(evidence, "cbr_rate_not_verified", "cbr-eur-facts-1", "cbr-eur");
   }
 
   if (evidence.boaRateVerified !== "verified") {
-    return yellow(evidence, "boa_rate_not_verified", "al-tirana-residence", "boa-eur");
+    return yellow(evidence, "boa_rate_not_verified", "boa-eur-facts-1", "boa-eur");
   }
 
   if (!hasVerifiedOfficialClaim(evidence, "al-tirana-residence")) {
@@ -64,7 +64,7 @@ export function assessRoute(profile: ProfileSnapshot, evidence: Evidence, routeC
   }
 
   if (new Decimal(profile.profile.availableResourcesAll).lessThan(requiredResourcesAll)) {
-    return yellow(evidence, "available_resources_below_threshold", "al-tirana-residence", "al-decision-858");
+    return yellow(evidence, "available_resources_below_threshold", "al-decision-858-facts-1", "al-decision-858");
   }
 
   if (profile.profile.companionBasis === "independent" || profile.profile.companionBasis === "unknown") {
@@ -77,6 +77,22 @@ export function assessRoute(profile: ProfileSnapshot, evidence: Evidence, routeC
 
   if (!routeConditions.housingProvided) {
     return yellow(evidence, "housing_not_confirmed", "al-tirana-residence", "tirana-urban-lines");
+  }
+
+  if (!profile.profile.conditions.incomeContinues12Months) {
+    return yellow(evidence, "income_continuation_not_confirmed", "al-law-79-art-68-contract", "al-law-79");
+  }
+
+  if (!profile.profile.conditions.lawfulStayPrerequisiteAccepted) {
+    return yellow(evidence, "lawful_stay_prerequisite_not_accepted", "al-law-79-art-68-contract", "al-law-79");
+  }
+
+  if (
+    profile.profile.companionBasis === "family" &&
+    profile.profile.relationship === "spouse" &&
+    !profile.profile.conditions.stagedSpouseRouteAccepted
+  ) {
+    return yellow(evidence, "staged_spouse_route_not_accepted", "al-law-79-art-68-spouse", "al-law-79");
   }
 
   return { marker: "green", reasons: [] };

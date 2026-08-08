@@ -10,6 +10,11 @@ const completeDraft = {
   incomeBasis: "foreign_contract",
   companionBasis: "none",
   relationship: "none",
+  conditions: {
+    incomeContinues12Months: true,
+    lawfulStayPrerequisiteAccepted: true,
+    stagedSpouseRouteAccepted: false,
+  },
 };
 
 describe("confirmProfile", () => {
@@ -38,7 +43,7 @@ describe("confirmProfile", () => {
         monthlyIncome: { amount: "210000", currency: "RUB" },
       },
     });
-    expect(first.id).toBe("378f7e2b940d4ce9e9db9f7668fd5563731519d1699768864e79a17509c0fdf1");
+    expect(first.id).toBe("e825045bca4ae540729fdd656f365ce1a443f2058680e13f55006d58329b4386");
     expect(second.id).toBe(first.id);
   });
 
@@ -48,8 +53,28 @@ describe("confirmProfile", () => {
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(Object.isFrozen(snapshot.profile)).toBe(true);
     expect(Object.isFrozen(snapshot.profile.monthlyIncome)).toBe(true);
+    expect(Object.isFrozen(snapshot.profile.conditions)).toBe(true);
     expect(() => {
       (snapshot.profile.monthlyIncome as { amount: string }).amount = "1";
     }).toThrow();
+  });
+
+  test("requires exact typed scenario confirmations and binds them into the profile id", () => {
+    expect(() => confirmProfile({
+      ...completeDraft,
+      conditions: { ...completeDraft.conditions, incomeContinues12Months: false },
+    }, clock)).not.toThrow();
+    expect(() => confirmProfile({
+      ...completeDraft,
+      conditions: { ...completeDraft.conditions, lawfulStayPrerequisiteAccepted: "yes" },
+    }, clock)).toThrow();
+    expect(() => confirmProfile({
+      ...completeDraft,
+      conditions: { ...completeDraft.conditions, stagedSpouseRouteAccepted: true },
+    }, clock)).toThrow();
+    expect(confirmProfile({
+      ...completeDraft,
+      conditions: { ...completeDraft.conditions, incomeContinues12Months: false },
+    }, clock).id).not.toBe(confirmProfile(completeDraft, clock).id);
   });
 });

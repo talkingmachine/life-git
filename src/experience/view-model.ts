@@ -33,6 +33,9 @@ const reasonLabels: Readonly<Record<string, string>> = Object.freeze({
   boa_rate_not_verified: "Официальный курс Банка Албании недоступен",
   tirana_claim_not_verified: "Данные по Тиране требуют повторной проверки",
   spouse_claim_not_verified: "Основание для супруга требует повторной проверки",
+  income_continuation_not_confirmed: "Поступление дохода в течение двенадцати месяцев не подтверждено",
+  lawful_stay_prerequisite_not_accepted: "Предварительное условие законного пребывания не принято",
+  staged_spouse_route_not_accepted: "Поэтапный маршрут супруга после разрешения спонсора не принят",
 });
 
 const blockerLabels: Readonly<Record<string, string>> = Object.freeze({
@@ -90,7 +93,9 @@ export function createJourneyView(details: RunDetails) {
       incomeBasis: details.profile.profile.incomeBasis,
       monthlyIncomeRub: details.profile.profile.monthlyIncome.amount,
       availableResourcesAll: details.profile.profile.availableResourcesAll,
-      companionMode: details.profile.profile.companionBasis === "family"
+      conditions: details.profile.profile.conditions,
+      companionMode: details.profile.profile.companionBasis === "family" &&
+          details.profile.profile.relationship === "spouse"
         ? "staged" as const
         : details.profile.profile.companionBasis === "none"
           ? "none" as const

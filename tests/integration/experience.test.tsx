@@ -36,6 +36,17 @@ import type { NarrativeParse } from "../../src/infrastructure/narrative";
 
 afterEach(cleanup);
 
+const soloConditions = Object.freeze({
+  incomeContinues12Months: true,
+  lawfulStayPrerequisiteAccepted: true,
+  stagedSpouseRouteAccepted: false,
+});
+
+const spouseConditions = Object.freeze({
+  ...soloConditions,
+  stagedSpouseRouteAccepted: true,
+});
+
 describe("confirmed-life visual journey", () => {
   it("shows the confirmed snapshot read-only and offers an explicit green C0 action", () => {
     const saveC0 = vi.fn();
@@ -50,6 +61,11 @@ describe("confirmed-life visual journey", () => {
           monthlyIncomeRub: "210000",
           availableResourcesAll: "500000",
           companionMode: "staged",
+          conditions: {
+            incomeContinues12Months: true,
+            lawfulStayPrerequisiteAccepted: true,
+            stagedSpouseRouteAccepted: true,
+          },
         }}
       />,
     );
@@ -59,8 +75,11 @@ describe("confirmed-life visual journey", () => {
     expect(screen.getByText(/месячный доход.*210 000 RUB.*ввод пользователя/i)).toBeTruthy();
     expect(screen.getByText(/ресурс/i)).toBeTruthy();
     expect(screen.getByText(/спутник.*поэтапно/i)).toBeTruthy();
+    expect(screen.getByText(/доход.*12 месяцев.*подтверждено пользователем/i)).toBeTruthy();
+    expect(screen.getByText(/предварительное условие законного пребывания.*принято/i)).toBeTruthy();
+    expect(screen.getByText(/маршрут супруга.*после разрешения спонсора.*принят/i)).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByText(/законное пребывание/i)).toBeNull();
+    expect(screen.queryByText(/законное пребывание подтверждено/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /зафиксировать C0/i }));
     expect(saveC0).toHaveBeenCalledOnce();
   });
@@ -76,6 +95,11 @@ describe("confirmed-life visual journey", () => {
           monthlyIncomeRub: "210000",
           availableResourcesAll: "407999",
           companionMode: "staged",
+          conditions: {
+            incomeContinues12Months: false,
+            lawfulStayPrerequisiteAccepted: false,
+            stagedSpouseRouteAccepted: false,
+          },
         }}
       />,
     );
@@ -98,6 +122,11 @@ describe("confirmed-life visual journey", () => {
           monthlyIncomeRub: "210000",
           availableResourcesAll: "500000",
           companionMode: "none",
+          conditions: {
+            incomeContinues12Months: true,
+            lawfulStayPrerequisiteAccepted: true,
+            stagedSpouseRouteAccepted: false,
+          },
         }}
       />,
     );
@@ -204,6 +233,7 @@ describe("confirmed-life visual journey", () => {
           incomeBasis: "foreign_contract",
           companionBasis: "none",
           relationship: "none",
+          conditions: soloConditions,
         },
       },
       evidenceItems: [{
@@ -224,7 +254,7 @@ describe("confirmed-life visual journey", () => {
           marker: "yellow",
           reasons: [{
             code: "available_resources_rule_unavailable",
-            claimId: "al-tirana-residence",
+            claimId: "al-decision-858-facts-1",
             sourceId: "al-decision-858",
             blockerKind: "semantic_mismatch",
           }],
@@ -239,7 +269,7 @@ describe("confirmed-life visual journey", () => {
           marker: "yellow",
           reasons: [{
             code: "available_resources_below_threshold",
-            claimId: "al-tirana-residence",
+            claimId: "al-decision-858-facts-1",
             sourceId: "al-decision-858",
           }],
         },
@@ -478,6 +508,7 @@ describe("confirmed-life visual journey", () => {
             incomeBasis: "foreign_contract" as const,
             companionBasis: "family" as const,
             relationship: "spouse" as const,
+            conditions: spouseConditions,
           }),
         }),
       },
@@ -658,6 +689,7 @@ describe("confirmed-life visual journey", () => {
           incomeBasis: "foreign_contract",
           companionBasis: "family",
           relationship: "spouse",
+          conditions: spouseConditions,
         },
       },
       evidenceItems: [
@@ -763,6 +795,7 @@ describe("confirmed-life visual journey", () => {
           incomeBasis: "foreign_contract",
           companionBasis: "none",
           relationship: "none",
+          conditions: soloConditions,
         },
       },
       evidenceItems: [{
@@ -818,6 +851,7 @@ describe("confirmed-life visual journey", () => {
           incomeBasis: "foreign_contract",
           companionBasis: "none",
           relationship: "none",
+          conditions: soloConditions,
         },
       },
       evidenceItems: [{
@@ -848,9 +882,10 @@ describe("confirmed-life visual journey", () => {
       },
     });
 
-    await expect(presentRun("run-no-unknowns")).resolves.toMatchObject({
-      narrative: FALLBACK_NARRATIVE,
-    });
+    const presented = await presentRun("run-no-unknowns");
+
+    expect(presented).toMatchObject({ narrative: FALLBACK_NARRATIVE });
+    expect(presented.narrative.bullets.join(" ")).not.toMatch(/неизвест|пробел/i);
   });
 
   it("keeps fallback wording valid even when no official source is available", () => {
@@ -885,6 +920,7 @@ describe("confirmed-life visual journey", () => {
           incomeBasis: "foreign_contract",
           companionBasis: "family",
           relationship: "spouse",
+          conditions: spouseConditions,
         },
       },
       evidenceItems: [{
@@ -929,6 +965,7 @@ describe("confirmed-life visual journey", () => {
       incomeBasis: "foreign_contract",
       companionBasis: "none",
       relationship: "none",
+      conditions: soloConditions,
       freeText: "must never cross the boundary",
     } as never, { currency: "ALL", initialHousingAll: "70000" }))
       .rejects.toThrow();
