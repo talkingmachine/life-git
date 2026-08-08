@@ -163,6 +163,39 @@ pnpm exec next build — PASS, compiled and generated successfully
 git diff --check — PASS
 ```
 
+## Fix round 3
+
+Base: `a2b6bd635dd59229cf3e5f7e3ca68f9e2b62cf1a`
+
+Finding mapping:
+
+- SHA-256 excerpt digests are valid case-insensitive hex, so uniqueness now compares their lowercase canonical form.
+- Canonical anchor-tuple uniqueness uses the same normalized digest, preventing case-only aliases from bypassing either guard.
+- No parsing, evidence schema, or unrelated orchestration behavior changed.
+
+Sealed/HMAC RED:
+
+```text
+case-variant Law excerpt hashes: expected invalid, received verified
+Test Files 1 failed; Tests 1 failed | 32 passed
+```
+
+Focused GREEN:
+
+```text
+Test Files 1 passed; Tests 33 passed
+```
+
+Fix round 3 full gate:
+
+```text
+pnpm test — PASS, 8 files / 110 tests
+pnpm typecheck — PASS
+pnpm lint — PASS
+pnpm exec next build — PASS, compiled and generated successfully
+git diff --check — PASS
+```
+
 ## Files
 
 Created:

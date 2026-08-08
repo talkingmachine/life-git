@@ -225,6 +225,7 @@ function standardLocator(sourceId: SourceId, index: number): string {
 
 type SealedClaimDefect =
   | "duplicate_law_anchor"
+  | "case_variant_excerpt_hash"
   | "wrong_law_locator"
   | "tirana_period_mismatch"
   | "mixed_tirana_checked_at";
@@ -262,6 +263,17 @@ async function verifiedMixedSnapshot(
           locator: standardLocator(sourceId, index),
           excerptSha256: String(index + 1).repeat(64),
         };
+        if (sourceId === "al-law-79" && defect === "case_variant_excerpt_hash") {
+          anchor = {
+            ...anchor,
+            excerptSha256:
+              index === 0
+                ? "a".repeat(64)
+                : index === 1
+                  ? "A".repeat(64)
+                  : "b".repeat(64),
+          };
+        }
         if (sourceId === "al-law-79" && index === 2 && defect === "duplicate_law_anchor") {
           anchor = {
             artifactId: sourceArtifact.artifactId,
@@ -886,6 +898,7 @@ describe("confirmed-life orchestration", () => {
 
   test.each([
     ["duplicate_law_anchor", "foreignContractVerified"],
+    ["case_variant_excerpt_hash", "foreignContractVerified"],
     ["wrong_law_locator", "foreignContractVerified"],
     ["tirana_period_mismatch", "tirana"],
     ["mixed_tirana_checked_at", "tirana"],

@@ -121,8 +121,13 @@ function semanticStatus(
   const periods = new Set(claims.map((claim) => claim.sourcePeriod));
   const artifactIds = new Set(snapshot.artifactIds);
   const facts = new Set(claims.map((claim) => canonicalJson(claim.value)));
-  const anchorTuples = new Set(claims.map((claim) => canonicalJson(claim.anchor)));
-  const excerptHashes = new Set(claims.map((claim) => claim.anchor.excerptSha256));
+  const anchorTuples = new Set(claims.map((claim) => canonicalJson({
+    ...claim.anchor,
+    excerptSha256: claim.anchor.excerptSha256.toLowerCase(),
+  })));
+  const excerptHashes = new Set(
+    claims.map((claim) => claim.anchor.excerptSha256.toLowerCase()),
+  );
   return claims.length === expectedClaimCount &&
     new Set(claims.map((claim) => claim.claimId)).size === expectedClaimCount &&
     claims.every((claim) =>
