@@ -2,6 +2,8 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import type { EvidenceIntegrity } from "../research/run";
 
+const SHA256_HEX = /^[a-f\d]{64}$/i;
+
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (value !== null && typeof value === "object") {
@@ -28,8 +30,12 @@ export function hmacSha256(value: string, key: string): string {
   return createHmac("sha256", key).update(value).digest("hex");
 }
 
+export function isSha256Hex(value: unknown): value is string {
+  return typeof value === "string" && SHA256_HEX.test(value);
+}
+
 export function secureHexEqual(left: string, right: string): boolean {
-  if (!/^[a-f\d]{64}$/i.test(left) || !/^[a-f\d]{64}$/i.test(right)) return false;
+  if (!isSha256Hex(left) || !isSha256Hex(right)) return false;
   const leftBytes = Buffer.from(left, "hex");
   const rightBytes = Buffer.from(right, "hex");
   return leftBytes.byteLength === rightBytes.byteLength && timingSafeEqual(leftBytes, rightBytes);

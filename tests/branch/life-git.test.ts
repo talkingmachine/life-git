@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { createHousingBranchApplication } from "../../src/application/fork-housing";
 import { createReplayApplication } from "../../src/application/replay";
 import { confirmHousingDecision } from "../../src/branch/housing";
-import { createCommit, diffCommits, rewindTo } from "../../src/branch/life-git";
+import { createCommit, diffCommits, forkHousingCommit, rewindTo } from "../../src/branch/life-git";
 import { confirmProfile } from "../../src/decision/profile";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { canonicalJson, hmacSha256 } from "../../src/infrastructure/integrity";
@@ -16,6 +16,14 @@ import type { Assessment, Evidence, EvidenceSnapshot } from "../../src/research/
 
 const KEY = "branch-test-hmac-key";
 const databases: Database.Database[] = [];
+const malformedBranchHashes = [
+  ["formulaHash", "a".repeat(63)],
+  ["formulaHash", "a".repeat(65)],
+  ["formulaHash", `${"a".repeat(63)}g`],
+  ["outputHash", "b".repeat(63)],
+  ["outputHash", "b".repeat(65)],
+  ["outputHash", `${"b".repeat(63)}g`],
+] as const;
 
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
@@ -378,6 +386,77 @@ describe("Life Git housing branch", () => {
       formulaHash: initial.commit.formulaHash,
       outputHash: initial.commit.outputHash,
     })).toThrow(/FOREIGN KEY constraint failed/);
+  });
+
+  test.each(malformedBranchHashes)("appendBranch rejects malformed %s value %s", async (property, malformed) => {
+    const { application, branchStore, runStore } = await setup();
+    const initial = await application.saveInitialHousingBranch("run-1");
+    const pendingCommit = forkHousingCommit(
+      initial.commit,
+      { currency: "ALL", initialHousingAll: "90000" },
+    );
+    branchStore.append(pendingCommit);
+
+    expect(() => runStore.appendBranch({
+      id: `malformed-${property}-${malformed.length}`,
+      runId: "run-1",
+      stage: "branch",
+      assessmentDate: "2026-08-07",
+      parentRevisionId: initial.revision.id,
+      profileId: pendingCommit.profileId,
+      evidenceSnapshotId: pendingCommit.evidenceSnapshotId,
+      assessmentId: pendingCommit.assessmentId,
+      rulesVersion: pendingCommit.rulesVersion,
+      branchCommitId: pendingCommit.id,
+      formulaHash: pendingCommit.formulaHash,
+      outputHash: pendingCommit.outputHash,
+      [property]: malformed,
+    })).toThrow("integrity_mismatch");
+  });
+
+  test.each(malformedBranchHashes)("branch loader rejects HMAC-valid malformed %s value %s", async (property, malformed) => {
+    const { application, runStore, db } = await setup();
+    const initial = await application.saveInitialHousingBranch("run-1");
+    const row = db.prepare("SELECT revision_json FROM run_revisions WHERE id = ?").get(
+      initial.revision.id,
+    ) as { revision_json: string };
+    const changed = JSON.parse(row.revision_json) as Record<string, unknown>;
+    changed[property] = malformed;
+    const unsigned = { ...changed };
+    delete unsigned.hmac;
+    changed.hmac = hmacSha256(canonicalJson(unsigned), KEY);
+    const column = property === "formulaHash" ? "formula_hash" : "output_hash";
+    db.exec("DROP TRIGGER run_revisions_no_update");
+    db.pragma("ignore_check_constraints = ON");
+    db.prepare(`
+      UPDATE run_revisions SET ${column} = ?, revision_json = ?, hmac = ? WHERE id = ?
+    `).run(malformed, canonicalJson(changed), changed.hmac, initial.revision.id);
+
+    await expect(runStore.loadBranchByCommitId(initial.commit.id)).rejects.toThrow("integrity_mismatch");
+  });
+
+  test.each(malformedBranchHashes)("schema rejects malformed branch %s value %s", async (property, malformed) => {
+    const { application, db } = await setup();
+    const initial = await application.saveInitialHousingBranch("run-1");
+    const column = property === "formulaHash" ? "formula_hash" : "output_hash";
+    const row = db.prepare("SELECT revision_json FROM run_revisions WHERE id = ?").get(
+      initial.revision.id,
+    ) as { revision_json: string };
+    const changed = JSON.parse(row.revision_json) as Record<string, unknown>;
+    changed[property] = malformed;
+    const unsigned = { ...changed };
+    delete unsigned.hmac;
+    changed.hmac = hmacSha256(canonicalJson(unsigned), KEY);
+    db.exec("DROP TRIGGER run_revisions_no_update");
+
+    expect(() => db.prepare(`
+      UPDATE run_revisions SET ${column} = ?, revision_json = ?, hmac = ? WHERE id = ?
+    `).run(
+      malformed,
+      canonicalJson(changed),
+      changed.hmac,
+      initial.revision.id,
+    )).toThrow(/CHECK constraint failed/);
   });
 
   test.each([

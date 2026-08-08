@@ -7,7 +7,7 @@ import type {
   BranchRunRevisionPayload,
 } from "../../application/contracts";
 import type { Assessment } from "../../research/contracts";
-import { canonicalJson, hmacSha256, secureHexEqual } from "../integrity";
+import { canonicalJson, hmacSha256, isSha256Hex, secureHexEqual } from "../integrity";
 
 interface RunRevisionRow {
   readonly id: string;
@@ -148,7 +148,10 @@ export class SqliteRunStore {
   }
 
   appendBranch(input: BranchRunRevisionPayload): BranchRunRevision {
-    if (input.stage !== "branch" || input.parentRevisionId.length === 0 || input.branchCommitId.length === 0) {
+    if (
+      input.stage !== "branch" || input.parentRevisionId.length === 0 || input.branchCommitId.length === 0 ||
+      !isSha256Hex(input.formulaHash) || !isSha256Hex(input.outputHash)
+    ) {
       integrityMismatch();
     }
     const hmac = hmacSha256(canonicalJson(input), this.hmacKey);
@@ -198,6 +201,8 @@ export class SqliteRunStore {
       row.stage !== "branch" || row.initial_housing_json !== null || row.assessment_json !== null ||
       row.parent_revision_id === null || row.branch_commit_id === null ||
       row.formula_hash === null || row.output_hash === null ||
+      !isSha256Hex(row.formula_hash) || !isSha256Hex(row.output_hash) ||
+      !isSha256Hex(revision.formulaHash) || !isSha256Hex(revision.outputHash) ||
       revision.id !== row.id || revision.runId !== row.run_id || revision.stage !== row.stage ||
       revision.assessmentDate !== row.assessment_date || revision.profileId !== row.profile_id ||
       revision.evidenceSnapshotId !== row.evidence_snapshot_id || revision.assessmentId !== row.assessment_id ||

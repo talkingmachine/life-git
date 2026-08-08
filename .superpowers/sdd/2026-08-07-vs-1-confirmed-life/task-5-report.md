@@ -51,6 +51,24 @@
 7. Boundary refactor: Branch-owned calculation/diff DTOs no longer depend on Application, and
    Application replay no longer imports Infrastructure canonical helpers.
 
+## Fix round 2 TDD evidence
+
+1. Branch hash shape RED: six malformed `formulaHash`/`outputHash` inputs (63, 65 and non-hex)
+   were appended, and six matching HMAC-valid stored revisions loaded successfully. GREEN: exported
+   `isSha256Hex` is the single exact case-insensitive 64-hex validator used by `secureHexEqual`,
+   `appendBranch` and `loadBranchByCommitId`; all malformed bindings fail with `integrity_mismatch`.
+2. SQL hash shape RED: six HMAC-valid updates with the same malformed formula/output bindings passed
+   the stage CHECK. GREEN: branch rows additionally require length 64 and no non-hex characters;
+   assessment rows still require both hash columns to be NULL.
+3. Schema preflight RED: a representative e506 database containing an unsafe mixed row, a database
+   with the current CHECK but no branch-commit FK, and one with the FK but no current CHECK all opened
+   for application use. GREEN: `openEvidenceDatabase` fingerprints the exact normalized stage/hash
+   CHECK from `sqlite_master.sql`, verifies the real FK through `PRAGMA foreign_key_list`, rejects and
+   closes stale schemas with `database_schema_reset_required` before executing any DDL.
+4. A fresh exact-current database reopens idempotently with the same five application tables. No
+   migration/rebuild framework, schema-version table, compatibility path or sixth table was added;
+   Task 7 remains the explicit reset boundary.
+
 ## Decisions and bindings
 
 - Confirmed profile is the only income authority; `saveInitialHousingBranch(runId)` has no client
@@ -81,11 +99,15 @@
   `97f4d9ed86ea513a7e929fda1ee17b53aac98e3f2249a52ca454e2b45342a9ff`.
 - Fix-round pre-report staged diff SHA-256:
   `5e01825620d0cd229f5b5e41f5fa38b2560ab43eafd32d7e63a771eeb2a762ae`.
+- Fix-round-2 pre-report staged diff SHA-256:
+  `b2997c6ceb8828417ccf27d1e32be2e38cf7243bd56574961ff09eb52db7682e`.
 
 ## Gates and self-review
 
 - Targeted domain/branch/replay RED/GREEN cycles: PASS.
 - Full Vitest suite after fix round 1: 152 tests, 10 files, 0 failures.
+- Focused branch/schema fix-round-2 gate: 48 tests, 2 files, 0 failures.
+- Full Vitest suite after fix round 2: 174 tests, 11 files, 0 failures.
 - TypeScript `tsc --noEmit`: PASS.
 - ESLint: PASS.
 - Next 16.3.0 production build: PASS; generated `tsconfig.json` changes and `next-env.d.ts`
@@ -95,5 +117,7 @@
   zero branch writes; C0/C1 transaction failures leave zero new rows and retry cleanly;
   forged/tampered cursor/commit/evidence fail closed; rewind deletes nothing; strict commit state is
   deep immutable; negative residual deltas use strict signed Decimal text without weakening money
-  inputs; fork lineage and HMAC branch revision parent/date/rules are exact; replay has neither network
-  nor write port; schema has exactly five application tables; no UI/narrative/Task 6 changes.
+  inputs; fork lineage and HMAC branch revision parent/date/rules/formula/output bindings are exact;
+  stale schemas are closed before DDL or application use, current schemas reopen idempotently; replay
+  has neither network nor write port; schema has exactly five application tables and no migration
+  metadata; no UI/narrative/Task 6 changes.

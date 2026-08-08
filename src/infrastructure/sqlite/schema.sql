@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS run_revisions (
       stage = 'branch' AND
       initial_housing_json IS NULL AND assessment_json IS NULL AND
       parent_revision_id IS NOT NULL AND branch_commit_id IS NOT NULL AND
-      formula_hash IS NOT NULL AND output_hash IS NOT NULL
+      formula_hash IS NOT NULL AND output_hash IS NOT NULL AND
+      length(formula_hash) = 64 AND formula_hash NOT GLOB '*[^0-9A-Fa-f]*' AND
+      length(output_hash) = 64 AND output_hash NOT GLOB '*[^0-9A-Fa-f]*'
     )
   )
 );
