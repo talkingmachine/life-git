@@ -14,6 +14,7 @@ import type {
   SourceId,
 } from "../research/contracts";
 import {
+  EVIDENCE_PARSER_VERSIONS,
   runCurrentEvidence,
   type EvidenceParsers,
 } from "../research/run";
@@ -83,31 +84,62 @@ function statusFor(snapshot: EvidenceSnapshot, sourceId: SourceId): EvidenceStat
   return "missing";
 }
 
+function validDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function validSourcePeriod(sourceId: SourceId, value: string): boolean {
+  if (sourceId === "al-law-79" || sourceId === "al-decision-858") {
+    return value.startsWith("cons-") && validDate(value.slice("cons-".length));
+  }
+  return validDate(value);
+}
+
 function semanticStatus(
   snapshot: EvidenceSnapshot,
   sourceId: SourceId,
   schema: z.ZodType,
+  expectedClaimCount: number,
 ): EvidenceStatus {
   const coverage = statusFor(snapshot, sourceId);
   if (coverage !== "verified") return coverage;
-  const claimId = new RegExp(`^${sourceId}-facts-\\d+$`);
-  return snapshot.claims.some((claim) =>
-    claim.sourceId === sourceId &&
-    claim.status === "verified" &&
-    claimId.test(claim.claimId) &&
-    schema.safeParse(claim.value).success
-  ) ? "verified" : "invalid";
+  if (snapshot.parserVersions[sourceId] !== EVIDENCE_PARSER_VERSIONS[sourceId]) return "invalid";
+  const claims = snapshot.claims.filter((claim) => claim.sourceId === sourceId);
+  const expectedClaimIds = new Set(Array.from(
+    { length: expectedClaimCount },
+    (_, index) => `${sourceId}-facts-${index + 1}`,
+  ));
+  const periods = new Set(claims.map((claim) => claim.sourcePeriod));
+  const artifactIds = new Set(snapshot.artifactIds);
+  return claims.length === expectedClaimCount &&
+    new Set(claims.map((claim) => claim.claimId)).size === expectedClaimCount &&
+    claims.every((claim) =>
+      expectedClaimIds.has(claim.claimId) &&
+      claim.status === "verified" &&
+      claim.scope === "VS-1 confirmed-life" &&
+      claim.sourcePeriod.length > 0 &&
+      validSourcePeriod(sourceId, claim.sourcePeriod) &&
+      artifactIds.has(claim.anchor.artifactId) &&
+      claim.anchor.locator.trim().length > 0 &&
+      /^[a-f\d]{64}$/i.test(claim.anchor.excerptSha256) &&
+      schema.safeParse(claim.value).success
+    ) &&
+    periods.size === 1
+    ? "verified"
+    : "invalid";
 }
 
-function decisionEvidence(snapshot: EvidenceSnapshot): Evidence {
-  const law = semanticStatus(snapshot, "al-law-79", law79FactsSchema);
+export function projectDecisionEvidence(snapshot: EvidenceSnapshot): Evidence {
+  const law = semanticStatus(snapshot, "al-law-79", law79FactsSchema, 3);
   return {
     claims: {
       "al-law-79-art-68-contract": { source: "official", status: law },
       "al-law-79-art-68-spouse": { source: "official", status: law },
       "al-tirana-residence": {
         source: "official",
-        status: semanticStatus(snapshot, "tirana-urban-lines", tiranaFactsSchema),
+        status: semanticStatus(snapshot, "tirana-urban-lines", tiranaFactsSchema, 2),
       },
     },
     foreignContractVerified: law,
@@ -115,6 +147,7 @@ function decisionEvidence(snapshot: EvidenceSnapshot): Evidence {
       snapshot,
       "al-decision-858",
       decision858FactsSchema,
+      2,
     ),
     lawfulStayVerified: law,
     stagedFamilyPlanVerified: law,
@@ -157,7 +190,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     },
     assess: (profile, snapshot, conditions) => assessRoute(
       profile,
-      decisionEvidence(snapshot),
+      projectDecisionEvidence(snapshot),
       conditions,
     ),
     clock: options.clock ?? (() => new Date()),

@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS run_revisions (
   hmac TEXT NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS run_revisions_one_assessment_per_run
+ON run_revisions (run_id)
+WHERE stage = 'assessment';
+
 CREATE TRIGGER IF NOT EXISTS artifacts_no_update
 BEFORE UPDATE ON artifacts
 WHEN OLD.sealed = 1

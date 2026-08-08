@@ -5,7 +5,11 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { createConfirmedLife } from "../../src/application/confirmed-life";
 import { assessRoute } from "../../src/decision/assessment";
-import { createConfirmedLifeComposition } from "../../src/infrastructure/composition-root";
+import { confirmProfile } from "../../src/decision/profile";
+import {
+  createConfirmedLifeComposition,
+  projectDecisionEvidence,
+} from "../../src/infrastructure/composition-root";
 import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import {
@@ -16,6 +20,7 @@ import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-stor
 import { SqliteRunStore } from "../../src/infrastructure/sqlite/run-store";
 import type {
   CaptureResult,
+  Claim,
   HttpStepRequest,
   LiveCapturedArtifact,
   OfficialSourcePort,
@@ -26,8 +31,12 @@ import type {
 } from "../../src/research/contracts";
 import {
   EVIDENCE_SOURCE_IDS,
+  EVIDENCE_PARSER_VERSIONS,
+  EVIDENCE_RULES_VERSION,
   runCurrentEvidence,
+  sealEvidence,
   type EvidenceParsers,
+  type TerminalEvidenceEntry,
 } from "../../src/research/run";
 
 const KEY = "confirmed-life-integration-key-at-least-32-bytes";
@@ -179,14 +188,128 @@ function typedParsers(): EvidenceParsers {
     async (entry: ParserEntry) => ({
       ok: true as const,
       facts: typedFacts(sourceId),
-      sourcePeriod: ASSESSMENT_DATE,
-      anchors: [{
+      sourcePeriod: standardSourcePeriod(sourceId),
+      anchors: Array.from({ length: expectedClaimCounts[sourceId] }, (_, index) => ({
         artifactId: entry.artifacts[0]!.artifactId,
-        locator: `${sourceId} typed integration fixture`,
+        locator: `${sourceId} typed integration fixture ${index + 1}`,
         excerptSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      }],
+      })),
     }),
   ])) as unknown as EvidenceParsers;
+}
+
+const expectedClaimCounts = {
+  "al-law-79": 3,
+  "al-decision-858": 2,
+  "cbr-eur": 1,
+  "boa-eur": 1,
+  "tirana-urban-lines": 2,
+} as const satisfies Record<SourceId, number>;
+
+function standardSourcePeriod(sourceId: SourceId): string {
+  return sourceId === "al-law-79" || sourceId === "al-decision-858"
+    ? "cons-2026-08-01"
+    : ASSESSMENT_DATE;
+}
+
+async function verifiedMixedSnapshot(mixedSource: SourceId): Promise<EvidenceSnapshot> {
+  const db = database();
+  const store = new SqliteEvidenceStore(db);
+  const entries = EVIDENCE_SOURCE_IDS.map((sourceId): TerminalEvidenceEntry => {
+    const sourceArtifact = artifact({
+      runId: "projection-run",
+      sourceId,
+      role: "official-document",
+      method: "GET",
+      url: `https://official.example/${sourceId}`,
+      headers: { accept: "application/octet-stream" },
+      allowedHosts: ["official.example"],
+      allowedMediaTypes: ["application/octet-stream"],
+    });
+    const count = expectedClaimCounts[sourceId];
+    return {
+      sourceId,
+      parserEntry: {
+        sourceId,
+        navigationUrl: `https://official.example/${sourceId}`,
+        resolvedEvidenceUrl: sourceArtifact.responseUrl,
+        artifacts: [sourceArtifact],
+      },
+      coverage: "verified",
+      claims: Array.from({ length: count }, (_, index) => ({
+        claimId: `${sourceId}-facts-${index + 1}`,
+        sourceId,
+        value: sourceId === mixedSource && index === count - 1
+          ? { unexpected: true }
+          : typedFacts(sourceId),
+        scope: "VS-1 confirmed-life",
+        sourcePeriod: standardSourcePeriod(sourceId),
+        anchor: {
+          artifactId: sourceArtifact.artifactId,
+          locator: `${sourceId} anchor ${index + 1}`,
+          excerptSha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        },
+        status: "verified",
+      })),
+    };
+  });
+  const sealed = await sealEvidence({
+    id: "projection-run:evidence",
+    assessmentDate: ASSESSMENT_DATE,
+    entries,
+    parserVersions: EVIDENCE_PARSER_VERSIONS,
+    rulesVersion: EVIDENCE_RULES_VERSION,
+  }, createEvidenceIntegrity(KEY));
+  for (const entry of entries) {
+    for (const sourceArtifact of entry.parserEntry.artifacts) {
+      await store.appendArtifact(sourceArtifact as LiveCapturedArtifact);
+    }
+  }
+  await store.seal(sealed);
+  return store.loadVerified(sealed.snapshot.id, KEY);
+}
+
+type ClaimSetDefect =
+  | "missing"
+  | "extra"
+  | "unexpected_id"
+  | "mixed_value"
+  | "mixed_scope"
+  | "mixed_period"
+  | "missing_artifact"
+  | "empty_locator"
+  | "bad_excerpt_hash";
+
+function defectLawClaims(snapshot: EvidenceSnapshot, defect: ClaimSetDefect): EvidenceSnapshot {
+  const lawClaims = snapshot.claims.filter((claim) => claim.sourceId === "al-law-79");
+  const otherClaims = snapshot.claims.filter((claim) => claim.sourceId !== "al-law-79");
+  if (defect === "missing") return { ...snapshot, claims: [...otherClaims, ...lawClaims.slice(0, -1)] };
+  if (defect === "extra") {
+    return {
+      ...snapshot,
+      claims: [...snapshot.claims, { ...lawClaims[0]!, claimId: "al-law-79-facts-4" }],
+    };
+  }
+  const changed = lawClaims.map((claim, index): Claim<unknown> => {
+    if (index !== lawClaims.length - 1) return claim;
+    switch (defect) {
+      case "unexpected_id":
+        return { ...claim, claimId: "al-law-79-facts-99" };
+      case "mixed_value":
+        return { ...claim, value: { unexpected: true } };
+      case "mixed_scope":
+        return { ...claim, scope: "unexpected-scope" };
+      case "mixed_period":
+        return { ...claim, sourcePeriod: "cons-2026-08-02" };
+      case "missing_artifact":
+        return { ...claim, anchor: { ...claim.anchor, artifactId: "missing-artifact" } };
+      case "empty_locator":
+        return { ...claim, anchor: { ...claim.anchor, locator: "" } };
+      case "bad_excerpt_hash":
+        return { ...claim, anchor: { ...claim.anchor, excerptSha256: "not-a-hash" } };
+    }
+  });
+  return { ...snapshot, claims: [...otherClaims, ...changed] };
 }
 
 function assessmentEvidence(snapshot: EvidenceSnapshot): Evidence {
@@ -568,6 +691,28 @@ describe("confirmed-life orchestration", () => {
     await expect(runStore.loadAssessmentByRunId(result.runId)).rejects.toThrow("integrity_mismatch");
   });
 
+  test("rejects a second assessment-stage revision for the same run at write time", async () => {
+    const { application, runStore } = testHarness();
+    const result = await application.startConfirmedLife(
+      completeDraft,
+      { currency: "ALL", initialHousingAll: "70000" },
+    );
+    const first = await runStore.loadAssessmentByRunId(result.runId);
+
+    await expect(runStore.appendAssessment({
+      id: "revision-duplicate",
+      runId: first.revision.runId,
+      stage: "assessment",
+      assessmentDate: first.revision.assessmentDate,
+      initialHousing: first.revision.initialHousing,
+      profileId: first.revision.profileId,
+      evidenceSnapshotId: first.revision.evidenceSnapshotId,
+      assessmentId: "assessment-duplicate",
+      rulesVersion: first.revision.rulesVersion,
+      assessment: first.assessment,
+    })).rejects.toThrow(/UNIQUE constraint failed/);
+  });
+
   test("loads only redacted profile, verified fact lineage, and blocker official links", async () => {
     const { application } = testHarness({ unavailableSource: "al-law-79" });
     const result = await application.startConfirmedLife(
@@ -659,5 +804,43 @@ describe("confirmed-life orchestration", () => {
       assessmentId: "assessment-typed",
       assessment: { marker: "green" },
     });
+  });
+
+  test.each([
+    ["al-law-79", "foreignContractVerified"],
+    ["al-decision-858", "availableResourcesVerified"],
+    ["tirana-urban-lines", "tirana"],
+  ] as const)("rejects a sealed mixed %s claim set", async (sourceId, field) => {
+    const snapshot = await verifiedMixedSnapshot(sourceId);
+    const projected = projectDecisionEvidence(snapshot);
+
+    const status = field === "tirana"
+      ? projected.claims["al-tirana-residence"]?.status
+      : projected[field];
+    expect(status).toBe("invalid");
+
+    if (sourceId === "al-law-79") {
+      const hardMismatchProfile = confirmProfile(
+        { ...completeDraft, incomeBasis: "albanian_employer_only" },
+        () => NOW,
+      );
+      expect(assessRoute(hardMismatchProfile, projected, { housingProvided: true }).marker).toBe("yellow");
+    }
+  });
+
+  test.each([
+    "missing",
+    "extra",
+    "unexpected_id",
+    "mixed_value",
+    "mixed_scope",
+    "mixed_period",
+    "missing_artifact",
+    "empty_locator",
+    "bad_excerpt_hash",
+  ] as const)("rejects a %s claim-set defect defensively", async (defect) => {
+    const verified = await verifiedMixedSnapshot("cbr-eur");
+
+    expect(projectDecisionEvidence(defectLawClaims(verified, defect)).foreignContractVerified).toBe("invalid");
   });
 });

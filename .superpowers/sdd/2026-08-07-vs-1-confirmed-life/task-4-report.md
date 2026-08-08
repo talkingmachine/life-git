@@ -83,6 +83,48 @@ Composition now accepts Law 79, Decision 858, and Tirana predicates only when a 
 Test Files 1 passed; Tests 15 passed
 ```
 
+## Fix round 1
+
+Base: `5bf5bdf0f665b9d8c2c1b08edf3e7c0e741d58af`
+
+Finding mapping:
+
+- Important: replaced “one matching claim is enough” projection with exact current-parser claim-set validation. Law 79 requires IDs `1..3`, Decision 858 `1..2`, and Tirana `1..2`; every claim must have the exact typed value, common correctly formatted period, declared scope, and complete snapshot-owned anchor. Missing, extra, unexpected, mixed, or malformed claims fail closed.
+- False-red defense: mixed Law evidence with `albanian_employer_only` remains yellow because the exact official hard-mismatch rule is not established.
+- Minor: added a partial unique index on `run_revisions(run_id) WHERE stage = 'assessment'`; it rejects a second assessment revision at write time without globally reserving `run_id` for future branch-stage rows.
+
+Mixed-claim RED:
+
+```text
+TypeError: projectDecisionEvidence is not a function
+Test Files 1 failed; Tests 3 failed | 15 passed
+```
+
+Duplicate-revision RED:
+
+```text
+expected promise to reject, but appendAssessment resolved a second revision
+Test Files 1 failed; Tests 1 failed | 18 passed
+```
+
+Focused GREEN after both fixes and the compact defensive mutation table:
+
+```text
+Test Files 1 passed; Tests 28 passed
+pnpm typecheck — PASS
+pnpm lint — PASS
+```
+
+Fix round 1 full gate:
+
+```text
+pnpm test — PASS, 8 files / 105 tests
+pnpm typecheck — PASS
+pnpm lint — PASS
+pnpm exec next build — PASS, compiled and generated successfully
+git diff --check — PASS
+```
+
 ## Files
 
 Created:
@@ -153,4 +195,4 @@ pnpm exec next build
 - HMAC tests cover date, housing, profile, evidence, assessment ID, full assessment representation, rules, and HMAC tampering.
 - SQL triggers reject profile/revision update and delete; schema has exactly the two Task 3 and two Task 4 tables.
 - `loadRunDetailsCore` output contains no HMAC field, key, raw bytes, PII, or parser entry.
-- Independent review’s blocking semantic-promotion and raw-boundary findings were addressed. The partial unique assessment-per-run index and deep-freezing parsed revision aggregates remain non-blocking follow-ups; verified loads still fail closed and SQLite rows are append-only.
+- Independent review’s blocking semantic-promotion and raw-boundary findings were addressed. Fix round 1 additionally rejects mixed claim sets and enforces one assessment revision per run at write time. Deep-freezing parsed revision aggregates remains a non-blocking follow-up; verified loads still fail closed and SQLite rows are append-only.
