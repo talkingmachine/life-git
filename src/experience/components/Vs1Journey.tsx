@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 
 import type { RunDetails } from "../../application/contracts";
@@ -22,8 +22,16 @@ interface Vs1JourneyProps {
   details: RunDetails;
 }
 
+function isInitialBranchView(details: RunDetails): boolean {
+  return details.initialBranchCursor !== undefined &&
+    details.branchCursor?.commitId === details.initialBranchCursor.commitId;
+}
+
 export function Vs1Journey({ details }: Vs1JourneyProps) {
   const [current, setCurrent] = useState(details);
+  const [initialDetails, setInitialDetails] = useState<RunDetails | undefined>(
+    isInitialBranchView(details) ? details : undefined,
+  );
   const [initialCursor, setInitialCursor] = useState(
     current.initialBranchCursor ?? current.branchCursor,
   );
@@ -32,6 +40,7 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
   const [error, setError] = useState<string>();
   const [isResearchPending, setResearchPending] = useState(false);
   const [isBranchPending, startBranchTransition] = useTransition();
+  const branchActionInFlight = useRef(false);
   const view = createJourneyView(current);
   const mode = isResearchPending ? "pending" as const : view.candidate.status;
   const candidate = isResearchPending
@@ -39,15 +48,20 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
     : view.candidate;
 
   const runAction = (action: () => Promise<RunDetails>) => {
+    if (branchActionInFlight.current) return;
+    branchActionInFlight.current = true;
     setError(undefined);
     startBranchTransition(async () => {
       try {
         const next = await action();
         setCurrent(next);
+        setInitialDetails((existing) => existing ?? (isInitialBranchView(next) ? next : undefined));
         setInitialCursor((existing) => existing ?? next.initialBranchCursor ?? next.branchCursor);
         setCursor(next.branchCursor);
       } catch {
         setError("Действие не выполнено. Исходный снимок сохранён.");
+      } finally {
+        branchActionInFlight.current = false;
       }
     });
   };
@@ -70,7 +84,11 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
       </header>
 
       <ProfileCard
-        canSaveC0={current.run.assessment.marker === "green" && initialCursor === undefined}
+        canSaveC0={
+          current.run.assessment.marker === "green" &&
+          initialCursor === undefined &&
+          !isBranchPending
+        }
         onSaveC0={() => runAction(() => saveInitialHousingBranch(current.run.runId))}
         profile={view.profile}
       />
@@ -84,6 +102,7 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
             const next = await retryConfirmedLifeRun(previousRunId);
             replaceRunUrl(next.run.runId);
             setCurrent(next);
+            setInitialDetails(isInitialBranchView(next) ? next : undefined);
             setInitialCursor(next.initialBranchCursor ?? next.branchCursor);
             setCursor(next.branchCursor);
             return {
@@ -102,17 +121,26 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
 
       {current.budget === undefined ? null : <LifeBranch budget={current.budget} />}
 
-      {initialCursor === undefined ? null : (
+      {initialCursor === undefined || initialDetails === undefined ? null : (
         <section aria-labelledby="branch-controls-heading" className="branch-controls">
           <h2 id="branch-controls-heading">Ветка жилья</h2>
           <button
-            onClick={() => startBranchTransition(async () => {
-              try {
-                setCursor(await rewindHousingBranch(initialCursor.commitId));
-              } catch {
-                setError("Не удалось перемотать ветку. Исходный снимок сохранён.");
-              }
-            })}
+            disabled={isBranchPending || cursor?.commitId === initialCursor.commitId}
+            onClick={() => {
+              if (branchActionInFlight.current) return;
+              branchActionInFlight.current = true;
+              startBranchTransition(async () => {
+                try {
+                  const nextCursor = await rewindHousingBranch(initialCursor.commitId);
+                  setCursor(nextCursor);
+                  setCurrent(initialDetails);
+                } catch {
+                  setError("Не удалось перемотать ветку. Исходный снимок сохранён.");
+                } finally {
+                  branchActionInFlight.current = false;
+                }
+              });
+            }}
             type="button"
           >
             Перемотать к C0

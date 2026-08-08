@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 
-import { assessRoute } from "../../src/decision/assessment";
+import {
+  assessRoute,
+  assessRouteForVersion,
+  CURRENT_ASSESSMENT_RULES_VERSION,
+} from "../../src/decision/assessment";
 import { confirmProfile, type ProfileDraft } from "../../src/decision/profile";
 import type { Evidence } from "../../src/research/contracts";
 
@@ -56,23 +60,23 @@ test("marks the researched no-companion and source-verified spouse routes green"
   expect(assessRoute(spouseProfile, verifiedEvidence, { housingProvided: true }).marker).toBe("green");
 });
 
-test("keeps unconfirmed scenario conditions yellow and applies spouse staging only to a spouse route", () => {
+test("keeps unconfirmed scenario conditions yellow without fabricating official lineage", () => {
   expect(assessRoute(profileFor({
     conditions: {
       incomeContinues12Months: false,
       lawfulStayPrerequisiteAccepted: true,
       stagedSpouseRouteAccepted: false,
     },
-  }), verifiedEvidence, { housingProvided: true }).reasons[0].code)
-    .toBe("income_continuation_not_confirmed");
+  }), verifiedEvidence, { housingProvided: true }).reasons[0])
+    .toEqual({ code: "income_continuation_not_confirmed" });
   expect(assessRoute(profileFor({
     conditions: {
       incomeContinues12Months: true,
       lawfulStayPrerequisiteAccepted: false,
       stagedSpouseRouteAccepted: false,
     },
-  }), verifiedEvidence, { housingProvided: true }).reasons[0].code)
-    .toBe("lawful_stay_prerequisite_not_accepted");
+  }), verifiedEvidence, { housingProvided: true }).reasons[0])
+    .toEqual({ code: "lawful_stay_prerequisite_not_accepted" });
   expect(assessRoute(profileFor({
     conditions: {
       incomeContinues12Months: true,
@@ -88,8 +92,42 @@ test("keeps unconfirmed scenario conditions yellow and applies spouse staging on
       lawfulStayPrerequisiteAccepted: true,
       stagedSpouseRouteAccepted: false,
     },
-  }), verifiedEvidence, { housingProvided: true }).reasons[0].code)
-    .toBe("staged_spouse_route_not_accepted");
+  }), verifiedEvidence, { housingProvided: true }).reasons[0])
+    .toEqual({ code: "staged_spouse_route_not_accepted" });
+});
+
+test("keeps the sealed v1 condition reason reproducible while v2 removes fabricated lineage", () => {
+  const profile = profileFor({
+    conditions: {
+      incomeContinues12Months: false,
+      lawfulStayPrerequisiteAccepted: true,
+      stagedSpouseRouteAccepted: false,
+    },
+  });
+
+  expect(assessRouteForVersion(
+    "vs1-assessment@1",
+    profile,
+    verifiedEvidence,
+    { housingProvided: true },
+  ).reasons[0]).toEqual({
+    code: "income_continuation_not_confirmed",
+    claimId: "al-law-79-art-68-contract",
+    sourceId: "al-law-79",
+  });
+  expect(CURRENT_ASSESSMENT_RULES_VERSION).toBe("vs1-assessment@2");
+  expect(assessRouteForVersion(
+    CURRENT_ASSESSMENT_RULES_VERSION,
+    profile,
+    verifiedEvidence,
+    { housingProvided: true },
+  ).reasons[0]).toEqual({ code: "income_continuation_not_confirmed" });
+  expect(() => assessRouteForVersion(
+    "vs1-assessment@unsupported",
+    profile,
+    verifiedEvidence,
+    { housingProvided: true },
+  )).toThrow("unsupported_assessment_rules");
 });
 
 test("keeps false housing, missing claim, unresearched basis, and unverified relationships yellow", () => {

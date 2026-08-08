@@ -1,6 +1,7 @@
 import type { HousingDecision } from "../branch/housing";
 import type { BranchCursor, HousingBranchDiff } from "../branch/life-git";
 import type { CalculationInput } from "../branch/budget";
+import { CURRENT_ASSESSMENT_RULES_VERSION } from "../decision/assessment";
 import type {
   Assessment,
   Evidence,
@@ -10,7 +11,7 @@ import type {
   SourceId,
 } from "../research/contracts";
 
-export const ASSESSMENT_RULES_VERSION = "vs1-assessment@1";
+export const ASSESSMENT_RULES_VERSION = CURRENT_ASSESSMENT_RULES_VERSION;
 
 export interface AssessmentRunRevisionPayload {
   readonly id: string;

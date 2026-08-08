@@ -138,6 +138,19 @@ describe("journey action pending states", () => {
     expect(replaceState.mock.calls.at(-1)?.[2]).toBe("?run=run-started%3Aid");
   });
 
+  it("requires a fresh snapshot confirmation after any profile or housing edit", () => {
+    render(<Vs1Start />);
+    const confirmation = screen.getByRole("checkbox", { name: /подтверждаю синтетический снимок/i });
+    const submit = screen.getByRole("button", { name: /начать проверку/i }) as HTMLButtonElement;
+
+    fireEvent.click(confirmation);
+    expect(submit.disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText(/исходное жильё C0/i), { target: { value: "71000" } });
+
+    expect((confirmation as HTMLInputElement).checked).toBe(false);
+    expect(submit.disabled).toBe(true);
+  });
+
   it("turns the map gray while yellow retry research is pending", async () => {
     const next = deferred<RunDetails>();
     const replaceState = vi.spyOn(window.history, "replaceState");
@@ -172,10 +185,41 @@ describe("journey action pending states", () => {
       .toBe("yellow");
   });
 
-  it("keeps the green map collapsed while a housing rewind is pending", async () => {
+  it("rewinds both the cursor and the visible C1 budget/diff back to the saved C0 view", async () => {
+    const seeded = details("green", "branch", true);
+    const c0: RunDetails = {
+      ...seeded,
+      branchCursor: seeded.initialBranchCursor,
+    };
+    const c1: RunDetails = {
+      ...c0,
+      branchCursor: { commitId: "b".repeat(64) },
+      budget: {
+        incomeAll: "209864.57",
+        housingAll: "90000.00",
+        knownResidualAll: "119864.57",
+        unknowns: ["taxes", "living_costs"],
+      },
+      branchDiff: {
+        housing: { before: "70000.00", after: "90000.00", delta: "20000.00" },
+        knownResidual: {
+          before: "139864.57",
+          after: "119864.57",
+          delta: "-20000.00",
+          cause: "housing",
+        },
+        reused: ["profile", "evidence", "rules"],
+      },
+    };
     const rewind = deferred<{ readonly commitId: string }>();
+    actionMocks.forkHousingBranch.mockResolvedValue(c1);
     actionMocks.rewindHousingBranch.mockReturnValue(rewind.promise);
-    render(<Vs1Journey details={details("green", "branch", true)} />);
+    render(<Vs1Journey details={c0} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /создать C1/i }));
+    expect(await screen.findByRole("heading", { name: /Life Git: C0 → C1/i })).toBeTruthy();
+    expect(within(screen.getByRole("figure", { name: /поток бюджета/i })).getByText("90 000,00 ALL"))
+      .toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /перемотать к C0/i }));
 
@@ -188,6 +232,27 @@ describe("journey action pending states", () => {
     });
 
     await act(async () => rewind.resolve({ commitId: "a".repeat(64) }));
+    expect(within(screen.getByRole("figure", { name: /поток бюджета/i })).getByText("70 000,00 ALL"))
+      .toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Life Git: C0 → C1/i })).toBeNull();
+  });
+
+  it("submits C0 at most once while the first append is pending", async () => {
+    const save = deferred<RunDetails>();
+    actionMocks.saveInitialHousingBranch.mockReturnValue(save.promise);
+    render(<Vs1Journey details={details("green", "before-c0")} />);
+    const button = screen.getByRole("button", { name: /зафиксировать C0/i });
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(actionMocks.saveInitialHousingBranch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /зафиксировать C0/i })).toBeNull();
+    const saved = details("green", "saved-c0", true);
+    await act(async () => save.resolve({
+      ...saved,
+      branchCursor: saved.initialBranchCursor,
+    }));
   });
 
   it("does not offer C0 on a non-green run and cannot submit C2 from a C1 cursor", () => {
@@ -196,7 +261,6 @@ describe("journey action pending states", () => {
     yellow.unmount();
 
     render(<Vs1Journey details={details("green", "c1", true)} />);
-    expect((screen.getByRole("button", { name: /создать C1/i }) as HTMLButtonElement).disabled)
-      .toBe(true);
+    expect(screen.queryByRole("button", { name: /создать C1/i })).toBeNull();
   });
 });

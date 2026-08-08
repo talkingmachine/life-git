@@ -53,6 +53,12 @@ const blockerLabels: Readonly<Record<string, string>> = Object.freeze({
   conflict: "содержит конфликтующие данные",
 });
 
+const scenarioConditionReasonCodes = new Set([
+  "income_continuation_not_confirmed",
+  "lawful_stay_prerequisite_not_accepted",
+  "staged_spouse_route_not_accepted",
+]);
+
 function reasonSummary(code: string, blockerKind?: string): string {
   if (code === "available_resources_rule_unavailable" && blockerKind === "semantic_mismatch") {
     return "Официальное правило о доступных средствах не прошло смысловую проверку";
@@ -85,7 +91,9 @@ function officialUrl(details: RunDetails, sourceId: string): string | undefined 
 
 export function createJourneyView(details: RunDetails) {
   const firstReason = details.run.assessment.reasons[0];
-  const reasonSourceId = firstReason?.sourceId;
+  const reasonSourceId = firstReason === undefined || scenarioConditionReasonCodes.has(firstReason.code)
+    ? undefined
+    : firstReason.sourceId;
   const reasonUrl = reasonSourceId === undefined ? undefined : officialUrl(details, reasonSourceId);
   return Object.freeze({
     profile: Object.freeze({
@@ -106,10 +114,10 @@ export function createJourneyView(details: RunDetails) {
       origin: "Россия" as const,
       destination: "Тирана" as const,
       status: details.run.assessment.marker,
-      ...(firstReason === undefined || reasonUrl === undefined ? {} : {
+      ...(firstReason === undefined ? {} : {
         reason: Object.freeze({
           summary: reasonSummary(firstReason.code, firstReason.blockerKind),
-          officialUrl: reasonUrl,
+          ...(reasonUrl === undefined ? {} : { officialUrl: reasonUrl }),
         }),
       }),
     }),

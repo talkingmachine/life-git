@@ -11,7 +11,7 @@ export interface ResearchCandidate {
   status: CandidateState;
   reason?: {
     summary: string;
-    officialUrl: string;
+    officialUrl?: string;
   };
 }
 
@@ -108,7 +108,9 @@ export function ResearchMap({ mode, candidates, previousRun, onRetry }: Research
                 {openCandidateId === candidate.id && candidate.reason !== undefined ? (
                   <div className="research-map__reason">
                     <p>{candidate.reason.summary}</p>
-                    <a href={candidate.reason.officialUrl}>Официальный источник</a>
+                    {candidate.reason.officialUrl === undefined ? null : (
+                      <a href={candidate.reason.officialUrl}>Официальный источник</a>
+                    )}
                   </div>
                 ) : null}
               </>

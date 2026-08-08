@@ -31,11 +31,16 @@ export function Vs1Start() {
   const [details, setDetails] = useState<RunDetails>();
   const [error, setError] = useState<string>();
 
+  const changeDraft = (next: ProfileDraft) => {
+    setDraft(next);
+    setConfirmed(false);
+  };
+
   const setCondition = (condition: keyof ProfileDraft["conditions"], value: boolean) => {
-    setDraft((current) => ({
-      ...current,
-      conditions: { ...current.conditions, [condition]: value },
-    }));
+    changeDraft({
+      ...draft,
+      conditions: { ...draft.conditions, [condition]: value },
+    });
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -89,7 +94,7 @@ export function Vs1Start() {
             Доступные ресурсы, ALL
             <input
               inputMode="decimal"
-              onChange={(event) => setDraft({ ...draft, availableResourcesAll: event.currentTarget.value })}
+              onChange={(event) => changeDraft({ ...draft, availableResourcesAll: event.currentTarget.value })}
               value={draft.availableResourcesAll}
             />
           </label>
@@ -97,7 +102,7 @@ export function Vs1Start() {
             Месячный доход, RUB
             <input
               inputMode="decimal"
-              onChange={(event) => setDraft({
+              onChange={(event) => changeDraft({
                 ...draft,
                 monthlyIncome: { amount: event.currentTarget.value, currency: "RUB" },
               })}
@@ -107,7 +112,7 @@ export function Vs1Start() {
           <label>
             Основание дохода
             <select
-              onChange={(event) => setDraft({
+              onChange={(event) => changeDraft({
                 ...draft,
                 incomeBasis: event.currentTarget.value as ProfileDraft["incomeBasis"],
               })}
@@ -122,7 +127,7 @@ export function Vs1Start() {
             <select
               onChange={(event) => {
                 const companionBasis = event.currentTarget.value as ProfileDraft["companionBasis"];
-                setDraft({
+                changeDraft({
                   ...draft,
                   companionBasis,
                   relationship: companionBasis === "family" ? draft.relationship : "none",
@@ -145,7 +150,7 @@ export function Vs1Start() {
               disabled={draft.companionBasis !== "family"}
               onChange={(event) => {
                 const relationship = event.currentTarget.value as ProfileDraft["relationship"];
-                setDraft({
+                changeDraft({
                   ...draft,
                   relationship,
                   conditions: relationship === "spouse"
@@ -165,7 +170,10 @@ export function Vs1Start() {
             Исходное жильё C0, ALL
             <input
               inputMode="decimal"
-              onChange={(event) => setHousingAll(event.currentTarget.value)}
+              onChange={(event) => {
+                setHousingAll(event.currentTarget.value);
+                setConfirmed(false);
+              }}
               value={housingAll}
             />
           </label>

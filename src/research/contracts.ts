@@ -56,8 +56,8 @@ export interface RouteConditions {
 
 export interface AssessmentReason {
   readonly code: string;
-  readonly claimId: ClaimId;
-  readonly sourceId: SourceId;
+  readonly claimId?: ClaimId;
+  readonly sourceId?: SourceId;
   readonly blockerKind?: EvidenceBlockerKind;
 }
 

@@ -1,10 +1,13 @@
 import { calculateBudget, type BudgetInput } from "../branch/budget";
 import { replayCommit, type BranchCommit } from "../branch/life-git";
 import { confirmHousingDecision } from "../branch/housing";
-import { assessRoute } from "../decision/assessment";
+import {
+  assessRouteForVersion,
+  isSupportedAssessmentRulesVersion,
+} from "../decision/assessment";
 import type { Assessment, Evidence, EvidenceSnapshot } from "../research/contracts";
 import type { BranchStorePort, VerifiedBudgetFacts } from "./fork-housing";
-import { ASSESSMENT_RULES_VERSION, type ProfileStorePort, type RunStorePort } from "./contracts";
+import type { ProfileStorePort, RunStorePort } from "./contracts";
 
 export interface ReplayRunPorts {
   readonly profileStore: ProfileStorePort;
@@ -56,7 +59,7 @@ export function createReplayApplication(ports: ReplayRunPorts) {
     const assessmentRevision = assessmentRecord.revision;
     if (
       assessmentRevision.runId !== runId || assessmentRevision.stage !== "assessment" ||
-      assessmentRevision.rulesVersion !== ASSESSMENT_RULES_VERSION
+      !isSupportedAssessmentRulesVersion(assessmentRevision.rulesVersion)
     ) integrityMismatch();
     const profile = await ports.profileStore.loadVerified(assessmentRevision.profileId);
     const evidence = await ports.replayEvidence(assessmentRevision.evidenceSnapshotId);
@@ -64,7 +67,8 @@ export function createReplayApplication(ports: ReplayRunPorts) {
       profile.id !== assessmentRevision.profileId || evidence.id !== assessmentRevision.evidenceSnapshotId ||
       evidence.assessmentDate !== assessmentRevision.assessmentDate
     ) integrityMismatch();
-    const assessment = assessRoute(
+    const assessment = assessRouteForVersion(
+      assessmentRevision.rulesVersion,
       profile,
       ports.projectDecisionEvidence(evidence),
       { housingProvided: true },

@@ -556,6 +556,7 @@ describe("confirmed-life orchestration", () => {
       profileId: result.profileId,
       evidenceSnapshotId: result.evidenceSnapshotId,
       assessmentId: result.assessmentId,
+      rulesVersion: "vs1-assessment@2",
     });
     expect(record.assessment).toEqual(result.assessment);
   });
@@ -982,8 +983,9 @@ describe("confirmed-life orchestration", () => {
 
     expect(result.assessment).toMatchObject({
       marker: "yellow",
-      reasons: [{ code: "income_continuation_not_confirmed", sourceId: "al-law-79" }],
+      reasons: [{ code: "income_continuation_not_confirmed" }],
     });
+    expect(result.assessment.reasons[0]).not.toHaveProperty("sourceId");
   });
 
   test("composition saves and fully replays exact typed sealed assessment and budget offline without appends", async () => {

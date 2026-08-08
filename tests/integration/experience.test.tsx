@@ -286,6 +286,31 @@ describe("confirmed-life visual journey", () => {
         integrity: "verified",
       }],
     });
+    const declinedCondition = createJourneyView({
+      ...base,
+      run: {
+        ...base.run,
+        assessment: {
+          marker: "yellow",
+          reasons: [{
+            code: "income_continuation_not_confirmed",
+            claimId: "al-law-79-art-68-contract",
+            sourceId: "al-law-79",
+          }],
+        },
+      },
+      evidenceItems: [{
+        class: "official_fact",
+        label: "al-law-79-facts-1",
+        displayValue: JSON.stringify({ requiresLawfulStay: true }),
+        sourceId: "al-law-79",
+        scope: "VS-1 confirmed-life",
+        sourcePeriod: "cons-2026-08-01",
+        anchor: "Art. 68#abc",
+        resolvedUrl: "https://official.example/law-79",
+        integrity: "verified",
+      }],
+    });
 
     expect(unavailable.candidate.reason).toEqual({
       summary: "Официальное правило о доступных средствах не прошло смысловую проверку",
@@ -295,6 +320,14 @@ describe("confirmed-life visual journey", () => {
       summary: "Заявленные ресурсы ниже подтверждённого официального порога",
       officialUrl: "https://official.example/decision-858",
     });
+    expect(declinedCondition.candidate.reason).toEqual({
+      summary: "Поступление дохода в течение двенадцати месяцев не подтверждено",
+    });
+
+    render(<ResearchMap candidates={[declinedCondition.candidate]} mode="yellow" />);
+    fireEvent.click(screen.getByRole("button", { name: /Тирана.*уточнить/i }));
+    expect(screen.getByText(/поступление дохода.*не подтверждено/i)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /официальный источник/i })).toBeNull();
   });
 
   it("keeps the old yellow snapshot while retry reports a new run and snapshot", async () => {

@@ -2,7 +2,8 @@
 
 ## Scope
 
-- Original Task 6 base: `29227d6b8d8955cece3dc799fad73a4e8ce0b182`; review-fix base: `fad3e8c`.
+- Original Task 6 base: `29227d6b8d8955cece3dc799fad73a4e8ce0b182`; review-fix bases:
+  `fad3e8c`, `a8dd099` and `4615ae4`.
 - Реализован только VS-1 Task 6: русский visual-first маршрут Россия → Тирана для одного
   заранее выбранного кандидата, presentation contract, пять server actions, бюджетная ветка,
   Evidence Passport и bounded OpenAI narrative.
@@ -90,11 +91,21 @@
 - Decision 858, CBR and Bank of Albania reasons now carry their own expected source claim IDs;
   lawful-stay lineage points to Article 68 instead of Tirana. Deterministic fallback copy no longer
   says that unknowns exist when the presented Passport has no unknown item.
+- Third independent-review round removed the last interactive truth leaks. A declined user scenario
+  condition now carries only its local reason code and cannot inherit an unrelated official claim or
+  source link. Editing any profile/housing field invalidates the confirmed snapshot. Branch actions
+  have a synchronous in-flight guard, and rewind restores the saved C0 cursor, budget and absence of
+  the C1 diff rather than changing only an invisible cursor.
+- Architectural re-review then caught a canonical-version regression: changing the condition reason
+  under `vs1-assessment@1` would make an append-only historical run non-reproducible. New runs now seal
+  `vs1-assessment@2`; the explicit two-version Decision dispatcher reproduces v1 bytes, replay rejects
+  unknown versions before projection, and presentation suppresses the known false legacy source link.
+  This is a two-case compatibility branch, not a migration or generic rules framework.
 
 ## Gates and self-review
 
 - Focused final assessment/composition gate: 47 tests, 2 files, 0 failures.
-- Full Vitest: 214 tests, 14 files, 0 failures.
+- Full Vitest after the architectural re-review fix: 217 tests, 14 files, 0 failures.
 - TypeScript `tsc --noEmit`: PASS.
 - ESLint: PASS.
 - Next 16.3.0 production build: PASS; `/` dynamic and `/_not-found` static.
@@ -102,6 +113,10 @@
 - Review-fix journey/application gates: 28/28 experience/action, 40/40 presentation/composition,
   23/23 Passport/budget, and 47/47 assessment/composition: PASS.
 - Second-review profile/assessment/experience gate: 84/84 PASS.
+- Third-review focused assessment/experience/action gate: 79/79 PASS; independent UX/minimal-scope
+  review: PASS.
+- Version-aware assessment/replay/presentation gate: 117/117 PASS.
+- Final independent architecture/truth-boundary re-review: PASS with no remaining findings.
 - Next-generated `next-env.d.ts`, tsbuild info and automatic tsconfig rewrites were removed/restored
   after build evidence; intentional tsconfig change is limited to DOM libs needed by React UI.
 - No browser/network was used. No push, PR, merge or trunk operation was performed.

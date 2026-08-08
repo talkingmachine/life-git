@@ -1,4 +1,5 @@
 import { confirmHousingDecision } from "../branch/housing";
+import { isSupportedAssessmentRulesVersion } from "../decision/assessment";
 import { confirmProfile } from "../decision/profile";
 import type {
   ProfileSnapshot,
@@ -91,7 +92,7 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
     if (
       previous.runId !== previousRunId ||
       previous.stage !== "assessment" ||
-      previous.rulesVersion !== ASSESSMENT_RULES_VERSION
+      !isSupportedAssessmentRulesVersion(previous.rulesVersion)
     ) {
       throw new Error("integrity_mismatch");
     }
@@ -114,7 +115,7 @@ export function createConfirmedLife(ports: ConfirmedLifePorts) {
     if (typeof runId !== "string" || runId.length === 0) throw new Error("invalid_run_id");
     const record = await ports.runStore.loadAssessmentByRunId(runId);
     const revision = record.revision;
-    if (revision.rulesVersion !== ASSESSMENT_RULES_VERSION) throw new Error("integrity_mismatch");
+    if (!isSupportedAssessmentRulesVersion(revision.rulesVersion)) throw new Error("integrity_mismatch");
     const profile = await ports.profileStore.loadVerified(revision.profileId);
     const evidenceDetails = await ports.evidence.loadVerifiedDetails(revision.evidenceSnapshotId, {
       assessmentDate: revision.assessmentDate,

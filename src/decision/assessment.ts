@@ -12,6 +12,16 @@ import type {
 
 const requiredResourcesAll = new Decimal("408000");
 
+export const LEGACY_ASSESSMENT_RULES_VERSION = "vs1-assessment@1";
+export const CURRENT_ASSESSMENT_RULES_VERSION = "vs1-assessment@2";
+export type AssessmentRulesVersion =
+  | typeof LEGACY_ASSESSMENT_RULES_VERSION
+  | typeof CURRENT_ASSESSMENT_RULES_VERSION;
+
+export function isSupportedAssessmentRulesVersion(value: string): value is AssessmentRulesVersion {
+  return value === LEGACY_ASSESSMENT_RULES_VERSION || value === CURRENT_ASSESSMENT_RULES_VERSION;
+}
+
 function reason(evidence: Evidence, code: string, claimId: ClaimId, sourceId: SourceId): AssessmentReason {
   const blockerKind = evidence.sourceBlockers[sourceId];
   return { code, claimId, sourceId, ...(blockerKind === undefined ? {} : { blockerKind }) };
@@ -26,7 +36,24 @@ function yellow(evidence: Evidence, code: string, claimId: ClaimId, sourceId: So
   return { marker: "yellow", reasons: [reason(evidence, code, claimId, sourceId)] };
 }
 
-export function assessRoute(profile: ProfileSnapshot, evidence: Evidence, routeConditions: RouteConditions): Assessment {
+function profileConditionYellow(
+  version: AssessmentRulesVersion,
+  evidence: Evidence,
+  code: string,
+  legacyClaimId: ClaimId,
+  legacySourceId: SourceId,
+): Assessment {
+  return version === LEGACY_ASSESSMENT_RULES_VERSION
+    ? yellow(evidence, code, legacyClaimId, legacySourceId)
+    : { marker: "yellow", reasons: [{ code }] };
+}
+
+function assessRouteAtVersion(
+  version: AssessmentRulesVersion,
+  profile: ProfileSnapshot,
+  evidence: Evidence,
+  routeConditions: RouteConditions,
+): Assessment {
   if (evidence.foreignContractVerified !== "verified" || !hasVerifiedOfficialClaim(evidence, "al-law-79-art-68-contract")) {
     return yellow(evidence, "foreign_contract_not_verified", "al-law-79-art-68-contract", "al-law-79");
   }
@@ -80,11 +107,23 @@ export function assessRoute(profile: ProfileSnapshot, evidence: Evidence, routeC
   }
 
   if (!profile.profile.conditions.incomeContinues12Months) {
-    return yellow(evidence, "income_continuation_not_confirmed", "al-law-79-art-68-contract", "al-law-79");
+    return profileConditionYellow(
+      version,
+      evidence,
+      "income_continuation_not_confirmed",
+      "al-law-79-art-68-contract",
+      "al-law-79",
+    );
   }
 
   if (!profile.profile.conditions.lawfulStayPrerequisiteAccepted) {
-    return yellow(evidence, "lawful_stay_prerequisite_not_accepted", "al-law-79-art-68-contract", "al-law-79");
+    return profileConditionYellow(
+      version,
+      evidence,
+      "lawful_stay_prerequisite_not_accepted",
+      "al-law-79-art-68-contract",
+      "al-law-79",
+    );
   }
 
   if (
@@ -92,8 +131,32 @@ export function assessRoute(profile: ProfileSnapshot, evidence: Evidence, routeC
     profile.profile.relationship === "spouse" &&
     !profile.profile.conditions.stagedSpouseRouteAccepted
   ) {
-    return yellow(evidence, "staged_spouse_route_not_accepted", "al-law-79-art-68-spouse", "al-law-79");
+    return profileConditionYellow(
+      version,
+      evidence,
+      "staged_spouse_route_not_accepted",
+      "al-law-79-art-68-spouse",
+      "al-law-79",
+    );
   }
 
   return { marker: "green", reasons: [] };
+}
+
+export function assessRoute(
+  profile: ProfileSnapshot,
+  evidence: Evidence,
+  routeConditions: RouteConditions,
+): Assessment {
+  return assessRouteAtVersion(CURRENT_ASSESSMENT_RULES_VERSION, profile, evidence, routeConditions);
+}
+
+export function assessRouteForVersion(
+  version: string,
+  profile: ProfileSnapshot,
+  evidence: Evidence,
+  routeConditions: RouteConditions,
+): Assessment {
+  if (!isSupportedAssessmentRulesVersion(version)) throw new Error("unsupported_assessment_rules");
+  return assessRouteAtVersion(version, profile, evidence, routeConditions);
 }
