@@ -105,13 +105,14 @@ function details(marker: "green" | "yellow", suffix: string, branch = false): Ru
 }
 
 describe("journey action pending states", () => {
-  it("runs the real confirmed-life start from explicit confirmation through gray to terminal green", async () => {
+  it("runs the real confirmed-life start from explicit confirmation through pending to terminal green", async () => {
     const started = deferred<RunDetails>();
     const replaceState = vi.spyOn(window.history, "replaceState");
     actionMocks.startConfirmedLife.mockReturnValue(started.promise);
     render(<Vs1Start />);
 
     expect(screen.queryByRole("region", { name: /карта проверки маршрута/i })).toBeNull();
+    expect(document.querySelector("img")).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: /доход продолжает.*12 месяцев/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /законное пребывание.*предварительное условие/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю синтетический снимок/i }));
@@ -127,13 +128,12 @@ describe("journey action pending states", () => {
 
     await waitFor(() => {
       const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-      expect(map.getAttribute("data-tone")).toBe("gray");
-      expect(within(map).getByText(/Россия.*Тирана/i)).toBeTruthy();
+      expect(map.hasAttribute("data-collapsed")).toBe(false);
     });
 
     await act(async () => started.resolve(details("green", "started:id")));
     expect((await screen.findByRole("region", { name: /карта проверки маршрута/i }))
-      .getAttribute("data-collapsed")).toBe("true");
+      .hasAttribute("data-collapsed")).toBe(false);
     expect(screen.getByRole("button", { name: /зафиксировать C0/i })).toBeTruthy();
     expect(replaceState.mock.calls.at(-1)?.[2]).toBe("?run=run-started%3Aid");
   });
@@ -151,38 +151,42 @@ describe("journey action pending states", () => {
     expect(submit.disabled).toBe(true);
   });
 
-  it("turns the map gray while yellow retry research is pending", async () => {
+  it("keeps the full-screen map while yellow retry research is pending", async () => {
     const next = deferred<RunDetails>();
     const replaceState = vi.spyOn(window.history, "replaceState");
     actionMocks.retryConfirmedLifeRun.mockReturnValue(next.promise);
     render(<Vs1Journey details={details("yellow", "old")} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Тирана.*уточнить/i }));
-    fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
+    fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i, hidden: true }));
 
     await waitFor(() => {
-      expect(screen.getByRole("region", { name: /карта проверки маршрута/i }).getAttribute("data-tone"))
-        .toBe("gray");
+      const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
+      expect(map.hasAttribute("data-collapsed")).toBe(false);
+      expect(actionMocks.retryConfirmedLifeRun).toHaveBeenCalledWith("run-old");
     });
 
     await act(async () => next.resolve(details("yellow", "new:id")));
-    expect(await screen.findByText(/Предыдущий снимок: snapshot-old/i)).toBeTruthy();
-    expect(screen.getByText(/Новый снимок: snapshot-new:id/i)).toBeTruthy();
+    expect(await screen.findByText("Предыдущий снимок: snapshot-old")).toBeTruthy();
+    expect(screen.getByText("Новый запуск: run-new:id")).toBeTruthy();
+    expect(screen.getByText("Новый снимок: snapshot-new:id")).toBeTruthy();
     expect(replaceState.mock.calls.at(-1)?.[2]).toBe("?run=run-new%3Aid");
   });
 
-  it("shows a retry failure without losing the previous snapshot or leaking a rejection", async () => {
+  it("keeps the previous snapshot after a retry failure without leaking a rejection", async () => {
     const retry = deferred<RunDetails>();
     actionMocks.retryConfirmedLifeRun.mockReturnValue(retry.promise);
     render(<Vs1Journey details={details("yellow", "old")} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
+    fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i, hidden: true }));
     await act(async () => retry.reject(new Error("offline")));
 
-    expect((await screen.findByRole("alert")).textContent).toMatch(/повторная проверка не выполнена/i);
+    expect(actionMocks.retryConfirmedLifeRun).toHaveBeenCalledWith("run-old");
+    expect(await screen.findByText(
+      "Повторная проверка не выполнена. Предыдущий снимок сохранён.",
+    )).toBeTruthy();
     expect(screen.getByText(/Предыдущий снимок: snapshot-old/i)).toBeTruthy();
-    expect(screen.getByRole("region", { name: /карта проверки маршрута/i }).getAttribute("data-tone"))
-      .toBe("yellow");
+    expect(screen.getByRole("region", { name: /карта проверки маршрута/i })
+      .hasAttribute("data-collapsed")).toBe(false);
   });
 
   it("rewinds both the cursor and the visible C1 budget/diff back to the saved C0 view", async () => {
@@ -225,11 +229,8 @@ describe("journey action pending states", () => {
 
     expect(actionMocks.rewindHousingBranch).toHaveBeenCalledWith("a".repeat(64));
 
-    await waitFor(() => {
-      const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-      expect(map.getAttribute("data-tone")).toBe("green");
-      expect(map.getAttribute("data-collapsed")).toBe("true");
-    });
+    expect(screen.getByRole("region", { name: /карта проверки маршрута/i })
+      .hasAttribute("data-collapsed")).toBe(false);
 
     await act(async () => rewind.resolve({ commitId: "a".repeat(64) }));
     expect(within(screen.getByRole("figure", { name: /поток бюджета/i })).getByText("70 000,00 ALL"))

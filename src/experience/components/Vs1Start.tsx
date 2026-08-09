@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { startConfirmedLife } from "../../app/actions";
 import type { RunDetails } from "../../application/contracts";
 import type { ProfileDraft } from "../../decision/profile";
+import { TIRANA_PRESENTATION } from "../research-map/product-route";
 import { replaceRunUrl } from "../run-url";
 import { ResearchMap } from "./ResearchMap";
 import { Vs1Journey } from "./Vs1Journey";
@@ -70,8 +71,7 @@ export function Vs1Start() {
         <ResearchMap
           candidates={[{
             id: "tirana",
-            origin: "Россия",
-            destination: "Тирана",
+            ...TIRANA_PRESENTATION,
             status: "pending",
           }]}
           mode="pending"
@@ -218,10 +218,6 @@ export function Vs1Start() {
         </form>
         {error === undefined ? null : <p role="alert">{error}</p>}
       </section>
-      <figure className="landing__map">
-        <img alt="Схема единственного маршрута Россия — Тирана" src="/world-map.svg" />
-        <figcaption><span aria-hidden="true">✈</span> Россия → Тирана</figcaption>
-      </figure>
     </main>
   );
 }

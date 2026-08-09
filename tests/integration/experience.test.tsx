@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHousingBranchApplication } from "../../src/application/fork-housing";
@@ -28,6 +30,9 @@ import { LifeGitDiff } from "../../src/experience/components/LifeGitDiff";
 import { ProfileCard } from "../../src/experience/components/ProfileCard";
 import { ResearchMap } from "../../src/experience/components/ResearchMap";
 import { Vs1Journey } from "../../src/experience/components/Vs1Journey";
+import type { ResearchGlobeCanvasProps } from "../../src/experience/research-map/ResearchGlobeCanvas";
+import type { GlobeRoute, ResearchCandidate } from "../../src/experience/research-map/contracts";
+import { TIRANA_PRESENTATION } from "../../src/experience/research-map/product-route";
 import { createJourneyView } from "../../src/experience/view-model";
 import {
   createOpenAiNarrative,
@@ -47,7 +52,87 @@ const spouseConditions = Object.freeze({
   stagedSpouseRouteAccepted: true,
 });
 
+function candidate(
+  status: ResearchCandidate["status"],
+  reason?: ResearchCandidate["reason"],
+): ResearchCandidate {
+  return {
+    id: "tirana",
+    ...TIRANA_PRESENTATION,
+    status,
+    ...(reason === undefined ? {} : { reason }),
+  };
+}
+
+function GlobeRendererProbe({ routes }: { readonly routes: readonly GlobeRoute[] }) {
+  const [selected, setSelected] = useState<GlobeRoute>();
+  return (
+    <div data-testid="production-globe-renderer">
+      {routes.map((route) => (
+        <button
+          aria-label={`${route.city} — ${route.status === "yellow" ? "уточнить" : "не подходит"}`}
+          key={route.key}
+          onClick={() => setSelected(route)}
+          type="button"
+        >
+          {route.flag}{route.city}
+        </button>
+      ))}
+      {selected === undefined ? null : (
+        <div aria-label={selected.city} role="dialog">
+          <p>{selected.rejectionReason}</p>
+          {selected.officialUrl === undefined ? null : (
+            <a href={selected.officialUrl}>Официальный источник</a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function captureGlobe(): {
+  readonly current: () => ResearchGlobeCanvasProps;
+  readonly renderGlobe: (props: ResearchGlobeCanvasProps) => ReactNode;
+} {
+  let props: ResearchGlobeCanvasProps | undefined;
+  return {
+    current: () => {
+      if (props === undefined) throw new Error("Globe props were not captured");
+      return props;
+    },
+    renderGlobe: (next) => {
+      props = next;
+      return <GlobeRendererProbe routes={next.routes} />;
+    },
+  };
+}
+
 describe("confirmed-life visual journey", () => {
+  it("passes Moscow and Tirana geo metadata to the pending production renderer", () => {
+    const globe = captureGlobe();
+    render(
+      <ResearchMap
+        candidates={[candidate("pending")]}
+        detectWebGL={() => true}
+        mode="pending"
+        renderGlobe={globe.renderGlobe}
+      />,
+    );
+
+    act(() => globe.current().onReady());
+    const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
+    expect(map.hasAttribute("data-collapsed")).toBe(false);
+    expect(globe.current().origin.city).toBe("Москва");
+    expect(globe.current().origin.coordinate).toEqual({ lat: 55.7558, lng: 37.6173 });
+    expect(globe.current().routes[0]).toMatchObject({
+      city: "Тирана",
+      country: "Албания",
+      flag: "🇦🇱",
+      to: { lat: 41.3275, lng: 19.8187 },
+    });
+    expect(globe.current().activeFlight?.key).toBe("moscow-tirana");
+  });
+
   it("shows the confirmed snapshot read-only and offers an explicit green C0 action", () => {
     const saveC0 = vi.fn();
 
@@ -135,73 +220,63 @@ describe("confirmed-life visual journey", () => {
     expect(screen.queryByText(/спутник.*поэтапно/i)).toBeNull();
   });
 
-  it("shows a gray pending map scoped to the single Russia to Tirana candidate", () => {
+  it("keeps the single-candidate pending map full-screen", () => {
+    const globe = captureGlobe();
     render(
       <ResearchMap
         mode="pending"
-        candidates={[
-          {
-            id: "tirana",
-            origin: "Россия",
-            destination: "Тирана",
-            status: "pending",
-          },
-        ]}
+        candidates={[candidate("pending")]}
+        detectWebGL={() => true}
+        renderGlobe={globe.renderGlobe}
       />,
     );
 
+    act(() => globe.current().onReady());
     const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-    expect(map.getAttribute("data-tone")).toBe("gray");
-    expect(map.getAttribute("data-scope")).toBe("single-candidate");
-    expect(within(map).getAllByRole("listitem")).toHaveLength(1);
-    expect(within(map).getByRole("img", { name: /самолёт/i })).toBeTruthy();
-    expect(within(map).getByText(/Россия.*Тирана/i)).toBeTruthy();
-    expect(within(map).getByText("Проверка")).toBeTruthy();
-    expect(within(map).getByRole("status", { name: /идёт проверка/i })).toBeTruthy();
+    expect(map.hasAttribute("data-collapsed")).toBe(false);
+    expect(screen.getByTestId("production-globe-renderer")).toBeTruthy();
+    expect(globe.current().routes).toHaveLength(1);
+    expect(globe.current().routes[0]?.status).toBe("pending");
   });
 
-  it("collapses a green result without leaving a map popover", () => {
+  it("keeps a green result full-screen without collapsed presentation", () => {
+    const globe = captureGlobe();
     render(
       <ResearchMap
         mode="green"
-        candidates={[{
-          id: "tirana",
-          origin: "Россия",
-          destination: "Тирана",
-          status: "green",
-        }]}
+        candidates={[candidate("green")]}
+        detectWebGL={() => true}
+        renderGlobe={globe.renderGlobe}
       />,
     );
 
+    act(() => globe.current().onReady());
     const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-    expect(map.getAttribute("data-collapsed")).toBe("true");
-    expect(within(map).getByText(/маршрут предварительно совместим/i)).toBeTruthy();
-    expect(within(map).getByText(/Тирана.*проверено в заявленном scope/i)).toBeTruthy();
-    expect(within(map).queryByText(/Тирана подтверждена/i)).toBeNull();
-    expect(within(map).queryByRole("img", { name: /самолёт/i })).toBeNull();
-    expect(within(map).queryByRole("dialog")).toBeNull();
+    expect(map.hasAttribute("data-collapsed")).toBe(false);
+    expect(globe.current().routes[0]?.status).toBe("green");
+    expect(globe.current().activeFlight).toBeUndefined();
   });
 
   it.each([
     ["yellow", "Enter", "Не подтверждён официальный источник о договоре"],
     ["red", " ", "Доход зависит только от местного работодателя"],
-  ] as const)("reveals a concise official-linked %s reason from the native marker button", (status, _key, reason) => {
+  ] as const)("reveals a concise official-linked %s reason from the globe balloon", (status, _key, reason) => {
+    const globe = captureGlobe();
     render(
       <ResearchMap
         mode={status}
-        candidates={[{
-          id: "tirana",
-          origin: "Россия",
-          destination: "Тирана",
-          status,
-          reason: {
+        candidates={[candidate(status, {
             summary: reason,
             officialUrl: "https://official.example/al-law-79",
-          },
-        }]}
+        })]}
+        detectWebGL={() => true}
+        renderGlobe={globe.renderGlobe}
       />,
     );
 
+    act(() => globe.current().onReady());
+    const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
+    expect(map.hasAttribute("data-collapsed")).toBe(false);
     const marker = screen.getByRole("button", { name: new RegExp(`Тирана.*${status === "yellow" ? "уточнить" : "не подходит"}`, "i") });
     expect(marker.tagName).toBe("BUTTON");
     expect(screen.queryByText(reason)).toBeNull();
@@ -210,6 +285,11 @@ describe("confirmed-life visual journey", () => {
     expect(screen.getByText(reason)).toBeTruthy();
     expect(screen.getByRole("link", { name: /официальный источник/i }).getAttribute("href"))
       .toBe("https://official.example/al-law-79");
+    expect(globe.current().routes[0]).toMatchObject({
+      rejectionReason: reason,
+      officialUrl: "https://official.example/al-law-79",
+      status,
+    });
   });
 
   it("uses exact reason source lineage and distinguishes an unavailable rule from a verified mismatch", () => {
@@ -323,8 +403,27 @@ describe("confirmed-life visual journey", () => {
     expect(declinedCondition.candidate.reason).toEqual({
       summary: "Поступление дохода в течение двенадцати месяцев не подтверждено",
     });
+    expect(unavailable.candidate).toMatchObject({
+      id: "tirana",
+      city: "Тирана",
+      country: "Албания",
+      flag: "🇦🇱",
+      coordinate: { lat: 41.3275, lng: 19.8187 },
+      description: "Проверяем визовые, финансовые и бытовые условия сценария.",
+      photoUrl: "/cities/tirana.jpg",
+      status: "yellow",
+    });
 
-    render(<ResearchMap candidates={[declinedCondition.candidate]} mode="yellow" />);
+    const globe = captureGlobe();
+    render(
+      <ResearchMap
+        candidates={[declinedCondition.candidate]}
+        detectWebGL={() => true}
+        mode="yellow"
+        renderGlobe={globe.renderGlobe}
+      />,
+    );
+    act(() => globe.current().onReady());
     fireEvent.click(screen.getByRole("button", { name: /Тирана.*уточнить/i }));
     expect(screen.getByText(/поступление дохода.*не подтверждено/i)).toBeTruthy();
     expect(screen.queryByRole("link", { name: /официальный источник/i })).toBeNull();
@@ -334,25 +433,23 @@ describe("confirmed-life visual journey", () => {
     const oldRun = Object.freeze({ runId: "run-old", evidenceSnapshotId: "snapshot-old" });
     const before = JSON.stringify(oldRun);
     const retry = vi.fn(async () => ({ runId: "run-new", evidenceSnapshotId: "snapshot-new" }));
+    const globe = captureGlobe();
 
     render(
       <ResearchMap
+        detectWebGL={() => true}
         mode="yellow"
         previousRun={oldRun}
         onRetry={retry}
-        candidates={[{
-          id: "tirana",
-          origin: "Россия",
-          destination: "Тирана",
-          status: "yellow",
-          reason: {
+        candidates={[candidate("yellow", {
             summary: "Источник временно недоступен",
             officialUrl: "https://official.example/al-law-79",
-          },
-        }]}
+        })]}
+        renderGlobe={globe.renderGlobe}
       />,
     );
 
+    act(() => globe.current().onReady());
     fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
 
     expect(await screen.findByText(/Новый запуск: run-new/i)).toBeTruthy();
@@ -1008,8 +1105,7 @@ describe("confirmed-life visual journey", () => {
     expect(screen.getByRole("heading", { name: /подтверждённый снимок условий/i })).toBeTruthy();
     expect(screen.getByText(/месячный доход.*210 000 RUB.*ввод пользователя/i)).toBeTruthy();
     const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-    expect(within(map).getAllByRole("listitem")).toHaveLength(1);
-    expect(within(map).getByRole("button", { name: /Тирана.*уточнить/i })).toBeTruthy();
+    expect(map.hasAttribute("data-collapsed")).toBe(false);
     expect(screen.getByText("Паспорт доказательств")).toBeTruthy();
   });
 

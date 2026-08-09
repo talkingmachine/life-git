@@ -1,5 +1,6 @@
 import type { EvidenceReadItem, RunDetails, RunDetailsCore } from "../application/contracts";
 import type { HousingBranchDiff } from "../branch/life-git";
+import { TIRANA_PRESENTATION } from "./research-map/product-route";
 
 const DECIMAL = /^(\d+)(?:\.(\d+))?$/;
 
@@ -111,8 +112,7 @@ export function createJourneyView(details: RunDetails) {
     }),
     candidate: Object.freeze({
       id: "tirana",
-      origin: "Россия" as const,
-      destination: "Тирана" as const,
+      ...TIRANA_PRESENTATION,
       status: details.run.assessment.marker,
       ...(firstReason === undefined ? {} : {
         reason: Object.freeze({

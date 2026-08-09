@@ -3,9 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "build": "next build",
+    "predev": "node scripts/require-node-24.mjs",
     "dev": "next dev",
+    "prestart": "node scripts/require-node-24.mjs",
+    "start": "next start",
     "eval:live": "node --import tsx evals/live.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
@@ -22,6 +28,8 @@
 		"pdfjs-dist": "6.2.108",
 		"react": "19.2.8",
 		"react-dom": "19.2.8",
+		"react-globe.gl": "2.38.0",
+		"three": "0.183.2",
 		"zod": "4.4.3"
 	},
 	"devDependencies": {
@@ -30,6 +38,7 @@
 		"@types/node": "24.13.3",
 		"@types/react": "19.2.18",
 		"@types/react-dom": "19.2.4",
+		"@types/three": "0.183.1",
 		"eslint": "10.8.0",
 		"eslint-config-next": "16.3.0",
 		"jsdom": "30.0.1",
