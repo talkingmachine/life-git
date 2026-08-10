@@ -97,6 +97,7 @@ describe("calm command center visual contracts", () => {
   it.each([
     [".budget-flow__bar", "--surface-subtle"],
     [".evidence-passport article li", "--surface-subtle"],
+    [".context-bar__status", "--surface-subtle"],
     [".context-bar__status--yellow", "--warning-soft"],
     [".research-map__marker--yellow .research-map__status-icon", "--warning-soft"],
   ])("keeps small text in %s at four-and-a-half-to-one contrast", (selector, backgroundToken) => {

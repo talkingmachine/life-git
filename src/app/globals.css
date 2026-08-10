@@ -312,7 +312,7 @@ pre {
   padding: 0.32rem 0.6rem;
   border-radius: 9px;
   background: var(--surface-subtle);
-  color: var(--ink-muted);
+  color: var(--ink);
   font-size: 0.7rem;
   font-weight: 750;
 }
