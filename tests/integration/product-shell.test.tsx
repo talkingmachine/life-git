@@ -38,6 +38,7 @@ describe("responsive product shell", () => {
     expect(statusIcon?.textContent).toBe(icon);
     expect(statusIcon?.getAttribute("aria-hidden")).toBe("true");
     expect(within(badge).getByText(label)).toBeTruthy();
+    expect(badge.textContent?.trim()).toContain(label);
   });
 
   it("provides accessible destination navigation and route context", () => {
@@ -55,6 +56,11 @@ describe("responsive product shell", () => {
 
     const navigation = screen.getByRole("navigation", { name: /основная навигация/i });
     expect(screen.getAllByRole("navigation", { name: /основная навигация/i })).toHaveLength(1);
+    const mainRegions = screen.getAllByRole("main");
+    expect(mainRegions).toHaveLength(1);
+    expect(mainRegions[0]?.hidden).toBe(false);
+    expect(mainRegions[0]?.getAttribute("aria-hidden")).not.toBe("true");
+    expect(within(mainRegions[0]!).getByText("Workspace content")).toBeTruthy();
     expect(screen.getByRole("button", { name: /обзор/i }).getAttribute("aria-current")).toBe("page");
     fireEvent.click(screen.getByRole("button", { name: /источники/i }));
     expect(change).toHaveBeenCalledWith("sources");
@@ -80,6 +86,7 @@ describe("responsive product shell", () => {
     ]);
     for (const control of controls) {
       expect(control.querySelector('[aria-hidden="true"]')).toBeTruthy();
+      expect(control.querySelector(".navigation-rail__label")?.textContent?.trim().length).toBeGreaterThan(0);
     }
   });
 });

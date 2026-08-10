@@ -27,6 +27,7 @@ import { LifeBranch } from "../../src/experience/components/LifeBranch";
 import { LifeGitDiff } from "../../src/experience/components/LifeGitDiff";
 import { ProfileCard } from "../../src/experience/components/ProfileCard";
 import { ResearchMap } from "../../src/experience/components/ResearchMap";
+import { SourcesWorkspace } from "../../src/experience/components/SourcesWorkspace";
 import { Vs1Journey } from "../../src/experience/components/Vs1Journey";
 import { createJourneyView, groupEvidenceItems } from "../../src/experience/view-model";
 import {
@@ -48,6 +49,34 @@ const spouseConditions = Object.freeze({
 });
 
 describe("confirmed-life visual journey", () => {
+  it("exposes the selected state on every evidence filter", () => {
+    render(<SourcesWorkspace companionMode="none" items={[]} />);
+
+    const filters = within(screen.getByRole("group", { name: /фильтр классов доказательств/i }))
+      .getAllByRole("button");
+    expect(filters).toHaveLength(7);
+    expect(filters.map((filter) => filter.getAttribute("aria-pressed"))).toEqual([
+      "true",
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Все классы" }));
+    expect(filters.map((filter) => filter.getAttribute("aria-pressed"))).toEqual([
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "false",
+      "true",
+    ]);
+  });
+
   it("shows the confirmed snapshot read-only and offers an explicit green C0 action", () => {
     const saveC0 = vi.fn();
 
