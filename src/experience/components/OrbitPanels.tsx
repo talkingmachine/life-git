@@ -9,6 +9,7 @@ type Marker = "green" | "yellow" | "red";
 
 interface RouteCandidatePanelProps {
   readonly marker: Marker;
+  readonly onSelect: () => void;
   readonly unresolvedItems: number;
 }
 
@@ -18,6 +19,7 @@ interface CompactProfilePanelProps {
 
 interface DestinationDetailPanelProps {
   readonly marker: Marker;
+  readonly onOpenResearch: () => void;
 }
 
 const markerCopy: Record<Marker, string> = {
@@ -36,7 +38,7 @@ function formatAmount(value: string): string {
   return value.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
-export function RouteCandidatePanel({ marker, unresolvedItems }: RouteCandidatePanelProps) {
+export function RouteCandidatePanel({ marker, onSelect, unresolvedItems }: RouteCandidatePanelProps) {
   const questionWord = unresolvedItems % 10 === 1 && unresolvedItems % 100 !== 11
     ? "вопрос требует"
     : [2, 3, 4].includes(unresolvedItems % 10) && ![12, 13, 14].includes(unresolvedItems % 100)
@@ -48,7 +50,7 @@ export function RouteCandidatePanel({ marker, unresolvedItems }: RouteCandidateP
     <section aria-labelledby="route-candidate-heading" className="orbit-panel route-candidate-panel">
       <p className="orbit-panel__index">01 / РЕЗУЛЬТАТ</p>
       <h2 id="route-candidate-heading">Найденный маршрут</h2>
-      <button className="route-candidate-panel__candidate" type="button">
+      <button className="route-candidate-panel__candidate" onClick={onSelect} type="button">
         <UiIcon className={`signal signal--${marker}`} name={markerIcon[marker]} weight="duotone" />
         <span>
           <strong>Тирана, Албания</strong>
@@ -106,7 +108,7 @@ const traits = [
   { icon: "income", label: "Доходы" },
 ] as const;
 
-export function DestinationDetailPanel({ marker }: DestinationDetailPanelProps) {
+export function DestinationDetailPanel({ marker, onOpenResearch }: DestinationDetailPanelProps) {
   return (
     <aside aria-labelledby="destination-heading" className="orbit-panel destination-detail-panel">
       <div aria-hidden="true" className="destination-detail-panel__image">
@@ -159,7 +161,13 @@ export function DestinationDetailPanel({ marker }: DestinationDetailPanelProps) 
         <h3>ВНЖ и ПМЖ</h3>
         <p>В подтверждённом scope доступны только проверенные условия сценария. Детали открываются вместе с официальными источниками.</p>
       </section>
-      <button className="destination-detail-panel__action" type="button">Открыть проверку</button>
+      <button
+        className="destination-detail-panel__action"
+        onClick={onOpenResearch}
+        type="button"
+      >
+        Открыть проверку
+      </button>
     </aside>
   );
 }

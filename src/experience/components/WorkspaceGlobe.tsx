@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Component, useCallback, useEffect, useState } from "react";
+import { Component, useCallback, useEffect, useMemo, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 
 import type {
@@ -83,6 +83,8 @@ function reloadDocument(): void {
   window.location.reload();
 }
 
+const ignoreGlobeEvent = () => undefined;
+
 export function WorkspaceGlobe({
   renderGlobe,
   reloadPage = reloadDocument,
@@ -91,7 +93,7 @@ export function WorkspaceGlobe({
   const [webglSupported, setWebglSupported] = useState<boolean>();
   const [unavailable, setUnavailable] = useState(false);
   const [importFailed, setImportFailed] = useState(false);
-  const globeRoute: GlobeRoute = {
+  const globeRoute = useMemo<GlobeRoute>(() => ({
     city: TIRANA.city,
     country: TIRANA.country,
     description: "Подтверждённый маршрут текущего сценария.",
@@ -101,20 +103,23 @@ export function WorkspaceGlobe({
     label: `${MOSCOW.city} → ${TIRANA.city}`,
     status,
     to: TIRANA.coordinate,
-  };
-  const globeProps: ResearchGlobeCanvasProps = {
+  }), [status]);
+  const routes = useMemo(() => [globeRoute], [globeRoute]);
+  const overview = useMemo(() => ({
+    coordinates: [MOSCOW.coordinate, TIRANA.coordinate],
+    key: 1,
+  }), []);
+  const handleUnavailable = useCallback(() => setUnavailable(true), []);
+  const globeProps = useMemo<ResearchGlobeCanvasProps>(() => ({
     activeFlight: globeRoute,
     backgroundColor: "#061014",
-    onFlightComplete: () => undefined,
-    onReady: () => undefined,
-    onUnavailable: () => setUnavailable(true),
+    onFlightComplete: ignoreGlobeEvent,
+    onReady: ignoreGlobeEvent,
+    onUnavailable: handleUnavailable,
     origin: MOSCOW,
-    overview: {
-      coordinates: [MOSCOW.coordinate, TIRANA.coordinate],
-      key: 1,
-    },
-    routes: [globeRoute],
-  };
+    overview,
+    routes,
+  }), [globeRoute, handleUnavailable, overview, routes]);
   const retry = useCallback(() => {
     setUnavailable(false);
     setWebglSupported(supportsWebGL());

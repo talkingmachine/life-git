@@ -10,6 +10,7 @@ vi.mock("next/dynamic", () => ({
 }));
 
 import { WorkspaceGlobe } from "../../src/experience/components/WorkspaceGlobe";
+import type { ResearchGlobeCanvasProps } from "../../src/experience/research-map/ResearchGlobeCanvas";
 import {
   CompactProfilePanel,
   DestinationDetailPanel,
@@ -33,6 +34,20 @@ describe("Orbit command center", () => {
     }));
   });
 
+  it("keeps the shared flight lifecycle inputs stable across parent rerenders", () => {
+    const renderGlobe = vi.fn((props: ResearchGlobeCanvasProps) => (
+      <div data-flight-key={props.activeFlight?.key} data-testid="research-globe-engine" />
+    ));
+    const globe = render(<WorkspaceGlobe renderGlobe={renderGlobe} status="green" />);
+    const firstProps = renderGlobe.mock.calls[0]?.[0];
+
+    globe.rerender(<WorkspaceGlobe renderGlobe={renderGlobe} status="green" />);
+
+    const nextProps = renderGlobe.mock.calls.at(-1)?.[0];
+    expect(nextProps?.activeFlight).toBe(firstProps?.activeFlight);
+    expect(nextProps?.routes).toBe(firstProps?.routes);
+  });
+
   it("reloads after the dynamic globe module rejects", async () => {
     vi.stubGlobal("WebGLRenderingContext", class WebGLRenderingContext {});
     const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
@@ -53,7 +68,10 @@ describe("Orbit command center", () => {
   });
 
   it("presents the single scoped candidate as a floating search result", () => {
-    const { container } = render(<RouteCandidatePanel marker="green" unresolvedItems={2} />);
+    const onSelect = vi.fn();
+    const { container } = render(
+      <RouteCandidatePanel marker="green" onSelect={onSelect} unresolvedItems={2} />,
+    );
 
     expect(screen.getByRole("heading", { name: "Найденный маршрут" })).toBeTruthy();
     expect(screen.getByText("Тирана, Албания")).toBeTruthy();
@@ -62,6 +80,8 @@ describe("Orbit command center", () => {
     expect(container.querySelector('[data-icon="status-green"]')).toBeTruthy();
     expect(container.querySelector('[data-icon="external"]')).toBeTruthy();
     expect(container.textContent).not.toMatch(/[●↗]/u);
+    fireEvent.click(screen.getByRole("button", { name: /Тирана, Албания/i }));
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 
   it("expands the confirmed profile without pretending it is editable", () => {
@@ -89,7 +109,10 @@ describe("Orbit command center", () => {
   });
 
   it("labels unsupported destination traits as unexplored", () => {
-    const { container } = render(<DestinationDetailPanel marker="green" />);
+    const onOpenResearch = vi.fn();
+    const { container } = render(
+      <DestinationDetailPanel marker="green" onOpenResearch={onOpenResearch} />,
+    );
 
     expect(screen.getByRole("heading", { name: "Тирана" })).toBeTruthy();
     expect(screen.getByText("Албания")).toBeTruthy();
@@ -102,10 +125,14 @@ describe("Orbit command center", () => {
     expect(container.querySelector('[data-icon="sea"]')).toBeTruthy();
     expect(container.querySelector('[data-icon="income"]')).toBeTruthy();
     expect(container.textContent).not.toMatch(/[✚≈↗●]/u);
+    fireEvent.click(screen.getByRole("button", { name: "Открыть проверку" }));
+    expect(onOpenResearch).toHaveBeenCalledOnce();
   });
 
   it.each(["green", "yellow", "red"] as const)("maps %s panel markers to a status icon", (marker) => {
-    const { container } = render(<DestinationDetailPanel marker={marker} />);
+    const { container } = render(
+      <DestinationDetailPanel marker={marker} onOpenResearch={() => undefined} />,
+    );
 
     expect(container.querySelector(`[data-icon="status-${marker}"]`)).toBeTruthy();
   });

@@ -111,27 +111,40 @@ export function ResearchWorkspace({
               className={`research-workspace__candidate-item research-workspace__candidate-item--${candidate.status}`}
               key={candidate.id}
             >
-              <button
-                aria-expanded={openCandidateId === candidate.id}
-                onClick={() => reveal(candidate.id)}
-                type="button"
-              >
-                <UiIcon
-                  className="research-workspace__status-icon"
-                  name={statusIcon[candidate.status]}
-                  weight={candidate.status === "pending" ? "regular" : "duotone"}
-                />
-                <span className="research-workspace__route">
-                  {candidate.origin} → {candidate.destination}
-                </span>
-                <span className="research-workspace__state-label">{labels[candidate.status]}</span>
-                {candidate.reason === undefined ? null : (
+              {candidate.reason === undefined ? (
+                <div className="research-workspace__candidate-control">
+                  <UiIcon
+                    className="research-workspace__status-icon"
+                    name={statusIcon[candidate.status]}
+                    weight={candidate.status === "pending" ? "regular" : "duotone"}
+                  />
+                  <span className="research-workspace__route">
+                    {candidate.origin} → {candidate.destination}
+                  </span>
+                  <span className="research-workspace__state-label">{labels[candidate.status]}</span>
+                </div>
+              ) : (
+                <button
+                  aria-expanded={openCandidateId === candidate.id}
+                  className="research-workspace__candidate-control"
+                  onClick={() => reveal(candidate.id)}
+                  type="button"
+                >
+                  <UiIcon
+                    className="research-workspace__status-icon"
+                    name={statusIcon[candidate.status]}
+                    weight={candidate.status === "pending" ? "regular" : "duotone"}
+                  />
+                  <span className="research-workspace__route">
+                    {candidate.origin} → {candidate.destination}
+                  </span>
+                  <span className="research-workspace__state-label">{labels[candidate.status]}</span>
                   <UiIcon
                     className="research-workspace__disclosure-icon"
                     name={openCandidateId === candidate.id ? "collapse" : "expand"}
                   />
-                )}
-              </button>
+                </button>
+              )}
               {openCandidateId === candidate.id && candidate.reason !== undefined ? (
                 <div className="research-workspace__reason">
                   <p>{candidate.reason.summary}</p>

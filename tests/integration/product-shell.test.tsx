@@ -82,13 +82,15 @@ describe("responsive product shell", () => {
     expect(controls.map((control) => control.querySelector(".navigation-rail__label")?.textContent)).toEqual([
       "Обзор",
       "Проверка",
-      "Ветка",
+      "Моя ветвь",
       "Life Git",
       "Источники",
     ]);
     for (const control of controls) {
       expect(control.querySelector('[data-icon]')).toBeTruthy();
-      expect(control.getAttribute("aria-label")?.trim().length).toBeGreaterThan(0);
+      expect(control.getAttribute("aria-label")).toBe(
+        control.querySelector(".navigation-rail__label")?.textContent,
+      );
       expect(control.querySelector(".navigation-rail__label")?.classList.contains("visually-hidden")).toBe(true);
       expect(control.querySelector(".navigation-rail__label")?.textContent?.trim().length).toBeGreaterThan(0);
     }

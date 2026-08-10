@@ -133,6 +133,16 @@ describe("journey action pending states", () => {
     expect(JSON.stringify(c0)).toBe(before);
   });
 
+  it("opens Research from the Overview candidate check control", () => {
+    render(<Vs1Journey details={details("green", "overview-research")} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Открыть проверку" }));
+
+    expect(screen.getByRole("button", { name: "Проверка" }).getAttribute("aria-current"))
+      .toBe("page");
+    expect(screen.getByRole("region", { name: /проверка маршрута/i })).toBeTruthy();
+  });
+
   it("opens a yellow journey in Research with its reason and retry available", () => {
     render(<Vs1Journey details={details("yellow", "research")} />);
 

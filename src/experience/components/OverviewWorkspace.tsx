@@ -52,9 +52,16 @@ export function OverviewWorkspace({
   return (
     <section aria-label="Обзор маршрута" className="overview-workspace overview-workspace--orbit">
       <h1 className="visually-hidden" id="overview-heading">{narrative.headline}</h1>
-      <RouteCandidatePanel marker={marker} unresolvedItems={summary.unresolvedItems} />
+      <RouteCandidatePanel
+        marker={marker}
+        onSelect={() => onDestinationChange("research")}
+        unresolvedItems={summary.unresolvedItems}
+      />
       <CompactProfilePanel profile={profile} />
-      <DestinationDetailPanel marker={marker} />
+      <DestinationDetailPanel
+        marker={marker}
+        onOpenResearch={() => onDestinationChange("research")}
+      />
       <div className="orbit-panel overview-workspace__telemetry" aria-label="Сводка проверки">
         <span>{summary.branchLabel}</span>
         <span aria-hidden="true">{summary.officialFacts} фактов</span>

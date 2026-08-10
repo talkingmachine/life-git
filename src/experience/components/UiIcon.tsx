@@ -15,6 +15,7 @@ import {
   TrendUp,
   WarningCircle,
   Waves,
+  X,
   XCircle,
 } from "@phosphor-icons/react";
 
@@ -35,6 +36,7 @@ const UI_ICONS = {
   external: ArrowUpRight,
   expand: Plus,
   collapse: Minus,
+  close: X,
   retry: ArrowClockwise,
 } as const;
 

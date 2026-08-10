@@ -497,9 +497,7 @@ pre {
   min-height: calc(100svh - 68px);
   overflow: hidden;
   isolation: isolate;
-  background:
-    radial-gradient(circle at 48% 48%, rgba(255, 255, 255, 0.8) 0 7%, transparent 38%),
-    linear-gradient(135deg, #dce8e8 0%, #eef2ef 45%, #d7e1e2 100%);
+  background: transparent;
 }
 
 .overview-workspace--orbit::before,
@@ -1064,7 +1062,7 @@ pre {
   animation: disclosure-enter var(--motion-section) ease-out 1 both;
 }
 
-.research-workspace__candidate-item button {
+.research-workspace__candidate-control {
   width: 100%;
   min-height: 48px;
   display: grid;
@@ -1390,15 +1388,15 @@ input[type="checkbox"] {
   display: none;
 }
 
-.evidence-passport__technical > summary::after {
-  content: "+";
+.evidence-passport__expand-icon,
+.evidence-passport__collapse-icon {
   flex: 0 0 auto;
   color: var(--ink-muted);
-  font-size: 1rem;
 }
 
-.evidence-passport__technical[open] > summary::after {
-  content: "−";
+.evidence-passport__technical:not([open]) > summary .evidence-passport__collapse-icon,
+.evidence-passport__technical[open] > summary .evidence-passport__expand-icon {
+  display: none;
 }
 
 .evidence-passport__heading span {
@@ -1731,16 +1729,12 @@ input[type="checkbox"] {
   }
 
   .navigation-rail__label {
-    width: 100%;
-  }
-
-  .navigation-rail__label--expanded {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
     padding: 0 !important;
-    overflow: hidden !important;
-    clip: rect(0, 0, 0, 0) !important;
+    overflow: visible !important;
+    clip: auto !important;
     white-space: nowrap !important;
     border: 0 !important;
   }
@@ -1865,7 +1859,7 @@ input[type="checkbox"] {
     max-width: none;
   }
 
-  .research-workspace__candidate-item button {
+  .research-workspace__candidate-control {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
@@ -1973,6 +1967,46 @@ input[type="checkbox"] {
   }
 
   .overview-workspace__telemetry {
+    grid-row: 4;
+    flex-wrap: wrap;
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1139px) {
+  .product-shell[data-rail-expanded="true"] .product-shell__content:has(.overview-workspace--orbit) {
+    padding: 0;
+  }
+
+  .product-shell[data-rail-expanded="true"] .overview-workspace--orbit {
+    min-height: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  .product-shell[data-rail-expanded="true"] :where(.route-candidate-panel, .compact-profile-panel, .destination-detail-panel, .overview-workspace__telemetry) {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    transform: none;
+  }
+
+  .product-shell[data-rail-expanded="true"] .route-candidate-panel {
+    grid-row: 1;
+  }
+
+  .product-shell[data-rail-expanded="true"] .destination-detail-panel {
+    grid-row: 2;
+    overflow: hidden;
+  }
+
+  .product-shell[data-rail-expanded="true"] .compact-profile-panel {
+    grid-row: 3;
+  }
+
+  .product-shell[data-rail-expanded="true"] .overview-workspace__telemetry {
     grid-row: 4;
     flex-wrap: wrap;
   }

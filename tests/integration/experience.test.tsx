@@ -180,12 +180,14 @@ describe("confirmed-life visual journey", () => {
     );
 
     const research = screen.getByRole("region", { name: /проверка маршрута/i });
+    const candidateList = within(research).getByRole("list", { name: /кандидаты маршрута/i });
     expect(research.getAttribute("data-tone")).toBe("gray");
     expect(research.getAttribute("data-scope")).toBe("single-candidate");
-    expect(within(within(research).getByRole("list", { name: /кандидаты маршрута/i }))
-      .getAllByRole("listitem")).toHaveLength(1);
-    expect(within(within(research).getByRole("list", { name: /кандидаты маршрута/i }))
-      .getByText(/Россия.*Тирана/i)).toBeTruthy();
+    expect(within(candidateList).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(candidateList).getByText(/Россия.*Тирана/i)).toBeTruthy();
+    expect(within(research).queryByRole("button", { name: /Россия.*Тирана/i })).toBeNull();
+    expect(within(candidateList).getByText(/Россия.*Тирана/i).closest("li")?.hasAttribute("aria-expanded"))
+      .toBe(false);
     expect(research.querySelector('img[src="/world-map.svg"]')).toBeNull();
     expect(within(research).queryByRole("img", { name: /самолёт/i })).toBeNull();
     expect(within(research).getByText("Проверка")).toBeTruthy();
@@ -243,12 +245,32 @@ describe("confirmed-life visual journey", () => {
 
     const marker = screen.getByRole("button", { name: new RegExp(`Тирана.*${status === "yellow" ? "уточнить" : "не подходит"}`, "i") });
     expect(marker.tagName).toBe("BUTTON");
+    expect(marker.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText(reason)).toBeNull();
     fireEvent.click(marker);
 
+    expect(marker.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText(reason)).toBeTruthy();
     expect(screen.getByRole("link", { name: /официальный источник/i }).getAttribute("href"))
       .toBe("https://official.example/al-law-79");
+  });
+
+  it("renders a candidate without disclosure content as noninteractive status content", () => {
+    render(
+      <ResearchWorkspace
+        mode="yellow"
+        candidates={[{
+          id: "tirana",
+          origin: "Россия",
+          destination: "Тирана",
+          status: "yellow",
+        }]}
+      />,
+    );
+
+    const candidate = screen.getByText(/Россия.*Тирана/i).closest("li");
+    expect(candidate?.querySelector("button")).toBeNull();
+    expect(candidate?.querySelector("[aria-expanded]")).toBeNull();
   });
 
   it("uses exact reason source lineage and distinguishes an unavailable rule from a verified mismatch", () => {
@@ -437,7 +459,7 @@ describe("confirmed-life visual journey", () => {
   });
 
   it("renders all six Evidence Passport classes with verified and blocked provenance", () => {
-    render(
+    const { container } = render(
       <EvidencePassport
         companionMode="staged"
         items={[
@@ -539,6 +561,9 @@ describe("confirmed-life visual journey", () => {
     expect(officialTechnical?.textContent).toContain("al-law-79-facts-2");
     expect(officialTechnical?.hasAttribute("open")).toBe(false);
     expect(officialTechnical?.querySelector("summary")?.textContent).toMatch(/технические данные и якоря/i);
+    expect(officialTechnical?.querySelector('[data-icon="expand"]')).toBeTruthy();
+    expect(officialTechnical?.querySelector('[data-icon="collapse"]')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/[+−]/u);
     const blockerTechnical = screen.getByText("timeout").closest("details");
     expect(blockerTechnical?.hasAttribute("open")).toBe(false);
     expect(screen.getByText(/источник не ответил вовремя/i)).toBeTruthy();

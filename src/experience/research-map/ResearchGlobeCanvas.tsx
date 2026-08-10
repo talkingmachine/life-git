@@ -1,7 +1,15 @@
 "use client";
 
 import Globe, { type GlobeMethods } from "react-globe.gl";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Box3,
   Matrix4,
@@ -30,6 +38,7 @@ import {
   startSynchronizedSunCycle,
 } from "./research-globe-lifecycle";
 import type { GlobeOrigin, GlobeRoute, GlobeUnavailableReason } from "./contracts";
+import { UiIcon } from "../components/UiIcon";
 import styles from "./ResearchGlobe.module.css";
 
 export type { GlobeOrigin, GlobeRoute, GlobeUnavailableReason } from "./contracts";
@@ -288,6 +297,8 @@ export function ResearchGlobeCanvas({
   viewport.current = { width: size.width, height: size.height };
   const routeScene = useMemo(createGlobeRouteScene, []);
   const lighting = useMemo(createGlobeLighting, []);
+  const activeFlightKey = activeFlight?.key;
+  const readActiveFlight = useEffectEvent(() => activeFlight);
 
   const customLayerData = useMemo<CustomLayerDatum[]>(
     () => flightLayer === undefined ? routeLayerData : [...routeLayerData, flightLayer.datum],
@@ -551,28 +562,29 @@ export function ResearchGlobeCanvas({
     const previousLayer = flightLayerRef.current;
     flightLayerRef.current = undefined;
     if (previousLayer !== undefined) disposeObject(previousLayer.datum.object);
+    const nextFlight = readActiveFlight();
     if (
       !globeReady
       || realisticEarth === undefined
       || planeTemplate === undefined
       || !readyForFlights
-      || activeFlight === undefined
+      || nextFlight === undefined
     ) {
       setFlightLayer(undefined);
       return;
     }
     const nextLayer: FlightLayer = {
       datum: {
-        key: activeFlight.key,
+        key: nextFlight.key,
         kind: "aircraft",
         object: clonePlaneTemplate(planeTemplate),
-        routeKey: activeFlight.key,
+        routeKey: nextFlight.key,
       },
-      flight: activeFlight,
+      flight: nextFlight,
     };
     flightLayerRef.current = nextLayer;
     setFlightLayer(nextLayer);
-  }, [activeFlight, globeReady, planeTemplate, readyForFlights, realisticEarth]);
+  }, [activeFlightKey, globeReady, planeTemplate, readyForFlights, realisticEarth]);
 
   useLayoutEffect(() => {
     const currentGlobe = globe.current;
@@ -738,7 +750,7 @@ export function ResearchGlobeCanvas({
             onClick={() => setSelectedRouteKey(undefined)}
             type="button"
           >
-            ×
+            <UiIcon name="close" />
           </button>
           <p className={styles.markerDetailsCountry}>
             <span aria-hidden="true" className={styles.markerDetailsFlag}>

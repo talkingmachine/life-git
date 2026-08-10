@@ -114,6 +114,12 @@ describe("calm command center visual contracts", () => {
     expect(declaration(content, "z-index")).toBe("2");
   });
 
+  it("keeps the full-workspace Overview canvas transparent above the globe", () => {
+    const overview = rule(css, ".overview-workspace--orbit");
+
+    expect(declaration(overview, "background")).toBe("transparent");
+  });
+
   it("does not retain obsolete globe or route-art selectors", () => {
     expect(css).not.toMatch(/\.orbit-globe|globe-arrival|\.research-map__art|\.research-map__airplane|route-arrival/);
   });
@@ -136,6 +142,23 @@ describe("calm command center visual contracts", () => {
     expect(["relative", "static"]).toContain(declaration(candidate, "position"));
     expect(["relative", "static"]).toContain(declaration(retry, "position"));
     expect(declaration(candidate, "grid-row")).not.toBe(declaration(retry, "grid-row"));
+  });
+
+  it("flows Overview panels when the expanded rail narrows an intermediate workspace", () => {
+    const intermediate = atRule(css, "@media (min-width: 900px) and (max-width: 1139px)");
+    const overview = rule(
+      intermediate,
+      '.product-shell[data-rail-expanded="true"] .overview-workspace--orbit',
+    );
+    const panels = rule(
+      intermediate,
+      '.product-shell[data-rail-expanded="true"] :where(.route-candidate-panel, .compact-profile-panel, .destination-detail-panel, .overview-workspace__telemetry)',
+    );
+
+    expect(declaration(overview, "display")).toBe("grid");
+    expect(declaration(overview, "min-height")).toBe("auto");
+    expect(declaration(panels, "position")).toBe("relative");
+    expect(declaration(panels, "width")).toBe("100%");
   });
 
   it("places every mobile Research candidate element without grid collisions", () => {
@@ -187,5 +210,20 @@ describe("calm command center visual contracts", () => {
 
     expect(fontSizes).toHaveLength(3);
     expect(Math.min(...fontSizes)).toBeGreaterThanOrEqual(12);
+  });
+
+  it("restores visible navigation labels in the mobile bottom bar", () => {
+    const mobile = atRule(css, "@media (max-width: 719px)");
+    const label = rule(mobile, ".navigation-rail__label");
+
+    expect(declaration(label, "position")).toBe("static !important");
+    expect(declaration(label, "width")).toBe("100% !important");
+    expect(declaration(label, "height")).toBe("auto !important");
+    expect(declaration(label, "clip")).toBe("auto !important");
+  });
+
+  it("does not synthesize Unicode disclosure controls in CSS", () => {
+    const evidenceRules = rules(css, ".evidence-passport__technical > summary::after");
+    expect(evidenceRules.join("\n")).not.toMatch(/content\s*:\s*["'][+−]["']/u);
   });
 });

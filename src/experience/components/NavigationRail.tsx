@@ -22,7 +22,7 @@ const destinations: readonly {
 }[] = [
   { id: "overview", label: "Обзор" },
   { id: "research", label: "Проверка" },
-  { id: "branch", label: "Ветка" },
+  { id: "branch", label: "Моя ветвь" },
   { id: "life-git", label: "Life Git" },
   { id: "sources", label: "Источники" },
 ];
@@ -41,7 +41,7 @@ export function NavigationRail({
           return (
             <li key={destination.id}>
               <button
-                aria-label={destination.id === "branch" ? "Моя ветвь" : destination.label}
+                aria-label={destination.label}
                 aria-current={isActive ? "page" : undefined}
                 className="navigation-rail__destination"
                 data-destination={destination.id}
