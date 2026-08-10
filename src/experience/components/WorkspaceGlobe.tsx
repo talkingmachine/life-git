@@ -16,6 +16,7 @@ interface ResearchGlobeModule {
 
 interface WorkspaceGlobeProps {
   readonly renderGlobe?: (props: ResearchGlobeCanvasProps) => ReactNode;
+  readonly reloadPage?: () => void;
   readonly status: CommandCenterStatus;
 }
 
@@ -78,10 +79,18 @@ function supportsWebGL(): boolean {
   }
 }
 
-export function WorkspaceGlobe({ renderGlobe, status }: WorkspaceGlobeProps) {
+function reloadDocument(): void {
+  window.location.reload();
+}
+
+export function WorkspaceGlobe({
+  renderGlobe,
+  reloadPage = reloadDocument,
+  status,
+}: WorkspaceGlobeProps) {
   const [webglSupported, setWebglSupported] = useState<boolean>();
   const [unavailable, setUnavailable] = useState(false);
-  const [retryEpoch, setRetryEpoch] = useState(0);
+  const [importFailed, setImportFailed] = useState(false);
   const globeRoute: GlobeRoute = {
     city: TIRANA.city,
     country: TIRANA.country,
@@ -108,7 +117,6 @@ export function WorkspaceGlobe({ renderGlobe, status }: WorkspaceGlobeProps) {
   };
   const retry = useCallback(() => {
     setUnavailable(false);
-    setRetryEpoch((epoch) => epoch + 1);
     setWebglSupported(supportsWebGL());
   }, []);
 
@@ -116,6 +124,13 @@ export function WorkspaceGlobe({ renderGlobe, status }: WorkspaceGlobeProps) {
 
   const globe = (() => {
     if (renderGlobe !== undefined) return renderGlobe(globeProps);
+    if (importFailed) {
+      return (
+        <button className="workspace-globe__fallback" onClick={reloadPage} type="button">
+          Повторить загрузку 3D Земли
+        </button>
+      );
+    }
     if (unavailable || webglSupported === false) {
       return (
         <button className="workspace-globe__fallback" onClick={retry} type="button">
@@ -127,7 +142,7 @@ export function WorkspaceGlobe({ renderGlobe, status }: WorkspaceGlobeProps) {
       return <span className="workspace-globe__loading">Загрузка 3D Земли…</span>;
     }
     return (
-      <GlobeLoadBoundary key={retryEpoch} onError={() => setUnavailable(true)}>
+      <GlobeLoadBoundary onError={() => setImportFailed(true)}>
         <DynamicResearchGlobe {...globeProps} />
       </GlobeLoadBoundary>
     );

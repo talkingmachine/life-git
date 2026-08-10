@@ -264,7 +264,7 @@ pre {
 .product-shell__workspace {
   position: relative;
   min-width: 0;
-  overflow: hidden;
+  overflow: clip;
   isolation: isolate;
 }
 

@@ -105,7 +105,7 @@ describe("calm command center visual contracts", () => {
     const content = rule(css, ".product-shell__content");
 
     expect(declaration(workspace, "position")).toBe("relative");
-    expect(declaration(workspace, "overflow")).toBe("hidden");
+    expect(declaration(workspace, "overflow")).toBe("clip");
     expect(declaration(globe, "position")).toBe("absolute");
     expect(declaration(globe, "inset")).toBe("0");
     expect(declaration(globe, "z-index")).toBe("0");

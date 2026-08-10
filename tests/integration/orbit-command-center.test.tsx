@@ -33,17 +33,20 @@ describe("Orbit command center", () => {
     }));
   });
 
-  it("offers the retry control when the dynamic globe module rejects", async () => {
+  it("reloads after the dynamic globe module rejects", async () => {
     vi.stubGlobal("WebGLRenderingContext", class WebGLRenderingContext {});
     const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
       .mockReturnValue({} as never);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const reloadPage = vi.fn();
 
-    render(<WorkspaceGlobe status="green" />);
+    render(<WorkspaceGlobe reloadPage={reloadPage} status="green" />);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /повторить загрузку 3D Земли/i })).toBeTruthy();
     });
+    fireEvent.click(screen.getByRole("button", { name: /повторить загрузку 3D Земли/i }));
+    expect(reloadPage).toHaveBeenCalledOnce();
 
     getContext.mockRestore();
     consoleError.mockRestore();
