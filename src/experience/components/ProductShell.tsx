@@ -8,8 +8,9 @@ import { NavigationRail } from "./NavigationRail";
 import type { CommandCenterDestination } from "./NavigationRail";
 
 export type { CommandCenterDestination } from "./NavigationRail";
+export type { CommandCenterContext, CommandCenterStatus } from "./ContextBar";
 
-interface ProductShellProps {
+export interface ProductShellProps {
   readonly activeDestination: CommandCenterDestination;
   readonly children: ReactNode;
   readonly context?: CommandCenterContext;

@@ -22,6 +22,7 @@ describe("responsive product shell", () => {
     );
 
     const navigation = screen.getByRole("navigation", { name: /основная навигация/i });
+    expect(screen.getAllByRole("navigation", { name: /основная навигация/i })).toHaveLength(1);
     expect(screen.getByRole("button", { name: /обзор/i }).getAttribute("aria-current")).toBe("page");
     fireEvent.click(screen.getByRole("button", { name: /источники/i }));
     expect(change).toHaveBeenCalledWith("sources");
@@ -38,15 +39,14 @@ describe("responsive product shell", () => {
       "life-git",
       "sources",
     ]);
-    expect(controls.map((control) => control.textContent?.trim())).toEqual([
-      "◉Обзор",
-      "⌕Проверка",
-      "⑂Ветка",
-      "⌘Life Git",
-      "▤Источники",
+    expect(controls.map((control) => control.querySelector(".navigation-rail__label")?.textContent)).toEqual([
+      "Обзор",
+      "Проверка",
+      "Ветка",
+      "Life Git",
+      "Источники",
     ]);
     for (const control of controls) {
-      expect(control.textContent?.trim()).not.toBe("");
       expect(control.querySelector('[aria-hidden="true"]')).toBeTruthy();
     }
   });
