@@ -3,7 +3,6 @@ import type { CommandCenterSummary } from "../view-model";
 import { formatDecimal } from "../view-model";
 import type { CommandCenterDestination } from "./ProductShell";
 import type { ProfileCardData } from "./ProfileCard";
-import { OrbitGlobe } from "./OrbitGlobe";
 import {
   CompactProfilePanel,
   DestinationDetailPanel,
@@ -53,7 +52,6 @@ export function OverviewWorkspace({
   return (
     <section aria-label="Обзор маршрута" className="overview-workspace overview-workspace--orbit">
       <h1 className="visually-hidden" id="overview-heading">{narrative.headline}</h1>
-      <OrbitGlobe destination="Тирана" origin="Россия" status={marker} />
       <RouteCandidatePanel marker={marker} unresolvedItems={summary.unresolvedItems} />
       <CompactProfilePanel profile={profile} />
       <DestinationDetailPanel marker={marker} />

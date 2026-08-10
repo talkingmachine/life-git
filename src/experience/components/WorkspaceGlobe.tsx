@@ -14,9 +14,7 @@ interface ResearchGlobeModule {
   readonly ResearchGlobeCanvas: ComponentType<ResearchGlobeCanvasProps>;
 }
 
-interface OrbitGlobeProps {
-  readonly destination: string;
-  readonly origin: string;
+interface WorkspaceGlobeProps {
   readonly renderGlobe?: (props: ResearchGlobeCanvasProps) => ReactNode;
   readonly status: CommandCenterStatus;
 }
@@ -34,13 +32,6 @@ const TIRANA = {
   flag: "🇦🇱",
   coordinate: { lat: 41.3275, lng: 19.8187 },
 } as const;
-
-const statusLabels: Record<CommandCenterStatus, string> = {
-  pending: "Идёт проверка",
-  green: "Подтверждено в scope",
-  yellow: "Нужно уточнить",
-  red: "Не подходит",
-};
 
 const DynamicResearchGlobe = dynamic<ResearchGlobeCanvasProps>(
   () => import("../research-map/ResearchGlobeCanvas")
@@ -62,15 +53,9 @@ function supportsWebGL(): boolean {
   }
 }
 
-export function OrbitGlobe({
-  destination,
-  origin,
-  renderGlobe,
-  status,
-}: OrbitGlobeProps) {
+export function WorkspaceGlobe({ renderGlobe, status }: WorkspaceGlobeProps) {
   const [webglSupported, setWebglSupported] = useState<boolean>();
   const [unavailable, setUnavailable] = useState(false);
-  const routeLabel = `${origin} → ${destination}`;
   const globeRoute: GlobeRoute = {
     city: TIRANA.city,
     country: TIRANA.country,
@@ -84,7 +69,7 @@ export function OrbitGlobe({
   };
   const globeProps: ResearchGlobeCanvasProps = {
     activeFlight: globeRoute,
-    backgroundColor: "rgba(0,0,0,0)",
+    backgroundColor: "#061014",
     onFlightComplete: () => undefined,
     onReady: () => undefined,
     onUnavailable: () => setUnavailable(true),
@@ -106,32 +91,20 @@ export function OrbitGlobe({
     if (renderGlobe !== undefined) return renderGlobe(globeProps);
     if (unavailable || webglSupported === false) {
       return (
-        <button className="orbit-globe__fallback" onClick={retry} type="button">
+        <button className="workspace-globe__fallback" onClick={retry} type="button">
           Повторить загрузку 3D Земли
         </button>
       );
     }
     if (webglSupported === undefined) {
-      return <span className="orbit-globe__loading">Загрузка 3D Земли…</span>;
+      return <span className="workspace-globe__loading">Загрузка 3D Земли…</span>;
     }
     return <DynamicResearchGlobe {...globeProps} />;
   })();
 
   return (
-    <figure
-      aria-label={`Глобус маршрута ${routeLabel}`}
-      className="orbit-globe"
-      role="img"
-    >
-      <div aria-hidden="true" className="orbit-globe__engine">
-        {globe}
-      </div>
-      <figcaption className="orbit-globe__caption">
-        <strong>{routeLabel}</strong>
-        <span className={`orbit-globe__status orbit-globe__status--${status}`}>
-          {statusLabels[status]}
-        </span>
-      </figcaption>
-    </figure>
+    <section aria-label="3D Земля маршрута Россия → Тирана" className="workspace-globe">
+      <div className="workspace-globe__engine">{globe}</div>
+    </section>
   );
 }

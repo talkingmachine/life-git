@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { OrbitGlobe } from "../../src/experience/components/OrbitGlobe";
+import { WorkspaceGlobe } from "../../src/experience/components/WorkspaceGlobe";
 import {
   CompactProfilePanel,
   DestinationDetailPanel,
@@ -13,22 +13,14 @@ import {
 afterEach(cleanup);
 
 describe("Orbit command center", () => {
-  it("keeps the scoped route perceivable when the globe artwork changes", () => {
+  it("passes the fixed route and bundled dark background to the shared globe", () => {
     const renderGlobe = vi.fn(() => <div data-testid="research-globe-engine" />);
-    render(
-      <OrbitGlobe
-        destination="Тирана"
-        origin="Россия"
-        renderGlobe={renderGlobe}
-        status="green"
-      />,
-    );
+    render(<WorkspaceGlobe renderGlobe={renderGlobe} status="green" />);
 
-    expect(screen.getByRole("img", { name: /глобус маршрута россия.*тирана/i })).toBeTruthy();
-    expect(screen.getByText("Россия → Тирана")).toBeTruthy();
-    expect(screen.getByText(/подтверждено в scope/i)).toBeTruthy();
+    expect(screen.getByRole("region", { name: /3D Земля.*Россия.*Тирана/i })).toBeTruthy();
     expect(screen.getByTestId("research-globe-engine")).toBeTruthy();
     expect(renderGlobe).toHaveBeenCalledWith(expect.objectContaining({
+      backgroundColor: "#061014",
       origin: expect.objectContaining({ city: "Москва", country: "Россия" }),
       routes: [expect.objectContaining({ city: "Тирана", country: "Албания" })],
     }));

@@ -6,6 +6,7 @@ import { ContextBar } from "./ContextBar";
 import type { CommandCenterContext } from "./ContextBar";
 import { NavigationRail } from "./NavigationRail";
 import type { CommandCenterDestination } from "./NavigationRail";
+import { WorkspaceGlobe } from "./WorkspaceGlobe";
 
 export type { CommandCenterDestination } from "./NavigationRail";
 export type { CommandCenterContext, CommandCenterStatus } from "./ContextBar";
@@ -34,6 +35,7 @@ export function ProductShell({
         />
       )}
       <div className="product-shell__workspace">
+        {setup || context === undefined ? null : <WorkspaceGlobe status={context.status} />}
         {context === undefined ? null : <ContextBar context={context} />}
         <main className="product-shell__content">{children}</main>
       </div>

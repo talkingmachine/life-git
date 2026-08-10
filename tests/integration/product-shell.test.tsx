@@ -91,4 +91,40 @@ describe("responsive product shell", () => {
       expect(control.querySelector(".navigation-rail__label")?.textContent?.trim().length).toBeGreaterThan(0);
     }
   });
+
+  it("keeps one shared globe before active workspace content when destinations change", () => {
+    const context = {
+      route: "Россия → Тирана",
+      branch: "C0",
+      snapshot: "06.08.2026",
+      status: "green" as const,
+    };
+    const { rerender } = render(
+      <ProductShell
+        activeDestination="overview"
+        context={context}
+        onDestinationChange={() => undefined}
+      >
+        <p>Overview content</p>
+      </ProductShell>,
+    );
+
+    const workspace = document.querySelector(".product-shell__workspace");
+    expect(workspace?.querySelectorAll(".workspace-globe")).toHaveLength(1);
+    expect(workspace?.firstElementChild?.classList.contains("workspace-globe")).toBe(true);
+    expect(workspace?.querySelector("main")?.textContent).toContain("Overview content");
+
+    rerender(
+      <ProductShell
+        activeDestination="sources"
+        context={context}
+        onDestinationChange={() => undefined}
+      >
+        <p>Sources content</p>
+      </ProductShell>,
+    );
+
+    expect(workspace?.querySelectorAll(".workspace-globe")).toHaveLength(1);
+    expect(workspace?.querySelector("main")?.textContent).toContain("Sources content");
+  });
 });
