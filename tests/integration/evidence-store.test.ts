@@ -253,6 +253,43 @@ describe("append-only evidence persistence", () => {
 });
 
 describe("verified evidence load", () => {
+  test("round-trips an optional signed context binding and rejects snapshot-only tampering", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    const entries = completeEntries();
+    for (const entry of entries) {
+      await store.appendArtifact(entry.parserEntry.artifacts[0]! as LiveCapturedArtifact);
+    }
+    const contextHash = "c".repeat(64);
+    const sealed = await sealEvidence({
+      id: "snapshot-context-bound",
+      assessmentDate: ASSESSMENT_DATE,
+      entries,
+      parserVersions: EVIDENCE_PARSER_VERSIONS,
+      rulesVersion: EVIDENCE_RULES_VERSION,
+      contextHash,
+    }, INTEGRITY);
+    await store.seal(sealed);
+
+    await expect(store.loadVerified("snapshot-context-bound", KEY)).resolves.toEqual(
+      expect.objectContaining({ contextHash }),
+    );
+
+    db.exec("DROP TRIGGER evidence_snapshots_no_update");
+    const row = db.prepare(
+      "SELECT snapshot_json FROM evidence_snapshots WHERE id = ?",
+    ).get("snapshot-context-bound") as { readonly snapshot_json: string };
+    const changed = JSON.parse(row.snapshot_json) as Record<string, unknown>;
+    delete changed.contextHash;
+    db.prepare("UPDATE evidence_snapshots SET snapshot_json = ? WHERE id = ?").run(
+      JSON.stringify(changed),
+      "snapshot-context-bound",
+    );
+    await expect(store.loadVerified("snapshot-context-bound", KEY)).rejects.toThrow(
+      "integrity_mismatch",
+    );
+  });
+
   test("rejects artifact tampering and date, parser, rules, or key mismatch", async () => {
     const db = database();
     const store = new SqliteEvidenceStore(db);

@@ -34,6 +34,28 @@ function classifyStatus(status: number): CaptureFailureKind {
   return "http_error";
 }
 
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 5;
+
+function officialHttpsUrl(value: string, allowedHosts: readonly string[]): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new SourceCaptureError("navigation_mismatch", "Response URL is not valid");
+  }
+  if (
+    url.protocol !== "https:" ||
+    !allowedHosts.includes(url.hostname.toLowerCase())
+  ) {
+    throw new SourceCaptureError(
+      "navigation_mismatch",
+      "Redirected outside the official HTTPS host allowlist",
+    );
+  }
+  return url;
+}
+
 async function boundedBytes(response: Response): Promise<Uint8Array> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength !== null) {
@@ -73,24 +95,59 @@ async function boundedBytes(response: Response): Promise<Uint8Array> {
   return bytes;
 }
 
-export async function captureHttpOnce(
-  request: HttpStepRequest,
+export async function captureHttpOnce<S extends string>(
+  request: HttpStepRequest<S>,
   signal: AbortSignal,
-): Promise<LiveCapturedArtifact> {
-  let response: Response;
-  try {
-    response = await fetch(request.url, {
-      method: request.method,
-      headers: request.headers,
-      body: request.bodyBytes === undefined ? undefined : new Uint8Array(request.bodyBytes),
-      redirect: "follow",
-      signal,
-    });
-  } catch (error) {
-    if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
-      throw new SourceCaptureError("timeout", "HTTP attempt was aborted", { cause: error });
+): Promise<LiveCapturedArtifact<S>> {
+  const allowedHosts = request.allowedHosts.map((host) => host.toLowerCase());
+  let currentUrl = officialHttpsUrl(request.url, allowedHosts);
+  let currentMethod: "GET" | "POST" = request.method;
+  let currentBody = request.bodyBytes === undefined
+    ? undefined
+    : new Uint8Array(request.bodyBytes);
+  let response!: Response;
+
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    try {
+      response = await fetch(currentUrl.href, {
+        method: currentMethod,
+        headers: request.headers,
+        body: currentBody,
+        redirect: "manual",
+        signal,
+      });
+    } catch (error) {
+      if (signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        throw new SourceCaptureError("timeout", "HTTP attempt was aborted", { cause: error });
+      }
+      throw new SourceCaptureError("http_error", "HTTP attempt failed", { cause: error });
     }
-    throw new SourceCaptureError("http_error", "HTTP attempt failed", { cause: error });
+
+    const responseUrl = officialHttpsUrl(response.url || currentUrl.href, allowedHosts);
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      currentUrl = responseUrl;
+      break;
+    }
+    await response.body?.cancel();
+    if (redirects === MAX_REDIRECTS) {
+      throw new SourceCaptureError("navigation_mismatch", "Official redirect limit exceeded");
+    }
+    const location = response.headers.get("location");
+    if (location === null) {
+      throw new SourceCaptureError("navigation_mismatch", "Official redirect is missing a location");
+    }
+    let redirectUrl: URL;
+    try {
+      redirectUrl = officialHttpsUrl(new URL(location, responseUrl).href, allowedHosts);
+    } catch (error) {
+      if (error instanceof SourceCaptureError) throw error;
+      throw new SourceCaptureError("navigation_mismatch", "Redirect URL is not valid");
+    }
+    if (response.status === 303 || ((response.status === 301 || response.status === 302) && currentMethod === "POST")) {
+      currentMethod = "GET";
+      currentBody = undefined;
+    }
+    currentUrl = redirectUrl;
   }
 
   if (!response.ok) {
@@ -99,19 +156,6 @@ export async function captureHttpOnce(
       classifyStatus(response.status),
       `Official source returned HTTP ${response.status}`,
     );
-  }
-
-  let responseHost: string;
-  try {
-    responseHost = new URL(response.url).hostname.toLowerCase();
-  } catch {
-    await response.body?.cancel();
-    throw new SourceCaptureError("navigation_mismatch", "Response URL is not valid");
-  }
-  const allowedHosts = request.allowedHosts.map((host) => host.toLowerCase());
-  if (!allowedHosts.includes(responseHost)) {
-    await response.body?.cancel();
-    throw new SourceCaptureError("navigation_mismatch", "Redirected outside the official host allowlist");
   }
 
   const mediaType = normalizedMediaType(response.headers.get("content-type"));
@@ -138,14 +182,14 @@ export async function captureHttpOnce(
     runId: request.runId,
     sourceId: request.sourceId,
     role: request.role,
-    url: response.url,
+    url: currentUrl.href,
     mediaType,
     sha256: artifactSha256,
     bytes,
     origin: "live",
     capturedAt: new Date().toISOString(),
     responseStatus: response.status,
-    responseUrl: response.url,
+    responseUrl: currentUrl.href,
     request: {
       method: request.method,
       url: request.url,

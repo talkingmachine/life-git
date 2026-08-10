@@ -79,9 +79,9 @@ export interface ClaimAnchor {
   readonly excerptSha256: string;
 }
 
-export interface Claim<T> {
+export interface Claim<T, S extends string = SourceId> {
   readonly claimId: string;
-  readonly sourceId: SourceId;
+  readonly sourceId: S;
   readonly value: T;
   readonly scope: string;
   readonly sourcePeriod: string;
@@ -97,23 +97,27 @@ export type EvidenceBlockerKind =
   | "conflict"
   | "deadline";
 
-export interface EvidenceBlocker {
-  readonly sourceId: SourceId;
+export interface EvidenceBlocker<S extends string = SourceId> {
+  readonly sourceId: S;
   readonly kind: EvidenceBlockerKind;
   readonly navigationUrl: string;
   readonly resolvedUrl?: string;
   readonly artifactIds: readonly string[];
 }
 
-export interface EvidenceSnapshot {
+export interface EvidenceSnapshot<
+  S extends string = SourceId,
+  C extends Claim<unknown, S> = Claim<unknown, S>,
+> {
   readonly id: string;
   readonly assessmentDate: string;
   readonly artifactIds: readonly string[];
-  readonly claims: readonly Claim<unknown>[];
-  readonly blockers: readonly EvidenceBlocker[];
-  readonly coverage: Readonly<Record<SourceId, "verified" | "unavailable">>;
-  readonly parserVersions: Readonly<Record<SourceId, string>>;
+  readonly claims: readonly C[];
+  readonly blockers: readonly EvidenceBlocker<S>[];
+  readonly coverage: Readonly<Record<S, "verified" | "unavailable">>;
+  readonly parserVersions: Readonly<Record<S, string>>;
   readonly rulesVersion: string;
+  readonly contextHash?: string;
   readonly manifestHash: string;
   readonly hmac: string;
 }
@@ -127,9 +131,9 @@ export interface ArtifactBytes {
   readonly bytes: Uint8Array;
 }
 
-export interface LiveCapturedArtifact extends ArtifactBytes {
+export interface LiveCapturedArtifact<S extends string = SourceId> extends ArtifactBytes {
   readonly runId: string;
-  readonly sourceId: SourceId;
+  readonly sourceId: S;
   readonly origin: "live";
   readonly capturedAt: string;
   readonly responseStatus: number;
@@ -142,17 +146,17 @@ export interface LiveCapturedArtifact extends ArtifactBytes {
   };
 }
 
-export interface CaptureRequest {
+export interface CaptureRequest<S extends string = SourceId> {
   readonly runId: string;
-  readonly sourceId: SourceId;
+  readonly sourceId: S;
   readonly assessmentDate: string;
   readonly deadlineAt: string;
   readonly signal: AbortSignal;
 }
 
-export interface HttpStepRequest {
+export interface HttpStepRequest<S extends string = SourceId> {
   readonly runId: string;
-  readonly sourceId: SourceId;
+  readonly sourceId: S;
   readonly role: string;
   readonly method: "GET" | "POST";
   readonly url: string;
@@ -163,13 +167,13 @@ export interface HttpStepRequest {
   readonly allowedMediaTypes: readonly string[];
 }
 
-export type RequestStep = (
-  request: HttpStepRequest,
+export type RequestStep<S extends string = SourceId> = (
+  request: HttpStepRequest<S>,
   signal: AbortSignal,
-) => Promise<LiveCapturedArtifact>;
+) => Promise<LiveCapturedArtifact<S>>;
 
-export interface ParserEntry {
-  readonly sourceId: SourceId;
+export interface ParserEntry<S extends string = SourceId> {
+  readonly sourceId: S;
   readonly navigationUrl: string;
   readonly indexedSourceUrl?: string;
   readonly resolvedEvidenceUrl: string;
@@ -177,8 +181,8 @@ export interface ParserEntry {
   readonly versionHint?: string;
 }
 
-export interface CapturedEntry extends ParserEntry {
-  readonly artifacts: readonly LiveCapturedArtifact[];
+export interface CapturedEntry<S extends string = SourceId> extends ParserEntry<S> {
+  readonly artifacts: readonly LiveCapturedArtifact<S>[];
 }
 
 export type CaptureFailureKind =
@@ -190,18 +194,18 @@ export type CaptureFailureKind =
   | "too_large"
   | "navigation_mismatch";
 
-export type CaptureResult =
-  | { readonly ok: true; readonly entry: CapturedEntry }
+export type CaptureResult<S extends string = SourceId> =
+  | { readonly ok: true; readonly entry: CapturedEntry<S> }
   | {
       readonly ok: false;
-      readonly sourceId: SourceId;
+      readonly sourceId: S;
       readonly kind: CaptureFailureKind;
       readonly attempts: 1 | 2;
-      readonly partialArtifacts: readonly LiveCapturedArtifact[];
+      readonly partialArtifacts: readonly LiveCapturedArtifact<S>[];
     };
 
-export interface OfficialSourcePort {
-  capture(request: CaptureRequest, requestStep: RequestStep): Promise<CaptureResult>;
+export interface OfficialSourcePort<S extends string = SourceId> {
+  capture(request: CaptureRequest<S>, requestStep: RequestStep<S>): Promise<CaptureResult<S>>;
 }
 
 export type ParseResult<T> =

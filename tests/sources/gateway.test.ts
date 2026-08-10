@@ -100,6 +100,61 @@ describe("captureHttpOnce", () => {
     expect(artifact.origin).toBe("live");
   });
 
+  test("follows an all-official HTTPS redirect chain and preserves exact final bytes", async () => {
+    const chainRequest: HttpStepRequest = {
+      ...request,
+      method: "GET",
+      bodyMediaType: undefined,
+      bodyBytes: undefined,
+      allowedHosts: ["www.cbr.ru", "rates.cbr.ru"],
+    };
+    const finalBytes = Uint8Array.of(222, 173, 190, 239);
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(response(null, {
+        status: 302,
+        url: chainRequest.url,
+        headers: { location: "https://rates.cbr.ru/daily" },
+      }))
+      .mockResolvedValueOnce(response(null, {
+        status: 307,
+        url: "https://rates.cbr.ru/daily",
+        headers: { location: "https://www.cbr.ru/final.xml" },
+      }))
+      .mockResolvedValueOnce(response(finalBytes, {
+        status: 200,
+        url: "https://www.cbr.ru/final.xml",
+        headers: { "content-type": "application/xml" },
+      }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const captured = await captureHttpOnce(chainRequest, new AbortController().signal);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([
+      chainRequest.url,
+      "https://rates.cbr.ru/daily",
+      "https://www.cbr.ru/final.xml",
+    ]);
+    expect(fetchSpy.mock.calls.every(([, init]) => init?.redirect === "manual")).toBe(true);
+    expect(captured.bytes).toEqual(finalBytes);
+    expect(captured.mediaType).toBe("application/xml");
+    expect(captured.responseUrl).toBe("https://www.cbr.ru/final.xml");
+  });
+
+  test("rejects an unofficial intermediate redirect without requesting it", async () => {
+    const fetchSpy = vi.fn(async () => response(null, {
+      status: 302,
+      url: request.url,
+      headers: { location: "https://mirror.example/hidden-hop" },
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      captureHttpOnce(request, new AbortController().signal),
+    ).rejects.toMatchObject({ kind: "navigation_mismatch", retryable: false });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   test("rejects a declared response larger than 30 MiB before reading it", async () => {
     const body = new ReadableStream<Uint8Array>({
       pull() {

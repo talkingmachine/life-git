@@ -4,7 +4,7 @@ import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { replayEvidence } from "../../src/application/replay-evidence";
-import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
+import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { SourceCaptureError } from "../../src/infrastructure/sources/gateway";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
@@ -18,6 +18,8 @@ import type {
   SourceId,
 } from "../../src/research/contracts";
 import {
+  EVIDENCE_PARSER_VERSIONS,
+  EVIDENCE_RULES_VERSION,
   EVIDENCE_SOURCE_IDS,
   runCurrentEvidence,
   type EvidenceParsers,
@@ -579,6 +581,39 @@ describe("replayEvidence", () => {
 
     expect(networkCapture).not.toHaveBeenCalled();
     expect(replayed).toEqual(current);
+    expect(canonicalJson(replayed)).toBe(canonicalJson(current));
+    expect(Object.keys(replayed.coverage)).toEqual([
+      "al-law-79",
+      "al-decision-858",
+      "cbr-eur",
+      "boa-eur",
+      "tirana-urban-lines",
+    ]);
+    expect(replayed.claims.map((claim) => claim.claimId)).toEqual([
+      "al-law-79-facts-1",
+      "al-decision-858-facts-1",
+      "cbr-eur-facts-1",
+      "boa-eur-facts-1",
+      "tirana-urban-lines-facts-1",
+    ]);
+    expect(replayed.parserVersions).toEqual(EVIDENCE_PARSER_VERSIONS);
+    expect(replayed.rulesVersion).toBe(EVIDENCE_RULES_VERSION);
     expect(replayed.assessmentDate).toBe(ASSESSMENT_DATE);
+
+    let projections = 0;
+    const changedRulesStore = {
+      async loadVerifiedBundle(id: string, key: string) {
+        const bundle = await store.loadVerifiedBundle(id, key);
+        return {
+          ...bundle,
+          snapshot: { ...bundle.snapshot, rulesVersion: "unknown-rules@1" },
+        };
+      },
+    };
+    await expect(replayEvidence(
+      { snapshotId: current.id, hmacKey: KEY },
+      { store: changedRulesStore, parsers: parsers(() => { projections += 1; }) },
+    )).rejects.toThrow("integrity_mismatch");
+    expect(projections).toBe(0);
   });
 });

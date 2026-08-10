@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 
 import { canonicalJson, hmacSha256, secureHexEqual, sha256Text } from "../integrity";
 import type {
+  Claim,
   EvidenceSnapshot,
   LiveCapturedArtifact,
   ParserEntry,
@@ -14,7 +15,7 @@ import {
   type EvidenceArtifactProvenance,
   type EvidenceManifest,
   type SealedEvidence,
-} from "../../research/run";
+} from "../../research/research-plan";
 
 interface SnapshotRow {
   readonly assessment_date: string;
@@ -26,10 +27,10 @@ interface SnapshotRow {
   readonly rules_version: string;
 }
 
-interface ArtifactRow {
+interface ArtifactRow<S extends string = SourceId> {
   readonly run_id: string;
   readonly artifact_id: string;
-  readonly source_id: SourceId;
+  readonly source_id: S;
   readonly role: string;
   readonly url: string;
   readonly media_type: string;
@@ -43,14 +44,17 @@ interface ArtifactRow {
   readonly request_json: string;
 }
 
-export interface VerifiedEvidenceBundle {
-  readonly snapshot: EvidenceSnapshot;
-  readonly entries: readonly ParserEntry[];
+export interface VerifiedEvidenceBundle<
+  S extends string = SourceId,
+  C extends Claim<unknown, S> = Claim<unknown, S>,
+> {
+  readonly snapshot: EvidenceSnapshot<S, C>;
+  readonly entries: readonly ParserEntry<S>[];
 }
 
-export interface VerifiedLoadExpectations {
+export interface VerifiedLoadExpectations<S extends string = SourceId> {
   readonly assessmentDate?: string;
-  readonly parserVersions?: Readonly<Record<SourceId, string>>;
+  readonly parserVersions?: Readonly<Record<S, string>>;
   readonly rulesVersion?: string;
 }
 
@@ -66,10 +70,10 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]);
 }
 
-function rowProvenance(row: ArtifactRow): EvidenceArtifactProvenance {
-  let request: LiveCapturedArtifact["request"];
+function rowProvenance<S extends string>(row: ArtifactRow<S>): EvidenceArtifactProvenance<S> {
+  let request: LiveCapturedArtifact<S>["request"];
   try {
-    request = JSON.parse(row.request_json) as LiveCapturedArtifact["request"];
+    request = JSON.parse(row.request_json) as LiveCapturedArtifact<S>["request"];
   } catch {
     integrityMismatch();
   }
@@ -95,7 +99,9 @@ const ARTIFACT_COLUMNS = `
   byte_length, origin, captured_at, response_status, response_url, request_json
 `;
 
-function snapshotPayload(snapshot: EvidenceSnapshot): EvidenceManifest["snapshot"] {
+function snapshotPayload<S extends string, C extends Claim<unknown, S>>(
+  snapshot: EvidenceSnapshot<S, C>,
+): EvidenceManifest<S, C>["snapshot"] {
   return {
     id: snapshot.id,
     assessmentDate: snapshot.assessmentDate,
@@ -105,13 +111,17 @@ function snapshotPayload(snapshot: EvidenceSnapshot): EvidenceManifest["snapshot
     coverage: snapshot.coverage,
     parserVersions: snapshot.parserVersions,
     rulesVersion: snapshot.rulesVersion,
+    ...(snapshot.contextHash === undefined ? {} : { contextHash: snapshot.contextHash }),
   };
 }
 
-export class SqliteEvidenceStore {
+export class SqliteEvidenceStore<
+  S extends string = SourceId,
+  C extends Claim<unknown, S> = Claim<unknown, S>,
+> {
   constructor(private readonly database: Database.Database) {}
 
-  async appendArtifact(artifact: LiveCapturedArtifact): Promise<void> {
+  async appendArtifact(artifact: LiveCapturedArtifact<S>): Promise<void> {
     if (
       artifact.origin !== "live" ||
       artifact.runId.length === 0 ||
@@ -121,7 +131,7 @@ export class SqliteEvidenceStore {
     }
     const existing = this.database.prepare(
       `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
-    ).get(artifact.runId, artifact.artifactId) as ArtifactRow | undefined;
+    ).get(artifact.runId, artifact.artifactId) as ArtifactRow<S> | undefined;
     if (existing !== undefined) {
       if (
         !bytesEqual(existing.bytes, artifact.bytes) ||
@@ -153,12 +163,12 @@ export class SqliteEvidenceStore {
     );
   }
 
-  async seal(sealed: SealedEvidence): Promise<void> {
+  async seal(sealed: SealedEvidence<S, C>): Promise<void> {
     const sealTransaction = this.database.transaction(() => {
       for (const expected of sealed.manifest.artifacts) {
         const row = this.database.prepare(
           `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
-        ).get(expected.runId, expected.artifactId) as ArtifactRow | undefined;
+        ).get(expected.runId, expected.artifactId) as ArtifactRow<S> | undefined;
         if (
           row === undefined ||
           canonicalJson(rowProvenance(row)) !== canonicalJson(expected) ||
@@ -196,8 +206,8 @@ export class SqliteEvidenceStore {
   async loadVerified(
     id: string,
     key: string,
-    expected: VerifiedLoadExpectations = {},
-  ): Promise<EvidenceSnapshot> {
+    expected: VerifiedLoadExpectations<S> = {},
+  ): Promise<EvidenceSnapshot<S, C>> {
     const row = this.database.prepare(`
       SELECT assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
              parser_versions_json, rules_version
@@ -205,11 +215,11 @@ export class SqliteEvidenceStore {
     `).get(id) as SnapshotRow | undefined;
     if (row === undefined) throw new Error("evidence_not_found");
 
-    let snapshot: EvidenceSnapshot;
-    let manifest: EvidenceManifest;
+    let snapshot: EvidenceSnapshot<S, C>;
+    let manifest: EvidenceManifest<S, C>;
     try {
-      snapshot = JSON.parse(row.snapshot_json) as EvidenceSnapshot;
-      manifest = JSON.parse(row.manifest_json) as EvidenceManifest;
+      snapshot = JSON.parse(row.snapshot_json) as EvidenceSnapshot<S, C>;
+      manifest = JSON.parse(row.manifest_json) as EvidenceManifest<S, C>;
     } catch {
       integrityMismatch();
     }
@@ -242,7 +252,7 @@ export class SqliteEvidenceStore {
       const artifact = this.database.prepare(
         `SELECT ${ARTIFACT_COLUMNS} FROM artifacts
          WHERE run_id = ? AND artifact_id = ? AND sealed = 1`,
-      ).get(expectedArtifact.runId, expectedArtifact.artifactId) as ArtifactRow | undefined;
+      ).get(expectedArtifact.runId, expectedArtifact.artifactId) as ArtifactRow<S> | undefined;
       if (
         artifact === undefined ||
         canonicalJson(rowProvenance(artifact)) !== canonicalJson(expectedArtifact) ||
@@ -258,15 +268,15 @@ export class SqliteEvidenceStore {
   async loadVerifiedBundle(
     id: string,
     key: string,
-    expected: VerifiedLoadExpectations = {},
-  ): Promise<VerifiedEvidenceBundle> {
+    expected: VerifiedLoadExpectations<S> = {},
+  ): Promise<VerifiedEvidenceBundle<S, C>> {
     const snapshot = await this.loadVerified(id, key, expected);
     const row = this.database.prepare(
       "SELECT manifest_json FROM evidence_snapshots WHERE id = ?",
     ).get(id) as { readonly manifest_json: string } | undefined;
     if (row === undefined) integrityMismatch();
-    const manifest = JSON.parse(row.manifest_json) as EvidenceManifest;
-    const entries = manifest.entries.map((entry): ParserEntry => ({
+    const manifest = JSON.parse(row.manifest_json) as EvidenceManifest<S, C>;
+    const entries = manifest.entries.map((entry): ParserEntry<S> => ({
       sourceId: entry.sourceId,
       navigationUrl: entry.navigationUrl,
       ...(entry.indexedSourceUrl === undefined ? {} : { indexedSourceUrl: entry.indexedSourceUrl }),
@@ -279,7 +289,7 @@ export class SqliteEvidenceStore {
         const artifact = this.database.prepare(`
           SELECT ${ARTIFACT_COLUMNS}
           FROM artifacts WHERE run_id = ? AND artifact_id = ? AND sealed = 1
-        `).get(provenance.runId, artifactId) as ArtifactRow | undefined;
+        `).get(provenance.runId, artifactId) as ArtifactRow<S> | undefined;
         if (artifact === undefined) integrityMismatch();
         return {
           artifactId: artifact.artifact_id,
@@ -294,7 +304,7 @@ export class SqliteEvidenceStore {
           capturedAt: artifact.captured_at,
           responseStatus: artifact.response_status,
           responseUrl: artifact.response_url,
-          request: JSON.parse(artifact.request_json) as LiveCapturedArtifact["request"],
+          request: JSON.parse(artifact.request_json) as LiveCapturedArtifact<S>["request"],
         };
       }),
       ...(entry.versionHint === undefined ? {} : { versionHint: entry.versionHint }),

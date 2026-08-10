@@ -6,11 +6,14 @@ export function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-export function entryHasValidIntegrity(entry: ParserEntry): boolean {
+export function entryHasValidIntegrity<S extends string>(entry: ParserEntry<S>): boolean {
   return entry.artifacts.every((artifact) => sha256(artifact.bytes) === artifact.sha256);
 }
 
-export function artifactByRole(entry: ParserEntry, role: string): ArtifactBytes | undefined {
+export function artifactByRole<S extends string>(
+  entry: ParserEntry<S>,
+  role: string,
+): ArtifactBytes | undefined {
   const matches = entry.artifacts.filter((artifact) => artifact.role === role);
   return matches.length === 1 ? matches[0] : undefined;
 }
