@@ -114,6 +114,10 @@ describe("calm command center visual contracts", () => {
     expect(declaration(content, "z-index")).toBe("2");
   });
 
+  it("does not retain obsolete globe or route-art selectors", () => {
+    expect(css).not.toMatch(/\.orbit-globe|globe-arrival|\.research-map__art|\.research-map__airplane|route-arrival/);
+  });
+
   it("places tablet Research status and retry panels in separate in-flow rows", () => {
     const tablet = atRule(css, "@media (min-width: 720px) and (max-width: 1099px)");
     const candidate = rule(tablet, ".research-workspace__candidate");
@@ -132,6 +136,20 @@ describe("calm command center visual contracts", () => {
     expect(["relative", "static"]).toContain(declaration(candidate, "position"));
     expect(["relative", "static"]).toContain(declaration(retry, "position"));
     expect(declaration(candidate, "grid-row")).not.toBe(declaration(retry, "grid-row"));
+  });
+
+  it("places every mobile Research candidate element without grid collisions", () => {
+    const mobile = atRule(css, "@media (max-width: 719px)");
+    const status = rule(mobile, ".research-workspace__candidate-item .research-workspace__status-icon");
+    const route = rule(mobile, ".research-workspace__candidate-item .research-workspace__route");
+    const state = rule(mobile, ".research-workspace__candidate-item .research-workspace__state-label");
+    const disclosure = rule(mobile, ".research-workspace__candidate-item .research-workspace__disclosure-icon");
+
+    expect(declaration(status, "grid-column")).toBe("1");
+    expect(declaration(route, "grid-column")).toBe("2");
+    expect(declaration(state, "grid-column")).toBe("2");
+    expect(declaration(disclosure, "grid-column")).toBe("3");
+    expect(declaration(route, "grid-row")).not.toBe(declaration(state, "grid-row"));
   });
 
   it("does not bind ordinary budget meters to verification-state colors", () => {

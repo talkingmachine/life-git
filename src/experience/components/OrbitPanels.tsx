@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import type { ProfileCardData } from "./ProfileCard";
+import { UiIcon } from "./UiIcon";
 
 type Marker = "green" | "yellow" | "red";
 
@@ -25,6 +26,12 @@ const markerCopy: Record<Marker, string> = {
   red: "Не подходит",
 };
 
+const markerIcon = {
+  green: "status-green",
+  yellow: "status-yellow",
+  red: "status-red",
+} as const;
+
 function formatAmount(value: string): string {
   return value.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
@@ -42,12 +49,12 @@ export function RouteCandidatePanel({ marker, unresolvedItems }: RouteCandidateP
       <p className="orbit-panel__index">01 / РЕЗУЛЬТАТ</p>
       <h2 id="route-candidate-heading">Найденный маршрут</h2>
       <button className="route-candidate-panel__candidate" type="button">
-        <span aria-hidden="true" className={`signal signal--${marker}`}>●</span>
+        <UiIcon className={`signal signal--${marker}`} name={markerIcon[marker]} weight="duotone" />
         <span>
           <strong>Тирана, Албания</strong>
           <small>Единственный кандидат текущего scope</small>
         </span>
-        <span aria-hidden="true">↗</span>
+        <UiIcon name="external" />
       </button>
       <div className="route-candidate-panel__meta">
         <span>{markerCopy[marker]}</span>
@@ -76,7 +83,7 @@ export function CompactProfilePanel({ profile }: CompactProfilePanelProps) {
           <strong id="compact-profile-heading">Ваш сценарий</strong>
           <small>Снимок C0 · Россия → Тирана</small>
         </span>
-        <span aria-hidden="true">{isExpanded ? "−" : "+"}</span>
+        <UiIcon name={isExpanded ? "collapse" : "expand"} />
       </button>
       {isExpanded ? (
         <div className="compact-profile-panel__details" id={panelId}>
@@ -94,9 +101,9 @@ export function CompactProfilePanel({ profile }: CompactProfilePanelProps) {
 }
 
 const traits = [
-  { icon: "✚", label: "Медицина" },
-  { icon: "≈", label: "Море" },
-  { icon: "↗", label: "Доходы" },
+  { icon: "medical", label: "Медицина" },
+  { icon: "sea", label: "Море" },
+  { icon: "income", label: "Доходы" },
 ] as const;
 
 export function DestinationDetailPanel({ marker }: DestinationDetailPanelProps) {
@@ -128,13 +135,17 @@ export function DestinationDetailPanel({ marker }: DestinationDetailPanelProps) 
           <h2 id="destination-heading">Тирана</h2>
           <span>Албания</span>
         </div>
-        <span className={`destination-detail-panel__marker signal--${marker}`}>●</span>
+        <UiIcon
+          className={`destination-detail-panel__marker signal--${marker}`}
+          name={markerIcon[marker]}
+          weight="duotone"
+        />
       </header>
 
       <ul aria-label="Характеристики места" className="destination-detail-panel__traits">
         {traits.map((trait) => (
           <li key={trait.label}>
-            <span aria-hidden="true" className="destination-detail-panel__trait-icon">{trait.icon}</span>
+            <UiIcon className="destination-detail-panel__trait-icon" name={trait.icon} />
             <span><strong>{trait.label}</strong><small>Не исследовано</small></span>
           </li>
         ))}

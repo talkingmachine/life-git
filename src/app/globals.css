@@ -583,74 +583,6 @@ pre {
   font-weight: 700;
 }
 
-.orbit-globe {
-  position: absolute;
-  top: 50%;
-  left: 47%;
-  width: min(64vw, 780px);
-  aspect-ratio: 1;
-  margin: 0;
-  transform: translate(-50%, -50%);
-}
-
-.orbit-globe::before {
-  position: absolute;
-  inset: 15%;
-  z-index: -1;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.58);
-  box-shadow: 0 0 90px rgba(255, 255, 255, 0.76);
-  content: "";
-  filter: blur(20px);
-}
-
-.orbit-globe__engine {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  border-radius: 50%;
-  animation: globe-arrival 700ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
-}
-
-.orbit-globe__fallback,
-.orbit-globe__loading {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 2;
-  transform: translate(-50%, -50%);
-}
-
-.orbit-globe__loading {
-  color: var(--ink-muted);
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.orbit-globe__caption {
-  position: absolute;
-  right: 22%;
-  bottom: 34%;
-  display: grid;
-  gap: 0.2rem;
-  min-width: 180px;
-  padding: 0.85rem 1rem;
-  border-radius: 16px;
-  background: rgba(18, 29, 34, 0.84);
-  box-shadow: 0 18px 40px rgba(18, 29, 34, 0.24);
-  color: #ffffff;
-  backdrop-filter: blur(18px);
-}
-
-.orbit-globe__caption strong {
-  font-size: 0.82rem;
-}
-
-.orbit-globe__status {
-  color: #d7e1e2;
-  font-size: 0.64rem;
-}
-
 .route-candidate-panel {
   position: absolute;
   top: clamp(1rem, 3vw, 2.25rem);
@@ -957,17 +889,6 @@ pre {
   min-height: 36px;
   padding: 0.5rem 0.8rem;
   font-size: 0.66rem;
-}
-
-@keyframes globe-arrival {
-  from {
-    opacity: 0;
-    transform: scale(0.92) rotate(-5deg);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) rotate(0);
-  }
 }
 
 .profile-card,
@@ -1948,8 +1869,24 @@ input[type="checkbox"] {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
-  .research-workspace__disclosure-icon {
+  .research-workspace__candidate-item .research-workspace__status-icon {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .research-workspace__candidate-item .research-workspace__route {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .research-workspace__candidate-item .research-workspace__state-label {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .research-workspace__candidate-item .research-workspace__disclosure-icon {
     grid-column: 3;
+    grid-row: 1 / span 2;
   }
 
   .research-workspace--collapsed {
@@ -1979,11 +1916,6 @@ input[type="checkbox"] {
   .overview-workspace--orbit {
     --orbit-details-width: min(300px, 36vw);
     --orbit-profile-width: min(290px, 36vw);
-  }
-
-  .orbit-globe {
-    left: 44%;
-    width: min(72vw, 680px);
   }
 
   .route-candidate-panel {
@@ -2016,7 +1948,6 @@ input[type="checkbox"] {
     padding: 1rem;
   }
 
-  .orbit-globe,
   .route-candidate-panel,
   .compact-profile-panel,
   .destination-detail-panel,
@@ -2028,27 +1959,21 @@ input[type="checkbox"] {
     transform: none;
   }
 
-  .orbit-globe {
-    grid-row: 2;
-    width: min(100%, 620px);
-    justify-self: center;
-  }
-
   .route-candidate-panel {
     grid-row: 1;
   }
 
   .destination-detail-panel {
-    grid-row: 3;
+    grid-row: 2;
     overflow: hidden;
   }
 
   .compact-profile-panel {
-    grid-row: 4;
+    grid-row: 3;
   }
 
   .overview-workspace__telemetry {
-    grid-row: 5;
+    grid-row: 4;
     flex-wrap: wrap;
   }
 }

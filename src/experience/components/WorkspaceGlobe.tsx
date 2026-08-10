@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Component, useCallback, useEffect, useState } from "react";
-import type { ComponentType, ErrorInfo, ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import type {
   GlobeRoute,
@@ -56,7 +56,7 @@ class GlobeLoadBoundary extends Component<GlobeLoadBoundaryProps, GlobeLoadBound
     return { failed: true };
   }
 
-  componentDidCatch(_error: Error, _info: ErrorInfo): void {
+  componentDidCatch(): void {
     this.props.onError();
   }
 

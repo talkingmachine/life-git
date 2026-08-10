@@ -53,16 +53,19 @@ describe("Orbit command center", () => {
   });
 
   it("presents the single scoped candidate as a floating search result", () => {
-    render(<RouteCandidatePanel marker="green" unresolvedItems={2} />);
+    const { container } = render(<RouteCandidatePanel marker="green" unresolvedItems={2} />);
 
     expect(screen.getByRole("heading", { name: "Найденный маршрут" })).toBeTruthy();
     expect(screen.getByText("Тирана, Албания")).toBeTruthy();
     expect(screen.getByText(/единственный кандидат/i)).toBeTruthy();
     expect(screen.getByText("2 вопроса требуют проверки")).toBeTruthy();
+    expect(container.querySelector('[data-icon="status-green"]')).toBeTruthy();
+    expect(container.querySelector('[data-icon="external"]')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/[●↗]/u);
   });
 
   it("expands the confirmed profile without pretending it is editable", () => {
-    render(<CompactProfilePanel profile={{
+    const { container } = render(<CompactProfilePanel profile={{
       housingAll: "70000",
       incomeBasis: "foreign_contract",
       monthlyIncomeRub: "210000",
@@ -76,14 +79,17 @@ describe("Orbit command center", () => {
     }} />);
 
     const toggle = screen.getByRole("button", { name: /показать подтверждённый профиль/i });
+    expect(toggle.querySelector('[data-icon="expand"]')).toBeTruthy();
     expect(screen.queryByText("500 000 ALL")).toBeNull();
     fireEvent.click(toggle);
+    expect(toggle.querySelector('[data-icon="collapse"]')).toBeTruthy();
     expect(screen.getByText("500 000 ALL")).toBeTruthy();
     expect(screen.getByText(/неизменяемый снимок/i)).toBeTruthy();
+    expect(container.textContent).not.toMatch(/[+−]/u);
   });
 
   it("labels unsupported destination traits as unexplored", () => {
-    render(<DestinationDetailPanel marker="green" />);
+    const { container } = render(<DestinationDetailPanel marker="green" />);
 
     expect(screen.getByRole("heading", { name: "Тирана" })).toBeTruthy();
     expect(screen.getByText("Албания")).toBeTruthy();
@@ -91,5 +97,16 @@ describe("Orbit command center", () => {
     expect(screen.getByText("Море").closest("li")?.textContent).toMatch(/не исследовано/i);
     expect(screen.getByText("Доходы").closest("li")?.textContent).toMatch(/не исследовано/i);
     expect(screen.getByText(/внж и пмж/i).closest("section")?.textContent).toMatch(/официальн.*источник/i);
+    expect(container.querySelector('[data-icon="status-green"]')).toBeTruthy();
+    expect(container.querySelector('[data-icon="medical"]')).toBeTruthy();
+    expect(container.querySelector('[data-icon="sea"]')).toBeTruthy();
+    expect(container.querySelector('[data-icon="income"]')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/[✚≈↗●]/u);
+  });
+
+  it.each(["green", "yellow", "red"] as const)("maps %s panel markers to a status icon", (marker) => {
+    const { container } = render(<DestinationDetailPanel marker={marker} />);
+
+    expect(container.querySelector(`[data-icon="status-${marker}"]`)).toBeTruthy();
   });
 });
