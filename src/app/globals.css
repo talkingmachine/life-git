@@ -21,6 +21,9 @@
   --success-soft: #e7f2ed;
   --warning-soft: #f7eed8;
   --danger-soft: #f8e9e6;
+  --warning-ink: #704900;
+  --focus-inner: #ffffff;
+  --focus-outer: #102a56;
   --shadow-float: 0 14px 36px rgba(23, 33, 43, 0.12);
   --mobile-navigation-height: 76px;
 }
@@ -110,8 +113,9 @@ a:hover {
 }
 
 :focus-visible {
-  outline: 3px solid #8eabf5;
-  outline-offset: 3px;
+  outline: 2px solid var(--focus-inner);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 5px var(--focus-outer);
 }
 
 h1,
@@ -329,7 +333,7 @@ pre {
 
 .context-bar__status--yellow {
   background: var(--warning-soft);
-  color: var(--warning);
+  color: var(--warning-ink);
 }
 
 .context-bar__status--red {
@@ -501,7 +505,7 @@ pre {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
-  color: var(--ink-muted);
+  color: var(--ink);
   font-size: 0.73rem;
 }
 
@@ -517,11 +521,11 @@ pre {
 }
 
 .budget-flow__bar--housing meter {
-  accent-color: var(--warning);
+  accent-color: #7b8993;
 }
 
 .budget-flow__bar--residual meter {
-  accent-color: var(--success);
+  accent-color: #4b6071;
 }
 
 .budget-flow__unknowns {
@@ -679,7 +683,7 @@ pre {
 
 .research-map__marker--yellow .research-map__status-icon {
   background: var(--warning-soft);
-  color: var(--warning);
+  color: var(--warning-ink);
 }
 
 .research-map__marker--red .research-map__status-icon {
@@ -1003,7 +1007,7 @@ input[type="checkbox"] {
 
 .evidence-passport article p,
 .evidence-passport article li {
-  color: var(--ink-muted);
+  color: var(--ink);
   font-size: 0.7rem;
 }
 
@@ -1025,7 +1029,7 @@ input[type="checkbox"] {
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  color: var(--ink-muted);
+  color: var(--ink);
   font-size: 0.7rem;
   font-weight: 700;
   list-style: none;
@@ -1140,7 +1144,7 @@ input[type="checkbox"] {
     justify-content: center;
     gap: 0.2rem;
     padding: 0.4rem 0.25rem;
-    font-size: 0.61rem;
+    font-size: 0.75rem;
     text-align: center;
   }
 
@@ -1174,6 +1178,29 @@ input[type="checkbox"] {
 
   .overview-workspace__summary > div:nth-child(n + 3) {
     border-top: 1px solid var(--line);
+  }
+
+  .research-map:not(.research-map--pending):not(.research-map--collapsed) {
+    min-height: 470px;
+    display: grid;
+    grid-template-rows: minmax(340px, 1fr) auto auto;
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .research-map__markers {
+    position: relative;
+    inset: auto;
+    grid-row: 2;
+    width: 100%;
+  }
+
+  .research-map__retry {
+    position: relative;
+    inset: auto;
+    grid-row: 3;
+    width: 100%;
+    max-width: none;
   }
 }
 
@@ -1213,7 +1240,7 @@ input[type="checkbox"] {
     justify-content: center;
     gap: 0.15rem;
     padding: 0.25rem 0.1rem;
-    font-size: 0.58rem;
+    font-size: 0.75rem;
     text-align: center;
   }
 
