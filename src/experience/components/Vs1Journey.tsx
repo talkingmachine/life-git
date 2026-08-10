@@ -54,6 +54,11 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
   const candidate = isResearchPending
     ? { ...view.candidate, status: "pending" as const, reason: undefined }
     : view.candidate;
+  const canCreateC1 = cursor !== undefined && initialCursor !== undefined &&
+    cursor.commitId === initialCursor.commitId;
+  const canRewind = cursor !== undefined && initialCursor !== undefined &&
+    cursor.commitId !== initialCursor.commitId;
+  const showBranchControls = initialCursor !== undefined && initialDetails !== undefined;
 
   const runAction = (action: () => Promise<RunDetails>) => {
     if (branchActionInFlight.current) return;
@@ -156,14 +161,8 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
         return (
           <BranchWorkspace
             budget={current.budget}
-            canCreateC1={
-              cursor !== undefined && initialCursor !== undefined &&
-              cursor.commitId === initialCursor.commitId
-            }
-            canRewind={
-              cursor !== undefined && initialCursor !== undefined &&
-              cursor.commitId !== initialCursor.commitId
-            }
+            canCreateC1={canCreateC1}
+            canRewind={canRewind}
             canSaveC0={
               current.run.assessment.marker === "green" &&
               initialCursor === undefined &&
@@ -176,11 +175,23 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
             onRewind={rewind}
             onSaveC0={() => runAction(() => saveInitialHousingBranch(current.run.runId))}
             profile={view.profile}
-            showBranchControls={initialCursor !== undefined && initialDetails !== undefined}
+            showBranchControls={showBranchControls}
           />
         );
       case "life-git":
-        return <LifeGitWorkspace diff={current.branchDiff} />;
+        return (
+          <LifeGitWorkspace
+            canCreateC1={canCreateC1}
+            canRewind={canRewind}
+            diff={current.branchDiff}
+            housingAll={housingAll}
+            isBranchPending={isBranchPending}
+            onFork={submitFork}
+            onHousingAllChange={setHousingAll}
+            onRewind={rewind}
+            showBranchControls={showBranchControls}
+          />
+        );
       case "sources":
         return (
           <SourcesWorkspace

@@ -182,11 +182,21 @@ describe("confirmed-life visual journey", () => {
     const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
     expect(map.getAttribute("data-tone")).toBe("gray");
     expect(map.getAttribute("data-scope")).toBe("single-candidate");
-    expect(within(map).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(within(map).getByRole("list", { name: /кандидаты маршрута/i }))
+      .getAllByRole("listitem")).toHaveLength(1);
     expect(within(map).getByRole("img", { name: /самолёт/i })).toBeTruthy();
-    expect(within(map).getByText(/Россия.*Тирана/i)).toBeTruthy();
+    expect(within(within(map).getByRole("list", { name: /кандидаты маршрута/i }))
+      .getByText(/Россия.*Тирана/i)).toBeTruthy();
     expect(within(map).getByText("Проверка")).toBeTruthy();
     expect(within(map).getByRole("status", { name: /идёт проверка/i })).toBeTruthy();
+    const progress = within(map).getByRole("region", { name: /ход проверки/i });
+    expect(within(progress).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Профиль подтверждён",
+      "Официальные источники проверяются",
+      "Снимок доказательств ожидает завершения проверки",
+    ]);
+    expect(within(progress).getByText(/текущий источник.*официальный контур.*Россия.*Тирана/i))
+      .toBeTruthy();
   });
 
   it("collapses a green result without leaving a map popover", () => {
@@ -504,10 +514,8 @@ describe("confirmed-life visual journey", () => {
       />,
     );
 
-    const passport = screen.getByText("Паспорт доказательств").closest("details");
-    expect(passport?.hasAttribute("open")).toBe(false);
-    fireEvent.click(screen.getByText("Паспорт доказательств"));
-    expect(passport?.hasAttribute("open")).toBe(true);
+    const passport = screen.getByRole("region", { name: "Паспорт доказательств" });
+    expect(passport.tagName).toBe("SECTION");
 
     for (const heading of [
       "Официальный факт",
@@ -520,7 +528,10 @@ describe("confirmed-life visual journey", () => {
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
     expect(screen.getAllByRole("heading", { name: /Закон № 79.*цифровой работник/i })).toHaveLength(1);
-    expect(screen.getByText(/официальные условия для цифрового работника и семейного маршрута/i)).toBeTruthy();
+    const officialSummary = screen.getByText(
+      /официальные условия для цифрового работника и семейного маршрута/i,
+    );
+    expect(officialSummary.closest("details")).toBeNull();
     expect(screen.getByText("Период источника: cons-2026-08-01")).toBeTruthy();
     const rawOfficial = screen.getByText(JSON.stringify({ digitalWorker: { requiresLawfulStay: true } }));
     const officialTechnical = rawOfficial.closest("details");
@@ -556,8 +567,6 @@ describe("confirmed-life visual journey", () => {
         }]}
       />,
     );
-
-    fireEvent.click(screen.getByText("Паспорт доказательств"));
 
     expect(
       screen.getByText("Сценарий без спутника: отдельная семейная проекция не требуется."),

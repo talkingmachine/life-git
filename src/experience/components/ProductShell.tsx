@@ -27,10 +27,12 @@ export function ProductShell({
 }: ProductShellProps) {
   return (
     <div className="product-shell" data-setup={setup ? "true" : undefined}>
-      <NavigationRail
-        activeDestination={activeDestination}
-        onDestinationChange={onDestinationChange}
-      />
+      {setup ? null : (
+        <NavigationRail
+          activeDestination={activeDestination}
+          onDestinationChange={onDestinationChange}
+        />
+      )}
       <div className="product-shell__workspace">
         {context === undefined ? null : <ContextBar context={context} />}
         <main className="product-shell__content">{children}</main>

@@ -179,6 +179,10 @@ pre {
   grid-template-columns: 232px minmax(0, 1fr);
 }
 
+.product-shell[data-setup="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .navigation-rail {
   position: sticky;
   top: 0;
@@ -630,6 +634,44 @@ pre {
   list-style: none;
 }
 
+.research-map__progress {
+  position: absolute;
+  z-index: 3;
+  top: clamp(1rem, 3vw, 2rem);
+  left: clamp(1rem, 3vw, 2rem);
+  width: min(24rem, calc(100% - 2rem));
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-float);
+}
+
+.research-map__progress h2 {
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+}
+
+.research-map__progress ol {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0 0 0.8rem;
+  padding-left: 1.25rem;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+}
+
+.research-map__progress li[aria-current="step"] {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.research-map__progress p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+}
+
 .research-map__marker {
   padding: 0.85rem;
   border: 1px solid var(--line);
@@ -920,21 +962,17 @@ input[type="checkbox"] {
   color: #173f9e;
 }
 
-.evidence-passport > summary {
+.evidence-passport__heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  cursor: pointer;
-  list-style: none;
 }
 
-.evidence-passport > summary::-webkit-details-marker,
 .evidence-passport__technical > summary::-webkit-details-marker {
   display: none;
 }
 
-.evidence-passport > summary::after,
 .evidence-passport__technical > summary::after {
   content: "+";
   flex: 0 0 auto;
@@ -942,19 +980,18 @@ input[type="checkbox"] {
   font-size: 1rem;
 }
 
-.evidence-passport[open] > summary::after,
 .evidence-passport__technical[open] > summary::after {
   content: "−";
 }
 
-.evidence-passport > summary span {
+.evidence-passport__heading span {
   color: var(--ink);
   font-size: 1.05rem;
   font-weight: 750;
   letter-spacing: -0.02em;
 }
 
-.evidence-passport > summary small {
+.evidence-passport__heading small {
   margin-left: auto;
   color: var(--ink-muted);
   font-size: 0.65rem;
@@ -1336,12 +1373,12 @@ input[type="checkbox"] {
     width: 100%;
   }
 
-  .evidence-passport > summary {
+  .evidence-passport__heading {
     align-items: flex-start;
     flex-wrap: wrap;
   }
 
-  .evidence-passport > summary small {
+  .evidence-passport__heading small {
     width: calc(100% - 2rem);
     margin-left: 0;
   }

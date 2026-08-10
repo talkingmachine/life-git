@@ -1,6 +1,7 @@
 import type { FormEvent } from "react";
 
 import type { BudgetView } from "../view-model";
+import { BranchControls } from "./BranchControls";
 import { LifeBranch } from "./LifeBranch";
 import { ProfileCard } from "./ProfileCard";
 import type { ProfileCardData } from "./ProfileCard";
@@ -39,24 +40,15 @@ export function BranchWorkspace({
       <ProfileCard canSaveC0={canSaveC0} onSaveC0={onSaveC0} profile={profile} />
       {budget === undefined ? null : <LifeBranch budget={budget} />}
       {showBranchControls ? (
-        <section aria-labelledby="branch-controls-heading" className="branch-controls">
-          <h2 id="branch-controls-heading">Ветка жилья</h2>
-          <button disabled={!canRewind || isBranchPending} onClick={onRewind} type="button">
-            Перемотать к C0
-          </button>
-          <form onSubmit={onFork}>
-            <label htmlFor="housing-all">Жильё для C1, ALL</label>
-            <input
-              id="housing-all"
-              inputMode="decimal"
-              onChange={(event) => onHousingAllChange(event.currentTarget.value)}
-              value={housingAll}
-            />
-            <button disabled={!canCreateC1 || isBranchPending} type="submit">
-              Создать C1
-            </button>
-          </form>
-        </section>
+        <BranchControls
+          canCreateC1={canCreateC1}
+          canRewind={canRewind}
+          housingAll={housingAll}
+          isBranchPending={isBranchPending}
+          onFork={onFork}
+          onHousingAllChange={onHousingAllChange}
+          onRewind={onRewind}
+        />
       ) : null}
     </section>
   );

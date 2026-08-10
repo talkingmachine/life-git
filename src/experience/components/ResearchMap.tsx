@@ -100,7 +100,18 @@ export function ResearchMap({
           ✈
         </div>
       </div>
-      <ul className="research-map__markers">
+      {mode === "pending" ? (
+        <aside aria-label="Ход проверки" className="research-map__progress" role="region">
+          <h2>Ход проверки</h2>
+          <ol>
+            <li>Профиль подтверждён</li>
+            <li aria-current="step">Официальные источники проверяются</li>
+            <li>Снимок доказательств ожидает завершения проверки</li>
+          </ol>
+          <p>Текущий источник: официальный контур Россия → Тирана</p>
+        </aside>
+      ) : null}
+      <ul aria-label="Кандидаты маршрута" className="research-map__markers">
         {candidates.map((candidate) => (
           <li className={`research-map__marker research-map__marker--${candidate.status}`} key={candidate.id}>
             {candidate.status === "yellow" || candidate.status === "red" ? (

@@ -165,11 +165,11 @@ export function EvidencePassport({
 }: EvidencePassportProps) {
   const groupedOfficialFacts = officialGroups(items);
   return (
-    <details className="evidence-passport">
-      <summary>
+    <section aria-label="Паспорт доказательств" className="evidence-passport">
+      <header className="evidence-passport__heading">
         <span>Паспорт доказательств</span>
-        <small>Понятный срез · раскрыть шесть классов</small>
-      </summary>
+        <small>Понятный срез · технические данные раскрываются отдельно</small>
+      </header>
       <div className="evidence-passport__grid">
         {classes.filter(([className]) => visibleClasses.includes(className)).map(([className, title]) => {
           const classItems = items.filter((item) => item.class === className);
@@ -197,6 +197,6 @@ export function EvidencePassport({
           );
         })}
       </div>
-    </details>
+    </section>
   );
 }

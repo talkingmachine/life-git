@@ -125,7 +125,7 @@ describe("journey action pending states", () => {
     expect(screen.getByRole("heading", { name: /подтверждённый снимок/i })).toBeTruthy();
     expect(screen.getByRole("figure", { name: /поток бюджета/i })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Life Git/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Life Git$/i }));
     expect(screen.getByRole("heading", { name: /ветка жилья/i })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /источники/i }));
@@ -195,7 +195,8 @@ describe("journey action pending states", () => {
     await waitFor(() => {
       const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
       expect(map.getAttribute("data-tone")).toBe("gray");
-      expect(within(map).getByText(/Россия.*Тирана/i)).toBeTruthy();
+      expect(within(within(map).getByRole("list", { name: /кандидаты маршрута/i }))
+        .getByText(/Россия.*Тирана/i)).toBeTruthy();
     });
 
     await act(async () => started.resolve(details("green", "started:id")));
@@ -206,6 +207,21 @@ describe("journey action pending states", () => {
     fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
     expect(screen.getByRole("button", { name: /зафиксировать C0/i })).toBeTruthy();
     expect(replaceState.mock.calls.at(-1)?.[2]).toBe("?run=run-started%3Aid");
+  });
+
+  it("does not expose dead destination controls during setup or its pending verification", async () => {
+    actionMocks.startConfirmedLife.mockReturnValue(deferred<RunDetails>().promise);
+    render(<Vs1Start />);
+
+    expect(screen.queryByRole("navigation", { name: /основная навигация/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю синтетический снимок/i }));
+    fireEvent.click(screen.getByRole("button", { name: /начать проверку/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: /карта проверки маршрута/i })).toBeTruthy();
+    });
+    expect(screen.queryByRole("navigation", { name: /основная навигация/i })).toBeNull();
   });
 
   it("requires a fresh snapshot confirmation after any profile or housing edit", () => {
@@ -354,6 +370,44 @@ describe("journey action pending states", () => {
       .toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Life Git/i }));
     expect(screen.queryByRole("heading", { name: /Life Git: C0 → C1/i })).toBeNull();
+  });
+
+  it("forks C1 directly inside Life Git and keeps rewind available beside the diff", async () => {
+    const seeded = details("green", "life-git-controls", true);
+    const c0: RunDetails = {
+      ...seeded,
+      branchCursor: seeded.initialBranchCursor,
+    };
+    const c1: RunDetails = {
+      ...c0,
+      branchCursor: { commitId: "b".repeat(64) },
+      budget: {
+        incomeAll: "209864.57",
+        housingAll: "90000.00",
+        knownResidualAll: "119864.57",
+        unknowns: ["taxes", "living_costs"],
+      },
+      branchDiff: {
+        housing: { before: "70000.00", after: "90000.00", delta: "20000.00" },
+        knownResidual: {
+          before: "139864.57",
+          after: "119864.57",
+          delta: "-20000.00",
+          cause: "housing",
+        },
+        reused: ["profile", "evidence", "rules"],
+      },
+    };
+    actionMocks.forkHousingBranch.mockResolvedValue(c1);
+    render(<Vs1Journey details={c0} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Life Git$/i }));
+    fireEvent.change(screen.getByLabelText(/жильё для C1/i), { target: { value: "90000" } });
+    fireEvent.click(screen.getByRole("button", { name: /создать C1/i }));
+
+    expect(actionMocks.forkHousingBranch).toHaveBeenCalledWith(c0.initialBranchCursor, "90000");
+    expect(await screen.findByRole("heading", { name: /Life Git: C0 → C1/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /перемотать к C0/i })).toBeTruthy();
   });
 
   it("submits C0 at most once while the first append is pending", async () => {
