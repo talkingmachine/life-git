@@ -35,7 +35,7 @@ function deferred<T>() {
   return { promise, reject, resolve };
 }
 
-function details(marker: "green" | "yellow", suffix: string, branch = false): RunDetails {
+function details(marker: "green" | "yellow" | "red", suffix: string, branch = false): RunDetails {
   return {
     run: {
       runId: `run-${suffix}`,
@@ -251,6 +251,45 @@ describe("journey action pending states", () => {
 
     expect(await screen.findByRole("region", { name: /обзор маршрута/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /обзор/i }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it.each(["yellow", "red"] as const)(
+    "keeps retry snapshot history after navigating away before a terminal %s result",
+    async (marker) => {
+      const next = deferred<RunDetails>();
+      const original = details("yellow", `race-${marker}-old`);
+      const before = JSON.stringify(original);
+      actionMocks.retryConfirmedLifeRun.mockReturnValue(next.promise);
+      render(<Vs1Journey details={original} />);
+
+      fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
+      fireEvent.click(screen.getByRole("button", { name: /источники/i }));
+      expect(screen.queryByRole("region", { name: /карта проверки маршрута/i })).toBeNull();
+
+      await act(async () => next.resolve(details(marker, `race-${marker}-new`)));
+
+      expect(await screen.findByText(`Предыдущий снимок: snapshot-race-${marker}-old`)).toBeTruthy();
+      expect(screen.getByText(`Новый снимок: snapshot-race-${marker}-new`)).toBeTruthy();
+      expect(JSON.stringify(original)).toBe(before);
+    },
+  );
+
+  it("keeps a retry rejection after navigating away and returning to Research", async () => {
+    const retry = deferred<RunDetails>();
+    const original = details("yellow", "race-error-old");
+    const before = JSON.stringify(original);
+    actionMocks.retryConfirmedLifeRun.mockReturnValue(retry.promise);
+    render(<Vs1Journey details={original} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
+    fireEvent.click(screen.getByRole("button", { name: /источники/i }));
+    await act(async () => retry.reject(new Error("offline")));
+    fireEvent.click(screen.getByRole("button", { name: /проверка/i }));
+
+    expect((await screen.findByRole("alert")).textContent)
+      .toMatch(/повторная проверка не выполнена.*предыдущий снимок сохранён/i);
+    expect(screen.getByText(/Предыдущий снимок: snapshot-race-error-old/i)).toBeTruthy();
+    expect(JSON.stringify(original)).toBe(before);
   });
 
   it("shows a retry failure without losing the previous snapshot or leaking a rejection", async () => {

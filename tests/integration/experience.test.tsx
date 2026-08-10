@@ -330,16 +330,19 @@ describe("confirmed-life visual journey", () => {
     expect(screen.queryByRole("link", { name: /официальный источник/i })).toBeNull();
   });
 
-  it("keeps the old yellow snapshot while retry reports a new run and snapshot", async () => {
+  it("renders a coordinator-owned retry record without changing its previous snapshot", () => {
     const oldRun = Object.freeze({ runId: "run-old", evidenceSnapshotId: "snapshot-old" });
     const before = JSON.stringify(oldRun);
-    const retry = vi.fn(async () => ({ runId: "run-new", evidenceSnapshotId: "snapshot-new" }));
 
     render(
       <ResearchMap
         mode="yellow"
         previousRun={oldRun}
-        onRetry={retry}
+        onRetry={() => undefined}
+        retryRecord={{
+          previous: oldRun,
+          next: { runId: "run-new", evidenceSnapshotId: "snapshot-new" },
+        }}
         candidates={[{
           id: "tirana",
           origin: "Россия",
@@ -353,12 +356,9 @@ describe("confirmed-life visual journey", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
-
-    expect(await screen.findByText(/Новый запуск: run-new/i)).toBeTruthy();
+    expect(screen.getByText(/Новый запуск: run-new/i)).toBeTruthy();
     expect(screen.getByText(/Новый снимок: snapshot-new/i)).toBeTruthy();
     expect(screen.getByText(/Предыдущий снимок: snapshot-old/i)).toBeTruthy();
-    expect(retry).toHaveBeenCalledWith("run-old");
     expect(JSON.stringify(oldRun)).toBe(before);
   });
 

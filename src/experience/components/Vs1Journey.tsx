@@ -18,6 +18,7 @@ import { OverviewWorkspace } from "./OverviewWorkspace";
 import { ProductShell } from "./ProductShell";
 import type { CommandCenterDestination } from "./ProductShell";
 import { ResearchMap } from "./ResearchMap";
+import type { ResearchRetryRecord } from "./ResearchMap";
 import { SourcesWorkspace } from "./SourcesWorkspace";
 
 interface Vs1JourneyProps {
@@ -44,6 +45,8 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
   const [housingAll, setHousingAll] = useState("90000");
   const [error, setError] = useState<string>();
   const [isResearchPending, setResearchPending] = useState(false);
+  const [researchRetryError, setResearchRetryError] = useState<string>();
+  const [researchRetryRecord, setResearchRetryRecord] = useState<ResearchRetryRecord>();
   const [isBranchPending, startBranchTransition] = useTransition();
   const branchActionInFlight = useRef(false);
   const view = createJourneyView(current);
@@ -113,6 +116,11 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
               candidates={[candidate]}
               mode={mode}
               onRetry={async (previousRunId) => {
+                const previous = {
+                  runId: previousRunId,
+                  evidenceSnapshotId: current.run.evidenceSnapshotId,
+                };
+                setResearchRetryError(undefined);
                 setResearchPending(true);
                 try {
                   const next = await retryConfirmedLifeRun(previousRunId);
@@ -121,11 +129,16 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
                   setInitialDetails(isInitialBranchView(next) ? next : undefined);
                   setInitialCursor(next.initialBranchCursor ?? next.branchCursor);
                   setCursor(next.branchCursor);
+                  setResearchRetryRecord({
+                    previous,
+                    next: {
+                      runId: next.run.runId,
+                      evidenceSnapshotId: next.run.evidenceSnapshotId,
+                    },
+                  });
                   setDestination(next.run.assessment.marker === "green" ? "overview" : "research");
-                  return {
-                    runId: next.run.runId,
-                    evidenceSnapshotId: next.run.evidenceSnapshotId,
-                  };
+                } catch {
+                  setResearchRetryError("Повторная проверка не выполнена. Предыдущий снимок сохранён.");
                 } finally {
                   setResearchPending(false);
                 }
@@ -134,6 +147,8 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
                 runId: current.run.runId,
                 evidenceSnapshotId: current.run.evidenceSnapshotId,
               }}
+              retryError={researchRetryError}
+              retryRecord={researchRetryRecord}
             />
           </section>
         );
