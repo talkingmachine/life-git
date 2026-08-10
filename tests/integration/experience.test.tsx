@@ -28,7 +28,7 @@ import { LifeGitDiff } from "../../src/experience/components/LifeGitDiff";
 import { ProfileCard } from "../../src/experience/components/ProfileCard";
 import { ResearchMap } from "../../src/experience/components/ResearchMap";
 import { Vs1Journey } from "../../src/experience/components/Vs1Journey";
-import { createJourneyView } from "../../src/experience/view-model";
+import { createJourneyView, groupEvidenceItems } from "../../src/experience/view-model";
 import {
   createOpenAiNarrative,
 } from "../../src/infrastructure/narrative";
@@ -945,6 +945,138 @@ describe("confirmed-life visual journey", () => {
 
   it("keeps fallback wording valid even when no official source is available", () => {
     expect(FALLBACK_NARRATIVE.headline).toBe("Маршрут показан без недоказанных выводов");
+  });
+
+  it("derives a command-center summary and complete evidence groups from run details", () => {
+    const details: RunDetails = {
+      run: {
+        runId: "run-command-center",
+        runRevisionId: "revision-command-center",
+        assessmentDate: "2026-08-08",
+        profileId: "profile-command-center",
+        evidenceSnapshotId: "snapshot-command-center",
+        assessmentId: "assessment-command-center",
+        assessment: { marker: "yellow", reasons: [] },
+        mode: "current",
+      },
+      profile: {
+        id: "profile-command-center",
+        confirmedAt: "2026-08-08T10:00:00.000Z",
+        profile: {
+          availableResourcesAll: "500000",
+          monthlyIncome: { amount: "210000", currency: "RUB" },
+          incomeBasis: "foreign_contract",
+          companionBasis: "none",
+          relationship: "none",
+          conditions: soloConditions,
+        },
+      },
+      evidenceItems: [{
+        class: "official_fact",
+        label: "al-law-79-facts-1",
+        displayValue: JSON.stringify({ requiresLawfulStay: true }),
+        sourceId: "al-law-79",
+        scope: "VS-1 confirmed-life",
+        sourcePeriod: "cons-2026-08-01",
+        anchor: "Art. 68#abc",
+        resolvedUrl: "https://official.example/law-79",
+        integrity: "verified",
+      }, {
+        class: "unknown",
+        label: "Правило доступных средств",
+        provenance: "unmodelled",
+      }],
+      narrative: FALLBACK_NARRATIVE,
+    };
+
+    const view = createJourneyView(details);
+    expect(view.summary).toEqual({
+      branchLabel: "До фиксации C0",
+      officialFacts: 1,
+      unresolvedItems: 1,
+      unknowns: 1,
+      knownResidualAll: undefined,
+    });
+
+    const grouped = groupEvidenceItems(details.evidenceItems);
+    expect(grouped.official_fact).toHaveLength(1);
+    expect(grouped.unknown).toHaveLength(1);
+    expect(Object.keys(grouped)).toEqual([
+      "official_fact",
+      "user_fact",
+      "calculation",
+      "assumption",
+      "projection",
+      "unknown",
+    ]);
+  });
+
+  it("labels the saved C0 and forked C1 summaries without changing the server budget", () => {
+    const serverBudget: NonNullable<RunDetailsCore["budget"]> = {
+      incomeAll: "209864.57",
+      housingAll: "70000.00",
+      knownResidualAll: "139864.57",
+      unknowns: ["taxes", "living_costs"],
+    };
+    const details: RunDetails = {
+      run: {
+        runId: "run-branch-summary",
+        runRevisionId: "revision-branch-summary",
+        assessmentDate: "2026-08-08",
+        profileId: "profile-branch-summary",
+        evidenceSnapshotId: "snapshot-branch-summary",
+        assessmentId: "assessment-branch-summary",
+        assessment: { marker: "green", reasons: [] },
+        mode: "current",
+      },
+      profile: {
+        id: "profile-branch-summary",
+        confirmedAt: "2026-08-08T10:00:00.000Z",
+        profile: {
+          availableResourcesAll: "500000",
+          monthlyIncome: { amount: "210000", currency: "RUB" },
+          incomeBasis: "foreign_contract",
+          companionBasis: "none",
+          relationship: "none",
+          conditions: soloConditions,
+        },
+      },
+      evidenceItems: [],
+      budget: serverBudget,
+      initialBranchCursor: { commitId: "a".repeat(64) },
+      branchCursor: { commitId: "a".repeat(64) },
+      narrative: FALLBACK_NARRATIVE,
+    };
+
+    expect(createJourneyView(details).summary).toMatchObject({
+      branchLabel: "C0",
+      knownResidualAll: "139864.57",
+    });
+
+    const forked: RunDetails = {
+      ...details,
+      branchCursor: { commitId: "b".repeat(64) },
+      budget: {
+        ...serverBudget,
+        housingAll: "90000.00",
+        knownResidualAll: "119864.57",
+      },
+      branchDiff: {
+        housing: { before: "70000.00", after: "90000.00", delta: "20000.00" },
+        knownResidual: {
+          before: "139864.57",
+          after: "119864.57",
+          delta: "-20000.00",
+          cause: "housing",
+        },
+        reused: ["profile", "evidence", "rules"],
+      },
+    };
+
+    expect(createJourneyView(forked).summary).toMatchObject({
+      branchLabel: "C1",
+      knownResidualAll: "119864.57",
+    });
   });
 
   it("renders the scoped journey from a JSON-serializable RunDetails value only", () => {

@@ -19,6 +19,25 @@ export type BudgetView = NonNullable<RunDetailsCore["budget"]>;
 export type EvidencePassportItems = readonly EvidenceReadItem[];
 export type LifeDiffView = HousingBranchDiff;
 
+export const EVIDENCE_CLASS_NAMES = [
+  "official_fact",
+  "user_fact",
+  "calculation",
+  "assumption",
+  "projection",
+  "unknown",
+] as const;
+
+export type EvidenceClassName = typeof EVIDENCE_CLASS_NAMES[number];
+
+export interface CommandCenterSummary {
+  readonly branchLabel: "До фиксации C0" | "C0" | "C1";
+  readonly officialFacts: number;
+  readonly unresolvedItems: number;
+  readonly unknowns: number;
+  readonly knownResidualAll?: string;
+}
+
 const reasonLabels: Readonly<Record<string, string>> = Object.freeze({
   albanian_employer_only: "Доход зависит только от местного работодателя",
   companion_basis_not_researched_in_vs1: "Основание для спутника не входит в эту проверку",
@@ -89,6 +108,47 @@ function officialUrl(details: RunDetails, sourceId: string): string | undefined 
     : undefined;
 }
 
+export function groupEvidenceItems(items: readonly EvidenceReadItem[]):
+  Readonly<Record<EvidenceClassName, readonly EvidenceReadItem[]>> {
+  const grouped: Record<EvidenceClassName, EvidenceReadItem[]> = {
+    official_fact: [],
+    user_fact: [],
+    calculation: [],
+    assumption: [],
+    projection: [],
+    unknown: [],
+  };
+  for (const item of items) grouped[item.class].push(item);
+  return Object.freeze({
+    official_fact: Object.freeze(grouped.official_fact),
+    user_fact: Object.freeze(grouped.user_fact),
+    calculation: Object.freeze(grouped.calculation),
+    assumption: Object.freeze(grouped.assumption),
+    projection: Object.freeze(grouped.projection),
+    unknown: Object.freeze(grouped.unknown),
+  });
+}
+
+function branchLabel(details: RunDetails): CommandCenterSummary["branchLabel"] {
+  if (
+    details.initialBranchCursor !== undefined &&
+    details.branchCursor?.commitId === details.initialBranchCursor.commitId
+  ) return "C0";
+  return details.branchDiff === undefined ? "До фиксации C0" : "C1";
+}
+
+function commandCenterSummary(details: RunDetails): CommandCenterSummary {
+  const grouped = groupEvidenceItems(details.evidenceItems);
+  const unknowns = grouped.unknown.length;
+  return Object.freeze({
+    branchLabel: branchLabel(details),
+    officialFacts: grouped.official_fact.length,
+    unresolvedItems: unknowns,
+    unknowns,
+    knownResidualAll: details.budget?.knownResidualAll,
+  });
+}
+
 export function createJourneyView(details: RunDetails) {
   const firstReason = details.run.assessment.reasons[0];
   const reasonSourceId = firstReason === undefined || scenarioConditionReasonCodes.has(firstReason.code)
@@ -96,6 +156,7 @@ export function createJourneyView(details: RunDetails) {
     : firstReason.sourceId;
   const reasonUrl = reasonSourceId === undefined ? undefined : officialUrl(details, reasonSourceId);
   return Object.freeze({
+    summary: commandCenterSummary(details),
     profile: Object.freeze({
       housingAll: housingFrom(details),
       incomeBasis: details.profile.profile.incomeBasis,
