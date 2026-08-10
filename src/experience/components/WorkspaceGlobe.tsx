@@ -1,8 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
-import type { ComponentType, ReactNode } from "react";
+import { Component, useCallback, useEffect, useState } from "react";
+import type { ComponentType, ErrorInfo, ReactNode } from "react";
 
 import type {
   GlobeRoute,
@@ -17,6 +17,15 @@ interface ResearchGlobeModule {
 interface WorkspaceGlobeProps {
   readonly renderGlobe?: (props: ResearchGlobeCanvasProps) => ReactNode;
   readonly status: CommandCenterStatus;
+}
+
+interface GlobeLoadBoundaryProps {
+  readonly children: ReactNode;
+  readonly onError: () => void;
+}
+
+interface GlobeLoadBoundaryState {
+  readonly failed: boolean;
 }
 
 const MOSCOW = {
@@ -39,6 +48,22 @@ const DynamicResearchGlobe = dynamic<ResearchGlobeCanvasProps>(
   { ssr: false },
 );
 
+class GlobeLoadBoundary extends Component<GlobeLoadBoundaryProps, GlobeLoadBoundaryState> {
+  state: GlobeLoadBoundaryState = { failed: false };
+
+  static getDerivedStateFromError(): GlobeLoadBoundaryState {
+    return { failed: true };
+  }
+
+  componentDidCatch(_error: Error, _info: ErrorInfo): void {
+    this.props.onError();
+  }
+
+  render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
 function supportsWebGL(): boolean {
   if (
     typeof document === "undefined"
@@ -56,6 +81,7 @@ function supportsWebGL(): boolean {
 export function WorkspaceGlobe({ renderGlobe, status }: WorkspaceGlobeProps) {
   const [webglSupported, setWebglSupported] = useState<boolean>();
   const [unavailable, setUnavailable] = useState(false);
+  const [retryEpoch, setRetryEpoch] = useState(0);
   const globeRoute: GlobeRoute = {
     city: TIRANA.city,
     country: TIRANA.country,
@@ -82,6 +108,7 @@ export function WorkspaceGlobe({ renderGlobe, status }: WorkspaceGlobeProps) {
   };
   const retry = useCallback(() => {
     setUnavailable(false);
+    setRetryEpoch((epoch) => epoch + 1);
     setWebglSupported(supportsWebGL());
   }, []);
 
@@ -99,7 +126,11 @@ export function WorkspaceGlobe({ renderGlobe, status }: WorkspaceGlobeProps) {
     if (webglSupported === undefined) {
       return <span className="workspace-globe__loading">Загрузка 3D Земли…</span>;
     }
-    return <DynamicResearchGlobe {...globeProps} />;
+    return (
+      <GlobeLoadBoundary key={retryEpoch} onError={() => setUnavailable(true)}>
+        <DynamicResearchGlobe {...globeProps} />
+      </GlobeLoadBoundary>
+    );
   })();
 
   return (

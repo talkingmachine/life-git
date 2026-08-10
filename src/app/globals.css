@@ -262,7 +262,10 @@ pre {
 }
 
 .product-shell__workspace {
+  position: relative;
   min-width: 0;
+  overflow: hidden;
+  isolation: isolate;
 }
 
 .context-bar {
@@ -351,6 +354,8 @@ pre {
 }
 
 .product-shell__content {
+  position: relative;
+  z-index: 2;
   width: min(1380px, 100%);
   margin: 0 auto;
   padding: clamp(1.5rem, 4vw, 3rem);
@@ -523,6 +528,33 @@ pre {
   font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.14em;
+}
+
+.workspace-globe {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+}
+
+.workspace-globe__engine {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.workspace-globe__fallback,
+.workspace-globe__loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+}
+
+.workspace-globe__loading {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .orbit-globe {

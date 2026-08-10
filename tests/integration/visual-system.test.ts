@@ -88,26 +88,33 @@ describe("calm command center visual contracts", () => {
     expect(declaration(details, "right")).not.toBe("0");
   });
 
-  it("keeps bottom panels and the route caption in separate desktop zones", () => {
+  it("keeps bottom panels and city detail in separate desktop zones", () => {
     const telemetry = rule(css, ".overview-workspace__telemetry");
-    const caption = rule(css, ".orbit-globe__caption");
     const detailsImage = rule(css, ".destination-detail-panel__image");
 
     expect(declaration(telemetry, "left")).toContain("--orbit-profile-width");
     expect(declaration(telemetry, "right")).toContain("--orbit-details-width");
-    expect(declaration(caption, "bottom")).toBe("34%");
-    expect(declaration(caption, "right")).toBe("22%");
     expect(declaration(detailsImage, "height")).toMatch(/^clamp\(120px,/);
   });
 
-  it("gives the embedded 3D globe a square rendering viewport", () => {
-    const globe = rule(css, ".orbit-globe");
-    const engine = rule(css, ".orbit-globe__engine");
+  it("layers the shared 3D globe across the product workspace", () => {
+    const workspace = rule(css, ".product-shell__workspace");
+    const globe = rule(css, ".workspace-globe");
+    const engine = rule(css, ".workspace-globe__engine");
+    const context = rule(css, ".context-bar");
+    const content = rule(css, ".product-shell__content");
 
-    expect(declaration(globe, "aspect-ratio")).toBe("1");
+    expect(declaration(workspace, "position")).toBe("relative");
+    expect(declaration(workspace, "overflow")).toBe("hidden");
+    expect(declaration(globe, "position")).toBe("absolute");
+    expect(declaration(globe, "inset")).toBe("0");
+    expect(declaration(globe, "z-index")).toBe("0");
     expect(declaration(engine, "position")).toBe("absolute");
     expect(declaration(engine, "inset")).toBe("0");
-    expect(css).not.toContain(".orbit-globe__art");
+    expect(["relative", "sticky"]).toContain(declaration(context, "position"));
+    expect(declaration(context, "z-index")).toBe("20");
+    expect(declaration(content, "position")).toBe("relative");
+    expect(declaration(content, "z-index")).toBe("2");
   });
 
   it("places tablet map status and retry panels in separate in-flow rows", () => {

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/dynamic", () => ({
+  default: () => function RejectedGlobeModule() {
+    throw new Error("ResearchGlobeCanvas module failed to load");
+  },
+}));
 
 import { WorkspaceGlobe } from "../../src/experience/components/WorkspaceGlobe";
 import {
@@ -11,6 +17,7 @@ import {
 } from "../../src/experience/components/OrbitPanels";
 
 afterEach(cleanup);
+afterEach(() => vi.unstubAllGlobals());
 
 describe("Orbit command center", () => {
   it("passes the fixed route and bundled dark background to the shared globe", () => {
@@ -24,6 +31,22 @@ describe("Orbit command center", () => {
       origin: expect.objectContaining({ city: "Москва", country: "Россия" }),
       routes: [expect.objectContaining({ city: "Тирана", country: "Албания" })],
     }));
+  });
+
+  it("offers the retry control when the dynamic globe module rejects", async () => {
+    vi.stubGlobal("WebGLRenderingContext", class WebGLRenderingContext {});
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue({} as never);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(<WorkspaceGlobe status="green" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /повторить загрузку 3D Земли/i })).toBeTruthy();
+    });
+
+    getContext.mockRestore();
+    consoleError.mockRestore();
   });
 
   it("presents the single scoped candidate as a floating search result", () => {
