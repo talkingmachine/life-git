@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head><title>Transporti - Public GIS Portal</title></head>
+  <body>
+    <script>
+      mapVars.mapLayersFromConfig = [new ol.layer.Group({
+        title: 'Transporti Publik Urban',
+        visible: true,
+        layers: new ol.Collection([new ol.layer.Tile({
+          title: 'Linjat Qytetase',
+          visible: true,
+          nexusLayerId: 442,
+          source: new ol.source.TileWMS({
+            params: { 'LAYERS': 'nexus_gis_tirana:Linjat Qytetase' }
+          })
+        }), new ol.layer.Tile({
+          title: 'Stacionet e Linjave Qytetase',
+          visible: true,
+          nexusLayerId: 443,
+          source: new ol.source.TileWMS({
+            params: { 'LAYERS': 'nexus_gis_tirana:Stacionet e linjave Qytetase' }
+          })
+        })])
+      }), new ol.layer.Group({
+        title: 'Transporti Publik Rrethqytetas',
+        visible: true,
+        layers: new ol.Collection([])
+      })];
+    </script>
+  </body>
+</html>

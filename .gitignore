@@ -12,6 +12,7 @@ coverage/
 
 data/*.db
 data/*.db-*
+data/evals/
 
 .superpowers/**/state/
 .superpowers/brainstorm/.last-port

@@ -244,3 +244,5 @@ Validation and exact-text approval:
 
 Baseline допущен к implementation planning; `source-verified` и `demo-verified` требуют
 отдельного runtime evidence и не следуют из этого approval.
+
+Текущий runtime evidence: [`implementation-evidence.md`](implementation-evidence.md).

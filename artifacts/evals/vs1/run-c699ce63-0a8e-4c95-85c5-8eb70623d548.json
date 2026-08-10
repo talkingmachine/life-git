@@ -1,0 +1,942 @@
+{
+  "schemaVersion": "vs1-live-eval@1",
+  "generatedAt": "2026-08-08T16:58:31.522Z",
+  "mode": "outage",
+  "readiness": [
+    "source-verified",
+    "replay-verified",
+    "fail-closed-verified",
+    "recovery-verified"
+  ],
+  "cleanRun": {
+    "runId": "run-c699ce63-0a8e-4c95-85c5-8eb70623d548",
+    "evidenceSnapshotId": "run-c699ce63-0a8e-4c95-85c5-8eb70623d548:evidence",
+    "marker": "green",
+    "assessmentDate": "2026-08-08",
+    "sourceEvidence": [
+      {
+        "sourceId": "al-law-79",
+        "status": "verified",
+        "claimIds": [
+          "al-law-79-facts-1",
+          "al-law-79-facts-2",
+          "al-law-79-facts-3"
+        ],
+        "sourcePeriods": [
+          "cons-2025-07-14"
+        ],
+        "anchors": [
+          "Art. 68#cd15548fe43ac4f1855c72b99b95c9f6b4ef7070692b06ae0dec855eb9a001d3",
+          "Art. 3(1)#13fb84c3f77f9338c6a3c4cbe5fcc4fdf426112e14b10e7568a513947fe20652",
+          "Art. 41#357da2e11e3b2504fd0579f273c110028b64095075cff64e6d8af14aee635529"
+        ],
+        "officialUrls": [
+          "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/2eb73d6c-4d6c-4665-827e-02307371dac8/content"
+        ]
+      },
+      {
+        "sourceId": "al-decision-858",
+        "status": "verified",
+        "claimIds": [
+          "al-decision-858-facts-1",
+          "al-decision-858-facts-2"
+        ],
+        "sourcePeriods": [
+          "cons-2026-04-16"
+        ],
+        "anchors": [
+          "Decision 858, amount#9bc2495c9a760a61d4d31456ed0e2673c22a3171165625a8e0e68ee0592f13ca",
+          "Decision 858, p.8#14a8472ceb964d63606828625ed27e0a70bab665a0992a8d432a614fe135b6a7"
+        ],
+        "officialUrls": [
+          "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/942499a2-f109-4fc6-8aa7-d2d78b7fa588/content"
+        ]
+      },
+      {
+        "sourceId": "cbr-eur",
+        "status": "verified",
+        "claimIds": [
+          "cbr-eur-facts-1"
+        ],
+        "sourcePeriods": [
+          "2026-08-08"
+        ],
+        "anchors": [
+          "Valute[CharCode=EUR]#36243f35a45c9dfcd5fbd9cf5ac977f9dd9c8a04f027dcb4cca087f29d76b1c4"
+        ],
+        "officialUrls": [
+          "https://www.cbr.ru/scripts/XML_daily.asp"
+        ]
+      },
+      {
+        "sourceId": "boa-eur",
+        "status": "verified",
+        "claimIds": [
+          "boa-eur-facts-1"
+        ],
+        "sourcePeriods": [
+          "2026-08-07"
+        ],
+        "anchors": [
+          "table row EUR#634219c17090c1646b903c7bb9baf4c76a8961f9773f282f39b5d71393e3fa7c"
+        ],
+        "officialUrls": [
+          "https://www.bankofalbania.org/Markets/Official_exchange_rate/"
+        ]
+      },
+      {
+        "sourceId": "tirana-urban-lines",
+        "status": "verified",
+        "claimIds": [
+          "tirana-urban-lines-facts-1",
+          "tirana-urban-lines-facts-2"
+        ],
+        "sourcePeriods": [
+          "2026-08-08"
+        ],
+        "anchors": [
+          "municipality page iframe#79824d1520701ee346dab116b340adcf0ff43cbb111c220b36edc1961083f065",
+          "visible WMS layers#ff8a89466e6591a11094c1a01dd84e0ecf86403e210dc609142cd4f8d325bf53"
+        ],
+        "officialUrls": [
+          "https://gis.tirana.al/NexusPublicPortal/PublicPortal/AppCreator/ViewApplication/8c5d9f93-7156-4708-bdef-1aea93b95d4e?mode=iframe&culture=en"
+        ]
+      }
+    ],
+    "officialClaimCount": 9,
+    "storedArtifacts": {
+      "total": 14,
+      "sealed": 14,
+      "sources": 5
+    },
+    "sealedEvidence": {
+      "snapshotId": "run-c699ce63-0a8e-4c95-85c5-8eb70623d548:evidence",
+      "manifestHash": "5b5e76e0dda95d757bc805b4c51ad21f88af8b100b3d6edefab9556fa63a737b",
+      "parserVersions": {
+        "al-decision-858": "decision-858@1",
+        "al-law-79": "law-79@1",
+        "boa-eur": "boa-eur@1",
+        "cbr-eur": "cbr-eur@1",
+        "tirana-urban-lines": "tirana-urban-lines@1"
+      },
+      "rulesVersion": "vs1-evidence@1",
+      "coverage": {
+        "al-decision-858": "verified",
+        "al-law-79": "verified",
+        "boa-eur": "verified",
+        "cbr-eur": "verified",
+        "tirana-urban-lines": "verified"
+      },
+      "claims": [
+        {
+          "anchor": {
+            "artifactId": "al-law-79:act-pdf:020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+            "excerptSha256": "cd15548fe43ac4f1855c72b99b95c9f6b4ef7070692b06ae0dec855eb9a001d3",
+            "locator": "Art. 68"
+          },
+          "claimId": "al-law-79-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-law-79",
+          "sourcePeriod": "cons-2025-07-14",
+          "status": "verified",
+          "value": {
+            "digitalWorker": {
+              "accommodation": true,
+              "contractTypes": [
+                "foreign_employment",
+                "foreign_service"
+              ],
+              "criminalRecords": "origin_and_residence",
+              "initialPermitMaxMonths": 12,
+              "insuranceMinMonths": 12,
+              "requiresLawfulStay": true
+            },
+            "family": {
+              "familyNormallyOutside": true,
+              "housingInsuranceStableIncome": true,
+              "renewable": true,
+              "sponsorPermitMinMonths": 12,
+              "spouseIsFamilyMember": true
+            }
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "al-law-79:act-pdf:020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+            "excerptSha256": "13fb84c3f77f9338c6a3c4cbe5fcc4fdf426112e14b10e7568a513947fe20652",
+            "locator": "Art. 3(1)"
+          },
+          "claimId": "al-law-79-facts-2",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-law-79",
+          "sourcePeriod": "cons-2025-07-14",
+          "status": "verified",
+          "value": {
+            "digitalWorker": {
+              "accommodation": true,
+              "contractTypes": [
+                "foreign_employment",
+                "foreign_service"
+              ],
+              "criminalRecords": "origin_and_residence",
+              "initialPermitMaxMonths": 12,
+              "insuranceMinMonths": 12,
+              "requiresLawfulStay": true
+            },
+            "family": {
+              "familyNormallyOutside": true,
+              "housingInsuranceStableIncome": true,
+              "renewable": true,
+              "sponsorPermitMinMonths": 12,
+              "spouseIsFamilyMember": true
+            }
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "al-law-79:act-pdf:020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+            "excerptSha256": "357da2e11e3b2504fd0579f273c110028b64095075cff64e6d8af14aee635529",
+            "locator": "Art. 41"
+          },
+          "claimId": "al-law-79-facts-3",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-law-79",
+          "sourcePeriod": "cons-2025-07-14",
+          "status": "verified",
+          "value": {
+            "digitalWorker": {
+              "accommodation": true,
+              "contractTypes": [
+                "foreign_employment",
+                "foreign_service"
+              ],
+              "criminalRecords": "origin_and_residence",
+              "initialPermitMaxMonths": 12,
+              "insuranceMinMonths": 12,
+              "requiresLawfulStay": true
+            },
+            "family": {
+              "familyNormallyOutside": true,
+              "housingInsuranceStableIncome": true,
+              "renewable": true,
+              "sponsorPermitMinMonths": 12,
+              "spouseIsFamilyMember": true
+            }
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "al-decision-858:act-pdf:137772488624fa856ca7f8323a19ac69aa244406ef4b87b42db658945e738016",
+            "excerptSha256": "9bc2495c9a760a61d4d31456ed0e2673c22a3171165625a8e0e68ee0592f13ca",
+            "locator": "Decision 858, amount"
+          },
+          "claimId": "al-decision-858-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-decision-858",
+          "sourcePeriod": "cons-2026-04-16",
+          "status": "verified",
+          "value": {
+            "availableAmount": "408000",
+            "currency": "ALL",
+            "generalRuleExceptionAnchored": true,
+            "headcountFormula": "not_stated",
+            "periodFormula": "not_stated",
+            "proof": "self_declaration",
+            "scope": "self_and_dependants"
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "al-decision-858:act-pdf:137772488624fa856ca7f8323a19ac69aa244406ef4b87b42db658945e738016",
+            "excerptSha256": "14a8472ceb964d63606828625ed27e0a70bab665a0992a8d432a614fe135b6a7",
+            "locator": "Decision 858, p.8"
+          },
+          "claimId": "al-decision-858-facts-2",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-decision-858",
+          "sourcePeriod": "cons-2026-04-16",
+          "status": "verified",
+          "value": {
+            "availableAmount": "408000",
+            "currency": "ALL",
+            "generalRuleExceptionAnchored": true,
+            "headcountFormula": "not_stated",
+            "periodFormula": "not_stated",
+            "proof": "self_declaration",
+            "scope": "self_and_dependants"
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "cbr-eur:official-document:f6fb85f18b0f987aa13c6ef1cabfee6d12a71357b22d3975fb67e59a7401af17",
+            "excerptSha256": "36243f35a45c9dfcd5fbd9cf5ac977f9dd9c8a04f027dcb4cca087f29d76b1c4",
+            "locator": "Valute[CharCode=EUR]"
+          },
+          "claimId": "cbr-eur-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "cbr-eur",
+          "sourcePeriod": "2026-08-08",
+          "status": "verified",
+          "value": {
+            "base": "EUR",
+            "effectiveDate": "2026-08-08",
+            "nominal": "1",
+            "quote": "RUB",
+            "rate": "94.8366"
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "boa-eur:official-document:8da787969f04a099c4b2308b0b53be992ce670e295351419cad3b7eeadefa6ad",
+            "excerptSha256": "634219c17090c1646b903c7bb9baf4c76a8961f9773f282f39b5d71393e3fa7c",
+            "locator": "table row EUR"
+          },
+          "claimId": "boa-eur-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "boa-eur",
+          "sourcePeriod": "2026-08-07",
+          "status": "verified",
+          "value": {
+            "base": "EUR",
+            "effectiveDate": "2026-08-07",
+            "quote": "ALL",
+            "rate": "93.19"
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "tirana-urban-lines:municipality-page:72f3607f2affe65d425a5fc6c6c755d063521c527963b441a9580f9e16347c82",
+            "excerptSha256": "79824d1520701ee346dab116b340adcf0ff43cbb111c220b36edc1961083f065",
+            "locator": "municipality page iframe"
+          },
+          "claimId": "tirana-urban-lines-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "tirana-urban-lines",
+          "sourcePeriod": "2026-08-08",
+          "status": "verified",
+          "value": {
+            "applicationTitle": "Transporti",
+            "checkedAt": "2026-08-08T16:58:22.728Z",
+            "layers": [
+              "Linjat Qytetase",
+              "Stacionet e Linjave Qytetase"
+            ],
+            "municipalUrbanRoutesMapPublished": true
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "tirana-urban-lines:municipal-gis-app:115551d79b79aabb3c9caf1ecf126bd2882dcbcd465dfa295a08b8442b957ed0",
+            "excerptSha256": "ff8a89466e6591a11094c1a01dd84e0ecf86403e210dc609142cd4f8d325bf53",
+            "locator": "visible WMS layers"
+          },
+          "claimId": "tirana-urban-lines-facts-2",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "tirana-urban-lines",
+          "sourcePeriod": "2026-08-08",
+          "status": "verified",
+          "value": {
+            "applicationTitle": "Transporti",
+            "checkedAt": "2026-08-08T16:58:22.728Z",
+            "layers": [
+              "Linjat Qytetase",
+              "Stacionet e Linjave Qytetase"
+            ],
+            "municipalUrbanRoutesMapPublished": true
+          }
+        }
+      ],
+      "blockers": [],
+      "artifacts": [
+        {
+          "artifactId": "al-decision-858:act-pdf:137772488624fa856ca7f8323a19ac69aa244406ef4b87b42db658945e738016",
+          "sourceId": "al-decision-858",
+          "role": "act-pdf",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/942499a2-f109-4fc6-8aa7-d2d78b7fa588/content",
+          "capturedAt": "2026-08-08T16:58:30.498Z",
+          "responseStatus": 200,
+          "mediaType": "application/pdf",
+          "byteLength": 23264873,
+          "sha256": "137772488624fa856ca7f8323a19ac69aa244406ef4b87b42db658945e738016",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-decision-858:alfresco-base-folder:596f617ba293f3ad36e64bb946ef6470ea2c769aff0dfa6d3dc2c3deb3d9e4ac",
+          "sourceId": "al-decision-858",
+          "role": "alfresco-base-folder",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/ee49e866-7321-43a9-ab6f-0d5ecc209c5f?include=path",
+          "capturedAt": "2026-08-08T16:58:22.497Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 1038,
+          "sha256": "596f617ba293f3ad36e64bb946ef6470ea2c769aff0dfa6d3dc2c3deb3d9e4ac",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-decision-858:alfresco-root-children:1917308fd4353f4baee6b588c415bfd00d113a70abfb0b1cf65ab30a1368a0c3",
+          "sourceId": "al-decision-858",
+          "role": "alfresco-root-children",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/fd5496d4-f861-4d1f-b6ec-dce8b9780014/children?include=path%2Cproperties&maxItems=1000&skipCount=0",
+          "capturedAt": "2026-08-08T16:58:22.727Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 11353,
+          "sha256": "1917308fd4353f4baee6b588c415bfd00d113a70abfb0b1cf65ab30a1368a0c3",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-decision-858:alfresco-search:59021d580df21ea99623ed3d044a0191eecbe408ddfd799be32e42479b2c8160",
+          "sourceId": "al-decision-858",
+          "role": "alfresco-search",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/search/versions/1/search",
+          "capturedAt": "2026-08-08T16:58:22.226Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 39977,
+          "sha256": "59021d580df21ea99623ed3d044a0191eecbe408ddfd799be32e42479b2c8160",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-decision-858:alfresco-version-children:22ecb9b2bddad19ef514b878b2fd23ae697a6bb9a15f2c19b02a0e1bb49f4641",
+          "sourceId": "al-decision-858",
+          "role": "alfresco-version-children",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/ad954c1b-9655-4bfb-ab57-eb85d1b42f5a/children?include=path%2Cproperties&maxItems=1000&skipCount=0",
+          "capturedAt": "2026-08-08T16:58:22.908Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 3307,
+          "sha256": "22ecb9b2bddad19ef514b878b2fd23ae697a6bb9a15f2c19b02a0e1bb49f4641",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:act-pdf:020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+          "sourceId": "al-law-79",
+          "role": "act-pdf",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/2eb73d6c-4d6c-4665-827e-02307371dac8/content",
+          "capturedAt": "2026-08-08T16:58:23.697Z",
+          "responseStatus": 200,
+          "mediaType": "application/pdf",
+          "byteLength": 469951,
+          "sha256": "020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:alfresco-base-folder:d982c852ef3f5d0757e023f2a2b72f764df5e7d5dbd8e54c45c7ba99beb2742f",
+          "sourceId": "al-law-79",
+          "role": "alfresco-base-folder",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/468e0185-69ff-4117-b844-37d1529a25c4?include=path",
+          "capturedAt": "2026-08-08T16:58:23.057Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 1030,
+          "sha256": "d982c852ef3f5d0757e023f2a2b72f764df5e7d5dbd8e54c45c7ba99beb2742f",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:alfresco-root-children:9ec6487d648c3a2ca0bae153a0329fefc1ec99098ae6b566486b2b27f9d20155",
+          "sourceId": "al-law-79",
+          "role": "alfresco-root-children",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/bcd20d38-719e-4764-bc68-6dd8b04bdccb/children?include=path%2Cproperties&maxItems=1000&skipCount=0",
+          "capturedAt": "2026-08-08T16:58:23.198Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 2128,
+          "sha256": "9ec6487d648c3a2ca0bae153a0329fefc1ec99098ae6b566486b2b27f9d20155",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:alfresco-search:57128ba853e53eb2cd3e9906f74336b0bef5ab4a9b95b70969ab29ac184ba639",
+          "sourceId": "al-law-79",
+          "role": "alfresco-search",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/search/versions/1/search",
+          "capturedAt": "2026-08-08T16:58:22.940Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 217717,
+          "sha256": "57128ba853e53eb2cd3e9906f74336b0bef5ab4a9b95b70969ab29ac184ba639",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:alfresco-version-children:1f9d4ffd923837b75d75d7cee2ce96ee89bc3894fd93ea3cb5e2efe79873cb4f",
+          "sourceId": "al-law-79",
+          "role": "alfresco-version-children",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/9e7cfadd-33d1-4a3c-b1fc-38919599752f/children?include=path%2Cproperties&maxItems=1000&skipCount=0",
+          "capturedAt": "2026-08-08T16:58:23.329Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 3088,
+          "sha256": "1f9d4ffd923837b75d75d7cee2ce96ee89bc3894fd93ea3cb5e2efe79873cb4f",
+          "sealed": true
+        },
+        {
+          "artifactId": "boa-eur:official-document:8da787969f04a099c4b2308b0b53be992ce670e295351419cad3b7eeadefa6ad",
+          "sourceId": "boa-eur",
+          "role": "official-document",
+          "responseUrl": "https://www.bankofalbania.org/Markets/Official_exchange_rate/",
+          "capturedAt": "2026-08-08T16:58:22.165Z",
+          "responseStatus": 200,
+          "mediaType": "text/html",
+          "byteLength": 69741,
+          "sha256": "8da787969f04a099c4b2308b0b53be992ce670e295351419cad3b7eeadefa6ad",
+          "sealed": true
+        },
+        {
+          "artifactId": "cbr-eur:official-document:f6fb85f18b0f987aa13c6ef1cabfee6d12a71357b22d3975fb67e59a7401af17",
+          "sourceId": "cbr-eur",
+          "role": "official-document",
+          "responseUrl": "https://www.cbr.ru/scripts/XML_daily.asp",
+          "capturedAt": "2026-08-08T16:58:21.779Z",
+          "responseStatus": 200,
+          "mediaType": "application/xml",
+          "byteLength": 9514,
+          "sha256": "f6fb85f18b0f987aa13c6ef1cabfee6d12a71357b22d3975fb67e59a7401af17",
+          "sealed": true
+        },
+        {
+          "artifactId": "tirana-urban-lines:municipal-gis-app:115551d79b79aabb3c9caf1ecf126bd2882dcbcd465dfa295a08b8442b957ed0",
+          "sourceId": "tirana-urban-lines",
+          "role": "municipal-gis-app",
+          "responseUrl": "https://gis.tirana.al/NexusPublicPortal/PublicPortal/AppCreator/ViewApplication/8c5d9f93-7156-4708-bdef-1aea93b95d4e?mode=iframe&culture=en",
+          "capturedAt": "2026-08-08T16:58:22.728Z",
+          "responseStatus": 200,
+          "mediaType": "text/html",
+          "byteLength": 50424,
+          "sha256": "115551d79b79aabb3c9caf1ecf126bd2882dcbcd465dfa295a08b8442b957ed0",
+          "sealed": true
+        },
+        {
+          "artifactId": "tirana-urban-lines:municipality-page:72f3607f2affe65d425a5fc6c6c755d063521c527963b441a9580f9e16347c82",
+          "sourceId": "tirana-urban-lines",
+          "role": "municipality-page",
+          "responseUrl": "https://tirana.al/pikat-e-interesit/linjat-urbane",
+          "capturedAt": "2026-08-08T16:58:22.145Z",
+          "responseStatus": 200,
+          "mediaType": "text/html",
+          "byteLength": 72393,
+          "sha256": "72f3607f2affe65d425a5fc6c6c755d063521c527963b441a9580f9e16347c82",
+          "sealed": true
+        }
+      ]
+    },
+    "c0CommitId": "34fcbb2e6a39ef01b21cc04287cd1c732e4feb3a9948e23449ee35ecf6fe81bc",
+    "replay": {
+      "equal": true,
+      "digest": "b6c5a544ca7fe4b4ec591218fc72e5280085254d7946294e92cf99bf91dacb46",
+      "tamperRejected": true
+    },
+    "requestAttempts": {
+      "al-law-79": 5,
+      "al-decision-858": 5,
+      "cbr-eur": 1,
+      "boa-eur": 1,
+      "tirana-urban-lines": 2
+    },
+    "latencyMs": 9136
+  },
+  "outage": {
+    "runId": "run-23f2292f-1818-4c27-9f26-7ceb5c42dadd",
+    "evidenceSnapshotId": "run-23f2292f-1818-4c27-9f26-7ceb5c42dadd:evidence",
+    "marker": "yellow",
+    "blockerKind": "server_error",
+    "requestAttempts": {
+      "al-law-79": 5,
+      "al-decision-858": 5,
+      "cbr-eur": 2,
+      "boa-eur": 1,
+      "tirana-urban-lines": 2
+    },
+    "latencyMs": 10541,
+    "recoveryLatencyMs": 9136,
+    "sealedEvidence": {
+      "snapshotId": "run-23f2292f-1818-4c27-9f26-7ceb5c42dadd:evidence",
+      "manifestHash": "330feed8b97e7b86f515143c56b8d1beb611109b4ee6820fcdb4f21c41f80cf7",
+      "parserVersions": {
+        "al-decision-858": "decision-858@1",
+        "al-law-79": "law-79@1",
+        "boa-eur": "boa-eur@1",
+        "cbr-eur": "cbr-eur@1",
+        "tirana-urban-lines": "tirana-urban-lines@1"
+      },
+      "rulesVersion": "vs1-evidence@1",
+      "coverage": {
+        "al-decision-858": "verified",
+        "al-law-79": "verified",
+        "boa-eur": "verified",
+        "cbr-eur": "unavailable",
+        "tirana-urban-lines": "verified"
+      },
+      "claims": [
+        {
+          "anchor": {
+            "artifactId": "al-law-79:act-pdf:020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+            "excerptSha256": "cd15548fe43ac4f1855c72b99b95c9f6b4ef7070692b06ae0dec855eb9a001d3",
+            "locator": "Art. 68"
+          },
+          "claimId": "al-law-79-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-law-79",
+          "sourcePeriod": "cons-2025-07-14",
+          "status": "verified",
+          "value": {
+            "digitalWorker": {
+              "accommodation": true,
+              "contractTypes": [
+                "foreign_employment",
+                "foreign_service"
+              ],
+              "criminalRecords": "origin_and_residence",
+              "initialPermitMaxMonths": 12,
+              "insuranceMinMonths": 12,
+              "requiresLawfulStay": true
+            },
+            "family": {
+              "familyNormallyOutside": true,
+              "housingInsuranceStableIncome": true,
+              "renewable": true,
+              "sponsorPermitMinMonths": 12,
+              "spouseIsFamilyMember": true
+            }
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "al-law-79:act-pdf:020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+            "excerptSha256": "13fb84c3f77f9338c6a3c4cbe5fcc4fdf426112e14b10e7568a513947fe20652",
+            "locator": "Art. 3(1)"
+          },
+          "claimId": "al-law-79-facts-2",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-law-79",
+          "sourcePeriod": "cons-2025-07-14",
+          "status": "verified",
+          "value": {
+            "digitalWorker": {
+              "accommodation": true,
+              "contractTypes": [
+                "foreign_employment",
+                "foreign_service"
+              ],
+              "criminalRecords": "origin_and_residence",
+              "initialPermitMaxMonths": 12,
+              "insuranceMinMonths": 12,
+              "requiresLawfulStay": true
+            },
+            "family": {
+              "familyNormallyOutside": true,
+              "housingInsuranceStableIncome": true,
+              "renewable": true,
+              "sponsorPermitMinMonths": 12,
+              "spouseIsFamilyMember": true
+            }
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "al-law-79:act-pdf:020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+            "excerptSha256": "357da2e11e3b2504fd0579f273c110028b64095075cff64e6d8af14aee635529",
+            "locator": "Art. 41"
+          },
+          "claimId": "al-law-79-facts-3",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-law-79",
+          "sourcePeriod": "cons-2025-07-14",
+          "status": "verified",
+          "value": {
+            "digitalWorker": {
+              "accommodation": true,
+              "contractTypes": [
+                "foreign_employment",
+                "foreign_service"
+              ],
+              "criminalRecords": "origin_and_residence",
+              "initialPermitMaxMonths": 12,
+              "insuranceMinMonths": 12,
+              "requiresLawfulStay": true
+            },
+            "family": {
+              "familyNormallyOutside": true,
+              "housingInsuranceStableIncome": true,
+              "renewable": true,
+              "sponsorPermitMinMonths": 12,
+              "spouseIsFamilyMember": true
+            }
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "al-decision-858:act-pdf:137772488624fa856ca7f8323a19ac69aa244406ef4b87b42db658945e738016",
+            "excerptSha256": "9bc2495c9a760a61d4d31456ed0e2673c22a3171165625a8e0e68ee0592f13ca",
+            "locator": "Decision 858, amount"
+          },
+          "claimId": "al-decision-858-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-decision-858",
+          "sourcePeriod": "cons-2026-04-16",
+          "status": "verified",
+          "value": {
+            "availableAmount": "408000",
+            "currency": "ALL",
+            "generalRuleExceptionAnchored": true,
+            "headcountFormula": "not_stated",
+            "periodFormula": "not_stated",
+            "proof": "self_declaration",
+            "scope": "self_and_dependants"
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "al-decision-858:act-pdf:137772488624fa856ca7f8323a19ac69aa244406ef4b87b42db658945e738016",
+            "excerptSha256": "14a8472ceb964d63606828625ed27e0a70bab665a0992a8d432a614fe135b6a7",
+            "locator": "Decision 858, p.8"
+          },
+          "claimId": "al-decision-858-facts-2",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "al-decision-858",
+          "sourcePeriod": "cons-2026-04-16",
+          "status": "verified",
+          "value": {
+            "availableAmount": "408000",
+            "currency": "ALL",
+            "generalRuleExceptionAnchored": true,
+            "headcountFormula": "not_stated",
+            "periodFormula": "not_stated",
+            "proof": "self_declaration",
+            "scope": "self_and_dependants"
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "boa-eur:official-document:08edbeea59b30b80461f372bbe0d4f419ad0d7afc839d70eb4d3372fd8a67dbd",
+            "excerptSha256": "634219c17090c1646b903c7bb9baf4c76a8961f9773f282f39b5d71393e3fa7c",
+            "locator": "table row EUR"
+          },
+          "claimId": "boa-eur-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "boa-eur",
+          "sourcePeriod": "2026-08-07",
+          "status": "verified",
+          "value": {
+            "base": "EUR",
+            "effectiveDate": "2026-08-07",
+            "quote": "ALL",
+            "rate": "93.19"
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "tirana-urban-lines:municipality-page:be9b6be60fcea08c4aa4b69cf018a0b5c4bde93632948ac5e56e81e2ec28c78a",
+            "excerptSha256": "79824d1520701ee346dab116b340adcf0ff43cbb111c220b36edc1961083f065",
+            "locator": "municipality page iframe"
+          },
+          "claimId": "tirana-urban-lines-facts-1",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "tirana-urban-lines",
+          "sourcePeriod": "2026-08-08",
+          "status": "verified",
+          "value": {
+            "applicationTitle": "Transporti",
+            "checkedAt": "2026-08-08T16:58:15.747Z",
+            "layers": [
+              "Linjat Qytetase",
+              "Stacionet e Linjave Qytetase"
+            ],
+            "municipalUrbanRoutesMapPublished": true
+          }
+        },
+        {
+          "anchor": {
+            "artifactId": "tirana-urban-lines:municipal-gis-app:f7b9d901a9bc148a35a0a3307dbbee802a0be322fc4b63c58d98f94f490f2acc",
+            "excerptSha256": "ff8a89466e6591a11094c1a01dd84e0ecf86403e210dc609142cd4f8d325bf53",
+            "locator": "visible WMS layers"
+          },
+          "claimId": "tirana-urban-lines-facts-2",
+          "scope": "VS-1 confirmed-life",
+          "sourceId": "tirana-urban-lines",
+          "sourcePeriod": "2026-08-08",
+          "status": "verified",
+          "value": {
+            "applicationTitle": "Transporti",
+            "checkedAt": "2026-08-08T16:58:15.747Z",
+            "layers": [
+              "Linjat Qytetase",
+              "Stacionet e Linjave Qytetase"
+            ],
+            "municipalUrbanRoutesMapPublished": true
+          }
+        }
+      ],
+      "blockers": [
+        {
+          "artifactIds": [],
+          "kind": "server_error",
+          "navigationUrl": "https://www.cbr.ru/scripts/XML_daily.asp",
+          "sourceId": "cbr-eur"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifactId": "al-decision-858:act-pdf:137772488624fa856ca7f8323a19ac69aa244406ef4b87b42db658945e738016",
+          "sourceId": "al-decision-858",
+          "role": "act-pdf",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/942499a2-f109-4fc6-8aa7-d2d78b7fa588/content",
+          "capturedAt": "2026-08-08T16:58:21.332Z",
+          "responseStatus": 200,
+          "mediaType": "application/pdf",
+          "byteLength": 23264873,
+          "sha256": "137772488624fa856ca7f8323a19ac69aa244406ef4b87b42db658945e738016",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-decision-858:alfresco-base-folder:596f617ba293f3ad36e64bb946ef6470ea2c769aff0dfa6d3dc2c3deb3d9e4ac",
+          "sourceId": "al-decision-858",
+          "role": "alfresco-base-folder",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/ee49e866-7321-43a9-ab6f-0d5ecc209c5f?include=path",
+          "capturedAt": "2026-08-08T16:58:12.308Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 1038,
+          "sha256": "596f617ba293f3ad36e64bb946ef6470ea2c769aff0dfa6d3dc2c3deb3d9e4ac",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-decision-858:alfresco-root-children:1917308fd4353f4baee6b588c415bfd00d113a70abfb0b1cf65ab30a1368a0c3",
+          "sourceId": "al-decision-858",
+          "role": "alfresco-root-children",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/fd5496d4-f861-4d1f-b6ec-dce8b9780014/children?include=path%2Cproperties&maxItems=1000&skipCount=0",
+          "capturedAt": "2026-08-08T16:58:12.541Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 11353,
+          "sha256": "1917308fd4353f4baee6b588c415bfd00d113a70abfb0b1cf65ab30a1368a0c3",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-decision-858:alfresco-search:59021d580df21ea99623ed3d044a0191eecbe408ddfd799be32e42479b2c8160",
+          "sourceId": "al-decision-858",
+          "role": "alfresco-search",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/search/versions/1/search",
+          "capturedAt": "2026-08-08T16:58:12.146Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 39977,
+          "sha256": "59021d580df21ea99623ed3d044a0191eecbe408ddfd799be32e42479b2c8160",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-decision-858:alfresco-version-children:22ecb9b2bddad19ef514b878b2fd23ae697a6bb9a15f2c19b02a0e1bb49f4641",
+          "sourceId": "al-decision-858",
+          "role": "alfresco-version-children",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/ad954c1b-9655-4bfb-ab57-eb85d1b42f5a/children?include=path%2Cproperties&maxItems=1000&skipCount=0",
+          "capturedAt": "2026-08-08T16:58:12.703Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 3307,
+          "sha256": "22ecb9b2bddad19ef514b878b2fd23ae697a6bb9a15f2c19b02a0e1bb49f4641",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:act-pdf:020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+          "sourceId": "al-law-79",
+          "role": "act-pdf",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/2eb73d6c-4d6c-4665-827e-02307371dac8/content",
+          "capturedAt": "2026-08-08T16:58:13.774Z",
+          "responseStatus": 200,
+          "mediaType": "application/pdf",
+          "byteLength": 469951,
+          "sha256": "020785583d49c7d99bcf05b9c77972662ad6a5b7bb3411eea6faf1f58864257c",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:alfresco-base-folder:d982c852ef3f5d0757e023f2a2b72f764df5e7d5dbd8e54c45c7ba99beb2742f",
+          "sourceId": "al-law-79",
+          "role": "alfresco-base-folder",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/468e0185-69ff-4117-b844-37d1529a25c4?include=path",
+          "capturedAt": "2026-08-08T16:58:13.057Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 1030,
+          "sha256": "d982c852ef3f5d0757e023f2a2b72f764df5e7d5dbd8e54c45c7ba99beb2742f",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:alfresco-root-children:9ec6487d648c3a2ca0bae153a0329fefc1ec99098ae6b566486b2b27f9d20155",
+          "sourceId": "al-law-79",
+          "role": "alfresco-root-children",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/bcd20d38-719e-4764-bc68-6dd8b04bdccb/children?include=path%2Cproperties&maxItems=1000&skipCount=0",
+          "capturedAt": "2026-08-08T16:58:13.247Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 2128,
+          "sha256": "9ec6487d648c3a2ca0bae153a0329fefc1ec99098ae6b566486b2b27f9d20155",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:alfresco-search:57128ba853e53eb2cd3e9906f74336b0bef5ab4a9b95b70969ab29ac184ba639",
+          "sourceId": "al-law-79",
+          "role": "alfresco-search",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/search/versions/1/search",
+          "capturedAt": "2026-08-08T16:58:12.949Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 217717,
+          "sha256": "57128ba853e53eb2cd3e9906f74336b0bef5ab4a9b95b70969ab29ac184ba639",
+          "sealed": true
+        },
+        {
+          "artifactId": "al-law-79:alfresco-version-children:1f9d4ffd923837b75d75d7cee2ce96ee89bc3894fd93ea3cb5e2efe79873cb4f",
+          "sourceId": "al-law-79",
+          "role": "alfresco-version-children",
+          "responseUrl": "https://qbz.gov.al/alfresco/api/-default-/public/alfresco/versions/1/nodes/9e7cfadd-33d1-4a3c-b1fc-38919599752f/children?include=path%2Cproperties&maxItems=1000&skipCount=0",
+          "capturedAt": "2026-08-08T16:58:13.397Z",
+          "responseStatus": 200,
+          "mediaType": "application/json",
+          "byteLength": 3088,
+          "sha256": "1f9d4ffd923837b75d75d7cee2ce96ee89bc3894fd93ea3cb5e2efe79873cb4f",
+          "sealed": true
+        },
+        {
+          "artifactId": "boa-eur:official-document:08edbeea59b30b80461f372bbe0d4f419ad0d7afc839d70eb4d3372fd8a67dbd",
+          "sourceId": "boa-eur",
+          "role": "official-document",
+          "responseUrl": "https://www.bankofalbania.org/Markets/Official_exchange_rate/",
+          "capturedAt": "2026-08-08T16:58:11.550Z",
+          "responseStatus": 200,
+          "mediaType": "text/html",
+          "byteLength": 69741,
+          "sha256": "08edbeea59b30b80461f372bbe0d4f419ad0d7afc839d70eb4d3372fd8a67dbd",
+          "sealed": true
+        },
+        {
+          "artifactId": "tirana-urban-lines:municipal-gis-app:f7b9d901a9bc148a35a0a3307dbbee802a0be322fc4b63c58d98f94f490f2acc",
+          "sourceId": "tirana-urban-lines",
+          "role": "municipal-gis-app",
+          "responseUrl": "https://gis.tirana.al/NexusPublicPortal/PublicPortal/AppCreator/ViewApplication/8c5d9f93-7156-4708-bdef-1aea93b95d4e?mode=iframe&culture=en",
+          "capturedAt": "2026-08-08T16:58:15.747Z",
+          "responseStatus": 200,
+          "mediaType": "text/html",
+          "byteLength": 50424,
+          "sha256": "f7b9d901a9bc148a35a0a3307dbbee802a0be322fc4b63c58d98f94f490f2acc",
+          "sealed": true
+        },
+        {
+          "artifactId": "tirana-urban-lines:municipality-page:be9b6be60fcea08c4aa4b69cf018a0b5c4bde93632948ac5e56e81e2ec28c78a",
+          "sourceId": "tirana-urban-lines",
+          "role": "municipality-page",
+          "responseUrl": "https://tirana.al/pikat-e-interesit/linjat-urbane",
+          "capturedAt": "2026-08-08T16:58:13.518Z",
+          "responseStatus": 200,
+          "mediaType": "text/html",
+          "byteLength": 72393,
+          "sha256": "be9b6be60fcea08c4aa4b69cf018a0b5c4bde93632948ac5e56e81e2ec28c78a",
+          "sealed": true
+        }
+      ]
+    }
+  },
+  "observed": {
+    "totalNetworkRequests": 29,
+    "llmCalls": 0,
+    "sourceFees": "not_metered",
+    "demoVerified": false
+  }
+}
