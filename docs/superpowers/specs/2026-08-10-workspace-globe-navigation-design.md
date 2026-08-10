@@ -50,9 +50,16 @@ Rail expansion is local presentation state and does not mutate a confirmed run. 
 
 Reduced-motion users receive an immediate column-size change or minimal transition, while the globe's existing reduced-motion handling remains active.
 
+## Icon System
+
+Use only `@phosphor-icons/react@2.1.10` for interface icons. Navigation, destination traits, status indicators, disclosure controls, retry actions, and route actions use explicit tree-shakeable imports from this package; Unicode glyphs and hand-mixed icon styles are removed.
+
+Standard interface icons use the regular Phosphor weight. Active navigation and high-priority statuses may use the duotone weight, while compact metadata uses the same regular geometry at a smaller size. Decorative icons are hidden from assistive technology; icon-only buttons carry their accessible name on the button.
+
 ## Verification
 
 - Component tests cover collapsed/expanded rail semantics and the single shared globe instance.
+- Component tests cover the Phosphor icon mapping and prohibit legacy Unicode navigation/status glyphs.
 - Visual CSS contracts cover the `80px` and expanded grid columns, full-workspace globe layer, glass panels, and mobile bottom navigation.
 - Existing journey, retry, branch, and evidence tests remain green.
 - Browser QA checks desktop collapsed/expanded movement, a fresh external-browser URL, tablet, mobile, WebGL fallback, and console errors.
