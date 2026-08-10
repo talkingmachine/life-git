@@ -111,6 +111,12 @@ describe("journey action pending states", () => {
     actionMocks.startConfirmedLife.mockReturnValue(started.promise);
     render(<Vs1Start />);
 
+    expect(screen.getByRole("heading", { name: /настройте сценарий/i })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /ресурсы/i })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /занятость/i })).toBeTruthy();
+    expect(screen.getByRole("group", { name: /состав переезда/i })).toBeTruthy();
+    expect(screen.getByRole("region", { name: /резюме сценария/i })).toBeTruthy();
+    expect((screen.getByRole("button", { name: /начать проверку/i }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("region", { name: /карта проверки маршрута/i })).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: /доход продолжает.*12 месяцев/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /законное пребывание.*предварительное условие/i }));
