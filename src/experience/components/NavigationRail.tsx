@@ -1,5 +1,7 @@
 "use client";
 
+import { UiIcon } from "./UiIcon";
+
 export type CommandCenterDestination =
   | "overview"
   | "research"
@@ -9,22 +11,28 @@ export type CommandCenterDestination =
 
 interface NavigationRailProps {
   readonly activeDestination: CommandCenterDestination;
+  readonly expanded: boolean;
   readonly onDestinationChange: (destination: CommandCenterDestination) => void;
+  readonly onExpandedChange: (expanded: boolean) => void;
 }
 
 const destinations: readonly {
-  readonly icon: string;
   readonly id: CommandCenterDestination;
   readonly label: string;
 }[] = [
-  { id: "overview", label: "Обзор", icon: "◉" },
-  { id: "research", label: "Проверка", icon: "⌕" },
-  { id: "branch", label: "Ветка", icon: "⑂" },
-  { id: "life-git", label: "Life Git", icon: "⌘" },
-  { id: "sources", label: "Источники", icon: "▤" },
+  { id: "overview", label: "Обзор" },
+  { id: "research", label: "Проверка" },
+  { id: "branch", label: "Ветка" },
+  { id: "life-git", label: "Life Git" },
+  { id: "sources", label: "Источники" },
 ];
 
-export function NavigationRail({ activeDestination, onDestinationChange }: NavigationRailProps) {
+export function NavigationRail({
+  activeDestination,
+  expanded,
+  onDestinationChange,
+  onExpandedChange,
+}: NavigationRailProps) {
   return (
     <nav aria-label="Основная навигация" className="navigation-rail navigation-rail--responsive">
       <ul className="navigation-rail__destinations">
@@ -40,13 +48,26 @@ export function NavigationRail({ activeDestination, onDestinationChange }: Navig
                 onClick={() => onDestinationChange(destination.id)}
                 type="button"
               >
-                <span aria-hidden="true" className="navigation-rail__icon">{destination.icon}</span>
-                <span className="navigation-rail__label visually-hidden">{destination.label}</span>
+                <UiIcon className="navigation-rail__icon" name={destination.id} />
+                <span
+                  className={`navigation-rail__label${expanded ? " navigation-rail__label--expanded" : " visually-hidden"}`}
+                >
+                  {destination.label}
+                </span>
               </button>
             </li>
           );
         })}
       </ul>
+      <button
+        aria-expanded={expanded}
+        aria-label={expanded ? "Свернуть навигацию" : "Раскрыть навигацию"}
+        className="navigation-rail__toggle"
+        onClick={() => onExpandedChange(!expanded)}
+        type="button"
+      >
+        <UiIcon name="rail-toggle" />
+      </button>
     </nav>
   );
 }

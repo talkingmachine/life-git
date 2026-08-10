@@ -77,15 +77,12 @@ describe("calm command center visual contracts", () => {
     expect(blur).toMatch(/blur\((?:1[8-9]|[2-9][0-9])px\)/);
   });
 
-  it("keeps the desktop rail icon-only and reserves the right side for city detail", () => {
+  it("uses the exact collapsed and expanded desktop rail widths", () => {
     const shell = rule(css, ".product-shell");
-    const overview = rule(css, ".overview-workspace--orbit");
-    const details = rule(css, ".destination-detail-panel");
 
-    expect(declaration(shell, "grid-template-columns")).toMatch(/(?:7[2-9]|8[0-8])px/);
-    expect(declaration(overview, "position")).toBe("relative");
-    expect(declaration(details, "position")).toBe("absolute");
-    expect(declaration(details, "right")).not.toBe("0");
+    expect(declaration(shell, "grid-template-columns")).toBe("80px minmax(0, 1fr)");
+    expect(declaration(rule(css, '.product-shell[data-rail-expanded="true"]'), "grid-template-columns"))
+      .toBe("240px minmax(0, 1fr)");
   });
 
   it("keeps bottom panels and city detail in separate desktop zones", () => {

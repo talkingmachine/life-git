@@ -177,6 +177,12 @@ pre {
   min-height: 100svh;
   display: grid;
   grid-template-columns: 80px minmax(0, 1fr);
+  background: #061014;
+  transition: grid-template-columns 240ms cubic-bezier(0.2, 0.75, 0.2, 1);
+}
+
+.product-shell[data-rail-expanded="true"] {
+  grid-template-columns: 240px minmax(0, 1fr);
 }
 
 .product-shell[data-setup="true"] {
@@ -188,6 +194,8 @@ pre {
   top: 0;
   z-index: 30;
   height: 100svh;
+  display: flex;
+  flex-direction: column;
   padding: 1rem 0.65rem;
   background: var(--rail);
   box-shadow: 18px 0 40px rgba(34, 58, 65, 0.08);
@@ -261,9 +269,27 @@ pre {
   white-space: nowrap;
 }
 
+.navigation-rail__toggle {
+  width: 100%;
+  min-height: 46px;
+  display: grid;
+  margin-top: auto;
+  place-items: center;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #7b898e;
+}
+
+.navigation-rail__toggle:hover:not(:disabled) {
+  background: rgba(159, 51, 75, 0.1);
+  color: var(--accent);
+}
+
 .product-shell__workspace {
   position: relative;
   min-width: 0;
+  min-height: 100svh;
   overflow: clip;
   isolation: isolate;
 }
@@ -1671,10 +1697,6 @@ input[type="checkbox"] {
 }
 
 @media (min-width: 720px) and (max-width: 1099px) {
-  .product-shell {
-    grid-template-columns: 88px minmax(0, 1fr);
-  }
-
   .navigation-rail {
     padding-inline: 0.45rem;
   }
@@ -1771,6 +1793,10 @@ input[type="checkbox"] {
     display: none;
   }
 
+  .navigation-rail__toggle {
+    display: none;
+  }
+
   .navigation-rail__destinations {
     height: 100%;
     display: grid;
@@ -1795,6 +1821,17 @@ input[type="checkbox"] {
 
   .navigation-rail__label {
     width: 100%;
+  }
+
+  .navigation-rail__label--expanded {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
   }
 
   .context-bar {
@@ -2017,6 +2054,10 @@ input[type="checkbox"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .product-shell {
+    transition: none;
+  }
+
   *,
   *::before,
   *::after {

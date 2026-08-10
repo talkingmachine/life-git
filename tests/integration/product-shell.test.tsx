@@ -11,10 +11,10 @@ import {
 afterEach(cleanup);
 
 const statusCases = [
-  { status: "pending", icon: "…", label: "Идёт проверка" },
-  { status: "green", icon: "✓", label: "Подтверждено в scope" },
-  { status: "yellow", icon: "!", label: "Нужно уточнить" },
-  { status: "red", icon: "×", label: "Не подходит" },
+  { status: "pending", icon: "status-pending", label: "Идёт проверка" },
+  { status: "green", icon: "status-green", label: "Подтверждено в scope" },
+  { status: "yellow", icon: "status-yellow", label: "Нужно уточнить" },
+  { status: "red", icon: "status-red", label: "Не подходит" },
 ] satisfies readonly {
   readonly status: CommandCenterStatus;
   readonly icon: string;
@@ -35,7 +35,7 @@ describe("responsive product shell", () => {
 
     const badge = screen.getByRole("status");
     const statusIcon = badge.querySelector(".context-bar__status-icon");
-    expect(statusIcon?.textContent).toBe(icon);
+    expect(statusIcon?.getAttribute("data-icon")).toBe(icon);
     expect(statusIcon?.getAttribute("aria-hidden")).toBe("true");
     expect(within(badge).getByText(label)).toBeTruthy();
     expect(badge.textContent?.trim()).toContain(label);
@@ -69,7 +69,9 @@ describe("responsive product shell", () => {
     expect(screen.getByText("06.08.2026")).toBeTruthy();
     expect(screen.getAllByText(/подтверждено/i).length).toBeGreaterThan(0);
 
-    const controls = within(navigation).getAllByRole("button");
+    const controls = within(navigation)
+      .getAllByRole("button")
+      .filter((control) => control.dataset.destination !== undefined);
     expect(controls.map((control) => control.dataset.destination)).toEqual([
       "overview",
       "research",
@@ -85,11 +87,34 @@ describe("responsive product shell", () => {
       "Источники",
     ]);
     for (const control of controls) {
-      expect(control.querySelector('[aria-hidden="true"]')).toBeTruthy();
+      expect(control.querySelector('[data-icon]')).toBeTruthy();
       expect(control.getAttribute("aria-label")?.trim().length).toBeGreaterThan(0);
       expect(control.querySelector(".navigation-rail__label")?.classList.contains("visually-hidden")).toBe(true);
       expect(control.querySelector(".navigation-rail__label")?.textContent?.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  it("expands the navigation rail while retaining accessible destination names", () => {
+    const shell = render(
+      <ProductShell
+        activeDestination="overview"
+        context={{ route: "Россия → Тирана", branch: "C0", snapshot: "06.08.2026", status: "green" }}
+        onDestinationChange={() => undefined}
+      >
+        Workspace
+      </ProductShell>,
+    );
+
+    const toggle = screen.getByRole("button", { name: /раскрыть навигацию/i });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(shell.container.querySelector(".product-shell")?.getAttribute("data-rail-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: /обзор/i }).querySelector('[data-icon="overview"]')).toBeTruthy();
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByRole("button", { name: /свернуть навигацию/i }).getAttribute("aria-expanded")).toBe("true");
+    expect(shell.container.querySelector(".product-shell")?.getAttribute("data-rail-expanded")).toBe("true");
+    expect(screen.getByText("Обзор").classList.contains("visually-hidden")).toBe(false);
   });
 
   it("keeps one shared globe before active workspace content when destinations change", () => {
