@@ -26,7 +26,7 @@ import { EvidencePassport } from "../../src/experience/components/EvidencePasspo
 import { LifeBranch } from "../../src/experience/components/LifeBranch";
 import { LifeGitDiff } from "../../src/experience/components/LifeGitDiff";
 import { ProfileCard } from "../../src/experience/components/ProfileCard";
-import { ResearchMap } from "../../src/experience/components/ResearchMap";
+import { ResearchWorkspace } from "../../src/experience/components/ResearchWorkspace";
 import { SourcesWorkspace } from "../../src/experience/components/SourcesWorkspace";
 import { Vs1Journey } from "../../src/experience/components/Vs1Journey";
 import { createJourneyView, groupEvidenceItems } from "../../src/experience/view-model";
@@ -164,9 +164,9 @@ describe("confirmed-life visual journey", () => {
     expect(screen.queryByText(/спутник.*поэтапно/i)).toBeNull();
   });
 
-  it("shows a gray pending map scoped to the single Russia to Tirana candidate", () => {
+  it("shows gray pending status panels scoped to the single Russia to Tirana candidate", () => {
     render(
-      <ResearchMap
+      <ResearchWorkspace
         mode="pending"
         candidates={[
           {
@@ -179,17 +179,17 @@ describe("confirmed-life visual journey", () => {
       />,
     );
 
-    const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-    expect(map.getAttribute("data-tone")).toBe("gray");
-    expect(map.getAttribute("data-scope")).toBe("single-candidate");
-    expect(within(within(map).getByRole("list", { name: /кандидаты маршрута/i }))
+    const research = screen.getByRole("region", { name: /проверка маршрута/i });
+    expect(research.getAttribute("data-tone")).toBe("gray");
+    expect(research.getAttribute("data-scope")).toBe("single-candidate");
+    expect(within(within(research).getByRole("list", { name: /кандидаты маршрута/i }))
       .getAllByRole("listitem")).toHaveLength(1);
-    expect(within(map).getByRole("img", { name: /самолёт/i })).toBeTruthy();
-    expect(within(within(map).getByRole("list", { name: /кандидаты маршрута/i }))
+    expect(within(within(research).getByRole("list", { name: /кандидаты маршрута/i }))
       .getByText(/Россия.*Тирана/i)).toBeTruthy();
-    expect(within(map).getByText("Проверка")).toBeTruthy();
-    expect(within(map).getByRole("status", { name: /идёт проверка/i })).toBeTruthy();
-    const progress = within(map).getByRole("region", { name: /ход проверки/i });
+    expect(research.querySelector('img[src="/world-map.svg"]')).toBeNull();
+    expect(within(research).queryByRole("img", { name: /самолёт/i })).toBeNull();
+    expect(within(research).getByText("Проверка")).toBeTruthy();
+    const progress = within(research).getByRole("region", { name: /ход проверки/i });
     expect(within(progress).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "Профиль подтверждён",
       "Официальные источники проверяются",
@@ -199,9 +199,9 @@ describe("confirmed-life visual journey", () => {
       .toBeTruthy();
   });
 
-  it("collapses a green result without leaving a map popover", () => {
+  it("collapses a green result without leaving foreground detail panels", () => {
     render(
-      <ResearchMap
+      <ResearchWorkspace
         mode="green"
         candidates={[{
           id: "tirana",
@@ -212,13 +212,13 @@ describe("confirmed-life visual journey", () => {
       />,
     );
 
-    const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-    expect(map.getAttribute("data-collapsed")).toBe("true");
-    expect(within(map).getByText(/маршрут предварительно совместим/i)).toBeTruthy();
-    expect(within(map).getByText(/Тирана.*проверено в заявленном scope/i)).toBeTruthy();
-    expect(within(map).queryByText(/Тирана подтверждена/i)).toBeNull();
-    expect(within(map).queryByRole("img", { name: /самолёт/i })).toBeNull();
-    expect(within(map).queryByRole("dialog")).toBeNull();
+    const research = screen.getByRole("region", { name: /проверка маршрута/i });
+    expect(research.getAttribute("data-collapsed")).toBe("true");
+    expect(within(research).getByText(/маршрут предварительно совместим/i)).toBeTruthy();
+    expect(within(research).getByText(/Тирана.*проверено в заявленном scope/i)).toBeTruthy();
+    expect(within(research).queryByText(/Тирана подтверждена/i)).toBeNull();
+    expect(within(research).queryByRole("img", { name: /самолёт/i })).toBeNull();
+    expect(within(research).queryByRole("dialog")).toBeNull();
   });
 
   it.each([
@@ -226,7 +226,7 @@ describe("confirmed-life visual journey", () => {
     ["red", " ", "Доход зависит только от местного работодателя"],
   ] as const)("reveals a concise official-linked %s reason from the native marker button", (status, _key, reason) => {
     render(
-      <ResearchMap
+      <ResearchWorkspace
         mode={status}
         candidates={[{
           id: "tirana",
@@ -363,7 +363,7 @@ describe("confirmed-life visual journey", () => {
       summary: "Поступление дохода в течение двенадцати месяцев не подтверждено",
     });
 
-    render(<ResearchMap candidates={[declinedCondition.candidate]} mode="yellow" />);
+    render(<ResearchWorkspace candidates={[declinedCondition.candidate]} mode="yellow" />);
     fireEvent.click(screen.getByRole("button", { name: /Тирана.*уточнить/i }));
     expect(screen.getByText(/поступление дохода.*не подтверждено/i)).toBeTruthy();
     expect(screen.queryByRole("link", { name: /официальный источник/i })).toBeNull();
@@ -374,7 +374,7 @@ describe("confirmed-life visual journey", () => {
     const before = JSON.stringify(oldRun);
 
     render(
-      <ResearchMap
+      <ResearchWorkspace
         mode="yellow"
         previousRun={oldRun}
         onRetry={() => undefined}
@@ -1175,9 +1175,9 @@ describe("confirmed-life visual journey", () => {
     render(<Vs1Journey details={serialized} />);
 
     expect(screen.getByRole("button", { name: /проверка/i }).getAttribute("aria-current")).toBe("page");
-    const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-    expect(within(map).getAllByRole("listitem")).toHaveLength(1);
-    expect(within(map).getByRole("button", { name: /Тирана.*уточнить/i })).toBeTruthy();
+    const research = screen.getByRole("region", { name: /проверка маршрута/i });
+    expect(within(research).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(research).getByRole("button", { name: /Тирана.*уточнить/i })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /обзор/i }));
     expect(screen.getByRole("heading", { name: "Нужна официальная проверка договора" })).toBeTruthy();

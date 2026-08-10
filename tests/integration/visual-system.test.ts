@@ -114,14 +114,14 @@ describe("calm command center visual contracts", () => {
     expect(declaration(content, "z-index")).toBe("2");
   });
 
-  it("places tablet map status and retry panels in separate in-flow rows", () => {
+  it("places tablet Research status and retry panels in separate in-flow rows", () => {
     const tablet = atRule(css, "@media (min-width: 720px) and (max-width: 1099px)");
-    const markers = rule(tablet, ".research-map__markers");
-    const retry = rule(tablet, ".research-map__retry");
+    const candidate = rule(tablet, ".research-workspace__candidate");
+    const retry = rule(tablet, ".research-workspace__retry");
 
-    expect(["relative", "static"]).toContain(declaration(markers, "position"));
+    expect(["relative", "static"]).toContain(declaration(candidate, "position"));
     expect(["relative", "static"]).toContain(declaration(retry, "position"));
-    expect(declaration(markers, "grid-row")).not.toBe(declaration(retry, "grid-row"));
+    expect(declaration(candidate, "grid-row")).not.toBe(declaration(retry, "grid-row"));
   });
 
   it("does not bind ordinary budget meters to verification-state colors", () => {
@@ -146,7 +146,7 @@ describe("calm command center visual contracts", () => {
     [".evidence-passport article li", "--surface-subtle"],
     [".context-bar__status", "--surface-subtle"],
     [".context-bar__status--yellow", "--warning-soft"],
-    [".research-map__marker--yellow .research-map__status-icon", "--warning-soft"],
+    [".research-workspace__candidate-item--yellow .research-workspace__status-icon", "--warning-soft"],
   ])("keeps small text in %s at four-and-a-half-to-one contrast", (selector, backgroundToken) => {
     const foreground = resolveColor(declaration(rule(css, selector), "color"));
     expect(contrast(foreground, rootColor(backgroundToken))).toBeGreaterThanOrEqual(4.5);

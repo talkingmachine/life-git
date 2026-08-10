@@ -178,7 +178,7 @@ describe("journey action pending states", () => {
     expect(screen.getByRole("group", { name: /состав переезда/i })).toBeTruthy();
     expect(screen.getByRole("region", { name: /резюме сценария/i })).toBeTruthy();
     expect((screen.getByRole("button", { name: /начать проверку/i }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByRole("region", { name: /карта проверки маршрута/i })).toBeNull();
+    expect(screen.queryByRole("region", { name: /проверка маршрута/i })).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: /доход продолжает.*12 месяцев/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /законное пребывание.*предварительное условие/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю синтетический снимок/i }));
@@ -193,16 +193,19 @@ describe("journey action pending states", () => {
     }), { currency: "ALL", initialHousingAll: "70000" });
 
     await waitFor(() => {
-      const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-      expect(map.getAttribute("data-tone")).toBe("gray");
-      expect(within(within(map).getByRole("list", { name: /кандидаты маршрута/i }))
+      const research = screen.getByRole("region", { name: /проверка маршрута/i });
+      expect(research.getAttribute("data-tone")).toBe("gray");
+      expect(within(research).getByRole("region", { name: /ход проверки/i })).toBeTruthy();
+      expect(within(within(research).getByRole("list", { name: /кандидаты маршрута/i }))
         .getByText(/Россия.*Тирана/i)).toBeTruthy();
+      expect(research.querySelector('img[src="/world-map.svg"]')).toBeNull();
+      expect(within(research).queryByRole("img", { name: /самолёт/i })).toBeNull();
     });
 
     await act(async () => started.resolve(details("green", "started:id")));
     expect(await screen.findByRole("region", { name: /обзор маршрута/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /проверка/i }));
-    expect((await screen.findByRole("region", { name: /карта проверки маршрута/i }))
+    expect((await screen.findByRole("region", { name: /проверка маршрута/i }))
       .getAttribute("data-collapsed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
     expect(screen.getByRole("button", { name: /зафиксировать C0/i })).toBeTruthy();
@@ -219,7 +222,7 @@ describe("journey action pending states", () => {
     fireEvent.click(screen.getByRole("button", { name: /начать проверку/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("region", { name: /карта проверки маршрута/i })).toBeTruthy();
+      expect(screen.getByRole("region", { name: /проверка маршрута/i })).toBeTruthy();
     });
     expect(screen.queryByRole("navigation", { name: /основная навигация/i })).toBeNull();
   });
@@ -237,7 +240,7 @@ describe("journey action pending states", () => {
     expect(submit.disabled).toBe(true);
   });
 
-  it("turns the map gray while yellow retry research is pending", async () => {
+  it("turns the Research workspace gray while a yellow retry is pending", async () => {
     const next = deferred<RunDetails>();
     const replaceState = vi.spyOn(window.history, "replaceState");
     actionMocks.retryConfirmedLifeRun.mockReturnValue(next.promise);
@@ -247,7 +250,7 @@ describe("journey action pending states", () => {
     fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
 
     await waitFor(() => {
-      expect(screen.getByRole("region", { name: /карта проверки маршрута/i }).getAttribute("data-tone"))
+      expect(screen.getByRole("region", { name: /проверка маршрута/i }).getAttribute("data-tone"))
         .toBe("gray");
     });
 
@@ -280,7 +283,7 @@ describe("journey action pending states", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
       fireEvent.click(screen.getByRole("button", { name: /источники/i }));
-      expect(screen.queryByRole("region", { name: /карта проверки маршрута/i })).toBeNull();
+      expect(screen.queryByRole("region", { name: /проверка маршрута/i })).toBeNull();
 
       await act(async () => next.resolve(details(marker, `race-${marker}-new`)));
 
@@ -318,7 +321,7 @@ describe("journey action pending states", () => {
 
     expect((await screen.findByRole("alert")).textContent).toMatch(/повторная проверка не выполнена/i);
     expect(screen.getByText(/Предыдущий снимок: snapshot-old/i)).toBeTruthy();
-    expect(screen.getByRole("region", { name: /карта проверки маршрута/i }).getAttribute("data-tone"))
+    expect(screen.getByRole("region", { name: /проверка маршрута/i }).getAttribute("data-tone"))
       .toBe("yellow");
   });
 

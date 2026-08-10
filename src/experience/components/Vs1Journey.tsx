@@ -17,8 +17,8 @@ import { LifeGitWorkspace } from "./LifeGitWorkspace";
 import { OverviewWorkspace } from "./OverviewWorkspace";
 import { ProductShell } from "./ProductShell";
 import type { CommandCenterDestination } from "./ProductShell";
-import { ResearchMap } from "./ResearchMap";
-import type { ResearchRetryRecord } from "./ResearchMap";
+import { ResearchWorkspace } from "./ResearchWorkspace";
+import type { ResearchRetryRecord } from "./ResearchWorkspace";
 import { SourcesWorkspace } from "./SourcesWorkspace";
 
 interface Vs1JourneyProps {
@@ -117,8 +117,8 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
         );
       case "research":
         return (
-          <section aria-label="Проверка маршрута" className="journey-shell research-workspace">
-            <ResearchMap
+          <section className="journey-shell journey-shell--research">
+            <ResearchWorkspace
               candidates={[candidate]}
               mode={mode}
               onRetry={async (previousRunId) => {
