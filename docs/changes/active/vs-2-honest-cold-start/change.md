@@ -2,13 +2,13 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `review` |
+| Статус | `approved` |
 | Владелец решения | пользователь проекта |
 | Последняя проверка | 2026-08-11 |
 | Область ответственности | JIT baseline одного schema-gated cold start, публикации country dossier и отдельного comparator |
 | Supersedes | нет |
 | Зависимости | [`CONSTITUTION`](../../../CONSTITUTION.md), [`Spec of Specs`](../../../architecture/spec-of-specs.md), [`ADR-001`](../../../decisions/ADR-001-modular-monolith.md), [`VS-1`](../vs-1-confirmed-life/change.md) |
-| Approval | пользователь проекта / 2026-08-11 / четыре design-секции подтверждены; exact-text approval ожидается |
+| Approval | пользователь проекта / 2026-08-11 / VS-2 exact-text baseline / approved |
 
 ## 1. Почему и какой результат
 
@@ -169,7 +169,7 @@ hash/HMAC и `published_at`. Evidence manifest версии служит source 
 retrieval timestamp/profile: новый source сохраняется, идентичный rerun не создаёт version, а его
 current-run evidence всё равно сохраняется.
 
-`ADR-VS2-01` (`proposed`): выбран schema-gated cold start. Альтернативы — curated-only dossiers
+`ADR-VS2-01` (`accepted`): выбран schema-gated cold start. Альтернативы — curated-only dossiers
 (`rejected`: не доказывает новое место) и универсальный autonomous crawler (`rejected`: невозможно
 честно гарантировать семантику и scope конкурса). Последствие: canonical Slovenia path работает
 end-to-end; другая страна может закончиться explicit unsupported yellow, пока нет валидатора.
@@ -243,6 +243,6 @@ Validation перед implementation planning:
 
 - [x] directional design approved section-by-section 2026-08-11;
 - [x] self-review: no placeholders, contradictions, orphan requirements or expanded subsystem;
-- [ ] пользователь подтвердил точную редакцию этого файла.
+- [x] пользователь подтвердил точную редакцию этого файла 2026-08-11.
 
-`source-verified` и `demo-verified` требуют runtime evidence и не следуют из design approval.
+Baseline допущен к implementation planning; `source-verified` и `demo-verified` требуют runtime evidence.
