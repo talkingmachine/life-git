@@ -124,6 +124,16 @@ describe("calm command center visual contracts", () => {
     expect(declaration(candidate, "grid-row")).not.toBe(declaration(retry, "grid-row"));
   });
 
+  it("places intermediate-desktop Research panels in collision-safe in-flow rows", () => {
+    const intermediateDesktop = atRule(css, "@media (min-width: 1100px) and (max-width: 1279px)");
+    const candidate = rule(intermediateDesktop, ".research-workspace__candidate");
+    const retry = rule(intermediateDesktop, ".research-workspace__retry");
+
+    expect(["relative", "static"]).toContain(declaration(candidate, "position"));
+    expect(["relative", "static"]).toContain(declaration(retry, "position"));
+    expect(declaration(candidate, "grid-row")).not.toBe(declaration(retry, "grid-row"));
+  });
+
   it("does not bind ordinary budget meters to verification-state colors", () => {
     const budgetRules = css.match(/\.budget-flow__bar[^{}]*meter\s*\{[^{}]*\}/g) ?? [];
     expect(budgetRules.join("\n")).not.toMatch(/var\(--(?:success|warning|danger)\)/);
