@@ -67,6 +67,49 @@ function contrast(foreground: string, background: string): number {
 }
 
 describe("calm command center visual contracts", () => {
+  it("uses borderless translucent glass for floating orbit panels", () => {
+    const panel = rule(css, ".orbit-panel");
+    const background = declaration(panel, "background");
+    const blur = declaration(panel, "backdrop-filter");
+
+    expect(declaration(panel, "border")).toBe("0");
+    expect(background).toMatch(/rgba\([^)]*,\s*0\.[1-7][0-9]?\)/);
+    expect(blur).toMatch(/blur\((?:1[8-9]|[2-9][0-9])px\)/);
+  });
+
+  it("keeps the desktop rail icon-only and reserves the right side for city detail", () => {
+    const shell = rule(css, ".product-shell");
+    const overview = rule(css, ".overview-workspace--orbit");
+    const details = rule(css, ".destination-detail-panel");
+
+    expect(declaration(shell, "grid-template-columns")).toMatch(/(?:7[2-9]|8[0-8])px/);
+    expect(declaration(overview, "position")).toBe("relative");
+    expect(declaration(details, "position")).toBe("absolute");
+    expect(declaration(details, "right")).not.toBe("0");
+  });
+
+  it("keeps bottom panels and the route caption in separate desktop zones", () => {
+    const telemetry = rule(css, ".overview-workspace__telemetry");
+    const caption = rule(css, ".orbit-globe__caption");
+    const detailsImage = rule(css, ".destination-detail-panel__image");
+
+    expect(declaration(telemetry, "left")).toContain("--orbit-profile-width");
+    expect(declaration(telemetry, "right")).toContain("--orbit-details-width");
+    expect(declaration(caption, "bottom")).toBe("34%");
+    expect(declaration(caption, "right")).toBe("22%");
+    expect(declaration(detailsImage, "height")).toMatch(/^clamp\(120px,/);
+  });
+
+  it("gives the embedded 3D globe a square rendering viewport", () => {
+    const globe = rule(css, ".orbit-globe");
+    const engine = rule(css, ".orbit-globe__engine");
+
+    expect(declaration(globe, "aspect-ratio")).toBe("1");
+    expect(declaration(engine, "position")).toBe("absolute");
+    expect(declaration(engine, "inset")).toBe("0");
+    expect(css).not.toContain(".orbit-globe__art");
+  });
+
   it("places tablet map status and retry panels in separate in-flow rows", () => {
     const tablet = atRule(css, "@media (min-width: 720px) and (max-width: 1099px)");
     const markers = rule(tablet, ".research-map__markers");

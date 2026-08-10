@@ -33,7 +33,7 @@ export function NavigationRail({ activeDestination, onDestinationChange }: Navig
           return (
             <li key={destination.id}>
               <button
-                aria-label={destination.id === "branch" ? "Моя ветвь" : undefined}
+                aria-label={destination.id === "branch" ? "Моя ветвь" : destination.label}
                 aria-current={isActive ? "page" : undefined}
                 className="navigation-rail__destination"
                 data-destination={destination.id}
@@ -41,7 +41,7 @@ export function NavigationRail({ activeDestination, onDestinationChange }: Navig
                 type="button"
               >
                 <span aria-hidden="true" className="navigation-rail__icon">{destination.icon}</span>
-                <span className="navigation-rail__label">{destination.label}</span>
+                <span className="navigation-rail__label visually-hidden">{destination.label}</span>
               </button>
             </li>
           );

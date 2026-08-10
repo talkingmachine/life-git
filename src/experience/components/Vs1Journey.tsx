@@ -111,6 +111,7 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
             marker={current.run.assessment.marker}
             narrative={current.narrative}
             onDestinationChange={setDestination}
+            profile={view.profile}
             summary={view.summary}
           />
         );
