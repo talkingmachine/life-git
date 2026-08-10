@@ -8,7 +8,7 @@ import type { RunDetails } from "../../application/contracts";
 import type { ProfileDraft } from "../../decision/profile";
 import { replaceRunUrl } from "../run-url";
 import { ProductShell } from "./ProductShell";
-import { ResearchMap } from "./ResearchMap";
+import { ResearchWorkspace } from "./ResearchWorkspace";
 import { ScenarioSummary } from "./ScenarioSummary";
 import { Vs1Journey } from "./Vs1Journey";
 
@@ -75,7 +75,7 @@ export function Vs1Start() {
         setup
       >
         <section className="journey-shell journey-shell--pending" aria-label="Проверка сценария">
-          <ResearchMap
+          <ResearchWorkspace
             candidates={[{
               id: "tirana",
               origin: "Россия",

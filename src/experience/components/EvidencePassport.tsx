@@ -1,6 +1,7 @@
 import type { EvidenceReadItem } from "../../application/contracts";
 import { EVIDENCE_CLASS_NAMES } from "../view-model";
 import type { EvidenceClassName } from "../view-model";
+import { UiIcon } from "./UiIcon";
 
 interface EvidencePassportProps {
   companionMode: "staged" | "none" | "separate";
@@ -61,6 +62,16 @@ function sourceTitle(sourceId: string): string {
   return sourceCopy[sourceId]?.title ?? "Официальный источник";
 }
 
+function TechnicalSummary({ children }: { readonly children: string }) {
+  return (
+    <summary>
+      <span>{children}</span>
+      <UiIcon className="evidence-passport__expand-icon" name="expand" size={16} />
+      <UiIcon className="evidence-passport__collapse-icon" name="collapse" size={16} />
+    </summary>
+  );
+}
+
 function OfficialSource({ items }: { readonly items: readonly OfficialFact[] }) {
   const first = items[0];
   if (first === undefined) return null;
@@ -80,7 +91,7 @@ function OfficialSource({ items }: { readonly items: readonly OfficialFact[] }) 
         Проверенный официальный источник
       </a>
       <details className="evidence-passport__technical">
-        <summary>Технические данные и якоря</summary>
+        <TechnicalSummary>Технические данные и якоря</TechnicalSummary>
         {rawValues.map((value) => <pre key={value}><code>{value}</code></pre>)}
         <ul>
           {items.map((item) => (
@@ -102,7 +113,7 @@ function EvidenceItem({ item }: { item: EvidenceReadItem }) {
         <h4>{item.label}</h4>
         <p>{item.displayValue}</p>
         <details className="evidence-passport__technical">
-          <summary>Технические данные расчёта</summary>
+          <TechnicalSummary>Технические данные расчёта</TechnicalSummary>
           <p>{item.formulaId}, версия {item.formulaVersion}</p>
           <ul>
             {item.inputs.map((input) => (
@@ -130,7 +141,7 @@ function EvidenceItem({ item }: { item: EvidenceReadItem }) {
           Открыть официальный источник для повторной проверки
         </a>
         <details className="evidence-passport__technical">
-          <summary>Технические данные блокера</summary>
+          <TechnicalSummary>Технические данные блокера</TechnicalSummary>
           <p><code>{item.sourceId}</code></p>
           <p><code>{item.blockerKind}</code></p>
         </details>

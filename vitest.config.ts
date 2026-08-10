@@ -8,5 +8,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    exclude: ["**/node_modules/**", "**/.pnpm-store/**", "**/.worktrees/**"],
+    include: ["tests/**/*.test.{ts,tsx}"],
   },
 });

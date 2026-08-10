@@ -1,11 +1,12 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { ContextBar } from "./ContextBar";
 import type { CommandCenterContext } from "./ContextBar";
 import { NavigationRail } from "./NavigationRail";
 import type { CommandCenterDestination } from "./NavigationRail";
+import { WorkspaceGlobe } from "./WorkspaceGlobe";
 
 export type { CommandCenterDestination } from "./NavigationRail";
 export type { CommandCenterContext, CommandCenterStatus } from "./ContextBar";
@@ -25,15 +26,24 @@ export function ProductShell({
   onDestinationChange,
   setup = false,
 }: ProductShellProps) {
+  const [railExpanded, setRailExpanded] = useState(false);
+
   return (
-    <div className="product-shell" data-setup={setup ? "true" : undefined}>
+    <div
+      className="product-shell"
+      data-rail-expanded={railExpanded}
+      data-setup={setup || undefined}
+    >
       {setup ? null : (
         <NavigationRail
           activeDestination={activeDestination}
+          expanded={railExpanded}
           onDestinationChange={onDestinationChange}
+          onExpandedChange={setRailExpanded}
         />
       )}
       <div className="product-shell__workspace">
+        {setup || context === undefined ? null : <WorkspaceGlobe status={context.status} />}
         {context === undefined ? null : <ContextBar context={context} />}
         <main className="product-shell__content">{children}</main>
       </div>
