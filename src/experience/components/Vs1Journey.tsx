@@ -12,11 +12,13 @@ import {
 } from "../../app/actions";
 import { createJourneyView } from "../view-model";
 import { replaceRunUrl } from "../run-url";
-import { EvidencePassport } from "./EvidencePassport";
-import { LifeBranch } from "./LifeBranch";
-import { LifeGitDiff } from "./LifeGitDiff";
-import { ProfileCard } from "./ProfileCard";
+import { BranchWorkspace } from "./BranchWorkspace";
+import { LifeGitWorkspace } from "./LifeGitWorkspace";
+import { OverviewWorkspace } from "./OverviewWorkspace";
+import { ProductShell } from "./ProductShell";
+import type { CommandCenterDestination } from "./ProductShell";
 import { ResearchMap } from "./ResearchMap";
+import { SourcesWorkspace } from "./SourcesWorkspace";
 
 interface Vs1JourneyProps {
   details: RunDetails;
@@ -29,6 +31,9 @@ function isInitialBranchView(details: RunDetails): boolean {
 
 export function Vs1Journey({ details }: Vs1JourneyProps) {
   const [current, setCurrent] = useState(details);
+  const [destination, setDestination] = useState<CommandCenterDestination>(
+    details.run.assessment.marker === "green" ? "overview" : "research",
+  );
   const [initialDetails, setInitialDetails] = useState<RunDetails | undefined>(
     isInitialBranchView(details) ? details : undefined,
   );
@@ -72,103 +77,118 @@ export function Vs1Journey({ details }: Vs1JourneyProps) {
     runAction(() => forkHousingBranch(cursor, housingAll));
   };
 
-  return (
-    <main className="journey-shell">
-      <header className="journey-hero">
-        <p className="eyebrow">VS-1 · подтверждённая жизнь</p>
-        <h1>{current.narrative.headline}</h1>
-        <ul>
-          {current.narrative.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
-        </ul>
-        <p className="scope-note">Один заранее выбранный кандидат: Россия → Тирана. Это не глобальный рейтинг и не список лучших городов.</p>
-      </header>
+  const rewind = () => {
+    if (initialCursor === undefined || initialDetails === undefined || branchActionInFlight.current) return;
+    branchActionInFlight.current = true;
+    startBranchTransition(async () => {
+      try {
+        const nextCursor = await rewindHousingBranch(initialCursor.commitId);
+        setCursor(nextCursor);
+        setCurrent(initialDetails);
+      } catch {
+        setError("Не удалось перемотать ветку. Исходный снимок сохранён.");
+      } finally {
+        branchActionInFlight.current = false;
+      }
+    });
+  };
 
-      <ProfileCard
-        canSaveC0={
-          current.run.assessment.marker === "green" &&
-          initialCursor === undefined &&
-          !isBranchPending
-        }
-        onSaveC0={() => runAction(() => saveInitialHousingBranch(current.run.runId))}
-        profile={view.profile}
-      />
-
-      <ResearchMap
-        candidates={[candidate]}
-        mode={mode}
-        onRetry={async (previousRunId) => {
-          setResearchPending(true);
-          try {
-            const next = await retryConfirmedLifeRun(previousRunId);
-            replaceRunUrl(next.run.runId);
-            setCurrent(next);
-            setInitialDetails(isInitialBranchView(next) ? next : undefined);
-            setInitialCursor(next.initialBranchCursor ?? next.branchCursor);
-            setCursor(next.branchCursor);
-            return {
-              runId: next.run.runId,
-              evidenceSnapshotId: next.run.evidenceSnapshotId,
-            };
-          } finally {
-            setResearchPending(false);
-          }
-        }}
-        previousRun={{
-          runId: current.run.runId,
-          evidenceSnapshotId: current.run.evidenceSnapshotId,
-        }}
-      />
-
-      {current.budget === undefined ? null : <LifeBranch budget={current.budget} />}
-
-      {initialCursor === undefined || initialDetails === undefined ? null : (
-        <section aria-labelledby="branch-controls-heading" className="branch-controls">
-          <h2 id="branch-controls-heading">Ветка жилья</h2>
-          <button
-            disabled={isBranchPending || cursor?.commitId === initialCursor.commitId}
-            onClick={() => {
-              if (branchActionInFlight.current) return;
-              branchActionInFlight.current = true;
-              startBranchTransition(async () => {
+  const workspace = (() => {
+    switch (destination) {
+      case "overview":
+        return (
+          <OverviewWorkspace
+            hasC0={initialCursor !== undefined}
+            hasDiff={current.branchDiff !== undefined}
+            marker={current.run.assessment.marker}
+            narrative={current.narrative}
+            onDestinationChange={setDestination}
+            summary={view.summary}
+          />
+        );
+      case "research":
+        return (
+          <section aria-label="Проверка маршрута" className="journey-shell research-workspace">
+            <ResearchMap
+              candidates={[candidate]}
+              mode={mode}
+              onRetry={async (previousRunId) => {
+                setResearchPending(true);
                 try {
-                  const nextCursor = await rewindHousingBranch(initialCursor.commitId);
-                  setCursor(nextCursor);
-                  setCurrent(initialDetails);
-                } catch {
-                  setError("Не удалось перемотать ветку. Исходный снимок сохранён.");
+                  const next = await retryConfirmedLifeRun(previousRunId);
+                  replaceRunUrl(next.run.runId);
+                  setCurrent(next);
+                  setInitialDetails(isInitialBranchView(next) ? next : undefined);
+                  setInitialCursor(next.initialBranchCursor ?? next.branchCursor);
+                  setCursor(next.branchCursor);
+                  setDestination(next.run.assessment.marker === "green" ? "overview" : "research");
+                  return {
+                    runId: next.run.runId,
+                    evidenceSnapshotId: next.run.evidenceSnapshotId,
+                  };
                 } finally {
-                  branchActionInFlight.current = false;
+                  setResearchPending(false);
                 }
-              });
-            }}
-            type="button"
-          >
-            Перемотать к C0
-          </button>
-          <form onSubmit={submitFork}>
-            <label htmlFor="housing-all">Жильё для C1, ALL</label>
-            <input
-              id="housing-all"
-              inputMode="decimal"
-              onChange={(event) => setHousingAll(event.currentTarget.value)}
-              value={housingAll}
+              }}
+              previousRun={{
+                runId: current.run.runId,
+                evidenceSnapshotId: current.run.evidenceSnapshotId,
+              }}
             />
-            <button
-              disabled={
-                cursor === undefined || initialCursor === undefined ||
-                cursor.commitId !== initialCursor.commitId || isBranchPending
-              }
-              type="submit"
-            >
-              Создать C1
-            </button>
-          </form>
-        </section>
-      )}
+          </section>
+        );
+      case "branch":
+        return (
+          <BranchWorkspace
+            budget={current.budget}
+            canCreateC1={
+              cursor !== undefined && initialCursor !== undefined &&
+              cursor.commitId === initialCursor.commitId
+            }
+            canRewind={
+              cursor !== undefined && initialCursor !== undefined &&
+              cursor.commitId !== initialCursor.commitId
+            }
+            canSaveC0={
+              current.run.assessment.marker === "green" &&
+              initialCursor === undefined &&
+              !isBranchPending
+            }
+            housingAll={housingAll}
+            isBranchPending={isBranchPending}
+            onFork={submitFork}
+            onHousingAllChange={setHousingAll}
+            onRewind={rewind}
+            onSaveC0={() => runAction(() => saveInitialHousingBranch(current.run.runId))}
+            profile={view.profile}
+            showBranchControls={initialCursor !== undefined && initialDetails !== undefined}
+          />
+        );
+      case "life-git":
+        return <LifeGitWorkspace diff={current.branchDiff} />;
+      case "sources":
+        return (
+          <SourcesWorkspace
+            companionMode={view.profile.companionMode}
+            items={current.evidenceItems}
+          />
+        );
+    }
+  })();
 
-      {current.branchDiff === undefined ? null : <LifeGitDiff diff={current.branchDiff} />}
-      <EvidencePassport companionMode={view.profile.companionMode} items={current.evidenceItems} />
+  return (
+    <ProductShell
+      activeDestination={destination}
+      context={{
+        route: "Россия → Тирана",
+        branch: view.summary.branchLabel,
+        snapshot: current.run.assessmentDate,
+        status: mode,
+      }}
+      onDestinationChange={setDestination}
+    >
+      {workspace}
       {error === undefined ? null : <p role="alert">{error}</p>}
-    </main>
+    </ProductShell>
   );
 }

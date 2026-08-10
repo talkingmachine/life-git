@@ -33,6 +33,7 @@ export function NavigationRail({ activeDestination, onDestinationChange }: Navig
           return (
             <li key={destination.id}>
               <button
+                aria-label={destination.id === "branch" ? "Моя ветвь" : undefined}
                 aria-current={isActive ? "page" : undefined}
                 className="navigation-rail__destination"
                 data-destination={destination.id}

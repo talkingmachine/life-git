@@ -1,8 +1,11 @@
 import type { EvidenceReadItem } from "../../application/contracts";
+import { EVIDENCE_CLASS_NAMES } from "../view-model";
+import type { EvidenceClassName } from "../view-model";
 
 interface EvidencePassportProps {
   companionMode: "staged" | "none" | "separate";
   items: readonly EvidenceReadItem[];
+  visibleClasses?: readonly EvidenceClassName[];
 }
 
 type OfficialFact = Extract<EvidenceReadItem, { readonly class: "official_fact" }>;
@@ -155,7 +158,11 @@ function officialGroups(items: readonly EvidenceReadItem[]): readonly (readonly 
   return [...groups.values()];
 }
 
-export function EvidencePassport({ companionMode, items }: EvidencePassportProps) {
+export function EvidencePassport({
+  companionMode,
+  items,
+  visibleClasses = EVIDENCE_CLASS_NAMES,
+}: EvidencePassportProps) {
   const groupedOfficialFacts = officialGroups(items);
   return (
     <details className="evidence-passport">
@@ -164,7 +171,7 @@ export function EvidencePassport({ companionMode, items }: EvidencePassportProps
         <small>Понятный срез · раскрыть шесть классов</small>
       </summary>
       <div className="evidence-passport__grid">
-        {classes.map(([className, title]) => {
+        {classes.filter(([className]) => visibleClasses.includes(className)).map(([className, title]) => {
           const classItems = items.filter((item) => item.class === className);
           return (
             <section aria-labelledby={`evidence-${className}`} key={className}>

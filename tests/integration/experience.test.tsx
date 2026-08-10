@@ -1136,13 +1136,18 @@ describe("confirmed-life visual journey", () => {
 
     render(<Vs1Journey details={serialized} />);
 
-    expect(screen.getByRole("heading", { name: "Нужна официальная проверка договора" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /подтверждённый снимок условий/i })).toBeTruthy();
-    expect(screen.getByText(/месячный доход.*210 000 RUB.*ввод пользователя/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /проверка/i }).getAttribute("aria-current")).toBe("page");
     const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
     expect(within(map).getAllByRole("listitem")).toHaveLength(1);
     expect(within(map).getByRole("button", { name: /Тирана.*уточнить/i })).toBeTruthy();
-    expect(screen.getByText("Паспорт доказательств")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /обзор/i }));
+    expect(screen.getByRole("heading", { name: "Нужна официальная проверка договора" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
+    expect(screen.getByRole("heading", { name: /подтверждённый снимок условий/i })).toBeTruthy();
+    expect(screen.getByText(/месячный доход.*210 000 RUB.*ввод пользователя/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /источники/i }));
+    expect(screen.getByRole("heading", { name: "Паспорт доказательств" })).toBeTruthy();
   });
 
   it("rejects malformed server-action IDs and decimal text before composition access", async () => {

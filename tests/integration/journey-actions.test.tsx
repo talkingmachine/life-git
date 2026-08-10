@@ -105,6 +105,67 @@ function details(marker: "green" | "yellow", suffix: string, branch = false): Ru
 }
 
 describe("journey action pending states", () => {
+  it("navigates a green C0 journey through the five focused workspaces without mutating its snapshot", () => {
+    const seeded = details("green", "workspaces", true);
+    const c0: RunDetails = {
+      ...seeded,
+      branchCursor: seeded.initialBranchCursor,
+    };
+    const before = JSON.stringify(c0);
+
+    render(<Vs1Journey details={c0} />);
+
+    const overview = screen.getByRole("region", { name: /обзор маршрута/i });
+    expect(within(overview).getByRole("heading", { name: "Проверка маршрута" })).toBeTruthy();
+    expect(within(overview).getByText(/официальных фактов/i).parentElement?.textContent).toMatch(/1/);
+    expect(within(overview).getByText(/нерешённых вопросов/i).parentElement?.textContent).toMatch(/0/);
+    expect(within(overview).getByText(/известный остаток/i).parentElement?.textContent).toMatch(/139 864,57 ALL/);
+
+    fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
+    expect(screen.getByRole("heading", { name: /подтверждённый снимок/i })).toBeTruthy();
+    expect(screen.getByRole("figure", { name: /поток бюджета/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Life Git/i }));
+    expect(screen.getByRole("heading", { name: /ветка жилья/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /источники/i }));
+    expect(screen.getByRole("heading", { name: /паспорт доказательств/i })).toBeTruthy();
+    expect(JSON.stringify(c0)).toBe(before);
+  });
+
+  it("opens a yellow journey in Research with its reason and retry available", () => {
+    render(<Vs1Journey details={details("yellow", "research")} />);
+
+    expect(screen.getByRole("button", { name: /проверка/i }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: /проверить ещё раз/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Тирана.*уточнить/i }));
+    expect(screen.getByText(/не подтверждён официальный источник о договоре/i)).toBeTruthy();
+  });
+
+  it("filters source classes locally and resets them without mutating the journey snapshot", () => {
+    const c0 = details("green", "sources", true);
+    const before = JSON.stringify(c0);
+    render(<Vs1Journey details={c0} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /источники/i }));
+    const official = screen.getByRole("button", { name: "Официальный факт" });
+    expect(official.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("heading", { name: "Официальный факт" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Допущение" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Допущение" }));
+    expect(screen.getByRole("button", { name: "Допущение" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("heading", { name: "Допущение" })).toBeTruthy();
+    expect(screen.getByText(/Initial housing/i)).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Официальный факт" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /все классы/i }));
+    expect(screen.getByRole("button", { name: /все классы/i }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("heading", { name: "Официальный факт" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Допущение" })).toBeTruthy();
+    expect(JSON.stringify(c0)).toBe(before);
+  });
+
   it("runs the real confirmed-life start from explicit confirmation through gray to terminal green", async () => {
     const started = deferred<RunDetails>();
     const replaceState = vi.spyOn(window.history, "replaceState");
@@ -138,8 +199,11 @@ describe("journey action pending states", () => {
     });
 
     await act(async () => started.resolve(details("green", "started:id")));
+    expect(await screen.findByRole("region", { name: /обзор маршрута/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /проверка/i }));
     expect((await screen.findByRole("region", { name: /карта проверки маршрута/i }))
       .getAttribute("data-collapsed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
     expect(screen.getByRole("button", { name: /зафиксировать C0/i })).toBeTruthy();
     expect(replaceState.mock.calls.at(-1)?.[2]).toBe("?run=run-started%3Aid");
   });
@@ -175,6 +239,18 @@ describe("journey action pending states", () => {
     expect(await screen.findByText(/Предыдущий снимок: snapshot-old/i)).toBeTruthy();
     expect(screen.getByText(/Новый снимок: snapshot-new:id/i)).toBeTruthy();
     expect(replaceState.mock.calls.at(-1)?.[2]).toBe("?run=run-new%3Aid");
+  });
+
+  it("moves a terminal green retry to Overview", async () => {
+    const next = deferred<RunDetails>();
+    actionMocks.retryConfirmedLifeRun.mockReturnValue(next.promise);
+    render(<Vs1Journey details={details("yellow", "retry-green-old")} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
+    await act(async () => next.resolve(details("green", "retry-green-new")));
+
+    expect(await screen.findByRole("region", { name: /обзор маршрута/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /обзор/i }).getAttribute("aria-current")).toBe("page");
   });
 
   it("shows a retry failure without losing the previous snapshot or leaking a rejection", async () => {
@@ -222,24 +298,22 @@ describe("journey action pending states", () => {
     actionMocks.rewindHousingBranch.mockReturnValue(rewind.promise);
     render(<Vs1Journey details={c0} />);
 
+    fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
     fireEvent.click(screen.getByRole("button", { name: /создать C1/i }));
-    expect(await screen.findByRole("heading", { name: /Life Git: C0 → C1/i })).toBeTruthy();
-    expect(within(screen.getByRole("figure", { name: /поток бюджета/i })).getByText("90 000,00 ALL"))
+    expect(await within(screen.getByRole("figure", { name: /поток бюджета/i })).findByText("90 000,00 ALL"))
       .toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Life Git/i }));
+    expect(await screen.findByRole("heading", { name: /Life Git: C0 → C1/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /перемотать к C0/i }));
 
     expect(actionMocks.rewindHousingBranch).toHaveBeenCalledWith("a".repeat(64));
 
-    await waitFor(() => {
-      const map = screen.getByRole("region", { name: /карта проверки маршрута/i });
-      expect(map.getAttribute("data-tone")).toBe("green");
-      expect(map.getAttribute("data-collapsed")).toBe("true");
-    });
-
     await act(async () => rewind.resolve({ commitId: "a".repeat(64) }));
     expect(within(screen.getByRole("figure", { name: /поток бюджета/i })).getByText("70 000,00 ALL"))
       .toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Life Git/i }));
     expect(screen.queryByRole("heading", { name: /Life Git: C0 → C1/i })).toBeNull();
   });
 
@@ -247,6 +321,8 @@ describe("journey action pending states", () => {
     const save = deferred<RunDetails>();
     actionMocks.saveInitialHousingBranch.mockReturnValue(save.promise);
     render(<Vs1Journey details={details("green", "before-c0")} />);
+    fireEvent.click(within(screen.getByRole("navigation", { name: /основная навигация/i }))
+      .getByRole("button", { name: /моя ветвь/i }));
     const button = screen.getByRole("button", { name: /зафиксировать C0/i });
 
     fireEvent.click(button);
@@ -259,14 +335,18 @@ describe("journey action pending states", () => {
       ...saved,
       branchCursor: saved.initialBranchCursor,
     }));
+    expect(screen.getByRole("heading", { name: /подтверждённый снимок/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /моя ветвь/i }).getAttribute("aria-current")).toBe("page");
   });
 
   it("does not offer C0 on a non-green run and cannot submit C2 from a C1 cursor", () => {
     const yellow = render(<Vs1Journey details={details("yellow", "blocked")} />);
+    fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
     expect(screen.queryByRole("button", { name: /зафиксировать C0/i })).toBeNull();
     yellow.unmount();
 
     render(<Vs1Journey details={details("green", "c1", true)} />);
+    fireEvent.click(screen.getByRole("button", { name: /моя ветвь/i }));
     expect(screen.queryByRole("button", { name: /создать C1/i })).toBeNull();
   });
 });
