@@ -1,0 +1,22 @@
+{
+  "datasetId": "H285S.px",
+  "anchorExcerpt": "H285S.px | dimensions complete | no pagination",
+  "title": "Average monthly earnings",
+  "complete": true,
+  "pagination": { "hasMore": false },
+  "variables": [
+    {
+      "code": "MEASURE",
+      "text": "Measure",
+      "values": ["NET", "GROSS"],
+      "valueTexts": ["Average monthly net salary", "Average monthly gross salary"]
+    },
+    {
+      "code": "TIME",
+      "text": "Period",
+      "time": true,
+      "values": ["2025M12", "2026M01", "2026M09"],
+      "valueTexts": ["2025M12", "2026M01", "2026M09"]
+    }
+  ]
+}
