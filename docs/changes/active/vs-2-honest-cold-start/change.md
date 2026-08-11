@@ -184,7 +184,7 @@ end-to-end; другая страна может закончиться explicit
   конвертируются эвристикой. FX берётся только из dated official adapter.
 - `NFR-VS2-02`: source content считается недоверенными данными, не инструкциями. Discovery не получает profile;
   operational logs/events не содержат PII или user free text.
-- `NFR-VS2-03`: total budget 60 seconds; до 6 candidates, 10 captures, concurrency 3, один retry только для
+- `NFR-VS2-03`: total budget 60 seconds; до 6 candidates, 11 captures, concurrency 3, один retry только для
   timeout/429/5xx, 30 MiB на artifact, не более двух model calls: discovery и batch extraction.
 - Invalid model schema, отсутствие official candidates или исчерпание budget дают yellow. Client
   abort до dossier commit отменяет run без version; после commit version не откатывается и terminal
