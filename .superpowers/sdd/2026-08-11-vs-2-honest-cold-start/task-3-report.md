@@ -84,3 +84,23 @@ Modified:
 - `tsc --noEmit`: passed.
 - `eslint .`: passed.
 - `git diff --check`: passed.
+
+## Scoped re-review fix round 2
+
+### RED / GREEN
+
+- Verified-source claim ownership RED: a correctly re-signed mutation changed unavailable CBR coverage to `verified`, removed its blocker, retained zero CBR claims, and still published on both the new and same-payload paths.
+- Verified-source claim ownership GREEN: the structural assertion now requires at least one owned snapshot claim for every `verified` source. Both malformed paths fail before adding Evidence or dossier rows; the existing VS1 unavailable-source case with a retained partial artifact remains valid.
+- Outer-shape RED: the compact copied-storage table exposed native `TypeError` failures for null snapshots/coverage, non-array entries/artifacts/snapshot artifact IDs, and null embedded-snapshot coverage. Nine sibling malformed shapes already failed with `integrity_mismatch` through existing checks.
+- Outer-shape GREEN: `structuralSourceIds` safely validates its dispatch inputs and the pure structural assertion checks only the required outer records, arrays, entries, artifacts, claims, blockers, anchors, and artifact-ID containers before traversal. All 15 malformed stored shapes now fail deterministically with exactly `integrity_mismatch`.
+
+### Verification
+
+- Focused round-2 regressions: 17/17 passed.
+- Full Task 3 integration file: 49/49 passed.
+- VS1 unavailable partial-artifact regression: 1/1 passed.
+- Prescribed Task 3 four-file gate: 77/77 passed.
+- Full suite: 435/435 passed across 23 files.
+- `tsc --noEmit`: passed.
+- `eslint .`: passed.
+- `git diff --check`: passed.

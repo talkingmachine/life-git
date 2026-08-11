@@ -100,10 +100,15 @@ const ARTIFACT_COLUMNS = `
   byte_length, origin, captured_at, response_status, response_url, request_json
 `;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function structuralSourceIds<S extends string, C extends Claim<unknown, S>>(
   snapshot: EvidenceSnapshot<S, C>,
   manifest: EvidenceManifest<S, C>,
 ): readonly S[] {
+  if (!isRecord(snapshot) || !isRecord(manifest)) integrityMismatch();
   if (snapshot.rulesVersion === "vs1-evidence@1") {
     return [
       "al-law-79",
@@ -121,6 +126,10 @@ function structuralSourceIds<S extends string, C extends Claim<unknown, S>>(
       "cbr-eur",
     ] as unknown as readonly S[];
   }
+  if (
+    !Array.isArray(manifest.entries) ||
+    !manifest.entries.every((entry) => isRecord(entry) && typeof entry.sourceId === "string")
+  ) integrityMismatch();
   return manifest.entries.map((entry) => entry.sourceId);
 }
 

@@ -327,6 +327,62 @@ function replaceClaims(
     structuredClone(claims);
 }
 
+function markCbrVerifiedWithoutClaim(copy: PreparedCopy): void {
+  const coverage = { ...copy.snapshot.coverage, "cbr-eur": "verified" as const };
+  const blockers = copy.snapshot.blockers.filter(({ sourceId }) => sourceId !== "cbr-eur");
+  (copy.snapshot as unknown as { coverage: typeof coverage }).coverage = coverage;
+  (copy.snapshot as unknown as { blockers: typeof blockers }).blockers = blockers;
+  (copy.manifest.snapshot as unknown as { coverage: typeof coverage }).coverage =
+    structuredClone(coverage);
+  (copy.manifest.snapshot as unknown as { blockers: typeof blockers }).blockers =
+    structuredClone(blockers);
+}
+
+type StoredShapeCopy = { snapshot: unknown; manifest: unknown };
+type StoredShapeMutation = (copy: StoredShapeCopy) => void;
+
+function mutableRecord(value: unknown): Record<string, unknown> {
+  return value as Record<string, unknown>;
+}
+
+const MALFORMED_STORED_SHAPES: readonly [string, StoredShapeMutation][] = [
+  ["null snapshot", (copy) => { copy.snapshot = null; }],
+  ["non-record manifest", (copy) => { copy.manifest = []; }],
+  ["null coverage", (copy) => { mutableRecord(copy.snapshot).coverage = null; }],
+  ["non-record parser versions", (copy) => {
+    mutableRecord(copy.snapshot).parserVersions = "invalid";
+  }],
+  ["non-array entries before source dispatch", (copy) => {
+    mutableRecord(copy.snapshot).rulesVersion = "unknown-evidence@1";
+    mutableRecord(copy.manifest).entries = null;
+  }],
+  ["non-array artifacts", (copy) => { mutableRecord(copy.manifest).artifacts = {}; }],
+  ["non-array claims", (copy) => { mutableRecord(copy.snapshot).claims = null; }],
+  ["non-array blockers", (copy) => { mutableRecord(copy.snapshot).blockers = {}; }],
+  ["non-array snapshot artifact IDs", (copy) => {
+    mutableRecord(copy.snapshot).artifactIds = null;
+  }],
+  ["non-array entry artifact IDs", (copy) => {
+    const entries = mutableRecord(copy.manifest).entries as unknown[];
+    mutableRecord(entries[0]).artifactIds = {};
+  }],
+  ["null manifest-snapshot coverage", (copy) => {
+    mutableRecord(mutableRecord(copy.manifest).snapshot).coverage = null;
+  }],
+  ["non-record manifest-snapshot parser versions", (copy) => {
+    mutableRecord(mutableRecord(copy.manifest).snapshot).parserVersions = [];
+  }],
+  ["non-array manifest-snapshot claims", (copy) => {
+    mutableRecord(mutableRecord(copy.manifest).snapshot).claims = {};
+  }],
+  ["non-array manifest-snapshot blockers", (copy) => {
+    mutableRecord(mutableRecord(copy.manifest).snapshot).blockers = null;
+  }],
+  ["non-array manifest-snapshot artifact IDs", (copy) => {
+    mutableRecord(mutableRecord(copy.manifest).snapshot).artifactIds = {};
+  }],
+];
+
 interface PublishWorkerHandle {
   readonly ready: Promise<void>;
   readonly result: Promise<DossierPublishResult>;
@@ -526,6 +582,41 @@ describe("immutable country dossier publication", () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM dossier_versions").get()).toEqual({ count: 0 });
   });
 
+  test.each(["new", "same-payload"] as const)(
+    "rejects a verified CBR source without a claim on the %s publication path",
+    async (path) => {
+      const db = database();
+      const store = new SqliteDossierStore(db, KEY);
+      if (path === "same-payload") {
+        const first = await preparedFixture({
+          snapshotId: "claim-owner-first:evidence",
+          runId: "claim-owner-first",
+        });
+        await appendArtifacts(db, first.artifacts);
+        store.publishWithEvidence({ preparedEvidence: first.prepared, publishedAt: PUBLISHED_AT });
+      }
+      const malformedFixture = await preparedFixture({
+        snapshotId: `claim-owner-${path}:evidence`,
+        runId: `claim-owner-${path}`,
+        artifactIdSuffix: `:${path}`,
+      });
+      await appendArtifacts(db, malformedFixture.artifacts);
+      const malformed = resignPrepared(malformedFixture.prepared, markCbrVerifiedWithoutClaim);
+      const committedCount = path === "same-payload" ? 1 : 0;
+
+      expect(() => store.publishWithEvidence({
+        preparedEvidence: malformed,
+        publishedAt: "2026-08-11T10:45:00.000Z",
+      })).toThrow("publication_not_allowed");
+      expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({
+        count: committedCount,
+      });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM dossier_versions").get()).toEqual({
+        count: committedCount,
+      });
+    },
+  );
+
   test.each(["different", "missing"] as const)(
     "rejects a country evidence ref whose anchor artifact is %s",
     async (kind) => {
@@ -643,6 +734,46 @@ describe("immutable country dossier publication", () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 0 });
     expect(db.prepare("SELECT COUNT(*) AS count FROM artifacts WHERE sealed = 1").get()).toEqual({ count: 0 });
   });
+
+  test.each(MALFORMED_STORED_SHAPES)(
+    "loads stored Evidence with %s as integrity_mismatch without a native TypeError",
+    async (_name, mutate) => {
+      const db = database();
+      const fixture = await preparedFixture({
+        snapshotId: `outer-shape-${_name}:evidence`,
+        runId: `outer-shape-${_name}`,
+      });
+      await appendArtifacts(db, fixture.artifacts);
+      const store = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
+      await store.seal(fixture.prepared);
+      const row = db.prepare(`
+        SELECT snapshot_json AS snapshotJson, manifest_json AS manifestJson
+        FROM evidence_snapshots WHERE id = ?
+      `).get(fixture.prepared.snapshot.id) as {
+        readonly snapshotJson: string;
+        readonly manifestJson: string;
+      };
+      const copy: StoredShapeCopy = {
+        snapshot: JSON.parse(row.snapshotJson) as unknown,
+        manifest: JSON.parse(row.manifestJson) as unknown,
+      };
+      mutate(copy);
+      db.exec("DROP TRIGGER evidence_snapshots_no_update");
+      db.prepare(`
+        UPDATE evidence_snapshots SET snapshot_json = ?, manifest_json = ? WHERE id = ?
+      `).run(JSON.stringify(copy.snapshot), JSON.stringify(copy.manifest), fixture.prepared.snapshot.id);
+
+      let thrown: unknown;
+      try {
+        await store.loadVerified(fixture.prepared.snapshot.id, KEY);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown).not.toBeInstanceOf(TypeError);
+      expect((thrown as Error).message).toBe("integrity_mismatch");
+    },
+  );
 
   test("reuses an identical normalized payload and appends only stable changes", async () => {
     const db = database();

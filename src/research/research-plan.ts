@@ -199,6 +199,10 @@ function sameOrderedStrings(left: readonly string[], right: readonly string[]): 
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function exactRecordKeys(value: object, sourceIds: readonly string[]): boolean {
   const keys = Object.keys(value).sort();
   const expected = [...sourceIds].sort();
@@ -216,6 +220,20 @@ export function assertSealedEvidenceStructure<
   const fail = (): never => {
     throw new Error("integrity_mismatch");
   };
+  if (
+    !isRecord(snapshot) || !isRecord(manifest) || !isRecord(manifest.snapshot) ||
+    !isRecord(snapshot.coverage) || !isRecord(snapshot.parserVersions) ||
+    !Array.isArray(snapshot.artifactIds) || !Array.isArray(snapshot.claims) ||
+    !Array.isArray(snapshot.blockers) ||
+    !isRecord(manifest.snapshot.coverage) || !isRecord(manifest.snapshot.parserVersions) ||
+    !Array.isArray(manifest.snapshot.artifactIds) ||
+    !Array.isArray(manifest.snapshot.claims) || !Array.isArray(manifest.snapshot.blockers) ||
+    !Array.isArray(manifest.entries) ||
+    !manifest.entries.every((entry) => isRecord(entry) && Array.isArray(entry.artifactIds)) ||
+    !Array.isArray(manifest.artifacts) || !manifest.artifacts.every(isRecord) ||
+    !snapshot.claims.every((claim) => isRecord(claim) && isRecord(claim.anchor)) ||
+    !snapshot.blockers.every((blocker) => isRecord(blocker) && Array.isArray(blocker.artifactIds))
+  ) fail();
   if (
     sourceIds.length === 0 || new Set(sourceIds).size !== sourceIds.length ||
     manifest.entries.length !== sourceIds.length ||
@@ -271,10 +289,11 @@ export function assertSealedEvidenceStructure<
   for (const sourceId of sourceIds) {
     const entry = manifest.entries.find((candidate) => candidate.sourceId === sourceId)!;
     const blockers = snapshot.blockers.filter((blocker) => blocker.sourceId === sourceId);
+    const claims = snapshot.claims.filter((claim) => claim.sourceId === sourceId);
     const coverage = snapshot.coverage[sourceId];
     if (
       (coverage !== "verified" && coverage !== "unavailable") ||
-      (coverage === "verified" && blockers.length !== 0) ||
+      (coverage === "verified" && (blockers.length !== 0 || claims.length === 0)) ||
       (coverage === "unavailable" && blockers.length !== 1) ||
       blockers.some((blocker) =>
         blocker.artifactIds.some((artifactId) => !entry.artifactIds.includes(artifactId))
