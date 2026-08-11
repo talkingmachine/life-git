@@ -9,6 +9,10 @@
 | Supersedes | нет |
 | Зависимости | [`CONSTITUTION`](../../../CONSTITUTION.md), [`Spec of Specs`](../../../architecture/spec-of-specs.md), [`ADR-001`](../../../decisions/ADR-001-modular-monolith.md), [`VS-1`](../vs-1-confirmed-life/change.md) |
 | Approval | пользователь проекта / 2026-08-11 / VS-2 exact-text baseline / approved |
+| Implementation evidence | [provider-free current-source walkthrough](./implementation-evidence.md) / пользователь подтвердил 2026-08-11 |
+| Provider-free runtime | `verified` |
+| Source verification | `not earned` — current ESS/ZZSDT companion-employment evidence завершилось `semantic_mismatch` |
+| Demo gate | `partially earned` — final-HEAD capture/claim frame и физический Tab не подтверждены black-box наблюдением |
 
 ## 1. Почему и какой результат
 
