@@ -2049,6 +2049,14 @@ input[type="checkbox"] {
   padding: 0;
 }
 
+.product-shell__workspace[data-globe-mode="collapsed"] .product-shell__content {
+  pointer-events: none;
+}
+
+.product-shell__workspace[data-globe-mode="collapsed"] :is(.cold-start-comparator, .cold-start-journey__transport, .research-workspace__candidate, .research-workspace__progress, .research-workspace__retry) {
+  pointer-events: auto;
+}
+
 .cold-start-journey {
   position: relative;
   min-height: calc(100svh - 68px);
@@ -2058,14 +2066,6 @@ input[type="checkbox"] {
   display: grid;
   grid-template-columns: minmax(300px, 0.85fr) minmax(430px, 1.15fr);
   gap: clamp(1rem, 3vw, 2.5rem);
-}
-
-.cold-start-journey--collapsed > .research-workspace {
-  pointer-events: none;
-}
-
-.cold-start-journey--collapsed > .research-workspace > :is(.research-workspace__candidate, .research-workspace__progress, .research-workspace__retry) {
-  pointer-events: auto;
 }
 
 .cold-start-journey__transport {
