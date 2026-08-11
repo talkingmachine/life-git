@@ -131,6 +131,10 @@ function visibleMarkerButton(
   return Array.from(markers ?? []).find((marker) => marker.dataset.routeKey === routeKey);
 }
 
+function firstVisibleMarkerButton(container: HTMLElement | null): HTMLButtonElement | undefined {
+  return container?.querySelector<HTMLButtonElement>("button[data-route-key]") ?? undefined;
+}
+
 function normalizeAirliner(scene: Object3D): Object3D {
   const bounds = new Box3().setFromObject(scene);
   const size = bounds.getSize(new Vector3());
@@ -398,13 +402,6 @@ export function ResearchGlobeCanvas({
     const place = document.createElement("span");
     place.textContent = label.label;
     element.append(flag, place);
-    if (label.kind === "destination") {
-      element.addEventListener("pointerdown", (event) => event.stopPropagation());
-      element.addEventListener("click", (event) => {
-        event.stopPropagation();
-        setSelectedRouteKey(label.key);
-      });
-    }
     anchor.append(element);
     return anchor;
   }, []);
@@ -436,7 +433,11 @@ export function ResearchGlobeCanvas({
     }
     const routeKey = returnFocusKey.current;
     if (routeKey === undefined) return;
-    visibleMarkerButton(size.container.current, routeKey)?.focus();
+    const container = size.container.current;
+    const marker = visibleMarkerButton(container, routeKey)
+      ?? firstVisibleMarkerButton(container);
+    if (marker !== undefined) marker.focus();
+    else container?.focus();
     returnFocusKey.current = undefined;
   }, [cityLabelData, selectedRouteKey]);
 
@@ -617,8 +618,9 @@ export function ResearchGlobeCanvas({
     setSelectedRouteKey(undefined);
   }, [overview.key]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (selectedRouteKey !== undefined && !routes.some((route) => route.key === selectedRouteKey)) {
+      returnFocusKey.current = selectedRouteKey;
       setSelectedRouteKey(undefined);
     }
   }, [routes, selectedRouteKey]);
@@ -782,11 +784,14 @@ export function ResearchGlobeCanvas({
 
   return (
     <div
+      aria-label="Глобус маршрутов"
       className={styles.globe}
       onClick={openMarkerDetails}
       onPointerDown={stopGlobeMarkerPointer}
       ref={size.container}
+      role="region"
       style={{ background: backgroundColor }}
+      tabIndex={-1}
     >
       <Globe
         // react-globe.gl narrows refs to mutable objects, although its forwardRef accepts callback refs.

@@ -229,3 +229,82 @@ it("opens country marker details accessibly and returns focus on Escape", async 
   expect(returnedMarker.getAttribute("aria-expanded")).toBe("false");
   expect(document.activeElement).toBe(returnedMarker);
 });
+
+it("moves focus to a remaining marker or the globe when a selected marker is removed", async () => {
+  const countryOrigin = {
+    coordinate: origin.coordinate,
+    country: "Россия",
+    flag: "🇷🇺",
+    kind: "country" as const,
+    label: "Россия",
+  };
+  const slovenia: GlobeRoute = {
+    country: "Словения",
+    description: "Проверка страны",
+    flag: "🇸🇮",
+    from: countryOrigin.coordinate,
+    key: "cold-run-1:SI",
+    kind: "country",
+    label: "Словения",
+    rejectionReason: "Подтверждённый запрет",
+    routeLabel: "Россия → Словения",
+    status: "red",
+    to: { lat: 46.1512, lng: 14.9955 },
+  };
+  const slovakia: GlobeRoute = {
+    ...slovenia,
+    country: "Словакия",
+    flag: "🇸🇰",
+    key: "cold-run-1:SK",
+    label: "Словакия",
+    routeLabel: "Россия → Словакия",
+    to: { lat: 48.669, lng: 19.699 },
+  };
+  const globe = render(
+    <ResearchGlobeCanvas
+      activeFlight={slovenia}
+      onFlightComplete={() => undefined}
+      onReady={() => undefined}
+      onUnavailable={() => undefined}
+      origin={countryOrigin}
+      overview={{ coordinates: [slovenia.from, slovenia.to, slovakia.to], key: 8 }}
+      routes={[slovenia, slovakia]}
+    />,
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: "Открыть страну Словения" }));
+  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Словения" }));
+
+  globe.rerender(
+    <ResearchGlobeCanvas
+      activeFlight={slovakia}
+      onFlightComplete={() => undefined}
+      onReady={() => undefined}
+      onUnavailable={() => undefined}
+      origin={countryOrigin}
+      overview={{ coordinates: [slovakia.from, slovakia.to], key: 8 }}
+      routes={[slovakia]}
+    />,
+  );
+
+  const remainingMarker = await screen.findByRole("button", { name: "Открыть страну Словакия" });
+  await waitFor(() => expect(document.activeElement).toBe(remainingMarker));
+
+  fireEvent.click(remainingMarker);
+  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Словакия" }));
+
+  globe.rerender(
+    <ResearchGlobeCanvas
+      onFlightComplete={() => undefined}
+      onReady={() => undefined}
+      onUnavailable={() => undefined}
+      origin={countryOrigin}
+      overview={{ coordinates: [countryOrigin.coordinate], key: 8 }}
+      routes={[]}
+    />,
+  );
+
+  await waitFor(() => {
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Глобус маршрутов" }));
+  });
+});
