@@ -387,30 +387,49 @@ export async function prepareEvidencePlan<S extends string, C extends Claim<unkn
   plan: ResearchPlan<S, C>,
   ports: PrepareEvidencePorts<S, C>,
 ): Promise<SealedEvidence<S, C>> {
-  const deadline = Date.parse(input.deadlineAt);
-  if (!Number.isFinite(deadline)) throw new Error("invalid_deadline");
+  const callerDeadline = Date.parse(input.deadlineAt);
+  if (!Number.isFinite(callerDeadline)) throw new Error("invalid_deadline");
   if (
     !Number.isInteger(plan.limits.concurrency) || plan.limits.concurrency < 1 ||
-    !Number.isInteger(plan.limits.maxCaptures) || plan.limits.maxCaptures < 0
+    !Number.isInteger(plan.limits.maxCaptures) || plan.limits.maxCaptures < 0 ||
+    !Number.isFinite(plan.limits.deadlineMs) ||
+    !Number.isInteger(plan.limits.deadlineMs) ||
+    plan.limits.deadlineMs <= 0
   ) {
     throw new Error("invalid_research_plan");
   }
   if (input.signal?.aborted) throw abortReason(input.signal);
+
+  const startedAt = Date.now();
+  const planDeadline = startedAt + plan.limits.deadlineMs;
+  const deadline = Math.min(callerDeadline, planDeadline);
+  const effectiveDeadlineAt = callerDeadline <= planDeadline
+    ? input.deadlineAt
+    : new Date(planDeadline).toISOString();
 
   const controller = new AbortController();
   let announceDeadline!: () => void;
   const deadlineReached = new Promise<void>((resolve) => {
     announceDeadline = resolve;
   });
+  let announceExternalAbort!: (reason: unknown) => void;
+  const externalAbortReached = new Promise<{
+    readonly type: "external_abort";
+    readonly reason: unknown;
+  }>((resolve) => {
+    announceExternalAbort = (reason) => resolve({ type: "external_abort", reason });
+  });
   const expireDeadline = (): void => {
     if (!controller.signal.aborted) controller.abort("deadline");
     announceDeadline();
   };
   const externalAbort = (): void => {
-    if (!controller.signal.aborted) controller.abort(abortReason(input.signal!));
+    const reason = abortReason(input.signal!);
+    if (!controller.signal.aborted) controller.abort(reason);
+    announceExternalAbort(reason);
   };
   input.signal?.addEventListener("abort", externalAbort, { once: true });
-  const remaining = deadline - Date.now();
+  const remaining = deadline - startedAt;
   const deadlineTimer = remaining > 0 ? setTimeout(expireDeadline, remaining) : undefined;
   if (remaining <= 0) expireDeadline();
 
@@ -489,7 +508,7 @@ export async function prepareEvidencePlan<S extends string, C extends Claim<unkn
             runId: input.runId,
             sourceId,
             assessmentDate: input.assessmentDate,
-            deadlineAt: input.deadlineAt,
+            deadlineAt: effectiveDeadlineAt,
             signal: controller.signal,
           }, requestStep);
           if (input.signal?.aborted) throw abortReason(input.signal);
@@ -552,7 +571,9 @@ export async function prepareEvidencePlan<S extends string, C extends Claim<unkn
             value,
           })),
           deadlineReached.then(() => ({ type: "deadline" as const })),
+          externalAbortReached,
         ]);
+        if (validated.type === "external_abort") throw validated.reason;
         if (input.signal?.aborted) throw abortReason(input.signal);
         if (validated.type === "deadline") {
           return unavailableEntry(

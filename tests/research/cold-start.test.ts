@@ -176,6 +176,74 @@ describe("generic evidence research plan", () => {
     ]);
   });
 
+  test("publishes durable progress only after append and validation promises resolve", async () => {
+    let announceAppendStarted!: () => void;
+    const appendStarted = new Promise<void>((resolve) => {
+      announceAppendStarted = resolve;
+    });
+    let releaseAppend!: () => void;
+    const appendGate = new Promise<void>((resolve) => {
+      releaseAppend = resolve;
+    });
+    let announceValidationStarted!: () => void;
+    const validationStarted = new Promise<void>((resolve) => {
+      announceValidationStarted = resolve;
+    });
+    let releaseValidator!: () => void;
+    const validatorGate = new Promise<void>((resolve) => {
+      releaseValidator = resolve;
+    });
+    const basePlan = plan([]);
+    const deferredPlan: ResearchPlan<FakeSourceId, FakeClaim> = {
+      ...basePlan,
+      sourceIds: ["alpha"],
+      limits: { concurrency: 1, maxCaptures: 1, deadlineMs: 60_000 },
+      async validate(entry, assessmentAt) {
+        announceValidationStarted();
+        await validatorGate;
+        return basePlan.validate(entry, assessmentAt);
+      },
+    };
+    const progress: string[] = [];
+    let appendCalls = 0;
+    const running = runEvidencePlan(
+      {
+        runId: "durable-progress",
+        assessmentDate: ASSESSMENT_DATE,
+        deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+      deferredPlan,
+      {
+        source: source(),
+        requestStep: async (request) => artifact(request),
+        store: {
+          async appendArtifact() {
+            appendCalls += 1;
+            if (appendCalls !== 1) return;
+            announceAppendStarted();
+            await appendGate;
+          },
+          seal: async () => undefined,
+        },
+        integrity: createEvidenceIntegrity(KEY),
+        onProgress: (event) => {
+          progress.push(event.type);
+        },
+      },
+    );
+
+    await appendStarted;
+    expect(progress).toEqual([]);
+
+    releaseAppend();
+    await validationStarted;
+    expect(progress).toEqual(["artifact_captured"]);
+
+    releaseValidator();
+    await running;
+    expect(progress).toEqual(["artifact_captured", "claim_verified"]);
+  });
+
   test("never starts more source captures than the plan concurrency", async () => {
     vi.useFakeTimers();
     vi.setSystemTime("2026-08-11T10:00:00.000Z");
@@ -345,6 +413,118 @@ describe("generic evidence research plan", () => {
     ]);
   });
 
+  test("caps a later caller deadline at the plan budget for capture, retry, and terminality", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-08-11T10:00:00.000Z");
+    const effectiveDeadline = "2026-08-11T10:00:00.100Z";
+    const seenDeadlines: string[] = [];
+    let betaAttempts = 0;
+    const boundedPlan = {
+      ...plan([]),
+      limits: { concurrency: 1, maxCaptures: 3, deadlineMs: 100 },
+    };
+    const observingSource: OfficialSourcePort<FakeSourceId> = {
+      async capture(request, requestStep) {
+        seenDeadlines.push(request.deadlineAt);
+        return source().capture(request, requestStep);
+      },
+    };
+
+    const snapshot = await runEvidencePlan(
+      {
+        runId: "bounded-deadline",
+        assessmentDate: ASSESSMENT_DATE,
+        deadlineAt: "2026-08-11T10:10:00.000Z",
+      },
+      boundedPlan,
+      {
+        source: observingSource,
+        requestStep: async (request) => {
+          if (request.sourceId === "beta") {
+            betaAttempts += 1;
+            if (betaAttempts === 1) {
+              vi.advanceTimersByTime(101);
+              throw { kind: "server_error" };
+            }
+          }
+          return artifact(request);
+        },
+        store: { appendArtifact: async () => undefined, seal: async () => undefined },
+        integrity: createEvidenceIntegrity(KEY),
+      },
+    );
+
+    expect(seenDeadlines).toEqual([effectiveDeadline]);
+    expect(betaAttempts).toBe(1);
+    expect(snapshot.coverage).toEqual({ beta: "unavailable", alpha: "unavailable" });
+    expect(snapshot.blockers).toEqual([
+      expect.objectContaining({ sourceId: "beta", kind: "server_error" }),
+      expect.objectContaining({ sourceId: "alpha", kind: "deadline" }),
+    ]);
+  });
+
+  test("keeps an earlier caller deadline as the exact cutoff", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime("2026-08-11T10:00:00.000Z");
+    const callerDeadline = "2026-08-11T10:00:00.050Z";
+    const seenDeadlines: string[] = [];
+    const earlierPlan: ResearchPlan<FakeSourceId, FakeClaim> = {
+      ...plan([]),
+      limits: { concurrency: 2, maxCaptures: 2, deadlineMs: 1_000 },
+      validate: async () => new Promise(() => undefined),
+    };
+    const observingSource: OfficialSourcePort<FakeSourceId> = {
+      async capture(request, requestStep) {
+        seenDeadlines.push(request.deadlineAt);
+        return source().capture(request, requestStep);
+      },
+    };
+    const running = prepareEvidencePlan(
+      {
+        runId: "earlier-caller-deadline",
+        assessmentDate: ASSESSMENT_DATE,
+        deadlineAt: callerDeadline,
+      },
+      earlierPlan,
+      {
+        source: observingSource,
+        requestStep: async (request) => artifact(request),
+        artifacts: { appendArtifact: async () => undefined },
+        integrity: createEvidenceIntegrity(KEY),
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(50);
+    const prepared = await running;
+
+    expect(seenDeadlines).toEqual([callerDeadline, callerDeadline]);
+    expect(prepared.snapshot.blockers).toHaveLength(2);
+    expect(prepared.snapshot.blockers.every((blocker) => blocker.kind === "deadline")).toBe(true);
+  });
+
+  test.each([0, -1, 1.5, Number.POSITIVE_INFINITY, Number.NaN])(
+    "rejects invalid plan deadlineMs %s",
+    async (deadlineMs) => {
+      vi.useFakeTimers();
+      vi.setSystemTime("2026-08-11T10:00:00.000Z");
+      const invalidPlan = {
+        ...plan([]),
+        limits: { concurrency: 1, maxCaptures: 2, deadlineMs },
+      };
+
+      await expect(prepareEvidencePlan(
+        { runId: "invalid-plan", assessmentDate: ASSESSMENT_DATE, deadlineAt: DEADLINE_AT },
+        invalidPlan,
+        {
+          source: source(),
+          requestStep: async (request) => artifact(request),
+          artifacts: { appendArtifact: async () => undefined },
+          integrity: createEvidenceIntegrity(KEY),
+        },
+      )).rejects.toThrow("invalid_research_plan");
+    },
+  );
+
   test("propagates an external abort before preparation completes and never persists a seal", async () => {
     vi.useFakeTimers();
     vi.setSystemTime("2026-08-11T10:00:00.000Z");
@@ -385,6 +565,70 @@ describe("generic evidence research plan", () => {
     external.abort(reason);
 
     await expect(running).rejects.toBe(reason);
+    expect(seals).toBe(0);
+  });
+
+  test("propagates the same external abort promptly while validation is pending", async () => {
+    const external = new AbortController();
+    const reason = new Error("client_left_during_validation");
+    let seals = 0;
+    let announceValidationStarted!: () => void;
+    const validationStarted = new Promise<void>((resolve) => {
+      announceValidationStarted = resolve;
+    });
+    let releaseValidator!: () => void;
+    const validatorGate = new Promise<void>((resolve) => {
+      releaseValidator = resolve;
+    });
+    const basePlan = plan([]);
+    const deferredPlan: ResearchPlan<FakeSourceId, FakeClaim> = {
+      ...basePlan,
+      limits: { concurrency: 1, maxCaptures: 2, deadlineMs: 60_000 },
+      async validate(entry, assessmentAt) {
+        announceValidationStarted();
+        await validatorGate;
+        return basePlan.validate(entry, assessmentAt);
+      },
+    };
+    const running = runEvidencePlan(
+      {
+        runId: "abort-during-validation",
+        assessmentDate: ASSESSMENT_DATE,
+        deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+        signal: external.signal,
+      },
+      deferredPlan,
+      {
+        source: source(),
+        requestStep: async (request) => artifact(request),
+        store: {
+          appendArtifact: async () => undefined,
+          seal: async () => {
+            seals += 1;
+          },
+        },
+        integrity: createEvidenceIntegrity(KEY),
+      },
+    );
+    await validationStarted;
+
+    external.abort(reason);
+    const settled = running.then(
+      () => ({ status: "resolved" as const }),
+      (error: unknown) => ({ status: "rejected" as const, error }),
+    );
+    const outcome = await Promise.race([
+      settled,
+      new Promise<{ readonly status: "pending" }>((resolve) => {
+        setTimeout(() => resolve({ status: "pending" }), 25);
+      }),
+    ]);
+    if (outcome.status === "pending") {
+      releaseValidator();
+      await settled;
+    }
+
+    expect(outcome).toEqual({ status: "rejected", error: reason });
     expect(seals).toBe(0);
   });
 

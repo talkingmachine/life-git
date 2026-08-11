@@ -10,6 +10,7 @@ import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
 import type {
   CaptureResult,
+  EvidenceSnapshot,
   HttpStepRequest,
   LiveCapturedArtifact,
   OfficialSourcePort,
@@ -17,6 +18,7 @@ import type {
   ParserEntry,
   SourceId,
 } from "../../src/research/contracts";
+import type { EvidenceManifest } from "../../src/research/research-plan";
 import {
   EVIDENCE_PARSER_VERSIONS,
   EVIDENCE_RULES_VERSION,
@@ -141,6 +143,74 @@ function singleStepSource(
     },
   };
 }
+
+function fixedVs1Artifact(
+  artifactId: string,
+  sourceId: SourceId,
+  byte: number,
+  sha256: string,
+): LiveCapturedArtifact {
+  return {
+    artifactId,
+    runId: "r",
+    sourceId,
+    role: "d",
+    request: { method: "GET", url: "https://o/a" },
+    url: "https://o/a",
+    responseUrl: "https://o/a",
+    capturedAt: "2026-08-08T00:00:00.000Z",
+    responseStatus: 200,
+    mediaType: "x",
+    origin: "live",
+    sha256,
+    bytes: Uint8Array.of(byte),
+  };
+}
+
+const FIXED_VS1_ARTIFACTS = [
+  fixedVs1Artifact(
+    "a1",
+    "al-law-79",
+    1,
+    "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+  ),
+  fixedVs1Artifact(
+    "a2",
+    "al-decision-858",
+    2,
+    "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+  ),
+  fixedVs1Artifact(
+    "a3",
+    "cbr-eur",
+    3,
+    "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+  ),
+  fixedVs1Artifact(
+    "a4",
+    "boa-eur",
+    4,
+    "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+  ),
+  fixedVs1Artifact(
+    "a5",
+    "tirana-urban-lines",
+    5,
+    "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db",
+  ),
+] as const;
+
+const FIXED_VS1_SOURCE_IDS = [
+  "al-law-79",
+  "al-decision-858",
+  "cbr-eur",
+  "boa-eur",
+  "tirana-urban-lines",
+] as const satisfies readonly SourceId[];
+
+const FIXED_VS1_CANONICAL_MANIFEST = '{"artifacts":[{"artifactId":"a1","byteLength":1,"capturedAt":"2026-08-08T00:00:00.000Z","mediaType":"x","origin":"live","request":{"method":"GET","url":"https://o/a"},"responseStatus":200,"responseUrl":"https://o/a","role":"d","runId":"r","sha256":"4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a","sourceId":"al-law-79","url":"https://o/a"},{"artifactId":"a2","byteLength":1,"capturedAt":"2026-08-08T00:00:00.000Z","mediaType":"x","origin":"live","request":{"method":"GET","url":"https://o/a"},"responseStatus":200,"responseUrl":"https://o/a","role":"d","runId":"r","sha256":"dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986","sourceId":"al-decision-858","url":"https://o/a"},{"artifactId":"a3","byteLength":1,"capturedAt":"2026-08-08T00:00:00.000Z","mediaType":"x","origin":"live","request":{"method":"GET","url":"https://o/a"},"responseStatus":200,"responseUrl":"https://o/a","role":"d","runId":"r","sha256":"084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5","sourceId":"cbr-eur","url":"https://o/a"},{"artifactId":"a4","byteLength":1,"capturedAt":"2026-08-08T00:00:00.000Z","mediaType":"x","origin":"live","request":{"method":"GET","url":"https://o/a"},"responseStatus":200,"responseUrl":"https://o/a","role":"d","runId":"r","sha256":"e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71","sourceId":"boa-eur","url":"https://o/a"},{"artifactId":"a5","byteLength":1,"capturedAt":"2026-08-08T00:00:00.000Z","mediaType":"x","origin":"live","request":{"method":"GET","url":"https://o/a"},"responseStatus":200,"responseUrl":"https://o/a","role":"d","runId":"r","sha256":"e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db","sourceId":"tirana-urban-lines","url":"https://o/a"}],"entries":[{"artifactIds":["a1"],"navigationUrl":"https://n","resolvedEvidenceUrl":"https://o/a","sourceId":"al-law-79"},{"artifactIds":["a2"],"navigationUrl":"https://n","resolvedEvidenceUrl":"https://o/a","sourceId":"al-decision-858"},{"artifactIds":["a3"],"navigationUrl":"https://n","resolvedEvidenceUrl":"https://o/a","sourceId":"cbr-eur"},{"artifactIds":["a4"],"navigationUrl":"https://n","resolvedEvidenceUrl":"https://o/a","sourceId":"boa-eur"},{"artifactIds":["a5"],"navigationUrl":"https://n","resolvedEvidenceUrl":"https://o/a","sourceId":"tirana-urban-lines"}],"snapshot":{"artifactIds":["a1","a2","a3","a4","a5"],"assessmentDate":"2026-08-08","blockers":[],"claims":[{"anchor":{"artifactId":"a1","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"al-law-79-facts-1","scope":"VS-1 confirmed-life","sourceId":"al-law-79","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}},{"anchor":{"artifactId":"a2","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"al-decision-858-facts-1","scope":"VS-1 confirmed-life","sourceId":"al-decision-858","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}},{"anchor":{"artifactId":"a3","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"cbr-eur-facts-1","scope":"VS-1 confirmed-life","sourceId":"cbr-eur","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}},{"anchor":{"artifactId":"a4","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"boa-eur-facts-1","scope":"VS-1 confirmed-life","sourceId":"boa-eur","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}},{"anchor":{"artifactId":"a5","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"tirana-urban-lines-facts-1","scope":"VS-1 confirmed-life","sourceId":"tirana-urban-lines","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}}],"coverage":{"al-decision-858":"verified","al-law-79":"verified","boa-eur":"verified","cbr-eur":"verified","tirana-urban-lines":"verified"},"id":"s","parserVersions":{"al-decision-858":"decision-858@1","al-law-79":"law-79@1","boa-eur":"boa-eur@1","cbr-eur":"cbr-eur@1","tirana-urban-lines":"tirana-urban-lines@1"},"rulesVersion":"vs1-evidence@1"}}';
+
+const FIXED_VS1_CANONICAL_SNAPSHOT = '{"artifactIds":["a1","a2","a3","a4","a5"],"assessmentDate":"2026-08-08","blockers":[],"claims":[{"anchor":{"artifactId":"a1","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"al-law-79-facts-1","scope":"VS-1 confirmed-life","sourceId":"al-law-79","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}},{"anchor":{"artifactId":"a2","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"al-decision-858-facts-1","scope":"VS-1 confirmed-life","sourceId":"al-decision-858","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}},{"anchor":{"artifactId":"a3","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"cbr-eur-facts-1","scope":"VS-1 confirmed-life","sourceId":"cbr-eur","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}},{"anchor":{"artifactId":"a4","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"boa-eur-facts-1","scope":"VS-1 confirmed-life","sourceId":"boa-eur","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}},{"anchor":{"artifactId":"a5","excerptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","locator":"x"},"claimId":"tirana-urban-lines-facts-1","scope":"VS-1 confirmed-life","sourceId":"tirana-urban-lines","sourcePeriod":"2026-08-08","status":"verified","value":{"accepted":true}}],"coverage":{"al-decision-858":"verified","al-law-79":"verified","boa-eur":"verified","cbr-eur":"verified","tirana-urban-lines":"verified"},"hmac":"44c1104916f6b9cad89e2e1ce55a4d26fe685b231dd9cc006b98a5b1368a1f8a","id":"s","manifestHash":"71ade3b5abf861e12b8cd54b575bffb4327aca34c6cabfbc60f03de7840b0848","parserVersions":{"al-decision-858":"decision-858@1","al-law-79":"law-79@1","boa-eur":"boa-eur@1","cbr-eur":"cbr-eur@1","tirana-urban-lines":"tirana-urban-lines@1"},"rulesVersion":"vs1-evidence@1"}';
 
 describe("runCurrentEvidence", () => {
   test("starts five entries concurrently, shares one deadline signal, persists before awaited parsing, and seals after terminality", async () => {
@@ -554,6 +624,59 @@ describe("runCurrentEvidence", () => {
 });
 
 describe("replayEvidence", () => {
+  test("replays the fixed pre-refactor VS-1 sealed fixture byte for byte", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    for (const artifact of FIXED_VS1_ARTIFACTS) await store.appendArtifact(artifact);
+    await store.seal({
+      snapshot: JSON.parse(FIXED_VS1_CANONICAL_SNAPSHOT) as EvidenceSnapshot,
+      manifest: JSON.parse(FIXED_VS1_CANONICAL_MANIFEST) as EvidenceManifest,
+      canonicalManifest: FIXED_VS1_CANONICAL_MANIFEST,
+    });
+    const fixedParsers = Object.fromEntries(FIXED_VS1_SOURCE_IDS.map((sourceId, index) => [
+      sourceId,
+      async () => ({
+        ok: true as const,
+        facts: { accepted: true },
+        sourcePeriod: ASSESSMENT_DATE,
+        anchors: [{
+          artifactId: `a${index + 1}`,
+          locator: "x",
+          excerptSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        }],
+      }),
+    ])) as unknown as EvidenceParsers;
+
+    const replayed = await replayEvidence(
+      { snapshotId: "s", hmacKey: KEY },
+      { store, parsers: fixedParsers },
+    );
+
+    expect(canonicalJson(replayed)).toBe(FIXED_VS1_CANONICAL_SNAPSHOT);
+    expect(replayed.manifestHash).toBe(
+      "71ade3b5abf861e12b8cd54b575bffb4327aca34c6cabfbc60f03de7840b0848",
+    );
+    expect(replayed.hmac).toBe(
+      "44c1104916f6b9cad89e2e1ce55a4d26fe685b231dd9cc006b98a5b1368a1f8a",
+    );
+    expect(Object.keys(replayed.coverage)).toEqual([...FIXED_VS1_SOURCE_IDS]);
+    expect(replayed.claims.map((claim) => claim.claimId)).toEqual([
+      "al-law-79-facts-1",
+      "al-decision-858-facts-1",
+      "cbr-eur-facts-1",
+      "boa-eur-facts-1",
+      "tirana-urban-lines-facts-1",
+    ]);
+    expect(replayed.parserVersions).toEqual({
+      "al-law-79": "law-79@1",
+      "al-decision-858": "decision-858@1",
+      "cbr-eur": "cbr-eur@1",
+      "boa-eur": "boa-eur@1",
+      "tirana-urban-lines": "tirana-urban-lines@1",
+    });
+    expect(replayed.rulesVersion).toBe("vs1-evidence@1");
+  });
+
   test("verifies and reparses sealed bytes at the same assessment cutoff without network capture", async () => {
     vi.useFakeTimers();
     vi.setSystemTime("2026-08-08T10:00:00.000Z");
