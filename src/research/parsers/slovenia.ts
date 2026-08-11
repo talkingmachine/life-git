@@ -22,6 +22,7 @@ import {
   artifactByRole,
   entryHasValidIntegrity,
   normalizedText,
+  sha256,
 } from "./parser-support";
 
 type SloveniaValidationResult =
@@ -156,40 +157,23 @@ function hasExpectedLiveProvenance(
     hasExpectedBody;
 }
 
-const metadataVariableSchema = z.object({
-  code: z.string().min(1),
-  text: z.string().min(1),
-  time: z.boolean().optional(),
-  values: z.array(z.string().min(1)).min(1),
-  valueTexts: z.array(z.string().min(1)).min(1),
-}).strict();
-
-const sistatMetadataSchema = z.object({
-  datasetId: z.literal("H285S.px"),
-  anchorExcerpt: z.string().min(1),
-  title: z.string().min(1),
-  complete: z.literal(true),
-  pagination: z.object({ hasMore: z.literal(false) }).strict(),
-  variables: z.array(metadataVariableSchema).min(1),
-}).strict();
-
 const categorySchema = z.object({
   index: z.record(z.string(), z.number().int().nonnegative()),
   label: z.record(z.string(), z.string()),
-}).strict();
+}).passthrough();
 
 const sistatSeriesSchema = z.object({
   version: z.literal("2.0"),
   class: z.literal("dataset"),
-  anchorExcerpt: z.string().min(1),
+  source: z.string().optional(),
   id: z.array(z.string().min(1)).min(1),
   size: z.array(z.number().int().positive()).min(1),
   dimension: z.record(z.string(), z.object({
     label: z.string().min(1),
     category: categorySchema,
-  }).strict()),
+  }).passthrough()),
   value: z.array(z.number().finite().nullable()).min(1),
-}).strict();
+}).passthrough();
 
 function htmlLines(artifact: ArtifactBytes): readonly string[] | null {
   if (artifact.mediaType !== "text/html") return null;
@@ -204,11 +188,6 @@ function htmlLines(artifact: ArtifactBytes): readonly string[] | null {
 function uniqueLine(lines: readonly string[], expected: string): string | null {
   const matches = lines.filter((line) => line === expected);
   return matches.length === 1 ? matches[0]! : null;
-}
-
-function prefixedLine(lines: readonly string[], prefix: string): string | null {
-  const matches = lines.filter((line) => line.startsWith(prefix));
-  return matches.length === 1 ? matches[0]!.slice(prefix.length).trim() : null;
 }
 
 function markersAreStrictlyOrdered(
@@ -321,7 +300,7 @@ function hasUnsupportedCompletenessField(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasUnsupportedCompletenessField);
   if (!isRecord(value)) return false;
   return Object.entries(value).some(([key, nested]) =>
-    ["total", "hasMore", "continuationToken", "pagination"].includes(key) ||
+    ["total", "hasmore", "continuationtoken", "pagination"].includes(key.toLowerCase()) ||
     hasUnsupportedCompletenessField(nested)
   );
 }
@@ -717,16 +696,6 @@ function isIsoDateAtOrBefore(value: string, assessmentAt: string): boolean {
     value <= assessmentAt;
 }
 
-function decimalOrNull(value: string | undefined): Decimal | null {
-  if (value === undefined || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return null;
-  try {
-    const parsed = new Decimal(value);
-    return parsed.isPositive() ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function pisrsPublicationSop(urlValue: string | undefined): string | null {
   if (urlValue === undefined) return null;
   try {
@@ -735,7 +704,7 @@ function pisrsPublicationSop(urlValue: string | undefined): string | null {
     if (
       url.protocol !== "https:" ||
       url.host !== "pisrs.si" ||
-      url.pathname !== "/pregledPredpisa" ||
+      !["/Pis.web/pregledPredpisa", "/pregledPredpisa"].includes(url.pathname) ||
       values.length !== 1 ||
       !/^\d{4}-\d{2}-\d{4}$/.test(values[0]!)
     ) return null;
@@ -745,155 +714,293 @@ function pisrsPublicationSop(urlValue: string | undefined): string | null {
   }
 }
 
-function capturedPublicationSop(
+function pisrsSopRegistryUrl(sop: string): string {
+  return `${PISRS_API_ROOT}/zbirka/sop/${sop}`;
+}
+
+const SISTAT_API_URL = "https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px";
+
+const SLOVENE_MONTH = Object.freeze({
+  januar: "01",
+  februar: "02",
+  marec: "03",
+  april: "04",
+  maj: "05",
+  junij: "06",
+  julij: "07",
+  avgust: "08",
+  september: "09",
+  oktober: "10",
+  november: "11",
+  december: "12",
+} as const);
+
+const SALARY_TITLE_PATTERN = /^Sklep o objavi gibanja plač za ([a-zčšž]+) (\d{4})$/u;
+const MONTHLY_NET_SALARY_PATTERN = /^Povprečna mesečna neto plača na zaposleno osebo v Sloveniji za ([a-zčšž]+) (\d{4}) je znašala ((?:[1-9]\d{0,2}(?:\.\d{3})*|[1-9]\d*),\d{2}) EUR(?: in .+)?\.$/u;
+
+interface PisrsSalaryPublication {
+  readonly artifact: ArtifactBytes;
+  readonly sop: string;
+  readonly period: string;
+  readonly salary: Decimal;
+  readonly paragraph: string;
+}
+
+interface SiStatIncomeCoordinate {
+  readonly metadataArtifact: ArtifactBytes;
+  readonly seriesArtifact: ArtifactBytes;
+  readonly period: string;
+  readonly salary: Decimal;
+  readonly metricCode: string;
+  readonly metadataProjection: string;
+  readonly coordinateProjection: string;
+}
+
+function salaryPeriod(month: string, year: string): string | null {
+  const monthNumber = SLOVENE_MONTH[month as keyof typeof SLOVENE_MONTH];
+  return monthNumber === undefined ? null : `${year}M${monthNumber}`;
+}
+
+function localizedSalary(value: string): Decimal | null {
+  if (!/^(?:[1-9]\d{0,2}(?:\.\d{3})*|[1-9]\d*),\d{2}$/.test(value)) return null;
+  try {
+    const salary = new Decimal(value.replaceAll(".", "").replace(",", "."));
+    return salary.isPositive() ? salary : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodePisrsSalaryPublication(
   entry: ParserEntry<SloveniaSourceId>,
-  artifact: ArtifactBytes,
-): string | null {
-  const captured = artifact as Partial<LiveCapturedArtifact<SloveniaSourceId>>;
-  const candidateSop = pisrsPublicationSop(entry.navigationUrl);
-  const requestSop = pisrsPublicationSop(captured.request?.url);
-  return candidateSop !== null && candidateSop === requestSop ? candidateSop : null;
+  assessmentAt: string,
+): PisrsSalaryPublication | null {
+  const sop = pisrsPublicationSop(entry.navigationUrl);
+  const registry = artifactByRole(entry, "salary-registry");
+  const details = artifactByRole(entry, "salary-details");
+  if (sop === null || registry === undefined || details === undefined) return null;
+  const selected = decodePisrsRegistry(
+    registry,
+    { kind: "sop", value: sop },
+    pisrsSopRegistryUrl(sop),
+  );
+  const registryValue = pisrsRegistrySchema.safeParse(jsonValue(registry));
+  if (
+    selected === null ||
+    selected.ordinal !== 0 ||
+    selected.label !== "Osnovni" ||
+    !registryValue.success ||
+    !isIsoDateAtOrBefore(
+      registryValue.data.data.evidencniPodatki.objavljeno,
+      assessmentAt,
+    ) ||
+    !hasExpectedLiveProvenance(details, {
+      sourceId: entry.sourceId,
+      role: "salary-details",
+      method: "GET",
+      requestUrl: pisrsDetailsUrl(selected.npbId),
+    })
+  ) return null;
+  const detailsValue = pisrsDetailsSchema.safeParse(jsonValue(details));
+  if (!detailsValue.success || detailsValue.data.error !== null) return null;
+  const itemIds = detailsValue.data.data.besedilo.map(({ id }) => id);
+  if (new Set(itemIds).size !== itemIds.length) return null;
+
+  const titles = detailsValue.data.data.besedilo.flatMap((item) => {
+    const title = pisrsItemText(item);
+    const match = item.struktura === "naslov" ? SALARY_TITLE_PATTERN.exec(title) : null;
+    const period = match === null ? null : salaryPeriod(match[1]!, match[2]!);
+    return period === null ? [] : [{ item, title, period }];
+  });
+  const paragraphs = detailsValue.data.data.besedilo.flatMap((item) => {
+    const paragraph = pisrsItemText(item);
+    const match = item.struktura === "odstavek"
+      ? MONTHLY_NET_SALARY_PATTERN.exec(paragraph)
+      : null;
+    const period = match === null ? null : salaryPeriod(match[1]!, match[2]!);
+    const salary = match === null ? null : localizedSalary(match[3]!);
+    return period === null || salary === null ? [] : [{ paragraph, period, salary }];
+  });
+  if (titles.length !== 1 || paragraphs.length !== 1) return null;
+  const title = titles[0]!;
+  const paragraph = paragraphs[0]!;
+  const registryTitle = normalizedMarkupText(
+    registryValue.data.data.evidencniPodatki.naslov,
+  );
+  const titleBindings = detailsValue.data.data.kazalo.filter((entryValue) =>
+    entryValue.struktura === "naslov" &&
+    normalizedMarkupText(entryValue.kazaloIme) === title.title
+  );
+  if (
+    registryTitle !== title.title ||
+    title.period !== paragraph.period ||
+    titleBindings.length !== 1 ||
+    titleBindings[0]!.idStrukturniElement !== title.item.id ||
+    titleBindings[0]!.idStrukturniElementPostavljeno !== title.item.id
+  ) return null;
+  return {
+    artifact: details,
+    sop,
+    period: paragraph.period,
+    salary: paragraph.salary,
+    paragraph: paragraph.paragraph,
+  };
+}
+
+function sameKeys(actual: readonly string[], expected: readonly string[]): boolean {
+  return actual.length === expected.length &&
+    actual.every((value) => expected.includes(value));
+}
+
+function decodeSiStatIncomeCoordinate(
+  entry: ParserEntry<SloveniaSourceId>,
+  assessmentAt: string,
+): SiStatIncomeCoordinate | null {
+  const metadataArtifact = artifactByRole(entry, "sistat-metadata");
+  const seriesArtifact = artifactByRole(entry, "sistat-series");
+  if (metadataArtifact === undefined || seriesArtifact === undefined) return null;
+  const metadata = decodeSiStatMetadata(metadataArtifact, SISTAT_API_URL);
+  const metadataWire = sistatWireMetadataSchema.safeParse(jsonValue(metadataArtifact));
+  if (metadata === null || !metadataWire.success) return null;
+  const bodySha256 = sha256(encodeSiStatAllDimensionsQuery(metadata));
+  if (!hasExpectedLiveProvenance(seriesArtifact, {
+    sourceId: entry.sourceId,
+    role: "sistat-series",
+    method: "POST",
+    requestUrl: SISTAT_API_URL,
+    bodySha256,
+  })) return null;
+  const series = sistatSeriesSchema.safeParse(jsonValue(seriesArtifact));
+  if (!series.success) return null;
+  const metadataCodes = metadata.dimensions.map(({ code }) => code);
+  const dimensionKeys = Object.keys(series.data.dimension);
+  if (
+    series.data.id.length !== metadata.dimensions.length ||
+    series.data.size.length !== metadata.dimensions.length ||
+    new Set(series.data.id).size !== series.data.id.length ||
+    series.data.id.some((code, index) => code !== metadataCodes[index]) ||
+    !sameKeys(dimensionKeys, series.data.id)
+  ) return null;
+
+  for (let index = 0; index < metadata.dimensions.length; index += 1) {
+    const metadataDimension = metadata.dimensions[index]!;
+    const metadataVariable = metadataWire.data.variables[index]!;
+    const seriesDimension = series.data.dimension[metadataDimension.code];
+    if (seriesDimension === undefined) return null;
+    const indexKeys = Object.keys(seriesDimension.category.index);
+    const labelKeys = Object.keys(seriesDimension.category.label);
+    if (
+      series.data.size[index] !== metadataDimension.values.length ||
+      seriesDimension.label !== metadataVariable.text ||
+      !sameKeys(indexKeys, metadataDimension.values) ||
+      !sameKeys(labelKeys, metadataDimension.values) ||
+      metadataDimension.values.some((value, valueIndex) =>
+        seriesDimension.category.index[value] !== valueIndex ||
+        seriesDimension.category.label[value] !== metadataDimension.labels[valueIndex]
+      )
+    ) return null;
+  }
+
+  const timeDimensions = metadata.dimensions.filter(({ isTime }) => isTime);
+  const netCategories = metadata.dimensions.flatMap((dimension) =>
+    dimension.isTime
+      ? []
+      : dimension.labels.flatMap((label, index) =>
+          label === "Net earnings"
+            ? [{ dimension, value: dimension.values[index] }]
+            : []
+        )
+  );
+  if (timeDimensions.length !== 1 || netCategories.length !== 1) return null;
+  const timeDimension = timeDimensions[0]!;
+  const netCategory = netCategories[0]!;
+  if (
+    netCategory.value === undefined ||
+    metadata.dimensions.some((dimension) =>
+      !dimension.isTime &&
+      dimension.code !== netCategory.dimension.code &&
+      dimension.values.length !== 1
+    ) ||
+    timeDimension.values.some((period) => !/^\d{4}M(?:0[1-9]|1[0-2])$/.test(period))
+  ) return null;
+  const applicablePeriods = timeDimension.values.filter((period) =>
+    periodAtOrBefore(period, assessmentAt)
+  );
+  if (applicablePeriods.length === 0) return null;
+  const period = [...applicablePeriods].sort().at(-1)!;
+  const coordinates = metadata.dimensions.map((dimension) => {
+    if (dimension.code === timeDimension.code) return dimension.values.indexOf(period);
+    if (dimension.code === netCategory.dimension.code) {
+      return dimension.values.indexOf(netCategory.value!);
+    }
+    return 0;
+  });
+  if (coordinates.some((coordinate) => coordinate < 0)) return null;
+  const expectedValueCount = series.data.size.reduce((product, size) => product * size, 1);
+  if (!Number.isSafeInteger(expectedValueCount) || series.data.value.length !== expectedValueCount) {
+    return null;
+  }
+  let flatIndex = 0;
+  for (let index = 0; index < coordinates.length; index += 1) {
+    flatIndex = flatIndex * series.data.size[index]! + coordinates[index]!;
+  }
+  const rawSalary = series.data.value[flatIndex];
+  if (rawSalary === null || !Number.isFinite(rawSalary) || rawSalary <= 0) return null;
+  const metricIndex = metadataCodes.indexOf(netCategory.dimension.code);
+  const metadataVariable = metadataWire.data.variables[metricIndex];
+  if (metadataVariable === undefined) return null;
+  const coordinate = Object.fromEntries(metadata.dimensions.map((dimension, index) => [
+    dimension.code,
+    dimension.values[coordinates[index]!]!,
+  ]));
+  return {
+    metadataArtifact,
+    seriesArtifact,
+    period,
+    salary: new Decimal(rawSalary),
+    metricCode: netCategory.dimension.code,
+    metadataProjection: JSON.stringify({
+      dimension: { code: netCategory.dimension.code, label: metadataVariable.text },
+      category: { value: netCategory.value, label: "Net earnings" },
+    }),
+    coordinateProjection: JSON.stringify({ coordinate, value: rawSalary }),
+  };
 }
 
 function parseIncome(
   entry: ParserEntry<SloveniaSourceId>,
   assessmentAt: string,
 ): SloveniaValidationResult {
-  const publication = artifactByRole(entry, "salary-publication");
-  const metadataArtifact = artifactByRole(entry, "sistat-metadata");
-  const seriesArtifact = artifactByRole(entry, "sistat-series");
-  if (publication === undefined || metadataArtifact === undefined || seriesArtifact === undefined) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  const publicationLines = htmlLines(publication);
-  const metadata = sistatMetadataSchema.safeParse(jsonValue(metadataArtifact));
-  const series = sistatSeriesSchema.safeParse(jsonValue(seriesArtifact));
-  if (publicationLines === null || !metadata.success || !series.success) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  const metadataCodes = metadata.data.variables.map(({ code }) => code);
-  const uniqueMetadataCodes = new Set(metadataCodes);
-  const uniqueSeriesCodes = new Set(series.data.id);
-  const dimensionCodes = Object.keys(series.data.dimension);
+  const publication = decodePisrsSalaryPublication(entry, assessmentAt);
+  const coordinate = decodeSiStatIncomeCoordinate(entry, assessmentAt);
   if (
-    uniqueMetadataCodes.size !== metadataCodes.length ||
-    uniqueSeriesCodes.size !== series.data.id.length ||
-    series.data.size.length !== series.data.id.length ||
-    dimensionCodes.length !== series.data.id.length ||
-    dimensionCodes.some((code) => !uniqueSeriesCodes.has(code)) ||
-    metadataCodes.length !== series.data.id.length ||
-    metadataCodes.some((code, index) => code !== series.data.id[index])
-  ) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  const timeVariables = metadata.data.variables.filter(({ time }) => time === true);
-  const metricMatches = metadata.data.variables.flatMap((variable) =>
-    variable.valueTexts.flatMap((label, index) =>
-      /^average monthly net salary$/i.test(label)
-        ? [{ variable, value: variable.values[index] }]
-        : []
-    )
-  );
-  if (timeVariables.length !== 1 || metricMatches.length !== 1) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  const timeVariable = timeVariables[0]!;
-  const metric = metricMatches[0]!;
-  if (
-    metric.variable.code === timeVariable.code ||
-    metadata.data.variables.some(({ values, valueTexts }) =>
-      values.length !== valueTexts.length || new Set(values).size !== values.length
-    ) ||
-    metric.value === undefined
-  ) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  for (let index = 0; index < series.data.id.length; index += 1) {
-    const code = series.data.id[index]!;
-    const dimension = series.data.dimension[code];
-    const metadataVariable = metadata.data.variables[index]!;
-    if (
-      dimension === undefined ||
-      series.data.size[index] !== metadataVariable.values.length ||
-      Object.keys(dimension.category.index).length !== metadataVariable.values.length ||
-      metadataVariable.values.some((value, valueIndex) =>
-        dimension.category.index[value] !== valueIndex ||
-        dimension.category.label[value] !== metadataVariable.valueTexts[valueIndex]
-      )
-    ) {
-      return { ok: false, kind: "semantic_mismatch" };
-    }
-  }
-  const expectedValueCount = series.data.size.reduce((product, size) => product * size, 1);
-  if (series.data.value.length !== expectedValueCount) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  const applicablePeriods = timeVariable.values.filter((period) => periodAtOrBefore(period, assessmentAt));
-  if (applicablePeriods.length === 0) return { ok: false, kind: "semantic_mismatch" };
-  const period = [...applicablePeriods].sort().at(-1)!;
-  if (applicablePeriods.filter((value) => value === period).length !== 1) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  const coordinates = series.data.id.map((code) => {
-    if (code === metric.variable.code) return metric.variable.values.indexOf(metric.value!);
-    if (code === timeVariable.code) return timeVariable.values.indexOf(period);
-    const variable = metadata.data.variables.find(({ code: variableCode }) => variableCode === code);
-    return variable?.values.length === 1 ? 0 : -1;
-  });
-  if (coordinates.some((coordinate) => coordinate < 0)) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  let flatIndex = 0;
-  for (let index = 0; index < coordinates.length; index += 1) {
-    flatIndex = flatIndex * series.data.size[index]! + coordinates[index]!;
-  }
-  const rawNetSalary = series.data.value[flatIndex];
-  if (rawNetSalary === null || rawNetSalary <= 0) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
-  const salary = new Decimal(rawNetSalary).toFixed(2);
-  const capturedSop = capturedPublicationSop(entry, publication);
-  const publicationId = prefixedLine(publicationLines, "PUBLICATION ID:")?.replace(/\.$/, "");
-  const publishedAt = prefixedLine(publicationLines, "PUBLISHED:")?.replace(/\.$/, "");
-  const publicationPeriod = prefixedLine(publicationLines, "PERIOD:")?.replace(/\.$/, "");
-  const publicationValue = prefixedLine(publicationLines, "VALUE EUR:")?.replace(/\.$/, "");
-  const publicationSalary = decimalOrNull(publicationValue);
-  const publicationExcerpt = prefixedLine(publicationLines, "ANCHOR EXCERPT:");
-  if (
-    capturedSop === null || publicationId !== capturedSop ||
-    publishedAt === undefined || !isIsoDateAtOrBefore(publishedAt, assessmentAt) ||
-    uniqueLine(publicationLines, "DATASET: H285S.px.") === null ||
-    uniqueLine(publicationLines, "METRIC: average monthly net salary.") === null ||
-    uniqueLine(publicationLines, "FORMULA: 2 × latest average monthly net salary.") === null ||
-    publicationPeriod !== period ||
-    publicationSalary === null || !publicationSalary.equals(salary) ||
-    publicationExcerpt !== `PISRS ${capturedSop} | NET | ${period} | ${salary} EUR` ||
-    metadata.data.anchorExcerpt !== "H285S.px | dimensions complete | no pagination" ||
-    series.data.anchorExcerpt !== `H285S.px | NET | ${period} | ${salary}`
-  ) {
-    return { ok: false, kind: "semantic_mismatch" };
-  }
+    publication === null ||
+    coordinate === null ||
+    publication.period !== coordinate.period ||
+    !publication.salary.equals(coordinate.salary)
+  ) return { ok: false, kind: "semantic_mismatch" };
+  const period = publication.period;
   const evidence = [
     evidenceRef(
       entry.sourceId,
-      publication,
+      publication.artifact,
       period,
-      `PISRS salary publication ${capturedSop}`,
-      publicationExcerpt,
+      `PISRS salary publication ${publication.sop} > monthly net salary ${period}`,
+      publication.paragraph,
     ),
     evidenceRef(
       entry.sourceId,
-      metadataArtifact,
+      coordinate.metadataArtifact,
       period,
-      "H285S.px complete dimensions",
-      metadata.data.anchorExcerpt,
+      `H285S.px metadata > ${coordinate.metricCode} > Net earnings`,
+      coordinate.metadataProjection,
     ),
     evidenceRef(
       entry.sourceId,
-      seriesArtifact,
+      coordinate.seriesArtifact,
       period,
-      `H285S.px NET ${period}`,
-      series.data.anchorExcerpt,
+      `H285S.px series > ${period} > Net earnings`,
+      coordinate.coordinateProjection,
     ),
   ] as const;
   return {
@@ -904,7 +1011,7 @@ function parseIncome(
       {
         metric: "latest_official_average_monthly_net_salary",
         multiplier: "2",
-        thresholdEur: new Decimal(salary).times(2).toFixed(2),
+        thresholdEur: publication.salary.times(2).toFixed(2),
         period,
       },
       period,

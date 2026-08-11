@@ -644,8 +644,8 @@ describe("pure VS-2 cold-start comparator", () => {
         summary: "Подтверждённого чистого дохода недостаточно для порога маршрута.",
         claimIds: ["si-income-threshold:income:si-income@2", "cbr-eur-facts-1"],
         officialUrls: [
-          SOURCE_URLS["si-income-threshold"],
-          "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
+          "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/613486752/details",
+          SISTAT_API_URL,
           SOURCE_URLS["cbr-eur"],
         ],
       }],
@@ -656,7 +656,7 @@ describe("pure VS-2 cold-start comparator", () => {
         monthlyIncomeRub: "210000",
         eurRub: "90",
         incomeEur: "2333.33",
-        thresholdEur: "3120.00",
+        thresholdEur: "3361.60",
         rounding: "UNROUNDED_THEN_HALF_UP_2DP",
         sourceClaimIds: ["si-income-threshold:income:si-income@2", "cbr-eur-facts-1"],
       },
@@ -1813,56 +1813,15 @@ describe("immutable country dossier publication", () => {
   });
 });
 
-const LEGACY_REPLAY_SISTAT_METADATA = `{
-  "datasetId": "H285S.px",
-  "anchorExcerpt": "H285S.px | dimensions complete | no pagination",
-  "title": "Average monthly earnings",
-  "complete": true,
-  "pagination": { "hasMore": false },
-  "variables": [
-    {
-      "code": "MEASURE",
-      "text": "Measure",
-      "values": ["NET", "GROSS"],
-      "valueTexts": ["Average monthly net salary", "Average monthly gross salary"]
-    },
-    {
-      "code": "TIME",
-      "text": "Period",
-      "time": true,
-      "values": ["2025M12", "2026M01", "2026M09"],
-      "valueTexts": ["2025M12", "2026M01", "2026M09"]
-    }
-  ]
-}`;
+const SISTAT_API_URL = "https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px";
+const SISTAT_BODY_SHA256 = "c51587d0d30a096233aa690537714199d86670e355cbbabf58d5c1b45b2e5121";
 
-const LEGACY_REPLAY_SISTAT_SERIES = `{
-  "version": "2.0",
-  "class": "dataset",
-  "anchorExcerpt": "H285S.px | NET | 2026M01 | 1560.00",
-  "id": ["MEASURE", "TIME"],
-  "size": [2, 3],
-  "dimension": {
-    "MEASURE": {
-      "label": "Measure",
-      "category": {
-        "index": { "NET": 0, "GROSS": 1 },
-        "label": {
-          "NET": "Average monthly net salary",
-          "GROSS": "Average monthly gross salary"
-        }
-      }
-    },
-    "TIME": {
-      "label": "Period",
-      "category": {
-        "index": { "2025M12": 0, "2026M01": 1, "2026M09": 2 },
-        "label": { "2025M12": "2025M12", "2026M01": "2026M01", "2026M09": "2026M09" }
-      }
-    }
-  },
-  "value": [1500.00, 1560.00, 1700.00, 2300.00, 2400.00, 2600.00]
-}`;
+interface ValidatorArtifactProvenance {
+  readonly method?: "GET" | "POST";
+  readonly requestUrl?: string;
+  readonly responseUrl?: string;
+  readonly bodySha256?: string;
+}
 
 function validatorArtifact(
   runId: string,
@@ -1872,25 +1831,36 @@ function validatorArtifact(
   url: string,
   mediaType = "text/html",
   bytesOverride?: Uint8Array,
+  provenance: ValidatorArtifactProvenance = {},
 ): LiveCapturedArtifact<SloveniaSourceId> {
   const bytes = bytesOverride ?? new Uint8Array(readFileSync(
     new URL(`../sources/fixtures/slovenia/${fixtureName}`, import.meta.url),
   ));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const requestUrl = provenance.requestUrl ?? url;
+  const responseUrl = provenance.responseUrl ?? url;
+  const method = provenance.method ?? "GET";
   return {
     artifactId: `${sourceId}:${role}:${sha256}`,
     runId,
     sourceId,
     role,
-    url,
+    url: requestUrl,
     mediaType,
     sha256,
     bytes,
     origin: "live",
     capturedAt: "2026-08-11T10:00:00.000Z",
     responseStatus: 200,
-    responseUrl: url,
-    request: { method: "GET", url },
+    responseUrl,
+    request: method === "POST"
+      ? {
+          method,
+          url: requestUrl,
+          bodyMediaType: "application/json",
+          bodySha256: provenance.bodySha256,
+        }
+      : { method, url: requestUrl },
   };
 }
 
@@ -1912,7 +1882,9 @@ async function replayableFixture(options: {
     routeRegistry: "https://pisrs.si/api/rezultat/zbirka/id/ZAKO5761",
     routeDetails: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/298532110/details",
     salary: "https://pisrs.si/pregledPredpisa?sop=2026-01-1950",
-    sistat: "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
+    salaryRegistry: "https://pisrs.si/api/rezultat/zbirka/sop/2026-01-1950",
+    salaryDetails: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/613486752/details",
+    sistat: SISTAT_API_URL,
     ess: "https://www.ess.gov.si/delodajalci/zaposlovanje-tujcev-iz-tretjih-drzav/zaposlitev-tujcev-z-dovoljenjem-za-prebivanje/",
     companionRegistry: "https://pisrs.si/api/rezultat/zbirka/id/ZAKO6655",
     companionDetails: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/270729002/details",
@@ -1922,16 +1894,9 @@ async function replayableFixture(options: {
     validatorArtifact(runId, "si-digital-nomad-route", "gov-route-page", "route-gov.html", urls.gov),
     validatorArtifact(runId, "si-digital-nomad-route", "ztuj2-registry", "ztuj2-registry.json", urls.routeRegistry, "application/json"),
     validatorArtifact(runId, "si-digital-nomad-route", "ztuj2-details", "ztuj2-details.json", urls.routeDetails, "application/json"),
-    validatorArtifact(runId, "si-income-threshold", "salary-publication", "salary-publication.html", urls.salary),
-    validatorArtifact(
-      runId,
-      "si-income-threshold",
-      "sistat-metadata",
-      "sistat-metadata.json",
-      urls.sistat,
-      "application/json",
-      new TextEncoder().encode(LEGACY_REPLAY_SISTAT_METADATA),
-    ),
+    validatorArtifact(runId, "si-income-threshold", "salary-registry", "salary-registry.json", urls.salaryRegistry, "application/json"),
+    validatorArtifact(runId, "si-income-threshold", "salary-details", "salary-details.json", urls.salaryDetails, "application/json"),
+    validatorArtifact(runId, "si-income-threshold", "sistat-metadata", "sistat-metadata.json", urls.sistat, "application/json"),
     validatorArtifact(
       runId,
       "si-income-threshold",
@@ -1939,40 +1904,34 @@ async function replayableFixture(options: {
       "sistat-series.json",
       urls.sistat,
       "application/json",
-      new TextEncoder().encode(LEGACY_REPLAY_SISTAT_SERIES),
+      undefined,
+      { method: "POST", bodySha256: SISTAT_BODY_SHA256 },
     ),
     validatorArtifact(runId, "si-companion-employment", "ess-companion-page", "companion-ess.html", urls.ess),
     validatorArtifact(runId, "si-companion-employment", "zzsdt-registry", "zzsdt-registry.json", urls.companionRegistry, "application/json"),
     validatorArtifact(runId, "si-companion-employment", "zzsdt-details", "zzsdt-details.json", urls.companionDetails, "application/json"),
   ];
-  const cbrBytes = options.cbrRate === undefined
-    ? undefined
-    : new TextEncoder().encode(
-        `<?xml version="1.0" encoding="windows-1251"?><ValCurs Date="${(
-          options.cbrEffectiveDate ?? "2026-08-10"
-        ).split("-").reverse().join(".")}"><Valute><CharCode>EUR</CharCode><Nominal>1</Nominal><VunitRate>${options.cbrRate}</VunitRate></Valute></ValCurs>`,
-      );
-  const cbrArtifact: LiveCapturedArtifact<SloveniaSourceId> | undefined =
-    cbrBytes === undefined
-      ? undefined
-      : {
-          artifactId: `cbr-eur:official-document:${createHash("sha256").update(cbrBytes).digest("hex")}`,
-          runId,
-          sourceId: "cbr-eur",
-          role: "official-document",
-          url: urls.cbr,
-          mediaType: "application/xml",
-          sha256: createHash("sha256").update(cbrBytes).digest("hex"),
-          bytes: cbrBytes,
-          origin: "live",
-          capturedAt: "2026-08-11T10:00:00.000Z",
-          responseStatus: 200,
-          responseUrl: urls.cbr,
-          request: { method: "GET", url: urls.cbr },
-        };
-  const artifacts = cbrArtifact === undefined
-    ? countryArtifacts
-    : [...countryArtifacts, cbrArtifact];
+  const cbrBytes = new TextEncoder().encode(
+    `<?xml version="1.0" encoding="windows-1251"?><ValCurs Date="${(
+      options.cbrEffectiveDate ?? "2026-08-10"
+    ).split("-").reverse().join(".")}"><Valute><CharCode>EUR</CharCode><Nominal>1</Nominal><VunitRate>${options.cbrRate ?? "90"}</VunitRate></Valute></ValCurs>`,
+  );
+  const cbrArtifact: LiveCapturedArtifact<SloveniaSourceId> = {
+    artifactId: `cbr-eur:official-document:${createHash("sha256").update(cbrBytes).digest("hex")}`,
+    runId,
+    sourceId: "cbr-eur",
+    role: "official-document",
+    url: urls.cbr,
+    mediaType: "application/xml",
+    sha256: createHash("sha256").update(cbrBytes).digest("hex"),
+    bytes: cbrBytes,
+    origin: "live",
+    capturedAt: "2026-08-11T10:00:00.000Z",
+    responseStatus: 200,
+    responseUrl: urls.cbr,
+    request: { method: "GET", url: urls.cbr },
+  };
+  const artifacts = [...countryArtifacts, cbrArtifact];
   const sourceNavigation: Readonly<Record<SloveniaSourceId, string>> = {
     "si-digital-nomad-route": urls.gov,
     "si-income-threshold": urls.salary,
@@ -2013,40 +1972,20 @@ async function replayableFixture(options: {
       claims: validated.claims,
     });
   }
-  if (cbrArtifact === undefined) {
-    entries.push({
-      sourceId: "cbr-eur",
-      parserEntry: {
-        sourceId: "cbr-eur",
-        navigationUrl: urls.cbr,
-        resolvedEvidenceUrl: urls.cbr,
-        artifacts: [],
-      },
-      coverage: "unavailable",
-      blocker: {
-        sourceId: "cbr-eur",
-        kind: "navigation_mismatch",
-        navigationUrl: urls.cbr,
-        resolvedUrl: urls.cbr,
-        artifactIds: [],
-      },
-    });
-  } else {
-    const parserEntry = {
-      sourceId: "cbr-eur" as const,
-      navigationUrl: urls.cbr,
-      resolvedEvidenceUrl: urls.cbr,
-      artifacts: [cbrArtifact],
-    };
-    const validated = await plan.validate(parserEntry, ASSESSMENT_DATE);
-    if (!validated.ok) throw new Error("CBR validator fixture must be current");
-    entries.push({
-      sourceId: "cbr-eur",
-      parserEntry,
-      coverage: "verified",
-      claims: validated.claims,
-    });
-  }
+  const cbrParserEntry = {
+    sourceId: "cbr-eur" as const,
+    navigationUrl: urls.cbr,
+    resolvedEvidenceUrl: urls.cbr,
+    artifacts: [cbrArtifact],
+  };
+  const validatedCbr = await plan.validate(cbrParserEntry, ASSESSMENT_DATE);
+  if (!validatedCbr.ok) throw new Error("CBR validator fixture must be current");
+  entries.push({
+    sourceId: "cbr-eur",
+    parserEntry: cbrParserEntry,
+    coverage: "verified",
+    claims: validatedCbr.claims,
+  });
   const finalEntries = options.mutateClaim === undefined
     ? entries
     : entries.map((entry) => entry.coverage === "verified"
@@ -2102,6 +2041,8 @@ describe("plan-aware offline evidence replay", () => {
     const first = await replayEvidenceByRules({ snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY }, { store });
     const second = await replayEvidenceByRules({ snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY }, { store });
 
+    expect(fixture.artifacts).toHaveLength(11);
+    expect(fixture.prepared.snapshot.claims.filter((claim) => "claimKind" in claim)).toHaveLength(9);
     expect(canonicalJson(first)).toBe(canonicalJson(fixture.prepared.snapshot));
     expect(canonicalJson(second)).toBe(canonicalJson(first));
   });

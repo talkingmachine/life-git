@@ -1842,128 +1842,130 @@ describe("Slovenia route validator", () => {
   });
 });
 
-const LEGACY_SISTAT_METADATA = `{
-  "datasetId": "H285S.px",
-  "anchorExcerpt": "H285S.px | dimensions complete | no pagination",
-  "title": "Average monthly earnings",
-  "complete": true,
-  "pagination": { "hasMore": false },
-  "variables": [
-    {
-      "code": "MEASURE",
-      "text": "Measure",
-      "values": ["NET", "GROSS"],
-      "valueTexts": ["Average monthly net salary", "Average monthly gross salary"]
-    },
-    {
-      "code": "TIME",
-      "text": "Period",
-      "time": true,
-      "values": ["2025M12", "2026M01", "2026M09"],
-      "valueTexts": ["2025M12", "2026M01", "2026M09"]
-    }
-  ]
-}`;
+const SISTAT_API_URL = SLOVENIA_CAPTURE_FIXTURES["sistat-series"].url;
+const SISTAT_BODY_SHA256 = "c51587d0d30a096233aa690537714199d86670e355cbbabf58d5c1b45b2e5121";
+const PISRS_NET_PARAGRAPH = "Povprečna mesečna neto plača na zaposleno osebo v Sloveniji za maj 2026 je znašala 1.680,80 EUR in je bila za 0,5 % nižja kot za april 2026.";
+const SISTAT_NET_METADATA_PROJECTION = JSON.stringify({
+  dimension: { code: "PLAČE", label: "EARNINGS" },
+  category: { value: "2", label: "Net earnings" },
+});
+const SISTAT_NET_COORDINATE_PROJECTION = JSON.stringify({
+  coordinate: { MESEC: "2026M05", "PLAČE": "2" },
+  value: 1680.8,
+});
 
-const LEGACY_SISTAT_SERIES = `{
-  "version": "2.0",
-  "class": "dataset",
-  "anchorExcerpt": "H285S.px | NET | 2026M01 | 1560.00",
-  "id": ["MEASURE", "TIME"],
-  "size": [2, 3],
-  "dimension": {
-    "MEASURE": {
-      "label": "Measure",
-      "category": {
-        "index": { "NET": 0, "GROSS": 1 },
-        "label": {
-          "NET": "Average monthly net salary",
-          "GROSS": "Average monthly gross salary"
-        }
-      }
-    },
-    "TIME": {
-      "label": "Period",
-      "category": {
-        "index": { "2025M12": 0, "2026M01": 1, "2026M09": 2 },
-        "label": {
-          "2025M12": "2025M12",
-          "2026M01": "2026M01",
-          "2026M09": "2026M09"
-        }
-      }
-    }
-  },
-  "value": [1500.00, 1560.00, 1700.00, 2300.00, 2400.00, 2600.00]
-}`;
-
-function mutateLegacySiStat(
-  name: "sistat-metadata.json" | "sistat-series.json",
-  mutate: (text: string) => string,
-): Uint8Array {
-  return new TextEncoder().encode(mutate(
-    name === "sistat-metadata.json" ? LEGACY_SISTAT_METADATA : LEGACY_SISTAT_SERIES,
-  ));
+interface SiStatSeriesFixture {
+  id: string[];
+  size: number[];
+  dimension: Record<string, {
+    label: string;
+    category: { index: Record<string, number>; label: Record<string, string> };
+  }>;
+  value: (number | null)[];
 }
 
-function incomeEntry(
-  salaryBytes?: Uint8Array,
-  metadataBytes?: Uint8Array,
-  seriesBytes?: Uint8Array,
-  publicationUrl = SLOVENIA_CANDIDATES[2]!.url,
-): ParserEntry<SloveniaSourceId> {
-  const artifacts = [
-    fixtureArtifact(
-      "si-income-threshold",
-      "salary-publication",
-      "salary-publication.html",
-      publicationUrl,
-    ),
-    fixtureArtifact(
-      "si-income-threshold",
-      "sistat-metadata",
-      "sistat-metadata.json",
-      SLOVENIA_CANDIDATES[3]!.url,
-      "application/json",
-    ),
-    fixtureArtifact(
-      "si-income-threshold",
-      "sistat-series",
-      "sistat-series.json",
-      SLOVENIA_CANDIDATES[3]!.url,
-      "application/json",
-    ),
-  ];
-  const overrides = [
-    salaryBytes,
-    metadataBytes ?? new TextEncoder().encode(LEGACY_SISTAT_METADATA),
-    seriesBytes ?? new TextEncoder().encode(LEGACY_SISTAT_SERIES),
-  ];
+interface IncomeEntryOptions {
+  readonly registryBytes?: Uint8Array;
+  readonly detailsBytes?: Uint8Array;
+  readonly metadataBytes?: Uint8Array;
+  readonly seriesBytes?: Uint8Array;
+  readonly publicationUrl?: string;
+  readonly registryUrl?: string;
+  readonly detailsUrl?: string;
+  readonly seriesMethod?: "GET" | "POST";
+  readonly seriesRequestUrl?: string;
+  readonly seriesResponseUrl?: string;
+  readonly seriesBodySha256?: string;
+}
+
+function withFixtureBytes(
+  artifactValue: LiveCapturedArtifact<SloveniaSourceId>,
+  bytes: Uint8Array | undefined,
+): LiveCapturedArtifact<SloveniaSourceId> {
+  if (bytes === undefined) return artifactValue;
   return {
-    sourceId: "si-income-threshold",
-    navigationUrl: publicationUrl,
-    resolvedEvidenceUrl: SLOVENIA_CANDIDATES[3]!.url,
-    artifacts: artifacts.map((artifactValue, index) => {
-      const bytes = overrides[index];
-      return bytes === undefined
-        ? artifactValue
-        : {
-            ...artifactValue,
-            bytes,
-            sha256: createHash("sha256").update(bytes).digest("hex"),
-          };
-    }),
+    ...artifactValue,
+    bytes,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
   };
 }
 
+function incomeEntry(options: IncomeEntryOptions = {}): ParserEntry<SloveniaSourceId> {
+  const publicationUrl = options.publicationUrl ?? SLOVENIA_CANDIDATES[2]!.url;
+  const registryUrl = options.registryUrl ?? SLOVENIA_CAPTURE_FIXTURES["salary-registry"].url;
+  const detailsUrl = options.detailsUrl ?? SLOVENIA_CAPTURE_FIXTURES["salary-details"].url;
+  const seriesRequestUrl = options.seriesRequestUrl ?? SISTAT_API_URL;
+  const seriesResponseUrl = options.seriesResponseUrl ?? SISTAT_API_URL;
+  const registry = withFixtureBytes(fixtureArtifact(
+    "si-income-threshold",
+    "salary-registry",
+    "salary-registry.json",
+    registryUrl,
+    "application/json",
+  ), options.registryBytes);
+  const details = withFixtureBytes(fixtureArtifact(
+    "si-income-threshold",
+    "salary-details",
+    "salary-details.json",
+    detailsUrl,
+    "application/json",
+  ), options.detailsBytes);
+  const metadata = withFixtureBytes(fixtureArtifact(
+    "si-income-threshold",
+    "sistat-metadata",
+    "sistat-metadata.json",
+    SISTAT_API_URL,
+    "application/json",
+  ), options.metadataBytes);
+  const series = withFixtureBytes(fixtureArtifact(
+    "si-income-threshold",
+    "sistat-series",
+    "sistat-series.json",
+    seriesResponseUrl,
+    "application/json",
+  ), options.seriesBytes);
+  const seriesArtifact: LiveCapturedArtifact<SloveniaSourceId> = {
+    ...series,
+    url: seriesRequestUrl,
+    responseUrl: seriesResponseUrl,
+    request: {
+      method: options.seriesMethod ?? "POST",
+      url: seriesRequestUrl,
+      bodyMediaType: "application/json",
+      bodySha256: options.seriesBodySha256 ?? SISTAT_BODY_SHA256,
+    },
+  };
+  return {
+    sourceId: "si-income-threshold",
+    navigationUrl: publicationUrl,
+    resolvedEvidenceUrl: seriesResponseUrl,
+    artifacts: [
+      registry,
+      details,
+      metadata,
+      seriesArtifact,
+    ],
+  };
+}
+
+function changedSalaryDetails(amount: string): Uint8Array {
+  return mutateFixture("salary-details.json", (text) => text.replace("1.680,80", amount));
+}
+
+function changedSeriesValue(amount: number): Uint8Array {
+  return mutateJsonFixture<SiStatSeriesFixture>("sistat-series.json", (series) => {
+    series.value[1] = amount;
+  });
+}
+
 describe("Slovenia income validator", () => {
-  test("selects the latest applicable complete net period and derives its Decimal threshold", async () => {
+  test("derives one verified income claim from official PISRS and JSON-stat2 shapes", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
     const result = await sloveniaPlan.validate(incomeEntry(), ASSESSMENT_DATE);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("income fixture must validate");
+    if (!result.ok) throw new Error("official income fixture must validate");
     expect(result.claims).toHaveLength(1);
     const claim = result.claims[0]!;
     expect(claim).toMatchObject({
@@ -1972,34 +1974,32 @@ describe("Slovenia income validator", () => {
       value: {
         metric: "latest_official_average_monthly_net_salary",
         multiplier: "2",
-        thresholdEur: "3120.00",
-        period: "2026M01",
+        thresholdEur: "3361.60",
+        period: "2026M05",
       },
-      sourcePeriod: "2026M01",
+      sourcePeriod: "2026M05",
       validatorVersion: "si-income@2",
       status: "verified",
     });
     if (!("evidence" in claim)) throw new Error("income claim must carry evidence");
     expect(claim.evidence.map(({ anchor: claimAnchor }) => claimAnchor)).toEqual([
       {
-        artifactId: expect.stringContaining("salary-publication"),
-        locator: "PISRS salary publication 2026-01-1950",
-        excerptSha256: createHash("sha256")
-          .update("PISRS 2026-01-1950 | NET | 2026M01 | 1560.00 EUR")
-          .digest("hex"),
+        artifactId: expect.stringContaining("salary-details"),
+        locator: "PISRS salary publication 2026-01-1950 > monthly net salary 2026M05",
+        excerptSha256: createHash("sha256").update(PISRS_NET_PARAGRAPH).digest("hex"),
       },
       {
         artifactId: expect.stringContaining("sistat-metadata"),
-        locator: "H285S.px complete dimensions",
+        locator: "H285S.px metadata > PLAČE > Net earnings",
         excerptSha256: createHash("sha256")
-          .update("H285S.px | dimensions complete | no pagination")
+          .update(SISTAT_NET_METADATA_PROJECTION)
           .digest("hex"),
       },
       {
         artifactId: expect.stringContaining("sistat-series"),
-        locator: "H285S.px NET 2026M01",
+        locator: "H285S.px series > 2026M05 > Net earnings",
         excerptSha256: createHash("sha256")
-          .update("H285S.px | NET | 2026M01 | 1560.00")
+          .update(SISTAT_NET_COORDINATE_PROJECTION)
           .digest("hex"),
       },
     ]);
@@ -2007,168 +2007,134 @@ describe("Slovenia income validator", () => {
     expect(JSON.stringify(claim)).not.toMatch(/gross_to_net|conversion|estimated/i);
   });
 
-  test("derives a changed matching publication and series value instead of remembering salary", async () => {
+  test("derives a changed matching official value instead of remembering salary", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
-    const salary = mutateFixture("salary-publication.html", (text) => text.replaceAll("1560.00", "1601.00"));
-    const series = mutateLegacySiStat("sistat-series.json", (text) => text.replaceAll("1560.00", "1601.00"));
 
-    const result = await sloveniaPlan.validate(incomeEntry(salary, undefined, series), ASSESSMENT_DATE);
+    const result = await sloveniaPlan.validate(incomeEntry({
+      detailsBytes: changedSalaryDetails("1.700,00"),
+      seriesBytes: changedSeriesValue(1700),
+    }), ASSESSMENT_DATE);
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("mutated income fixture must validate");
     expect(result.claims[0]?.value).toEqual({
       metric: "latest_official_average_monthly_net_salary",
       multiplier: "2",
-      thresholdEur: "3202.00",
-      period: "2026M01",
+      thresholdEur: "3400.00",
+      period: "2026M05",
     });
   });
 
-  test("derives a different well-formed PISRS publication identity from its captured URL", async () => {
+  test.each([
+    { name: "only PISRS changes", options: { detailsBytes: changedSalaryDetails("1.700,00") } },
+    { name: "only SiStat changes", options: { seriesBytes: changedSeriesValue(1700) } },
+  ])("rejects remembered-value drift when $name", async ({ options }) => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
-    const publicationId = "2026-02-2000";
-    const publicationUrl = `https://pisrs.si/pregledPredpisa?sop=${publicationId}`;
-    const salary = mutateFixture("salary-publication.html", (text) =>
-      text.replaceAll("2026-01-1950", publicationId));
 
-    const result = await sloveniaPlan.validate(
-      incomeEntry(salary, undefined, undefined, publicationUrl),
-      ASSESSMENT_DATE,
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("well-formed publication identity must validate");
-    const claim = result.claims[0]!;
-    if (!("evidence" in claim)) throw new Error("income claim must carry evidence");
-    expect(claim.evidence[0]).toMatchObject({
-      navigationUrl: publicationUrl,
-      anchor: { locator: `PISRS salary publication ${publicationId}` },
-    });
-  });
-
-  test("rejects a publication whose captured sop disagrees with its content identity", async () => {
-    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
-    const mismatchedUrl = "https://pisrs.si/pregledPredpisa?sop=2026-02-2000";
-
-    const result = await sloveniaPlan.validate(
-      incomeEntry(undefined, undefined, undefined, mismatchedUrl),
-      ASSESSMENT_DATE,
-    );
+    const result = await sloveniaPlan.validate(incomeEntry(options), ASSESSMENT_DATE);
 
     expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
   });
 
-  test("accepts an explicitly selected singleton coordinate in every additional dimension", async () => {
+  test("accepts a coherent alternate candidate-derived SOP identity", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
-    const metadata = jsonBytes({
-      datasetId: "H285S.px",
-      anchorExcerpt: "H285S.px | dimensions complete | no pagination",
-      title: "Average monthly earnings",
-      complete: true,
-      pagination: { hasMore: false },
-      variables: [
-        { code: "MEASURE", text: "Measure", values: ["NET", "GROSS"], valueTexts: ["Average monthly net salary", "Average monthly gross salary"] },
-        { code: "TIME", text: "Period", time: true, values: ["2025M12", "2026M01", "2026M09"], valueTexts: ["2025M12", "2026M01", "2026M09"] },
-        { code: "REGION", text: "Region", values: ["SI"], valueTexts: ["Slovenia"] },
-      ],
-    });
-    const series = jsonBytes({
-      version: "2.0",
-      class: "dataset",
-      anchorExcerpt: "H285S.px | NET | 2026M01 | 1560.00",
-      id: ["MEASURE", "TIME", "REGION"],
-      size: [2, 3, 1],
-      dimension: {
-        MEASURE: { label: "Measure", category: { index: { NET: 0, GROSS: 1 }, label: { NET: "Average monthly net salary", GROSS: "Average monthly gross salary" } } },
-        TIME: { label: "Period", category: { index: { "2025M12": 0, "2026M01": 1, "2026M09": 2 }, label: { "2025M12": "2025M12", "2026M01": "2026M01", "2026M09": "2026M09" } } },
-        REGION: { label: "Region", category: { index: { SI: 0 }, label: { SI: "Slovenia" } } },
-      },
-      value: [1500, 1560, 1700, 2300, 2400, 2600],
-    });
+    const alternateSop = "2026-02-2000";
+    const publicationUrl = `https://pisrs.si/pregledPredpisa?sop=${alternateSop}`;
+    const registryUrl = `https://pisrs.si/api/rezultat/zbirka/sop/${alternateSop}`;
+    const registryBytes = mutateFixture("salary-registry.json", (text) =>
+      text.replace("2026-01-1950", alternateSop));
 
-    const result = await sloveniaPlan.validate(incomeEntry(undefined, metadata, series), ASSESSMENT_DATE);
+    const result = await sloveniaPlan.validate(incomeEntry({
+      publicationUrl,
+      registryUrl,
+      registryBytes,
+    }), ASSESSMENT_DATE);
 
     expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("alternate SOP fixture must validate");
+    const claim = result.claims[0]!;
+    if (!("evidence" in claim)) throw new Error("income claim must carry evidence");
+    expect(claim.evidence[0]).toMatchObject({
+      navigationUrl: SLOVENIA_CAPTURE_FIXTURES["salary-details"].url,
+      anchor: { locator: `PISRS salary publication ${alternateSop} > monthly net salary 2026M05` },
+    });
   });
 
   test.each([
     {
-      name: "paginated metadata",
-      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replace('"hasMore": false', '"hasMore": true')),
-    },
-    {
-      name: "incomplete metadata",
-      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replace('"complete": true', '"complete": false')),
-    },
-    {
-      name: "missing series dimension",
-      series: () => mutateLegacySiStat("sistat-series.json", (text) => text.replace('"id": ["MEASURE", "TIME"]', '"id": ["TIME"]')),
-    },
-    {
-      name: "dimension object missing an id dimension",
-      series: () => mutateLegacySiStat("sistat-series.json", (text) => text.replace(/,\n    "TIME": \{[\s\S]*?\n    \}\n/, "\n")),
-    },
-    {
-      name: "dimension object has a key absent from id",
-      series: () => mutateLegacySiStat("sistat-series.json", (text) => text.replace('"dimension": {', '"dimension": {"EXTRA":{"label":"Extra","category":{"index":{"X":0},"label":{"X":"X"}}},')),
-    },
-    {
-      name: "time and metric use the same dimension code",
-      metadata: () => jsonBytes({
-        datasetId: "H285S.px",
-        anchorExcerpt: "H285S.px | dimensions complete | no pagination",
-        title: "Average monthly earnings",
-        complete: true,
-        pagination: { hasMore: false },
-        variables: [{ code: "TIME", text: "Period", time: true, values: ["2026M01"], valueTexts: ["Average monthly net salary"] }],
-      }),
-      series: () => jsonBytes({
-        version: "2.0",
-        class: "dataset",
-        anchorExcerpt: "H285S.px | NET | 2026M01 | 1560.00",
-        id: ["TIME"],
-        size: [1],
-        dimension: { TIME: { label: "Period", category: { index: { "2026M01": 0 }, label: { "2026M01": "Average monthly net salary" } } } },
-        value: [1560],
+      name: "candidate SOP disagrees with registry identity",
+      options: (): IncomeEntryOptions => ({
+        publicationUrl: "https://pisrs.si/pregledPredpisa?sop=2026-02-2000",
+        registryUrl: "https://pisrs.si/api/rezultat/zbirka/sop/2026-02-2000",
       }),
     },
     {
-      name: "unselected additional dimension has multiple coordinates",
-      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replace('\n  ]\n}', ',{"code":"REGION","text":"Region","values":["SI","AT"],"valueTexts":["Slovenia","Austria"]}\n  ]\n}')),
-      series: () => mutateLegacySiStat("sistat-series.json", (text) => text
-        .replace('"id": ["MEASURE", "TIME"]', '"id": ["MEASURE", "TIME", "REGION"]')
-        .replace('"size": [2, 3]', '"size": [2, 3, 2]')
-        .replace('\n  },\n  "value":', ',"REGION":{"label":"Region","category":{"index":{"SI":0,"AT":1},"label":{"SI":"Slovenia","AT":"Austria"}}}\n  },\n  "value":')
-        .replace('[1500.00, 1560.00, 1700.00, 2300.00, 2400.00, 2600.00]', '[1500,1500,1560,1560,1700,1700,2300,2300,2400,2400,2600,2600]')),
+      name: "registry publication is after the assessment cutoff",
+      options: (): IncomeEntryOptions => ({
+        registryBytes: mutateFixture("salary-registry.json", (text) =>
+          text.replace('"objavljeno": "2026-07-28"', '"objavljeno": "2026-08-12"')),
+      }),
     },
     {
-      name: "ambiguous net metric",
-      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replace('"Average monthly gross salary"', '"Average monthly net salary"')),
+      name: "Net earnings category is missing",
+      options: (): IncomeEntryOptions => ({
+        metadataBytes: mutateFixture("sistat-metadata.json", (text) =>
+          text.replace('"Net earnings"', '"Take-home earnings"')),
+      }),
     },
     {
-      name: "future-only period",
-      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replaceAll("2025M12", "2027M11").replaceAll("2026M01", "2027M12")),
-      series: () => mutateLegacySiStat("sistat-series.json", (text) => text.replaceAll("2025M12", "2027M11").replaceAll("2026M01", "2027M12")),
+      name: "Net earnings category is duplicated",
+      options: (): IncomeEntryOptions => ({
+        metadataBytes: mutateFixture("sistat-metadata.json", (text) =>
+          text.replace('"Gross earnings"', '"Net earnings"')),
+      }),
     },
     {
-      name: "publication disagreement",
-      salary: () => mutateFixture("salary-publication.html", (text) => text.replaceAll("1560.00", "1559.00")),
+      name: "category index is duplicate and misaligned",
+      options: (): IncomeEntryOptions => ({
+        seriesBytes: mutateJsonFixture<SiStatSeriesFixture>("sistat-series.json", (series) => {
+          series.dimension["PLAČE"]!.category.index["2"] = 0;
+        }),
+      }),
     },
     {
-      name: "malformed publication date",
-      salary: () => mutateFixture("salary-publication.html", (text) => text.replace("PUBLISHED: 2026-02-20.", "PUBLISHED: 0000.")),
+      name: "series request method is not POST",
+      options: (): IncomeEntryOptions => ({ seriesMethod: "GET" }),
     },
     {
-      name: "malformed publication value",
-      salary: () => mutateFixture("salary-publication.html", (text) => text.replace("VALUE EUR: 1560.00.", "VALUE EUR: not-a-number.")),
+      name: "series request URL is not the metadata API URL",
+      options: (): IncomeEntryOptions => ({ seriesRequestUrl: `${SISTAT_API_URL}?wrong=1` }),
     },
-  ])("rejects the complete income claim for $name", async ({ salary, metadata, series }) => {
+    {
+      name: "series final URL is not the metadata API URL",
+      options: (): IncomeEntryOptions => ({ seriesResponseUrl: `${SISTAT_API_URL}?wrong=1` }),
+    },
+    {
+      name: "series body hash differs from the re-encoded all-dimensions query",
+      options: (): IncomeEntryOptions => ({ seriesBodySha256: "f".repeat(64) }),
+    },
+    {
+      name: "only future periods exist",
+      options: (): IncomeEntryOptions => ({
+        metadataBytes: mutateFixture("sistat-metadata.json", (text) =>
+          text.replaceAll("2026M05", "2027M05")),
+        seriesBytes: mutateFixture("sistat-series.json", (text) =>
+          text.replaceAll("2026M05", "2027M05")),
+      }),
+    },
+    {
+      name: "PISRS and SiStat periods disagree",
+      options: (): IncomeEntryOptions => ({
+        registryBytes: mutateFixture("salary-registry.json", (text) =>
+          text.replaceAll("maj 2026", "april 2026")),
+        detailsBytes: mutateFixture("salary-details.json", (text) =>
+          text.replaceAll("maj 2026", "april 2026")),
+      }),
+    },
+  ])("rejects the complete official income claim when $name", async ({ options }) => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
-    const result = await sloveniaPlan.validate(
-      incomeEntry(salary?.(), metadata?.(), series?.()),
-      ASSESSMENT_DATE,
-    );
+    const result = await sloveniaPlan.validate(incomeEntry(options()), ASSESSMENT_DATE);
 
     expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
   });
