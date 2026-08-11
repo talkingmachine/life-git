@@ -103,7 +103,7 @@ vi.mock("react-globe.gl", async () => {
       React.useLayoutEffect(() => {
         if (labels.current === null || props.htmlElement === undefined) return;
         labels.current.replaceChildren(
-          ...(props.htmlElementsData ?? []).map((datum) => props.htmlElement!(datum)),
+          ...(props.htmlElementsData ?? []).map((datum) => props.htmlElement!(datum).cloneNode(true)),
         );
       }, [props.htmlElement, props.htmlElementsData]);
       return (

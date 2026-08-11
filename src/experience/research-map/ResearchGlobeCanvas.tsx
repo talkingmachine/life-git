@@ -118,6 +118,19 @@ function markerDetailId(routeKey: string): string {
   return `research-marker-detail-${routeKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
+function markerButtonFromEventTarget(target: EventTarget | null): HTMLButtonElement | null {
+  if (!(target instanceof Element)) return null;
+  return target.closest<HTMLButtonElement>("button[data-route-key]");
+}
+
+function visibleMarkerButton(
+  container: HTMLElement | null,
+  routeKey: string,
+): HTMLButtonElement | undefined {
+  const markers = container?.querySelectorAll<HTMLButtonElement>("button[data-route-key]");
+  return Array.from(markers ?? []).find((marker) => marker.dataset.routeKey === routeKey);
+}
+
 function normalizeAirliner(scene: Object3D): Object3D {
   const bounds = new Box3().setFromObject(scene);
   const size = bounds.getSize(new Vector3());
@@ -292,7 +305,6 @@ export function ResearchGlobeCanvas({
   const flightLayerRef = useRef<FlightLayer | undefined>(undefined);
   const destinationRevealCompleted = useRef(new Set<string>());
   const detailHeading = useRef<HTMLHeadingElement>(null);
-  const markerButtons = useRef(new Map<string, HTMLButtonElement>());
   const returnFocusKey = useRef<string | undefined>(undefined);
   const viewport = useRef({ width: 1, height: 1 });
   const [globeReady, setGlobeReady] = useState(false);
@@ -371,7 +383,7 @@ export function ResearchGlobeCanvas({
       );
       element.setAttribute("aria-controls", markerDetailId(label.key));
       element.setAttribute("aria-expanded", String(label.selected));
-      markerButtons.current.set(label.key, element);
+      element.dataset.routeKey = label.key;
     } else {
       element.setAttribute("role", "note");
       element.setAttribute(
@@ -397,10 +409,23 @@ export function ResearchGlobeCanvas({
     return anchor;
   }, []);
 
+  const openMarkerDetails = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const marker = markerButtonFromEventTarget(event.target);
+    if (marker === null || !event.currentTarget.contains(marker)) return;
+    const routeKey = marker.dataset.routeKey;
+    if (routeKey === undefined || !routes.some((route) => route.key === routeKey)) return;
+    event.stopPropagation();
+    setSelectedRouteKey(routeKey);
+  }, [routes]);
+
+  const stopGlobeMarkerPointer = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const marker = markerButtonFromEventTarget(event.target);
+    if (marker !== null && event.currentTarget.contains(marker)) event.stopPropagation();
+  }, []);
+
   const closeSelectedRoute = useCallback(() => {
     if (selectedRouteKey === undefined) return;
     returnFocusKey.current = selectedRouteKey;
-    markerButtons.current.get(selectedRouteKey)?.setAttribute("aria-expanded", "false");
     setSelectedRouteKey(undefined);
   }, [selectedRouteKey]);
 
@@ -411,9 +436,7 @@ export function ResearchGlobeCanvas({
     }
     const routeKey = returnFocusKey.current;
     if (routeKey === undefined) return;
-    const marker = markerButtons.current.get(routeKey);
-    marker?.setAttribute("aria-expanded", "false");
-    marker?.focus();
+    visibleMarkerButton(size.container.current, routeKey)?.focus();
     returnFocusKey.current = undefined;
   }, [cityLabelData, selectedRouteKey]);
 
@@ -590,7 +613,6 @@ export function ResearchGlobeCanvas({
 
   useEffect(() => {
     destinationRevealCompleted.current.clear();
-    markerButtons.current.clear();
     setDestinationEpoch((epoch) => epoch + 1);
     setSelectedRouteKey(undefined);
   }, [overview.key]);
@@ -759,7 +781,13 @@ export function ResearchGlobeCanvas({
   }, [flightLayer, globeReady, planeTemplate, readyForFlights, realisticEarth, reducedMotion, routeScene]);
 
   return (
-    <div className={styles.globe} ref={size.container} style={{ background: backgroundColor }}>
+    <div
+      className={styles.globe}
+      onClick={openMarkerDetails}
+      onPointerDown={stopGlobeMarkerPointer}
+      ref={size.container}
+      style={{ background: backgroundColor }}
+    >
       <Globe
         // react-globe.gl narrows refs to mutable objects, although its forwardRef accepts callback refs.
         ref={setGlobeRef as unknown as React.MutableRefObject<GlobeMethods | undefined>}
