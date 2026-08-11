@@ -2,12 +2,13 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `draft-for-exact-text-review` |
+| Статус | `approved` |
 | Владелец решения | пользователь проекта |
 | Дата решения | 2026-08-11 |
 | Область | все конкурсные срезы до защиты, включая `VS-1..VS-5` |
 | Выбранный подход | installed country source index + live official-source verification |
-| После exact-text approval supersedes | runtime OpenAI/Responses integration, API-key gate и зависимый `VS-2` live eval |
+| Supersedes | runtime OpenAI/Responses integration, API-key gate и зависимый `VS-2` live eval |
+| Approval | пользователь проекта / 2026-08-11 / exact-text / approved |
 
 ## 1. Решение и граница этапа
 
@@ -174,7 +175,7 @@ marker или verdict. Его возможный результат — толь
 
 ## 11. Приоритет и исторические документы
 
-После exact-text approval этот документ supersedes provider/model/API-key/live-eval clauses в прежних implementation plans
+Этот документ supersedes provider/model/API-key/live-eval clauses в прежних implementation plans
 `VS-1`, `VS-2`, Task 2/4/6 briefs и source-shape repair handoff. Их уже выполненные deterministic
 части, official capture topology, validators, evidence integrity, replay, UI и исторические отчёты
 остаются действительными.
