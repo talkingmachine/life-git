@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
@@ -23,7 +27,10 @@ import type {
   VerifiedCountryClaim,
 } from "../../src/research/cold-start-contracts";
 import type { LiveCapturedArtifact } from "../../src/research/contracts";
-import { buildCountryDossier } from "../../src/research/dossier";
+import {
+  buildCountryDossier,
+  type DossierPublishResult,
+} from "../../src/research/dossier";
 import { createSloveniaPlan } from "../../src/research/slovenia-plan";
 import {
   sealEvidencePlan,
@@ -92,15 +99,28 @@ const VALUES: ClaimValueByKind = {
 };
 
 const databases: Database.Database[] = [];
+const temporaryDirectories: string[] = [];
 
 afterEach(() => {
   for (const database of databases.splice(0)) database.close();
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { force: true, recursive: true });
+  }
 });
 
 function database(): Database.Database {
   const value = openEvidenceDatabase(":memory:");
   databases.push(value);
   return value;
+}
+
+function fileDatabase(): { readonly database: Database.Database; readonly path: string } {
+  const directory = mkdtempSync(join(tmpdir(), "cold-start-concurrency-"));
+  temporaryDirectories.push(directory);
+  const path = join(directory, "evidence.sqlite");
+  const value = openEvidenceDatabase(path);
+  databases.push(value);
+  return { database: value, path };
 }
 
 function sourceFor(kind: ClaimKind): Exclude<SloveniaSourceId, "cbr-eur"> {
@@ -267,6 +287,128 @@ async function appendArtifacts(
   for (const sourceArtifact of artifacts) await store.appendArtifact(sourceArtifact);
 }
 
+type SloveniaPrepared = SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaim>;
+type PreparedCopy = {
+  snapshot: SloveniaPrepared["snapshot"];
+  manifest: SloveniaPrepared["manifest"];
+};
+
+function resignPrepared(
+  prepared: SloveniaPrepared,
+  mutate: (copy: PreparedCopy) => void,
+): SloveniaPrepared {
+  const copy = structuredClone({ snapshot: prepared.snapshot, manifest: prepared.manifest });
+  mutate(copy);
+  const canonicalManifest = canonicalJson(copy.manifest);
+  const manifestHash = sha256Text(canonicalManifest);
+  const hmac = hmacSha256(canonicalManifest, KEY);
+  return {
+    snapshot: { ...copy.snapshot, manifestHash, hmac },
+    manifest: copy.manifest,
+    canonicalManifest,
+  };
+}
+
+function replaceEntries(
+  copy: PreparedCopy,
+  entries: readonly SloveniaPrepared["manifest"]["entries"][number][],
+): void {
+  (copy.manifest as unknown as {
+    entries: readonly SloveniaPrepared["manifest"]["entries"][number][];
+  }).entries = entries;
+}
+
+function replaceClaims(
+  copy: PreparedCopy,
+  claims: readonly ColdStartEvidenceClaim[],
+): void {
+  (copy.snapshot as unknown as { claims: readonly ColdStartEvidenceClaim[] }).claims = claims;
+  (copy.manifest.snapshot as unknown as { claims: readonly ColdStartEvidenceClaim[] }).claims =
+    structuredClone(claims);
+}
+
+interface PublishWorkerHandle {
+  readonly ready: Promise<void>;
+  readonly result: Promise<DossierPublishResult>;
+}
+
+function publishWorker(input: {
+  readonly path: string;
+  readonly preparedEvidence: SloveniaPrepared;
+  readonly publishedAt: string;
+  readonly start: SharedArrayBuffer;
+}): PublishWorkerHandle {
+  const source = String.raw`
+    const { parentPort, workerData } = require("node:worker_threads");
+    (async () => {
+      let database;
+      try {
+        const { tsImport } = await import("tsx/esm/api");
+        const { SqliteDossierStore } = await tsImport(
+          workerData.storeModule,
+          workerData.parentModule,
+        );
+        const Database = (await import("better-sqlite3")).default;
+        database = new Database(workerData.path);
+        database.pragma("foreign_keys = ON");
+        database.pragma("busy_timeout = 3000");
+        parentPort.postMessage({ type: "ready" });
+        const start = new Int32Array(workerData.start);
+        Atomics.wait(start, 0, 0);
+        const value = new SqliteDossierStore(database, workerData.key).publishWithEvidence({
+          preparedEvidence: workerData.preparedEvidence,
+          publishedAt: workerData.publishedAt,
+        });
+        database.close();
+        database = undefined;
+        parentPort.postMessage({ type: "result", value });
+      } catch (error) {
+        parentPort.postMessage({
+          type: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        if (database?.open) database.close();
+      }
+    })();
+  `;
+  const worker = new Worker(source, {
+    eval: true,
+    workerData: {
+      ...input,
+      key: KEY,
+      storeModule: pathToFileURL(resolve("src/infrastructure/sqlite/dossier-store.ts")).href,
+      parentModule: pathToFileURL(resolve("tests/integration/cold-start.test.ts")).href,
+    },
+  });
+  let readyResolve!: () => void;
+  let resultResolve!: (value: DossierPublishResult) => void;
+  let resultReject!: (error: Error) => void;
+  const ready = new Promise<void>((resolveReady) => {
+    readyResolve = resolveReady;
+  });
+  const result = new Promise<DossierPublishResult>((resolveResult, rejectResult) => {
+    resultResolve = resolveResult;
+    resultReject = rejectResult;
+  });
+  void result.catch(() => undefined);
+  const reject = (error: Error): void => {
+    readyResolve();
+    resultReject(error);
+  };
+  worker.on("message", (message: {
+    readonly type: "ready" | "result" | "error";
+    readonly value?: DossierPublishResult;
+    readonly message?: string;
+  }) => {
+    if (message.type === "ready") readyResolve();
+    if (message.type === "result") resultResolve(message.value!);
+    if (message.type === "error") reject(new Error(message.message ?? "worker_failed"));
+  });
+  worker.on("error", (error) => reject(error));
+  return { ready, result };
+}
+
 describe("immutable country dossier publication", () => {
   test("normalizes the nine verified country claims and publishes v1 without CBR", async () => {
     const db = database();
@@ -287,6 +429,32 @@ describe("immutable country dossier publication", () => {
     expect(published).toMatchObject({ created: true, version: { ordinal: 1, payload } });
     expect(store.loadVerified(published.version.id)).toEqual(published.version);
     expect(store.loadHead("SI", "si-dossier@1")).toEqual(published.version);
+  });
+
+  test("copies closed claim values without freezing or aliasing prepared Evidence", async () => {
+    const fixture = await preparedFixture();
+    const inputClaim = fixture.prepared.snapshot.claims.find(
+      (claim) => "claimKind" in claim && claim.claimKind === "citizenship_applicability",
+    ) as VerifiedCountryClaim<"citizenship_applicability">;
+
+    const payload = buildCountryDossier(fixture.prepared);
+    const outputClaim = payload.claims.find(
+      (claim) => claim.claimKind === "citizenship_applicability",
+    )! as typeof payload.claims[number] & {
+      readonly value: ClaimValueByKind["citizenship_applicability"];
+    };
+
+    expect(Object.isFrozen(inputClaim.value)).toBe(false);
+    expect(Object.isFrozen(inputClaim.value.explicitNationalityExclusions)).toBe(false);
+    expect(Object.isFrozen(outputClaim.value)).toBe(true);
+    expect(Object.isFrozen(outputClaim.value.explicitNationalityExclusions)).toBe(true);
+    const mutableInput = inputClaim.value.explicitNationalityExclusions as string[];
+    mutableInput.push("Test-only mutation");
+    try {
+      expect(outputClaim.value.explicitNationalityExclusions).toEqual(["EU", "EEA", "Switzerland"]);
+    } finally {
+      mutableInput.pop();
+    }
   });
 
   test.each([
@@ -310,6 +478,170 @@ describe("immutable country dossier publication", () => {
     })).toThrow("publication_not_allowed");
     expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 0 });
     expect(db.prepare("SELECT COUNT(*) AS count FROM dossier_versions").get()).toEqual({ count: 0 });
+  });
+
+  test.each([
+    ["extra entry", (copy: PreparedCopy) => replaceEntries(copy, [
+      ...copy.manifest.entries,
+      copy.manifest.entries[0]!,
+    ])],
+    ["duplicate entry", (copy: PreparedCopy) => replaceEntries(copy, [
+      copy.manifest.entries[0]!,
+      copy.manifest.entries[0]!,
+      ...copy.manifest.entries.slice(2),
+    ])],
+    ["missing entry", (copy: PreparedCopy) => replaceEntries(copy, copy.manifest.entries.slice(1))],
+    ["reordered entry", (copy: PreparedCopy) => replaceEntries(copy, [
+      copy.manifest.entries[1]!,
+      copy.manifest.entries[0]!,
+      ...copy.manifest.entries.slice(2),
+    ])],
+    ["artifact list mismatch", (copy: PreparedCopy) => {
+      const first = copy.manifest.entries[0]!;
+      replaceEntries(copy, [{ ...first, artifactIds: [] }, ...copy.manifest.entries.slice(1)]);
+    }],
+    ["verified CBR with a blocker", (copy: PreparedCopy) => {
+      const coverage = {
+        ...copy.snapshot.coverage,
+        "cbr-eur": "verified" as const,
+      };
+      (copy.snapshot as unknown as { coverage: typeof coverage }).coverage = coverage;
+      (copy.manifest.snapshot as unknown as { coverage: typeof coverage }).coverage =
+        structuredClone(coverage);
+    }],
+  ] as const)("rejects correctly re-signed malformed Evidence with %s before commit", async (
+    _name,
+    mutate,
+  ) => {
+    const db = database();
+    const fixture = await preparedFixture();
+    const malformed = resignPrepared(fixture.prepared, mutate);
+    await appendArtifacts(db, fixture.artifacts);
+
+    expect(() => new SqliteDossierStore(db, KEY).publishWithEvidence({
+      preparedEvidence: malformed,
+      publishedAt: PUBLISHED_AT,
+    })).toThrow("publication_not_allowed");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM dossier_versions").get()).toEqual({ count: 0 });
+  });
+
+  test.each(["different", "missing"] as const)(
+    "rejects a country evidence ref whose anchor artifact is %s",
+    async (kind) => {
+      const db = database();
+      const fixture = await preparedFixture();
+      const malformed = resignPrepared(fixture.prepared, (copy) => {
+        const claims = structuredClone(copy.snapshot.claims);
+        const route = claims.find(
+          (claim) => "claimKind" in claim && claim.claimKind === "route_basis",
+        ) as VerifiedCountryClaim<"route_basis">;
+        const reference = route.evidence[0]!;
+        const evidence = [{
+          ...reference,
+          anchor: {
+            ...reference.anchor,
+            artifactId: kind === "different"
+              ? fixture.artifacts.find(({ sourceId }) => sourceId === "si-income-threshold")!
+                .artifactId
+              : "missing-artifact",
+          },
+        }, structuredClone(reference)];
+        replaceClaims(copy, claims.map((claim) => claim === route ? { ...route, evidence } : claim));
+      });
+      await appendArtifacts(db, fixture.artifacts);
+
+      expect(() => new SqliteDossierStore(db, KEY).publishWithEvidence({
+        preparedEvidence: malformed,
+        publishedAt: PUBLISHED_AT,
+      })).toThrow("publication_not_allowed");
+      expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 0 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM dossier_versions").get()).toEqual({ count: 0 });
+    },
+  );
+
+  test("rejects malformed same-payload Evidence before the idempotent branch persists it", async () => {
+    const db = database();
+    const store = new SqliteDossierStore(db, KEY);
+    const firstFixture = await preparedFixture({ snapshotId: "shape-first:evidence", runId: "shape-first" });
+    await appendArtifacts(db, firstFixture.artifacts);
+    store.publishWithEvidence({ preparedEvidence: firstFixture.prepared, publishedAt: PUBLISHED_AT });
+    const repeatedFixture = await preparedFixture({
+      snapshotId: "shape-repeat:evidence",
+      runId: "shape-repeat",
+      artifactIdSuffix: ":shape-repeat",
+    });
+    await appendArtifacts(db, repeatedFixture.artifacts);
+    const malformed = resignPrepared(repeatedFixture.prepared, (copy) => replaceEntries(copy, [
+      copy.manifest.entries[1]!,
+      copy.manifest.entries[0]!,
+      ...copy.manifest.entries.slice(2),
+    ]));
+
+    expect(() => store.publishWithEvidence({
+      preparedEvidence: malformed,
+      publishedAt: "2026-08-11T10:40:00.000Z",
+    })).toThrow("publication_not_allowed");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 1 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM dossier_versions").get()).toEqual({ count: 1 });
+  });
+
+  test("applies the structural assertion on direct Evidence insert and verified load", async () => {
+    const insertDb = database();
+    const insertFixture = await preparedFixture({ snapshotId: "shape-insert:evidence", runId: "shape-insert" });
+    await appendArtifacts(insertDb, insertFixture.artifacts);
+    const malformedInsert = resignPrepared(insertFixture.prepared, (copy) => replaceEntries(copy, [
+      copy.manifest.entries[1]!,
+      copy.manifest.entries[0]!,
+      ...copy.manifest.entries.slice(2),
+    ]));
+    const insertStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(insertDb);
+
+    await expect(insertStore.seal(malformedInsert)).rejects.toThrow("integrity_mismatch");
+    expect(insertDb.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 0 });
+    expect(insertDb.prepare("SELECT COUNT(*) AS count FROM artifacts WHERE sealed = 1").get()).toEqual({ count: 0 });
+
+    const loadDb = database();
+    const loadFixture = await preparedFixture({ snapshotId: "shape-load:evidence", runId: "shape-load" });
+    await appendArtifacts(loadDb, loadFixture.artifacts);
+    const loadStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(loadDb);
+    await loadStore.seal(loadFixture.prepared);
+    const malformedLoad = resignPrepared(loadFixture.prepared, (copy) => replaceEntries(copy, [
+      copy.manifest.entries[1]!,
+      copy.manifest.entries[0]!,
+      ...copy.manifest.entries.slice(2),
+    ]));
+    loadDb.exec("DROP TRIGGER evidence_snapshots_no_update");
+    loadDb.prepare(`
+      UPDATE evidence_snapshots
+      SET snapshot_json = ?, manifest_json = ?, manifest_hash = ?, hmac = ?
+      WHERE id = ?
+    `).run(
+      canonicalJson(malformedLoad.snapshot),
+      malformedLoad.canonicalManifest,
+      malformedLoad.snapshot.manifestHash,
+      malformedLoad.snapshot.hmac,
+      malformedLoad.snapshot.id,
+    );
+
+    await expect(loadStore.loadVerified(malformedLoad.snapshot.id, KEY)).rejects.toThrow(
+      "integrity_mismatch",
+    );
+  });
+
+  test("rejects a signed manifest snapshot artifact list that drifts before direct insert", async () => {
+    const db = database();
+    const fixture = await preparedFixture({ snapshotId: "shape-manifest:evidence", runId: "shape-manifest" });
+    await appendArtifacts(db, fixture.artifacts);
+    const malformed = resignPrepared(fixture.prepared, (copy) => {
+      (copy.manifest.snapshot as unknown as { artifactIds: readonly string[] }).artifactIds =
+        copy.manifest.snapshot.artifactIds.slice(1);
+    });
+    const store = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
+
+    await expect(store.seal(malformed)).rejects.toThrow("integrity_mismatch");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM artifacts WHERE sealed = 1").get()).toEqual({ count: 0 });
   });
 
   test("reuses an identical normalized payload and appends only stable changes", async () => {
@@ -384,6 +716,77 @@ describe("immutable country dossier publication", () => {
     expect(changed.version.payloadHash).not.toBe(first.version.payloadHash);
     expect(JSON.stringify(store.loadVerified(first.version.id))).toBe(firstBytes);
   });
+
+  test.each(["same", "different"] as const)(
+    "serializes truly simultaneous %s-payload publications across two file connections",
+    async (kind) => {
+      const { database: db, path } = fileDatabase();
+      db.pragma("busy_timeout = 3000");
+      const firstFixture = await preparedFixture({
+        snapshotId: `concurrent-${kind}-first:evidence`,
+        runId: `concurrent-${kind}-first`,
+      });
+      const secondFixture = await preparedFixture({
+        snapshotId: `concurrent-${kind}-second:evidence`,
+        runId: `concurrent-${kind}-second`,
+        artifactIdSuffix: ":second",
+        ...(kind === "different"
+          ? {
+              mutateClaim: (claim: VerifiedCountryClaim) => claim.claimKind === "income"
+                ? {
+                    ...claim,
+                    value: {
+                      ...claim.value as ClaimValueByKind["income"],
+                      thresholdEur: "3200.00",
+                    },
+                  }
+                : claim,
+            }
+          : {}),
+      });
+      await appendArtifacts(db, firstFixture.artifacts);
+      await appendArtifacts(db, secondFixture.artifacts);
+      const start = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+      const workers = [
+        publishWorker({
+          path,
+          preparedEvidence: firstFixture.prepared,
+          publishedAt: "2026-08-11T11:00:00.000Z",
+          start,
+        }),
+        publishWorker({
+          path,
+          preparedEvidence: secondFixture.prepared,
+          publishedAt: "2026-08-11T11:00:01.000Z",
+          start,
+        }),
+      ];
+      await Promise.all(workers.map(({ ready }) => ready));
+      const startSignal = new Int32Array(start);
+      Atomics.store(startSignal, 0, 1);
+      Atomics.notify(startSignal, 0, workers.length);
+
+      const results = await Promise.all(workers.map(({ result }) => result));
+
+      expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 2 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM dossier_versions").get()).toEqual({
+        count: kind === "same" ? 1 : 2,
+      });
+      const head = new SqliteDossierStore(db, KEY).loadHead("SI", "si-dossier@1");
+      expect(head?.ordinal).toBe(kind === "same" ? 1 : 2);
+      expect(results.filter(({ created }) => created)).toHaveLength(kind === "same" ? 1 : 2);
+      if (kind === "different") {
+        expect(db.prepare(`
+          SELECT predecessor_id AS predecessorId
+          FROM dossier_versions ORDER BY predecessor_id IS NOT NULL, id
+        `).all()).toEqual([
+          { predecessorId: null },
+          { predecessorId: head?.predecessorId },
+        ]);
+      }
+    },
+    10_000,
+  );
 
   test("rolls back the Evidence seal when dossier insertion fails", async () => {
     const db = database();

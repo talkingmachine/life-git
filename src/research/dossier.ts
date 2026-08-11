@@ -11,7 +11,10 @@ import type {
   VerifiedCountryClaim,
 } from "./cold-start-contracts";
 import type { ClaimAnchor } from "./contracts";
-import type { SealedEvidence } from "./research-plan";
+import {
+  assertSealedEvidenceStructure,
+  type SealedEvidence,
+} from "./research-plan";
 
 export interface DossierClaim<K extends ClaimKind = ClaimKind> {
   readonly claimId: string;
@@ -145,6 +148,73 @@ function validValue(kind: ClaimKind, value: unknown): boolean {
   }
 }
 
+function copyClaimValue(
+  kind: ClaimKind,
+  value: ClaimValueByKind[ClaimKind],
+): ClaimValueByKind[ClaimKind] {
+  switch (kind) {
+    case "route_basis": {
+      const typed = value as ClaimValueByKind["route_basis"];
+      return { route: typed.route, legalBasis: typed.legalBasis, effectiveFrom: typed.effectiveFrom };
+    }
+    case "citizenship_applicability": {
+      const typed = value as ClaimValueByKind["citizenship_applicability"];
+      return {
+        eligibleCategory: typed.eligibleCategory,
+        explicitNationalityExclusions: [...typed.explicitNationalityExclusions],
+      };
+    }
+    case "remote_work_relations": {
+      const typed = value as ClaimValueByKind["remote_work_relations"];
+      return {
+        allowedRelations: [...typed.allowedRelations],
+        slovenianLabourMarketWorkIncluded: typed.slovenianLabourMarketWorkIncluded,
+      };
+    }
+    case "income": {
+      const typed = value as ClaimValueByKind["income"];
+      return {
+        metric: typed.metric,
+        multiplier: typed.multiplier,
+        thresholdEur: typed.thresholdEur,
+        period: typed.period,
+      };
+    }
+    case "qualification": {
+      const typed = value as ClaimValueByKind["qualification"];
+      return { rule: typed.rule };
+    }
+    case "companion_entry": {
+      const typed = value as ClaimValueByKind["companion_entry"];
+      return { rule: typed.rule };
+    }
+    case "companion_local_work_access": {
+      const typed = value as ClaimValueByKind["companion_local_work_access"];
+      return {
+        access: typed.access,
+        labourMarketCheck: typed.labourMarketCheck,
+        informationSheet: typed.informationSheet,
+      };
+    }
+    case "duration": {
+      const typed = value as ClaimValueByKind["duration"];
+      return {
+        maximumMonths: typed.maximumMonths,
+        extendable: typed.extendable,
+        reapplyAfterMonths: typed.reapplyAfterMonths,
+      };
+    }
+    case "general_statutory_prerequisites": {
+      const typed = value as ClaimValueByKind["general_statutory_prerequisites"];
+      return {
+        passportBeyondPermitMonths: typed.passportBeyondPermitMonths,
+        healthInsurance: typed.healthInsurance,
+        article55GroundsApply: typed.article55GroundsApply,
+      };
+    }
+  }
+}
+
 function validAnchor(value: unknown): value is ClaimAnchor {
   return typeof value === "object" && value !== null && !Array.isArray(value) &&
     exactKeys(value, ["artifactId", "locator", "excerptSha256"]) &&
@@ -211,6 +281,7 @@ function countryClaims(
         reference.sourceId !== expectedSource || reference.sourcePeriod !== claim.sourcePeriod ||
         !nonEmptyString(reference.navigationUrl) || !nonEmptyString(reference.resolvedEvidenceUrl) ||
         !validAnchor(reference.anchor) || sourceArtifact === undefined ||
+        reference.anchor.artifactId !== reference.artifactId ||
         sourceArtifact.sourceId !== expectedSource ||
         sourceArtifact.request.url !== reference.navigationUrl ||
         sourceArtifact.responseUrl !== reference.resolvedEvidenceUrl ||
@@ -230,6 +301,16 @@ function countryClaims(
 export function buildCountryDossier(
   preparedEvidence: SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaim>,
 ): CountryDossierPayload {
+  try {
+    assertSealedEvidenceStructure(preparedEvidence, [
+      "si-digital-nomad-route",
+      "si-income-threshold",
+      "si-companion-employment",
+      "cbr-eur",
+    ] as const);
+  } catch {
+    publicationNotAllowed();
+  }
   const resolved = resolveCountry("SI");
   if (!resolved.ok) publicationNotAllowed();
   const claims = countryClaims(preparedEvidence);
@@ -241,7 +322,7 @@ export function buildCountryDossier(
       return {
         claimId: claim.claimId,
         claimKind: kind,
-        value: claim.value,
+        value: copyClaimValue(kind, claim.value),
         validatorVersion: claim.validatorVersion,
         evidence: claim.evidence.map((reference) => ({
           sourceId: reference.sourceId,

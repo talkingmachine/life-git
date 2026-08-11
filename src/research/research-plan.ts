@@ -195,6 +195,94 @@ function validateTerminalEntries<S extends string, C extends Claim<unknown, S>>(
   }
 }
 
+function sameOrderedStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function exactRecordKeys(value: object, sourceIds: readonly string[]): boolean {
+  const keys = Object.keys(value).sort();
+  const expected = [...sourceIds].sort();
+  return sameOrderedStrings(keys, expected);
+}
+
+export function assertSealedEvidenceStructure<
+  S extends string,
+  C extends Claim<unknown, S>,
+>(
+  sealed: Pick<SealedEvidence<S, C>, "snapshot" | "manifest">,
+  sourceIds: readonly S[],
+): void {
+  const { snapshot, manifest } = sealed;
+  const fail = (): never => {
+    throw new Error("integrity_mismatch");
+  };
+  if (
+    sourceIds.length === 0 || new Set(sourceIds).size !== sourceIds.length ||
+    manifest.entries.length !== sourceIds.length ||
+    !manifest.entries.every((entry, index) => entry.sourceId === sourceIds[index]) ||
+    new Set(manifest.entries.map((entry) => entry.sourceId)).size !== sourceIds.length ||
+    !exactRecordKeys(snapshot.coverage, sourceIds) ||
+    !exactRecordKeys(snapshot.parserVersions, sourceIds)
+  ) fail();
+  if (
+    manifest.snapshot.id !== snapshot.id ||
+    manifest.snapshot.assessmentDate !== snapshot.assessmentDate ||
+    manifest.snapshot.rulesVersion !== snapshot.rulesVersion ||
+    manifest.snapshot.contextHash !== snapshot.contextHash ||
+    !sameOrderedStrings(manifest.snapshot.artifactIds, snapshot.artifactIds) ||
+    !exactRecordKeys(manifest.snapshot.coverage, sourceIds) ||
+    !exactRecordKeys(manifest.snapshot.parserVersions, sourceIds) ||
+    sourceIds.some((sourceId) =>
+      manifest.snapshot.coverage[sourceId] !== snapshot.coverage[sourceId] ||
+      manifest.snapshot.parserVersions[sourceId] !== snapshot.parserVersions[sourceId]
+    ) ||
+    JSON.stringify(manifest.snapshot.claims) !== JSON.stringify(snapshot.claims) ||
+    JSON.stringify(manifest.snapshot.blockers) !== JSON.stringify(snapshot.blockers)
+  ) fail();
+
+  const flattenedArtifactIds = manifest.entries.flatMap((entry) => entry.artifactIds);
+  const manifestArtifactIds = manifest.artifacts.map((artifact) => artifact.artifactId);
+  if (
+    new Set(flattenedArtifactIds).size !== flattenedArtifactIds.length ||
+    !sameOrderedStrings(flattenedArtifactIds, snapshot.artifactIds) ||
+    !sameOrderedStrings(flattenedArtifactIds, manifestArtifactIds)
+  ) fail();
+
+  for (const entry of manifest.entries) {
+    for (const artifactId of entry.artifactIds) {
+      const artifacts = manifest.artifacts.filter((artifact) => artifact.artifactId === artifactId);
+      if (artifacts.length !== 1 || artifacts[0]!.sourceId !== entry.sourceId) fail();
+    }
+  }
+  for (const artifact of manifest.artifacts) {
+    const owners = manifest.entries.filter((entry) => entry.artifactIds.includes(artifact.artifactId));
+    if (owners.length !== 1 || owners[0]!.sourceId !== artifact.sourceId) fail();
+  }
+
+  for (const claim of snapshot.claims) {
+    const entry = manifest.entries.find((candidate) => candidate.sourceId === claim.sourceId);
+    if (
+      entry === undefined || claim.status !== "verified" ||
+      snapshot.coverage[claim.sourceId] !== "verified" ||
+      !entry.artifactIds.includes(claim.anchor.artifactId)
+    ) fail();
+  }
+  if (snapshot.blockers.some((blocker) => !sourceIds.includes(blocker.sourceId))) fail();
+  for (const sourceId of sourceIds) {
+    const entry = manifest.entries.find((candidate) => candidate.sourceId === sourceId)!;
+    const blockers = snapshot.blockers.filter((blocker) => blocker.sourceId === sourceId);
+    const coverage = snapshot.coverage[sourceId];
+    if (
+      (coverage !== "verified" && coverage !== "unavailable") ||
+      (coverage === "verified" && blockers.length !== 0) ||
+      (coverage === "unavailable" && blockers.length !== 1) ||
+      blockers.some((blocker) =>
+        blocker.artifactIds.some((artifactId) => !entry.artifactIds.includes(artifactId))
+      )
+    ) fail();
+  }
+}
+
 export function evidenceArtifactProvenance<S extends string>(
   artifact: LiveCapturedArtifact<S>,
 ): EvidenceArtifactProvenance<S> {

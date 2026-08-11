@@ -11,6 +11,7 @@ import type {
   SourceId,
 } from "../../research/contracts";
 import {
+  assertSealedEvidenceStructure,
   evidenceArtifactProvenance,
   type EvidenceArtifactProvenance,
   type EvidenceManifest,
@@ -99,6 +100,30 @@ const ARTIFACT_COLUMNS = `
   byte_length, origin, captured_at, response_status, response_url, request_json
 `;
 
+function structuralSourceIds<S extends string, C extends Claim<unknown, S>>(
+  snapshot: EvidenceSnapshot<S, C>,
+  manifest: EvidenceManifest<S, C>,
+): readonly S[] {
+  if (snapshot.rulesVersion === "vs1-evidence@1") {
+    return [
+      "al-law-79",
+      "al-decision-858",
+      "cbr-eur",
+      "boa-eur",
+      "tirana-urban-lines",
+    ] as unknown as readonly S[];
+  }
+  if (snapshot.rulesVersion === "vs2-si-evidence@1") {
+    return [
+      "si-digital-nomad-route",
+      "si-income-threshold",
+      "si-companion-employment",
+      "cbr-eur",
+    ] as unknown as readonly S[];
+  }
+  return manifest.entries.map((entry) => entry.sourceId);
+}
+
 function snapshotPayload<S extends string, C extends Claim<unknown, S>>(
   snapshot: EvidenceSnapshot<S, C>,
 ): EvidenceManifest<S, C>["snapshot"] {
@@ -119,6 +144,10 @@ export function insertSealedEvidence<S extends string, C extends Claim<unknown, 
   database: Database.Database,
   sealed: SealedEvidence<S, C>,
 ): void {
+  assertSealedEvidenceStructure(
+    sealed,
+    structuralSourceIds(sealed.snapshot, sealed.manifest),
+  );
   for (const expected of sealed.manifest.artifacts) {
     const row = database.prepare(
       `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
@@ -177,6 +206,10 @@ export function loadVerifiedEvidence<S extends string, C extends Claim<unknown, 
   } catch {
     integrityMismatch();
   }
+  assertSealedEvidenceStructure(
+    { snapshot, manifest },
+    structuralSourceIds(snapshot, manifest),
+  );
   const canonicalManifest = canonicalJson(manifest);
   if (
     snapshot.id !== id ||

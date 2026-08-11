@@ -178,7 +178,7 @@ export class SqliteDossierStore {
       }
       integrityMismatch();
     });
-    return publish();
+    return publish.immediate();
   }
 
   loadVerified(id: string): DossierVersion {

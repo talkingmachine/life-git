@@ -62,3 +62,25 @@ Modified:
 - Current validator versions are exact. An unknown validator version fails closed; a future installed validator version would require an explicit supported-version code change before it could produce a successor.
 - No queue, head/source/run table, ORM, repository/service layer, browser, network call, or dependency installation was added.
 - No open implementation blocker remains. The future-validator-version point above is an explicit version-dispatch boundary, not an unhandled compatibility path.
+
+## External review fix round 1
+
+### RED / GREEN
+
+- Concurrency RED: two local Worker threads released by one `Atomics` start barrier opened two file-backed SQLite connections with a finite 3000 ms busy timeout. Simultaneous same-payload and different-payload publications both failed on the review base with `database is locked`.
+- Concurrency GREEN: the existing `better-sqlite3` transaction now enters through `.immediate()`, acquiring writer ownership before artifact reads. Both simultaneous cases complete: same payload stores two Evidence snapshots and one v1 winner; different payload stores one root and its sole v2 successor.
+- Structure RED: correctly re-signed extra/reordered source entries, verified CBR with a blocker, and malformed identical-payload Evidence reached publication. A self-review regression also proved that a directly inserted, correctly re-signed manifest whose embedded snapshot artifact list drifted from the signed snapshot was accepted. The representative missing/duplicate/artifact-list cases already failed through narrower checks.
+- Structure GREEN: the pure `assertSealedEvidenceStructure` proves exact source order/cardinality, embedded-snapshot equality, coverage/parser keys, artifact equality/uniqueness/ownership, verified claim anchor membership, and blocker consistency. Builder, insert, and verified load all invoke it; malformed new, direct-insert, and idempotent paths commit nothing.
+- Provenance RED: a non-terminal evidence ref whose nested anchor named a different or missing artifact still published.
+- Provenance GREEN: every country ref now requires `reference.anchor.artifactId === reference.artifactId` in the same source entry.
+- Copy RED: dossier freezing also froze the prepared Evidence claim value and nested exclusions array.
+- Copy GREEN: every closed claim kind is reconstructed field-by-field, including fresh nested arrays, before the dossier output is frozen. The prepared graph remains mutable and unaliased.
+
+### Verification
+
+- Focused external-review file: 32/32 passed.
+- Task 3 four-file gate: 60/60 passed.
+- Full suite: 418/418 passed across 23 files.
+- `tsc --noEmit`: passed.
+- `eslint .`: passed.
+- `git diff --check`: passed.
