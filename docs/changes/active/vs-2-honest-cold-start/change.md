@@ -12,9 +12,9 @@
 
 ## 1. Почему и какой результат
 
-`GOAL-VS2-01`: пользователь вводит поддерживаемую страну без глубокого dossier и получает не ответ
-LLM, а видимую проверку официальных источников. Полное критическое покрытие публикует неизменяемую
-версию dossier и comparator; недостаточное завершается объяснимым yellow без публикации.
+`GOAL-VS2-01`: пользователь вводит поддерживаемую страну без глубокого dossier и получает
+видимую проверку официальных источников. Полное критическое покрытие публикует неизменяемую версию
+dossier и comparator; недостаточное завершается объяснимым yellow без публикации.
 
 Канонический случай — Словения: страна и official authority roots известны Country Registry, но
 dossier перед прогоном отсутствует. Это доказывает cold start, а не заранее подготовленную карточку.
@@ -24,8 +24,8 @@ dossier перед прогоном отсутствует. Это доказы�
 В scope:
 
 - ввод одной registry-supported страны без dossier и один current-run research plan;
-- поиск кандидатов внутри подтверждённых official authority roots, capture, schema-gated extraction,
-  versioned validation, sealing и атомарная публикация dossier;
+- installed navigation candidates из Country Source Index внутри подтверждённых official authority
+  roots, capture, schema-gated extraction, versioned validation, sealing и атомарная публикация dossier;
 - девять claim kinds: route basis, citizenship applicability, remote-work relations, income,
   qualification, companion entry/local-work access, duration и general statutory prerequisites
   (passport validity, insurance, applicable Art. 55 refusal grounds);
@@ -66,7 +66,8 @@ automatic free access, а conditional local employment. Remote-работа сп
 - `REQ-VS2-02` (`GOAL-VS2-01`; `SCN-VS2-01`, `SCN-VS2-02`): Research подтверждает authority,
   captures exact content и публикует dossier только при verified coverage всех девяти claim kinds.
   Acceptance: complete listing/max period и каждый claim связаны с source, exact anchor и validator
-  version; draft LLM не claim; incomplete/conflict/stale/invalid coverage не создаёт version.
+  version; installed navigation не является claim; incomplete/conflict/stale/invalid coverage не
+  создаёт version.
 - `REQ-VS2-03` (`GOAL-VS2-01`; `SCN-VS2-01`, `SCN-VS2-04`): опубликованный dossier оценивается
   только относительно exact Profile/Evidence Snapshot и показывается отдельным comparator.
   Acceptance: verified veto даёт red с формулой и official links; route-compatible без verified city
@@ -82,7 +83,7 @@ automatic free access, а conditional local employment. Remote-работа сп
 ## 5. Scenarios
 
 - `SCN-VS2-01 Slovenia cold start`: dossier отсутствует; пользователь вводит Словению; marker gray,
-  UI последовательно показывает discovery, authority, capture, claims и publication. Полное coverage
+  UI последовательно показывает installed navigation, authority, capture, claims и publication. Полное coverage
   публикует `SI v1`; текущий synthetic profile получает red, когда live official formula и current
   CBR FX доказывают недостаточный доход. Карта сворачивается, отдельный comparator остаётся видим.
 - `SCN-VS2-02 Fail closed/retry`: unofficial redirect, semantic mismatch, stale source, conflict или
@@ -111,7 +112,7 @@ verified несоответствие пользователя, а не пров
 - `INV-VS2-01`: только full-coverage sealed Evidence Snapshot разрешает публикацию dossier.
 - `INV-VS2-02`: dossier не содержит profile/verdict, неизменяем и idempotent по country/schema/payload hash.
 - `INV-VS2-03`: verified personal veto даёт red; missing/conflict дают yellow; green требует confirmed city.
-- `INV-VS2-04`: discovery/LLM draft не получает PII и не может опубликовать source, claim или verdict.
+- `INV-VS2-04`: Country Source Index не получает PII и не может опубликовать source, claim или verdict.
 - `INV-VS2-05`: UI progress следует только фактически полученным typed events, а не таймеру.
 
 ## 7. Architecture и data flow
@@ -121,7 +122,7 @@ verified несоответствие пользователя, а не пров
 ```text
 country input
   -> Country Registry
-  -> OfficialSourceDiscoveryPort
+  -> CountrySourceIndexPort
   -> ResearchPlan
   -> existing capture gateway/raw store
   -> ClaimValidationRegistry
@@ -132,19 +133,19 @@ country input
 ```
 
 - `Country Registry` хранит ISO/name и проверенные authority roots, но не подменяет dossier.
-- `OfficialSourceDiscoveryPort` получает только country + required claim kinds и возвращает
-  untrusted candidates; profile/PII ему недоступны.
+- `CountrySourceIndexPort` синхронно возвращает установленные reviewable navigation candidates по
+  точному ISO country code; profile/PII и free text ему недоступны.
 - `ResearchPlan` владеет plan/source/parser/schema versions и replaces fixed Albania source array.
-- `ClaimValidationRegistry` принимает только typed claim schemas. LLM может предложить URL и exact
-  fragment; validator отдельно проверяет authority chain, captured bytes, locator, period,
-  applicability и numeric value. Неподдержанная семантика остаётся blocker.
+- `ClaimValidationRegistry` принимает только typed claim schemas и отдельно проверяет authority
+  chain, captured bytes, locator, period, applicability и numeric value. Неподдержанная семантика
+  остаётся blocker.
 - `DossierPublisher` атомарно публикует только full-coverage sealed snapshot; Decision и Experience
   не могут вызвать запись в обход Research.
 - `ColdStartApplication` координирует use case; модули напрямую друг друга не вызывают.
 
 | Port | Contract |
 | --- | --- |
-| `PORT-VS2-DISCOVERY` | Country + claim kinds -> untrusted official-source candidates; no profile/PII. |
+| `PORT-VS2-SOURCE-INDEX` | Exact ISO country code -> installed immutable navigation candidates; no profile/PII/free text. |
 | `PORT-VS2-VALIDATION` | Captured candidate + installed schema/version -> typed claim or blocker. |
 | `PORT-VS2-PUBLISHER` | Full-coverage sealed snapshot -> immutable version or idempotent existing version. |
 | `PORT-VS2-COMPARATOR` | Profile + current evidence + dossier version -> typed personal assessment/comparator. |
@@ -182,11 +183,11 @@ end-to-end; другая страна может закончиться explicit
   официальных применимых sources даёт yellow, выбор «удобного» значения запрещён.
 - Отсутствие diploma rule формулируется `not_listed_in_authoritative_requirements`; net/gross не
   конвертируются эвристикой. FX берётся только из dated official adapter.
-- `NFR-VS2-02`: source content считается недоверенными данными, не инструкциями. Discovery не получает profile;
-  operational logs/events не содержат PII или user free text.
-- `NFR-VS2-03`: total budget 60 seconds; до 6 candidates, 11 captures, concurrency 3, один retry только для
-  timeout/429/5xx, 30 MiB на artifact, не более двух model calls: discovery и batch extraction.
-- Invalid model schema, отсутствие official candidates или исчерпание budget дают yellow. Client
+- `NFR-VS2-02`: source content считается недоверенными данными, не инструкциями. Country Source Index
+  не получает profile; operational logs/events не содержат PII или user free text.
+- `NFR-VS2-03`: total budget 60 seconds; до 6 installed candidates, 11 captures, concurrency 3, один retry только для
+  timeout/429/5xx и 30 MiB на artifact; runtime model calls равны нулю.
+- Отсутствие полного installed index, отсутствие official candidates или исчерпание budget дают yellow. Client
   abort до dossier commit отменяет run без version; после commit version не откатывается и terminal
   assessment сохраняется. Retry создаёт новый run. Unsealed raw может остаться внутренним
   unreferenced audit artifact, но не Evidence/dossier.
@@ -214,13 +215,13 @@ fit, а также пометку «исследовано отдельно от
   yellow, zero new dossier rows и понятный blocker.
 - `EVAL-VS2-03 Replay/immutability`: два zero-network replay совпадают; tamper rejected; same hash
   idempotent, changed verified claims create `v2` without modifying `v1`.
-- `EVAL-VS2-04 Privacy/visual truth`: discovery/model/event payloads не содержат profile/PII; один
-  browser E2E проверяет real event progress, icon/text states, red details и comparator.
+- `EVAL-VS2-04 Privacy/visual truth`: installed index/event payloads не содержат profile/PII; один
+  provider-free browser E2E проверяет real event progress, icon/text states, red details и comparator.
 
 | REQ | SCN | INV/ADR | PORT | TEST/EVAL |
 | --- | --- | --- | --- | --- |
-| `REQ-VS2-01` | `SCN-VS2-01`; `SCN-VS2-02` | `INV-VS2-05`; `ADR-VS2-01` | `PORT-VS2-DISCOVERY`; `PORT-VS2-STREAM` | `TEST-VS2-INTEGRATION`; `EVAL-VS2-01`; `EVAL-VS2-02` |
-| `REQ-VS2-02` | `SCN-VS2-01`; `SCN-VS2-02` | `INV-VS2-01`; `INV-VS2-04`; `ADR-VS2-01` | `PORT-VS2-DISCOVERY`; `PORT-VS2-VALIDATION`; `PORT-VS2-PUBLISHER` | `TEST-VS2-RESEARCH`; `EVAL-VS2-01`; `EVAL-VS2-02` |
+| `REQ-VS2-01` | `SCN-VS2-01`; `SCN-VS2-02` | `INV-VS2-05`; `ADR-VS2-01` | `PORT-VS2-SOURCE-INDEX`; `PORT-VS2-STREAM` | `TEST-VS2-INTEGRATION`; `EVAL-VS2-01`; `EVAL-VS2-02` |
+| `REQ-VS2-02` | `SCN-VS2-01`; `SCN-VS2-02` | `INV-VS2-01`; `INV-VS2-04`; `ADR-VS2-01` | `PORT-VS2-SOURCE-INDEX`; `PORT-VS2-VALIDATION`; `PORT-VS2-PUBLISHER` | `TEST-VS2-RESEARCH`; `EVAL-VS2-01`; `EVAL-VS2-02` |
 | `REQ-VS2-03` | `SCN-VS2-01`; `SCN-VS2-04` | `INV-VS2-02`; `INV-VS2-03`; `ADR-VS2-01` | `PORT-VS2-PUBLISHER`; `PORT-VS2-COMPARATOR` | `TEST-VS2-INTEGRATION`; `EVAL-VS2-01`; `EVAL-VS2-04` |
 | `REQ-VS2-04` | `SCN-VS2-01`; `SCN-VS2-02` | `INV-VS2-04`; `INV-VS2-05` | `PORT-VS2-STREAM` | `TEST-VS2-EXPERIENCE`; `EVAL-VS2-04` |
 | `REQ-VS2-05` | `SCN-VS2-03` | `INV-VS2-01`; `INV-VS2-02` | `PORT-VS2-PUBLISHER` | `TEST-VS2-INTEGRATION`; `EVAL-VS2-03` |
@@ -232,12 +233,17 @@ NFR trace: `NFR-VS2-01`; `NFR-VS2-02`; `NFR-VS2-03` -> `TEST-VS2-RESEARCH`,
 
 1. `TASK-VS2-01` `[REQ-VS2-01; REQ-VS2-02]` Generalize fixed source IDs into typed ResearchPlan and
    claim schemas without breaking VS-1 replay.
-2. `TASK-VS2-02` `[REQ-VS2-02]` Add Registry/discovery and only Slovenia validators/source path.
+2. `TASK-VS2-02` `[REQ-VS2-02]` Add Registry/installed source index and only Slovenia validators/source path.
 3. `TASK-VS2-03` `[REQ-VS2-02; REQ-VS2-05]` Add append-only publisher/store, integrity and replay.
 4. `TASK-VS2-04` `[REQ-VS2-03]` Add personal decision/comparator and current official FX lineage.
 5. `TASK-VS2-05` `[REQ-VS2-01; REQ-VS2-04]` Add streaming use case, map progress and comparator UI.
-6. `TASK-VS2-06` `[REQ-VS2-01; REQ-VS2-02; REQ-VS2-03; REQ-VS2-04; REQ-VS2-05]` Run suites, live
-   eval and one browser E2E; save implementation evidence.
+6. `TASK-VS2-06` `[REQ-VS2-01; REQ-VS2-02; REQ-VS2-03; REQ-VS2-04; REQ-VS2-05]` Remove external
+   LLM/config surface, run the provider-free local gate, then obtain fresh permission for one
+   current-source browser E2E and save truthful implementation evidence.
+
+`BACKLOG-EXT-LLM-01`: после защиты и до монетизации внешний LLM-assisted discovery требует
+отдельного approved change package. До этого в runtime нет provider SDK, credential, abstraction,
+feature flag или replacement eval subsystem.
 
 Validation перед implementation planning:
 

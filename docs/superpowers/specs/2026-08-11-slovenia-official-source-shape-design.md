@@ -17,26 +17,39 @@ The live-source check established the actual official machine surfaces:
 
 The exact paths, selected structural IDs, compact native excerpts, request body, response sizes, and observed SHA-256 provenance are recorded in [`Slovenia Official Source Field Map`](./2026-08-11-slovenia-official-source-field-map.md). That map is fixture provenance, not a production cache: every new run still fetches and validates current official bytes.
 
-Keeping the synthetic parser would make the live gate permanently yellow. Adding a fallback or asking an LLM to rewrite official content would make the evidence impossible to reproduce. The repair therefore replaces the unreleased fixture-only VS-2 validator contract with deterministic, source-specific parsing of the real official schemas.
+Keeping the synthetic parser would make the live gate permanently yellow. Adding a fallback or
+rewriting official content outside the validator would make the evidence impossible to reproduce.
+The repair therefore replaces the unreleased fixture-only VS-2 validator contract with
+deterministic, source-specific parsing of the real official schemas.
 
 ## Goal
 
-Make the canonical Slovenia cold-start run verify all nine required country claims from current official responses, publish dossier `v1`, and produce the formula-backed personal verdict without storing remembered facts or trusting model-generated claims.
+Make the canonical Slovenia cold-start run verify all nine required country claims from current official
+responses, publish dossier `v1`, and produce the formula-backed personal verdict without storing
+remembered facts or treating installed navigation as a claim.
 
-The verified result must remain reproducible from the captured bytes alone. A later offline replay must select the same PISRS versions, the same SiStat period and value, the same excerpts, and the same verdict without network or model calls.
+The verified result must remain reproducible from the captured bytes alone. A later offline replay must
+select the same PISRS versions, the same SiStat period and value, the same excerpts, and the same
+verdict without network or provider calls.
 
 ## Non-goals
 
 - No generic crawler, provider framework, DOM extraction language, or country-agnostic legal parser.
-- No LLM normalization, translation, summarization, or claim extraction inside the evidence boundary.
+- No provider normalization, translation, summarization, or claim extraction inside the evidence boundary.
 - No compatibility path for the unreleased Slovenia `@1` fixture format.
 - No expansion to additional countries, cities, visas, employment models, or user-profile fields.
 - No broad mutation matrix or storage redesign.
 - No change to CBR parsing, VS-1 evidence bytes, dossier schema, comparator policy, or UI journey semantics.
 
+`BACKLOG-EXT-LLM-01` остаётся отдельной post-defense/before-monetization работой и не создаёт
+runtime provider dependency, credential, abstraction или feature flag в этом срезе.
+
 ## Chosen Approach
 
-Each Slovenia bundle receives one explicit capture recipe and one pure deterministic validator. The adapter derives official machine endpoints only from a candidate whose HTTPS host, authority root, and required claim slot have passed the existing discovery boundary. Exact record identity is then proven from the captured official registry before it is used.
+Each Slovenia bundle receives one explicit capture recipe and one pure deterministic validator. The
+adapter derives official machine endpoints only from an installed navigation candidate whose HTTPS
+host, authority root, and required claim slot have passed the Country Source Index boundary. Exact
+record identity is then proven from the captured official registry before it is used.
 
 The adapter captures exact official bytes and their request/response provenance. The validator parses only documented fields and stable structural identifiers from those bytes. It emits a claim only when identity, transport integrity, temporal applicability, and cross-source agreement all succeed. Missing, duplicate, ambiguous, future-only, structurally changed, or contradictory data produces the existing typed unavailable/yellow path; no last-known value is reused.
 
@@ -147,17 +160,19 @@ Because the Slovenia `@1` format is unreleased and exists only on this feature b
 
 All installed-version allowlists, claim-ID checks, publication guards, replay dispatch, comparator lineage checks, and focused tests move mechanically to `@2`. No Slovenia `@1` replay branch remains. VS-1 versions and previously verified VS-1 byte behavior remain unchanged.
 
-Replay uses only the sealed raw artifacts. It re-runs the same registry selection, article extraction, SiStat coordinate selection, cross-source agreement, claim construction, and artifact/hash checks. It never contacts PISRS, SiStat, GOV.SI, ESS, CBR, or the model.
+Replay uses only the sealed raw artifacts. It re-runs the same registry selection, article extraction,
+SiStat coordinate selection, cross-source agreement, claim construction, and artifact/hash checks. It
+never contacts PISRS, SiStat, GOV.SI, ESS, CBR, or an external provider.
 
 ## Failure, Security, and Privacy Semantics
 
 - Candidate URLs remain untrusted. Every request uses HTTPS, exact approved `URL.host`, explicit media types, bounded redirects, byte limits, the shared deadline, and no retries beyond the frozen plan.
 - During current validation and offline replay, every machine artifact must still prove `origin:"live"`, status `200`, the expected role, exact request method and URL, exact final response URL, and—when present—the recomputed request-body SHA-256. Correct-looking bytes from another official path are not interchangeable evidence.
-- Machine endpoints are derived from exact validated IDs, not arbitrary URLs returned by the model or content.
+- Machine endpoints are derived from exact validated IDs, not arbitrary URLs beyond the installed navigation or captured content.
 - Scripts from official HTML are never executed.
 - Unsupported source shapes, extra ambiguity, or inability to prove completeness yields yellow; it never yields partial verified claims.
 - Raw bytes remain only in immutable Evidence storage. The dossier stores stable source lineage and excerpt hashes, not copied documents.
-- The discovery request remains the existing non-PII country/authority/claim-kind payload. Source parsing receives no user profile.
+- Country Source Index lookup accepts only the exact ISO country code and returns installed navigation; source parsing receives no user profile.
 - Red and yellow UI explanations continue to use verified official links and concise blocker reasons. Parser failures do not expose raw source bodies or internal exceptions.
 
 ## Testing Strategy
@@ -174,17 +189,23 @@ Required representative TDD cases:
 - incomplete/ambiguous SiStat dimensions or latest period fails closed;
 - ESS and law disagreement fails closed;
 - mutations change anchors only when the matched official excerpt changes;
-- offline replay produces identical claims and dossier hash with zero network/model calls;
+- offline replay produces identical claims and dossier hash with zero network/provider calls;
 - the existing CBR, VS-1, publication, tamper, and UI suites remain green.
 
 The test suite stays representative. It does not enumerate arbitrary HTML whitespace, all PISRS records, every JSON-stat dimension order, or hypothetical provider behavior.
 
-## Live Acceptance Gate
+## Automated and Current-source Acceptance Gates
 
-After the focused repair is green, Task 6 performs one fresh official-source run. It is accepted only if it records:
+The local deterministic gate must prove the exact installed Slovenia navigation set, immutable index,
+unsupported-country yellow path, source/replay/tamper/idempotency/version-chain behavior, zero-provider
+audit, tests, typecheck, lint and production build. It performs no provider network call and creates no
+replacement live-eval subsystem.
 
-- exactly one model discovery call for the canonical run;
-- no profile/PII in discovery or Evidence event payloads;
+After that gate, Task 6 performs one fresh provider-free official-source browser walkthrough, with
+fresh explicit user permission immediately before opening the browser. It is accepted only if it records:
+
+- exactly six installed navigation seeds and their `source_discovered -> authority_verified` events;
+- no profile/PII in installed-index or Evidence event payloads;
 - at most `11` captures, concurrency at most `3`, and completion within `60s`;
 - verified coverage `9/9` plus current CBR evidence;
 - terminal red for the approved profile fixture, backed by the live FX/income formula;
@@ -192,12 +213,18 @@ After the focused repair is green, Task 6 performs one fresh official-source run
 - zero-network deterministic reload/replay and successful tamper rejection;
 - idempotent same-payload publication and one controlled `v2` predecessor link.
 
-Any official-source drift or unresolved ambiguity leaves the run yellow and blocks the `source-verified` claim. The eval must report that blocker; it may not substitute fixtures, cached values, or a normalization fallback.
+Any official-source drift or unresolved ambiguity leaves the run yellow and blocks the `source-verified`
+claim. The walkthrough evidence must report that blocker; it may not substitute fixtures, cached values,
+or a normalization fallback.
 
 Browser E2E remains a separate final gate and requires fresh explicit user permission immediately before opening the browser.
 
 ## Implementation Boundary
 
-Expected production changes are limited to the existing Slovenia plan, source adapter, pure Slovenia parser, and mechanical installed-version checks in dossier/replay/application/decision code. Expected test changes are limited to the existing Slovenia fixtures and focused cold-start/source integration tests. The canonical VS-2 plan and Task 6 live eval may be updated mechanically to replace their capture assertion `10` with `11`; no other eval scope is added by this repair.
+Expected production changes are limited to the existing Slovenia plan, installed source index, source
+adapter, pure Slovenia parser, and mechanical installed-version checks in dossier/replay/application/
+decision code. Expected test changes are limited to the existing Slovenia fixtures and focused
+cold-start/source integration tests. The canonical VS-2 plan and Task 6 acceptance gate use the
+provider-free current-source walkthrough; no other eval scope is added by this repair.
 
 No new evidence store, event framework, provider registry, generic extractor, alternate research pipeline, or compatibility layer is authorized by this design. If the actual official response cannot be proven through these narrow contracts, implementation stops with an explicit yellow blocker and the design is revisited.

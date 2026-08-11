@@ -12,9 +12,9 @@
 ## 1. Назначение
 
 Этот документ разделяет MVP на независимо принимаемые вертикальные срезы и задаёт минимальные
-архитектурные границы между ними. Он не выбирает стек, базу данных, LLM-провайдера, конкретные
-официальные источники или JSON-схемы: эти решения принимаются just-in-time в спецификации первого
-среза, которому они необходимы.
+архитектурные границы между ними. Он не выбирает стек, базу данных, конкретные официальные источники
+или JSON-схемы: эти решения принимаются just-in-time в спецификации первого среза, которому они
+необходимы.
 
 Документ назначает cross-slice ownership, invariants и acceptance intent. Он не заменяет
 requirements, contracts, recovery design или acceptance/eval checklist конкретного среза и не
@@ -63,6 +63,15 @@ requirements, contracts, recovery design или acceptance/eval checklist кон
 
 ## 5. Архитектурные границы
 
+### Pre-defense external-provider boundary
+
+Для `VS-1..VS-5` runtime model/API calls равны нулю: в продукте нет provider SDK, credential,
+feature flag или provider abstraction. Поддерживаемые страны получают только reviewable navigation
+seeds из Country Registry/Country Source Index, после чего каждый новый run заново захватывает
+official HTTPS bytes и применяет deterministic validators. Возможная внешняя LLM-assisted discovery
+отложена в `BACKLOG-EXT-LLM-01` после защиты и до монетизации; её будущие предложения остаются
+untrusted и проходят authority/schema gates, не создавая факт, provenance, расчёт или verdict.
+
 ### Research
 
 Владеет цепочкой `captured source content -> applicability/freshness/conflict -> claim status ->
@@ -91,10 +100,10 @@ commit, rewind, fork, replay и diff.
 
 Несколько явных application use cases координируют модули; Research, Decision и Branch не вызывают
 друг друга напрямую. Experience и infrastructure зависят от use cases и домена, а предметные
-модули не знают о framework, LLM provider, сети или способе хранения.
+модули не знают о framework, сети или способе хранения.
 
-Source, LLM и storage integrations остаются внешними зависимостями. LLM создаёт только untrusted
-draft или projection и не может создать официальный факт, provenance, расчёт или verdict.
+Official source и storage integrations остаются внешними зависимостями. Installed navigation
+является только seed, а не evidence; только fresh capture и validators могут создать claim.
 
 Модули обмениваются неизменяемыми versioned values: подтверждённым профилем, планом и frontier
 исследования, candidate evidence и assessment, sealed evidence и shortlist snapshots, branch
@@ -128,7 +137,7 @@ confirmed profile
 - Branch commit неизменно связывает решение с resulting Life Branch Snapshot и версиями profile,
   evidence, правил и формул.
 - Diff различает изменение решения, профиля, evidence и версии правил.
-- LLM и UI не могут обойти evidence, constraint или calculation rules.
+- UI не может обойти evidence, constraint или calculation rules.
 
 Формальные `INV-*` присваиваются в доменной спецификации первого среза, который реализует правило.
 
@@ -173,7 +182,7 @@ Source fixtures не считаются fresh evidence пользователь�
 
 - микросервисы, event bus, CQRS/event sourcing и graph database только из-за Life Git;
 - generic workflow/rules engine, adapter SDK и автоматический self-healing crawler;
-- несколько LLM-провайдеров, multi-agent orchestration и plugin ecosystem;
+- runtime provider SDK, multi-agent orchestration и plugin ecosystem;
 - отдельные observability, knowledge-base и eval platforms;
 - production auth, billing, multi-tenancy и mobile clients;
 - universal legal/travel ontology и exhaustive country-specific prompts;
@@ -188,6 +197,6 @@ Stage 2 может стать approved, когда пользователь по
 - scope и acceptance intent VS-1 требуют реальный-source end-to-end path без фиктивного внешнего
   факта; фактический проход подтверждается только последующим runtime evidence;
 - границы не дублируют evidence, verdict, calculations или Life Git;
-- ошибки fail closed, а unknown не маскируется текстом LLM;
+- ошибки fail closed, а unknown не маскируется детерминированным текстом;
 - зависимости позволяют специфицировать и реализовывать только один следующий срез;
 - никакая заявленная сложность не существует только ради гипотетического будущего.

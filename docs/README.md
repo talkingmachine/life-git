@@ -53,6 +53,7 @@ Charter и MVP baseline подтверждены 2026-08-06; архитекту�
 | --- | --- | --- |
 | [`architecture/spec-of-specs.md`](architecture/spec-of-specs.md) | `approved` | срезы, cross-slice ownership, зависимости и acceptance intent |
 | [`decisions/ADR-001-modular-monolith.md`](decisions/ADR-001-modular-monolith.md) | `accepted` | deployment boundary и модульная изоляция MVP |
+| [`superpowers/specs/2026-08-11-pre-defense-llm-free-runtime-design.md`](superpowers/specs/2026-08-11-pre-defense-llm-free-runtime-design.md) | `approved` | pre-defense zero-provider boundary, installed navigation и `BACKLOG-EXT-LLM-01` |
 
 Точная редакция Stage 2 и ADR-001 подтверждена пользователем 2026-08-06.
 
@@ -82,6 +83,7 @@ Discovery-вход может содержать сильную идею или 
 | Пакет | Следующий gate |
 | --- | --- |
 | [`vs-1-confirmed-life`](changes/active/vs-1-confirmed-life/change.md) | Baseline `approved`; [source/replay evidence](changes/active/vs-1-confirmed-life/implementation-evidence.md) пройдено; visual `demo-verified` pending |
+| [`vs-2-honest-cold-start`](changes/active/vs-2-honest-cold-start/change.md) | Baseline `approved`; remaining gate — provider-free current-source walkthrough и implementation evidence |
 
 ## Архив change-пакетов
 
@@ -159,7 +161,9 @@ walking skeleton реализован, а live source, offline replay, fail-clos
 2026-08-08. Ручной visual-truth gate пока не выполнен, поэтому `demo-verified` не заявляется.
 
 Реализация не начинается из устного контекста. Первый вертикальный срез допускается к реализации
-только после собственных approved requirements, design, acceptance/eval criteria и задач.
+только после собственных approved requirements, design, acceptance/eval criteria и задач. До защиты
+`VS-1..VS-5` не используют runtime LLM/API: Country Source Index даёт только установленную
+навигацию, а current-run official HTTPS capture остаётся единственным источником evidence.
 
 ## Локальная проверка VS-1
 
@@ -177,4 +181,5 @@ SQLite `data/evals/current-run/vs1.sqlite` и создают redacted JSON в `a
 Reset ограничен точным SQLite-файлом и его `-wal`/`-shm`; каталоги, glob и другие базы не удаляются.
 
 Для локального UI создайте каталог `data`, скопируйте `.env.example` в игнорируемый `.env.local`,
-задайте непустой `EVIDENCE_HMAC_KEY` и запустите `pnpm dev`.
+задайте непустой `EVIDENCE_HMAC_KEY` и запустите `pnpm dev`. Для VS-2 provider-free walkthrough
+используются только эти две переменные и current official HTTPS sources.

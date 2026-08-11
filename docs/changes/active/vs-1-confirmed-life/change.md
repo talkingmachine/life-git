@@ -91,8 +91,8 @@ Dynamic raw bodies, latency и cost не архивированы в baseline: �
   видимого утверждения.
   Acceptance: collapsible block различает user fact, official fact, calculation, assumption,
   projection/illustration и unknown; official fact содержит scope, дату, anchor, integrity status и
-  внешнюю ссылку. LLM получает только typed synthetic values/claimIds; invalid draft заменяется
-  deterministic copy и не становится evidence class.
+  внешнюю ссылку. Заголовок и supporting copy являются детерминированной проекцией typed evidence
+  classes и не становятся evidence class.
 - `REQ-VS1-06` (`GOAL-VS1-01`; `SCN-VS1-03`, `SCN-VS1-04`): commit связывает branch с exact profile,
   evidence, rules и formulas; rewind не стирает историю, housing change создаёт fork.
   Acceptance: parent неизменен; diff показывает changed decision -> dependent calculations и
@@ -150,7 +150,7 @@ infrastructure и equivalence of comfort.
 - `INV-VS1-01`: только Research публикует verified Claim и sealed Evidence Snapshot.
 - `INV-VS1-02`: final marker ссылается на exact Profile/Evidence Snapshot, coverage, rules и дату.
 - `INV-VS1-03`: missing/stale/conflict/invalid/tamper никогда не дают green или red.
-- `INV-VS1-04`: LLM/Experience не создают external fact, provenance, calculation, marker или verdict.
+- `INV-VS1-04`: Experience не создаёт external fact, provenance, calculation, marker или verdict.
 - `INV-VS1-05`: sealed rows и commits append-only; recovery/fork создают новые revisions.
 - `INV-VS1-06`: historical evidence replay не является current-run; Life Git replay остаётся Branch
   responsibility, а полный replay координирует application use case.
@@ -177,7 +177,7 @@ Research публикует EvidenceSnapshot атомарно только по�
 | `PORT-VS1-SOURCE` | Enumerated source request -> `CapturedArtifact | Unavailable`; source-specific adapters не получают PII. |
 | `PORT-VS1-SNAPSHOT` | Research-only seal; read-only verified load для остальных use cases проверяет trusted root/bindings. |
 | `PORT-VS1-ASSESSMENT` | Confirmed profile + verified EvidenceSnapshot -> typed scoped Assessment; Decision владеет правилом. |
-| `PORT-VS1-NARRATIVE` | Typed claims + claimIds -> schema-constrained untrusted draft; invalid/missing output заменяется deterministic copy. |
+| `PORT-VS1-PRESENTATION` | Typed evidence classes -> deterministic headline и supporting copy; проекция не создаёт facts или verdict. |
 | `PORT-VS1-BRANCH` | Create/replay/fork/diff; API не содержит overwrite/delete. |
 
 ## 8. NFR, recovery и no-bloat
@@ -188,8 +188,8 @@ Research публикует EvidenceSnapshot атомарно только по�
 - `NFR-VS1-03`: meaningful visual output появляется не позднее 90 seconds; marker понятен без цвета
   и keyboard accessible.
 - `NFR-VS1-04`: только local SQLite, demo reset и synthetic profile; PII/free text не отправляются
-  source/narrative adapters или operational logs.
-- `NFR-VS1-05`: никаких browser/search/LLM fallback, второго pipeline, generic crawler/SDK,
+  source adapters или operational logs.
+- `NFR-VS1-05`: никаких browser/search/external-provider fallback, второго pipeline, generic crawler/SDK,
   knowledge-base platform, rules engine, queue, circuit breaker или multi-provider abstraction.
 - `NFR-VS1-06`: QBZ version date `<= assessmentAt`; CBR/BoA periods не старше 3 дней и отличаются
   не более чем на день; live city claim uses retrievedAt.
@@ -204,8 +204,8 @@ exhaustive matrices не являются целью.
 - `EVAL-VS1-01 Live provenance`: clean current run captures latest official bundle, seals it and
   completes `gray -> green` with exact source periods/anchors.
 - `EVAL-VS1-02 Fail closed`: one injected transient outage proves bounded retry and `gray -> yellow`;
-  semantic HTTP 200/hard mismatch prove yellow/red; invalid LLM schema, unknown claimId/new value or
-  timeout yields deterministic copy, no evidence/verdict mutation, and outbound payload has no PII/free text.
+  semantic HTTP 200/hard mismatch prove yellow/red; deterministic presentation never mutates
+  evidence/verdict, а source/event payloads не содержат PII/free text.
 - `EVAL-VS1-03 Offline replay`: two replays match exact result; tampered byte is rejected; historical
   label cannot satisfy a new run.
 - `EVAL-VS1-04 Causal fork`: housing-only fork preserves parent/evidence and changes only dependent
@@ -219,7 +219,7 @@ exhaustive matrices не являются целью.
 | `REQ-VS1-02` | `SCN-VS1-01`; `SCN-VS1-02`; `SCN-VS1-03` | `INV-VS1-01`; `INV-VS1-02`; `INV-VS1-03`; `INV-VS1-05`; `INV-VS1-06`; `INV-VS1-07`; `ADR-001` | `PORT-VS1-SOURCE`; `PORT-VS1-SNAPSHOT` | `TEST-VS1-SOURCES`; `TEST-VS1-INTEGRATION`; `EVAL-VS1-01`; `EVAL-VS1-02`; `EVAL-VS1-03` |
 | `REQ-VS1-03` | `SCN-VS1-01`; `SCN-VS1-02` | `INV-VS1-02`; `INV-VS1-03`; `INV-VS1-04`; `ADR-001` | `PORT-VS1-SNAPSHOT`; `PORT-VS1-ASSESSMENT` | `TEST-VS1-DOMAIN`; `TEST-VS1-INTEGRATION`; `EVAL-VS1-01`; `EVAL-VS1-02`; `EVAL-VS1-05` |
 | `REQ-VS1-04` | `SCN-VS1-01`; `SCN-VS1-04` | `INV-VS1-04`; `INV-VS1-07`; `ADR-001` | `PORT-VS1-BRANCH` | `TEST-VS1-DOMAIN`; `TEST-VS1-BRANCH`; `EVAL-VS1-04`; `EVAL-VS1-05` |
-| `REQ-VS1-05` | `SCN-VS1-01`; `SCN-VS1-03` | `INV-VS1-01`; `INV-VS1-02`; `INV-VS1-03`; `INV-VS1-04`; `INV-VS1-06`; `ADR-001` | `PORT-VS1-SNAPSHOT`; `PORT-VS1-NARRATIVE` | `TEST-VS1-DOMAIN`; `TEST-VS1-INTEGRATION`; `EVAL-VS1-02`; `EVAL-VS1-03`; `EVAL-VS1-05` |
+| `REQ-VS1-05` | `SCN-VS1-01`; `SCN-VS1-03` | `INV-VS1-01`; `INV-VS1-02`; `INV-VS1-03`; `INV-VS1-04`; `INV-VS1-06`; `ADR-001` | `PORT-VS1-SNAPSHOT`; `PORT-VS1-PRESENTATION` | `TEST-VS1-DOMAIN`; `TEST-VS1-INTEGRATION`; `EVAL-VS1-02`; `EVAL-VS1-03`; `EVAL-VS1-05` |
 | `REQ-VS1-06` | `SCN-VS1-03`; `SCN-VS1-04` | `INV-VS1-05`; `INV-VS1-06`; `INV-VS1-07`; `ADR-001` | `PORT-VS1-SNAPSHOT`; `PORT-VS1-BRANCH` | `TEST-VS1-BRANCH`; `EVAL-VS1-03`; `EVAL-VS1-04` |
 
 NFR trace: `NFR-VS1-01`; `NFR-VS1-02`; `NFR-VS1-06` -> `TEST-VS1-INTEGRATION`, `EVAL-VS1-01`,
@@ -232,7 +232,7 @@ NFR trace: `NFR-VS1-01`; `NFR-VS1-02`; `NFR-VS1-06` -> `TEST-VS1-INTEGRATION`, `
    reuse one QBZ transport, keep claim parsers source-specific; add capture/seal.
 3. `[REQ-VS1-03; REQ-VS1-04]` Implement assessment, deterministic budget and read models.
 4. `[REQ-VS1-06]` Implement append-only commit/replay/fork/causal diff.
-5. `[REQ-VS1-01; REQ-VS1-04; REQ-VS1-05]` Implement guided map, cards, Passport and bounded narrative adapter.
+5. `[REQ-VS1-01; REQ-VS1-04; REQ-VS1-05]` Implement guided map, cards, Passport and deterministic presentation projection.
 6. `[REQ-VS1-02; REQ-VS1-03; REQ-VS1-04; REQ-VS1-05; REQ-VS1-06]` Run four suites, one live eval and one timed visual walkthrough; save evidence.
 
 Validation and exact-text approval:
