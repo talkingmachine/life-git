@@ -192,13 +192,9 @@ describe("confirmed-life visual journey", () => {
     expect(within(research).queryByRole("img", { name: /самолёт/i })).toBeNull();
     expect(within(research).getByText("Проверка")).toBeTruthy();
     const progress = within(research).getByRole("region", { name: /ход проверки/i });
-    expect(within(progress).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Профиль подтверждён",
-      "Официальные источники проверяются",
-      "Снимок доказательств ожидает завершения проверки",
-    ]);
-    expect(within(progress).getByText(/текущий источник.*официальный контур.*Россия.*Тирана/i))
-      .toBeTruthy();
+    expect(within(progress).queryAllByRole("listitem")).toEqual([]);
+    expect(within(progress).getByText("Ожидаем первый подтверждённый шаг.")).toBeTruthy();
+    expect(within(progress).queryByText(/профиль подтверждён/i)).toBeNull();
   });
 
   it("collapses a green result without leaving foreground detail panels", () => {

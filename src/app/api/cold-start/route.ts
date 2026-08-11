@@ -1,0 +1,165 @@
+import { z } from "zod";
+
+import type {
+  ColdStartApplication,
+  ColdStartEvent,
+  ColdStartPrepared,
+} from "../../../application/cold-start";
+import {
+  coldStartEventSchema,
+  initialColdStartEventState,
+  reduceColdStartEvent,
+} from "../../../experience/cold-start-stream";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const requestSchema = z.union([
+  z.object({
+    countryInput: z.string().min(1),
+    profile: z.unknown(),
+  }).strict(),
+  z.object({
+    countryInput: z.string().min(1),
+    profileId: z.string().min(1),
+  }).strict(),
+]);
+
+type ColdStartPrepareInput = Parameters<ColdStartApplication["prepare"]>[0];
+const EXPECTED_PREPARE_ERRORS = new Set([
+  "invalid_monthly_income",
+  "profile_not_found",
+  "unsupported_country",
+]);
+
+function isExpectedPrepareError(error: unknown): boolean {
+  return error instanceof z.ZodError
+    || error instanceof Error && EXPECTED_PREPARE_ERRORS.has(error.message);
+}
+
+function problem(
+  status: number,
+  code: string,
+  title: string,
+): Response {
+  return new Response(JSON.stringify({ code, status, title }), {
+    status,
+    headers: { "content-type": "application/problem+json; charset=utf-8" },
+  });
+}
+
+function hasJsonContentType(request: Request): boolean {
+  return request.headers.get("content-type")
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase() === "application/json";
+}
+
+function abort(
+  controller: AbortController,
+  reason: unknown,
+): void {
+  if (controller.signal.aborted) return;
+  if (reason === undefined) controller.abort();
+  else controller.abort(reason);
+}
+
+function abortError(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+async function parseInput(request: Request): Promise<ColdStartPrepareInput | Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return problem(400, "invalid_json", "Некорректный JSON");
+  }
+  const parsed = requestSchema.safeParse(body);
+  return parsed.success
+    ? parsed.data as ColdStartPrepareInput
+    : problem(400, "invalid_input", "Запрос не прошёл проверку");
+}
+
+async function application(): Promise<ColdStartApplication> {
+  const { getConfirmedLifeApplication } = await import(
+    "../../../infrastructure/composition-root"
+  );
+  return getConfirmedLifeApplication();
+}
+
+function coldStartStream(
+  request: Request,
+  coldStart: ColdStartApplication,
+  prepared: ColdStartPrepared,
+): ReadableStream<Uint8Array> {
+  const linked = new AbortController();
+  let cancelled = false;
+  const encoder = new TextEncoder();
+  const requestAborted = () => abort(linked, request.signal.reason);
+  if (request.signal.aborted) requestAborted();
+  else request.signal.addEventListener("abort", requestAborted, { once: true });
+
+  return new ReadableStream<Uint8Array>({
+    start(controller): void {
+      const pump = async (): Promise<void> => {
+        let state = initialColdStartEventState();
+        try {
+          await coldStart.run(prepared, async (rawEvent) => {
+            if (cancelled || linked.signal.aborted) throw abortError(linked.signal);
+            const event = coldStartEventSchema.parse(rawEvent) as ColdStartEvent;
+            if (event.runId !== prepared.runId) throw new Error("changed_run_id");
+            if (
+              event.type === "assessment_completed" &&
+              event.payload.readModel.runId !== prepared.runId
+            ) throw new Error("changed_run_id");
+            state = reduceColdStartEvent(state, event);
+            if (cancelled) throw abortError(linked.signal);
+            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          }, linked.signal);
+          if (cancelled) return;
+          if (state.terminal === undefined) throw new Error("missing_terminal_event");
+          controller.close();
+        } catch (error) {
+          if (!cancelled) controller.error(error);
+        } finally {
+          request.signal.removeEventListener("abort", requestAborted);
+        }
+      };
+      void pump();
+    },
+    cancel(reason): void {
+      cancelled = true;
+      abort(linked, reason);
+    },
+  });
+}
+
+export async function POST(request: Request): Promise<Response> {
+  if (!hasJsonContentType(request)) {
+    return problem(415, "unsupported_media_type", "Неподдерживаемый формат запроса");
+  }
+  const input = await parseInput(request);
+  if (input instanceof Response) return input;
+
+  let coldStart: ColdStartApplication;
+  let prepared: ColdStartPrepared;
+  try {
+    coldStart = await application();
+    prepared = await coldStart.prepare(input);
+  } catch (error) {
+    return isExpectedPrepareError(error)
+      ? problem(400, "invalid_input", "Запрос не прошёл проверку")
+      : problem(500, "internal_error", "Не удалось запустить проверку");
+  }
+
+  return new Response(coldStartStream(request, coldStart, prepared), {
+    headers: {
+      "cache-control": "no-store, no-transform",
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "x-content-type-options": "nosniff",
+      "x-life-profile-id": prepared.profileId,
+      "x-life-run-id": prepared.runId,
+    },
+  });
+}

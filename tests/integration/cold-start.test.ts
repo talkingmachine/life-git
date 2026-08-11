@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 
 import type Database from "better-sqlite3";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { createConfirmedLifeComposition } from "../../src/infrastructure/composition-root";
@@ -22,7 +22,10 @@ import {
 import { replayEvidenceByRules } from "../../src/application/replay-evidence";
 import {
   createColdStartApplication,
+  type ColdStartApplication,
   type ColdStartEvent,
+  type ColdStartPrepared,
+  type ColdStartReadModel,
 } from "../../src/application/cold-start";
 import { confirmProfile } from "../../src/decision/profile";
 import { assessColdStart } from "../../src/decision/cold-start-assessment";
@@ -2021,5 +2024,283 @@ describe("plan-aware offline evidence replay", () => {
       { snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY },
       { store },
     )).rejects.toThrow("integrity_mismatch");
+  });
+});
+
+describe("cold-start finite HTTP stream", () => {
+  const prepared: ColdStartPrepared = {
+    runId: "cold-route-run-1",
+    profileId: "relocation-profile-1",
+    country: {
+      code: "SI",
+      englishName: "Slovenia",
+      displayName: "Словения",
+      flag: "🇸🇮",
+      coordinate: { lat: 46.1512, lng: 14.9955 },
+    },
+    assessmentAt: "2026-08-11",
+    deadlineAt: "2026-08-11T10:01:00.000Z",
+  };
+  const readModel: ColdStartReadModel = {
+    runId: prepared.runId,
+    country: prepared.country,
+    checkedAt: prepared.assessmentAt,
+    evidenceSnapshotId: `${prepared.runId}:evidence`,
+    assessmentRulesVersion: "cold-start-assessment@1",
+    coverage: { verified: 0, required: 9, claimKinds: [] },
+    comparator: {
+      marker: "yellow",
+      personalFit: "research_incomplete",
+      cityScope: "not_checked",
+      reasons: [{
+        code: "country_evidence_incomplete",
+        summary: "Официальные данные по стране подтверждены не полностью.",
+        claimIds: [],
+        officialUrls: [],
+      }],
+    },
+    sourceNavigation: [],
+  };
+
+  const sourceDiscovered: ColdStartEvent = {
+    runId: prepared.runId,
+    sequence: 1,
+    occurredAt: "2026-08-11T10:00:00.000Z",
+    country: prepared.country,
+    type: "source_discovered",
+    payload: {
+      candidateId: "si-gov",
+      url: "https://www.gov.si/teme/vstop-in-prebivanje/",
+      claimKinds: ["route_basis"],
+    },
+  };
+  const completed: ColdStartEvent = {
+    runId: prepared.runId,
+    sequence: 2,
+    occurredAt: "2026-08-11T10:00:01.000Z",
+    country: prepared.country,
+    type: "assessment_completed",
+    payload: { readModel },
+  };
+
+  async function loadPost(application: ColdStartApplication) {
+    vi.resetModules();
+    vi.doMock("../../src/infrastructure/composition-root", () => ({
+      getConfirmedLifeApplication: () => application,
+    }));
+    return (await import("../../src/app/api/cold-start/route")).POST;
+  }
+
+  function validRequest(signal?: AbortSignal): Request {
+    return new Request("http://localhost/api/cold-start", {
+      body: JSON.stringify({ countryInput: "Словения", profile: RELOCATION_DRAFT }),
+      headers: { "content-type": "application/json; charset=utf-8" },
+      method: "POST",
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+
+  afterEach(() => {
+    vi.doUnmock("../../src/infrastructure/composition-root");
+    vi.restoreAllMocks();
+  });
+
+  test("rejects a non-JSON request before composition or stream creation", async () => {
+    const getConfirmedLifeApplication = vi.fn();
+    vi.doMock("../../src/infrastructure/composition-root", () => ({
+      getConfirmedLifeApplication,
+    }));
+
+    const { POST } = await import("../../src/app/api/cold-start/route");
+    const response = await POST(new Request("http://localhost/api/cold-start", {
+      body: "countryInput=Slovenia",
+      headers: { "content-type": "text/plain" },
+      method: "POST",
+    }));
+
+    expect(response.status).toBe(415);
+    expect(response.headers.get("content-type")).toBe(
+      "application/problem+json; charset=utf-8",
+    );
+    expect(await response.json()).toEqual({
+      code: "unsupported_media_type",
+      status: 415,
+      title: "Неподдерживаемый формат запроса",
+    });
+    expect(getConfirmedLifeApplication).not.toHaveBeenCalled();
+
+    vi.doUnmock("../../src/infrastructure/composition-root");
+  });
+
+  test("rejects invalid JSON and unknown top-level fields before prepare", async () => {
+    const application = {
+      prepare: vi.fn(),
+      run: vi.fn(),
+      present: vi.fn(),
+    } as unknown as ColdStartApplication;
+    const POST = await loadPost(application);
+
+    const invalidJson = await POST(new Request("http://localhost/api/cold-start", {
+      body: "{",
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }));
+    expect(invalidJson.status).toBe(400);
+    expect(await invalidJson.json()).toEqual({
+      code: "invalid_json",
+      status: 400,
+      title: "Некорректный JSON",
+    });
+
+    const unknownField = await POST(new Request("http://localhost/api/cold-start", {
+      body: JSON.stringify({ countryInput: "Словения", profileId: "profile-1", extra: true }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }));
+    expect(unknownField.status).toBe(400);
+    expect((await unknownField.json()).code).toBe("invalid_input");
+    expect(application.prepare).not.toHaveBeenCalled();
+    expect(application.run).not.toHaveBeenCalled();
+  });
+
+  test("prepares before returning exact finite-stream headers and does not await run", async () => {
+    let releaseRun: (() => void) | undefined;
+    const runGate = new Promise<void>((resolveGate) => { releaseRun = resolveGate; });
+    const application: ColdStartApplication = {
+      prepare: vi.fn(async () => prepared),
+      run: vi.fn(async (_prepared, emit) => {
+        await runGate;
+        await emit(sourceDiscovered);
+        await emit(completed);
+        return readModel;
+      }),
+      present: vi.fn(),
+    };
+    const POST = await loadPost(application);
+
+    const responseOrTimeout = await Promise.race([
+      POST(validRequest()),
+      new Promise<"timeout">((resolveTimeout) => {
+        setTimeout(() => resolveTimeout("timeout"), 100);
+      }),
+    ]);
+    expect(responseOrTimeout).not.toBe("timeout");
+    const response = responseOrTimeout as Response;
+    expect(application.prepare).toHaveBeenCalledWith({
+      countryInput: "Словения",
+      profile: RELOCATION_DRAFT,
+    });
+    expect(application.run).toHaveBeenCalledOnce();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(
+      "application/x-ndjson; charset=utf-8",
+    );
+    expect(response.headers.get("cache-control")).toBe("no-store, no-transform");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("x-life-run-id")).toBe(prepared.runId);
+    expect(response.headers.get("x-life-profile-id")).toBe(prepared.profileId);
+
+    releaseRun?.();
+    await expect(response.text()).resolves.toBe(
+      `${JSON.stringify(sourceDiscovered)}\n${JSON.stringify(completed)}\n`,
+    );
+  });
+
+  test("errors a normally completed stream without one final terminal event", async () => {
+    const application: ColdStartApplication = {
+      prepare: async () => prepared,
+      run: async (_prepared, emit) => {
+        await emit(sourceDiscovered);
+        return readModel;
+      },
+      present: vi.fn(),
+    };
+    const POST = await loadPost(application);
+    const response = await POST(validRequest());
+
+    await expect(response.text()).rejects.toThrow("missing_terminal_event");
+  });
+
+  test("errors the transport on invalid event order instead of inventing a verdict", async () => {
+    const invalidTerminal = { ...completed, sequence: 1 } as ColdStartEvent;
+    const eventAfterTerminal = { ...sourceDiscovered, sequence: 2 } as ColdStartEvent;
+    const application: ColdStartApplication = {
+      prepare: async () => prepared,
+      run: async (_prepared, emit) => {
+        await emit(invalidTerminal);
+        await emit(eventAfterTerminal);
+        return readModel;
+      },
+      present: vi.fn(),
+    };
+    const POST = await loadPost(application);
+    const response = await POST(validRequest());
+
+    await expect(response.text()).rejects.toThrow("event_after_terminal");
+  });
+
+  test("links request abort and response cancellation to the application signal", async () => {
+    const observedSignals: AbortSignal[] = [];
+    const application: ColdStartApplication = {
+      prepare: async () => prepared,
+      run: async (_prepared, _emit, signal) => {
+        observedSignals.push(signal);
+        return await new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+      present: vi.fn(),
+    };
+    const POST = await loadPost(application);
+
+    const requestController = new AbortController();
+    const requestResponse = await POST(validRequest(requestController.signal));
+    const requestReason = new Error("request_disconnected");
+    requestController.abort(requestReason);
+    await vi.waitFor(() => expect(observedSignals[0]?.aborted).toBe(true));
+    expect(observedSignals[0]?.reason).toBe(requestReason);
+    await expect(requestResponse.text()).rejects.toBe(requestReason);
+
+    const cancelResponse = await POST(validRequest());
+    const cancelReason = new Error("reader_cancelled");
+    await cancelResponse.body?.cancel(cancelReason);
+    await vi.waitFor(() => expect(observedSignals[1]?.aborted).toBe(true));
+    expect(observedSignals[1]?.reason).toBe(cancelReason);
+  });
+
+  test("maps prepare failures to a generic problem before a stream exists", async () => {
+    const application: ColdStartApplication = {
+      prepare: vi.fn(async () => { throw new Error("unsupported_country"); }),
+      run: vi.fn(),
+      present: vi.fn(),
+    };
+    const POST = await loadPost(application);
+    const response = await POST(validRequest());
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      code: "invalid_input",
+      status: 400,
+      title: "Запрос не прошёл проверку",
+    });
+    expect(application.run).not.toHaveBeenCalled();
+  });
+
+  test("keeps unexpected prepare failures server-side and returns a generic 500", async () => {
+    const application: ColdStartApplication = {
+      prepare: vi.fn(async () => { throw new Error("database is locked: secret-path"); }),
+      run: vi.fn(),
+      present: vi.fn(),
+    };
+    const POST = await loadPost(application);
+    const response = await POST(validRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      code: "internal_error",
+      status: 500,
+      title: "Не удалось запустить проверку",
+    });
+    expect(application.run).not.toHaveBeenCalled();
   });
 });

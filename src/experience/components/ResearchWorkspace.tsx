@@ -2,28 +2,31 @@
 
 import { useState } from "react";
 
+import type {
+  CandidateState,
+  ResearchCandidate as MapResearchCandidate,
+  ResearchProgressItem,
+} from "../research-map/contracts";
+import type { createJourneyView } from "../view-model";
 import { UiIcon } from "./UiIcon";
 
-export type CandidateState = "pending" | "green" | "yellow" | "red";
-
-export interface ResearchCandidate {
-  id: string;
-  origin: "Россия";
-  destination: "Тирана";
-  status: CandidateState;
-  reason?: {
-    summary: string;
-    officialUrl?: string;
-  };
-}
+type LegacyJourneyCandidate = ReturnType<typeof createJourneyView>["candidate"];
+type LegacyResearchCandidate = Omit<LegacyJourneyCandidate, "reason" | "status"> & {
+  readonly reason?: LegacyJourneyCandidate["reason"] | undefined;
+  readonly status: CandidateState;
+};
+type ResearchCandidate = MapResearchCandidate | LegacyResearchCandidate;
 
 interface ResearchWorkspaceProps {
-  mode: CandidateState;
-  candidates: readonly ResearchCandidate[];
-  previousRun?: ResearchRunReference;
-  retryError?: string;
-  retryRecord?: ResearchRetryRecord;
-  onRetry?: (previousRunId: string) => void;
+  readonly mode: CandidateState;
+  readonly candidates: readonly ResearchCandidate[];
+  readonly previousRun?: ResearchRunReference;
+  readonly progress?: readonly ResearchProgressItem[];
+  readonly progressAnnouncement?: string;
+  readonly retryError?: string;
+  readonly retryRecord?: ResearchRetryRecord;
+  readonly routeLabel?: string;
+  readonly onRetry?: (previousRunId: string) => void;
 }
 
 export interface ResearchRunReference {
@@ -53,17 +56,34 @@ const statusIcon = {
   red: "status-red",
 } as const;
 
+function destinationLabel(candidate: ResearchCandidate): string {
+  return "destination" in candidate ? candidate.destination : candidate.label;
+}
+
+function candidateRoute(candidate: ResearchCandidate, routeLabel?: string): string {
+  if (routeLabel !== undefined) return routeLabel;
+  return "origin" in candidate
+    ? `${candidate.origin} → ${candidate.destination}`
+    : `Россия → ${candidate.label}`;
+}
+
 export function ResearchWorkspace({
   mode,
   candidates,
   onRetry,
   previousRun,
+  progress = [],
+  progressAnnouncement,
   retryError,
   retryRecord,
+  routeLabel,
 }: ResearchWorkspaceProps) {
   const [openCandidateId, setOpenCandidateId] = useState<string>();
 
   if (mode === "green") {
+    const destination = candidates[0] === undefined
+      ? "Маршрут"
+      : destinationLabel(candidates[0]);
     return (
       <section
         aria-label="Проверка маршрута"
@@ -75,7 +95,9 @@ export function ResearchWorkspace({
       >
         <UiIcon className="research-workspace__status-icon" name="status-green" weight="duotone" />
         <strong>Маршрут предварительно совместим</strong>
-        <span className="research-workspace__state-label">Тирана · проверено в заявленном scope</span>
+        <span className="research-workspace__state-label">
+          {destination} · проверено в заявленном scope
+        </span>
       </section>
     );
   }
@@ -88,11 +110,12 @@ export function ResearchWorkspace({
     onRetry(previousRun.runId);
   };
 
-  const previousSnapshotId = retryRecord?.previous.evidenceSnapshotId ??
-    previousRun?.evidenceSnapshotId;
+  const previousSnapshotId = retryRecord?.previous.evidenceSnapshotId
+    ?? previousRun?.evidenceSnapshotId;
   const showRetry = mode !== "pending" && (
-    (mode === "yellow" && previousRun !== undefined && onRetry !== undefined) ||
-    retryRecord !== undefined || retryError !== undefined
+    (mode === "yellow" && previousRun !== undefined && onRetry !== undefined)
+    || retryRecord !== undefined
+    || retryError !== undefined
   );
 
   return (
@@ -106,55 +129,59 @@ export function ResearchWorkspace({
       <section className="orbit-panel research-workspace__candidate">
         <p className="orbit-panel__index">01 / МАРШРУТ</p>
         <ul aria-label="Кандидаты маршрута">
-          {candidates.map((candidate) => (
-            <li
-              className={`research-workspace__candidate-item research-workspace__candidate-item--${candidate.status}`}
-              key={candidate.id}
-            >
-              {candidate.reason === undefined ? (
-                <div className="research-workspace__candidate-control">
-                  <UiIcon
-                    className="research-workspace__status-icon"
-                    name={statusIcon[candidate.status]}
-                    weight={candidate.status === "pending" ? "regular" : "duotone"}
-                  />
-                  <span className="research-workspace__route">
-                    {candidate.origin} → {candidate.destination}
-                  </span>
-                  <span className="research-workspace__state-label">{labels[candidate.status]}</span>
-                </div>
-              ) : (
-                <button
-                  aria-expanded={openCandidateId === candidate.id}
-                  className="research-workspace__candidate-control"
-                  onClick={() => reveal(candidate.id)}
-                  type="button"
-                >
-                  <UiIcon
-                    className="research-workspace__status-icon"
-                    name={statusIcon[candidate.status]}
-                    weight={candidate.status === "pending" ? "regular" : "duotone"}
-                  />
-                  <span className="research-workspace__route">
-                    {candidate.origin} → {candidate.destination}
-                  </span>
-                  <span className="research-workspace__state-label">{labels[candidate.status]}</span>
-                  <UiIcon
-                    className="research-workspace__disclosure-icon"
-                    name={openCandidateId === candidate.id ? "collapse" : "expand"}
-                  />
-                </button>
-              )}
-              {openCandidateId === candidate.id && candidate.reason !== undefined ? (
-                <div className="research-workspace__reason">
-                  <p>{candidate.reason.summary}</p>
-                  {candidate.reason.officialUrl === undefined ? null : (
-                    <a href={candidate.reason.officialUrl}>Официальный источник</a>
-                  )}
-                </div>
-              ) : null}
-            </li>
-          ))}
+          {candidates.map((candidate) => {
+            const reasonId = `research-reason-${candidate.id}`;
+            return (
+              <li
+                className={`research-workspace__candidate-item research-workspace__candidate-item--${candidate.status}`}
+                key={candidate.id}
+              >
+                {candidate.reason === undefined ? (
+                  <div className="research-workspace__candidate-control">
+                    <UiIcon
+                      className="research-workspace__status-icon"
+                      name={statusIcon[candidate.status]}
+                      weight={candidate.status === "pending" ? "regular" : "duotone"}
+                    />
+                    <span className="research-workspace__route">
+                      {candidateRoute(candidate, routeLabel)}
+                    </span>
+                    <span className="research-workspace__state-label">{labels[candidate.status]}</span>
+                  </div>
+                ) : (
+                  <button
+                    aria-controls={reasonId}
+                    aria-expanded={openCandidateId === candidate.id}
+                    className="research-workspace__candidate-control"
+                    onClick={() => reveal(candidate.id)}
+                    type="button"
+                  >
+                    <UiIcon
+                      className="research-workspace__status-icon"
+                      name={statusIcon[candidate.status]}
+                      weight={candidate.status === "pending" ? "regular" : "duotone"}
+                    />
+                    <span className="research-workspace__route">
+                      {candidateRoute(candidate, routeLabel)}
+                    </span>
+                    <span className="research-workspace__state-label">{labels[candidate.status]}</span>
+                    <UiIcon
+                      className="research-workspace__disclosure-icon"
+                      name={openCandidateId === candidate.id ? "collapse" : "expand"}
+                    />
+                  </button>
+                )}
+                {openCandidateId === candidate.id && candidate.reason !== undefined ? (
+                  <div className="research-workspace__reason" id={reasonId}>
+                    <p>{candidate.reason.summary}</p>
+                    {candidate.reason.officialUrl === undefined ? null : (
+                      <a href={candidate.reason.officialUrl}>Официальный источник</a>
+                    )}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       </section>
       {mode === "pending" ? (
@@ -164,12 +191,28 @@ export function ResearchWorkspace({
           role="region"
         >
           <h2>Ход проверки</h2>
-          <ol>
-            <li>Профиль подтверждён</li>
-            <li aria-current="step">Официальные источники проверяются</li>
-            <li>Снимок доказательств ожидает завершения проверки</li>
-          </ol>
-          <p>Текущий источник: официальный контур Россия → Тирана</p>
+          {progress.length === 0 ? (
+            <p>Ожидаем первый подтверждённый шаг.</p>
+          ) : (
+            <ol>
+              {progress.map((item) => (
+                <li aria-current={item.current ? "step" : undefined} key={item.key}>
+                  <span>{item.label}</span>
+                  {item.detail === undefined ? null : <small>{item.detail}</small>}
+                  {item.sourceUrl === undefined ? null : (
+                    <a href={item.sourceUrl}>Открыть официальный источник</a>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+          <p
+            aria-atomic="true"
+            aria-live="polite"
+            className="visually-hidden"
+          >
+            {progressAnnouncement ?? ""}
+          </p>
         </aside>
       ) : null}
       {showRetry ? (
