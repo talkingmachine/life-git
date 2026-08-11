@@ -329,6 +329,7 @@ export function ResearchGlobeCanvas({
   const lighting = useMemo(createGlobeLighting, []);
   const activeFlightKey = activeFlight?.key;
   const readActiveFlight = useEffectEvent(() => activeFlight);
+  const readSelectedRouteKey = useEffectEvent(() => selectedRouteKey);
 
   const customLayerData = useMemo<CustomLayerDatum[]>(
     () => flightLayer === undefined ? routeLayerData : [...routeLayerData, flightLayer.datum],
@@ -615,6 +616,10 @@ export function ResearchGlobeCanvas({
   useEffect(() => {
     destinationRevealCompleted.current.clear();
     setDestinationEpoch((epoch) => epoch + 1);
+    const selectedRouteKeyAtOverviewChange = readSelectedRouteKey();
+    if (selectedRouteKeyAtOverviewChange !== undefined) {
+      returnFocusKey.current = selectedRouteKeyAtOverviewChange;
+    }
     setSelectedRouteKey(undefined);
   }, [overview.key]);
 
