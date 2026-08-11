@@ -46,7 +46,7 @@ function officialHttpsUrl(value: string, allowedHosts: readonly string[]): URL {
   }
   if (
     url.protocol !== "https:" ||
-    !allowedHosts.includes(url.hostname.toLowerCase())
+    !allowedHosts.includes(url.host.toLowerCase())
   ) {
     throw new SourceCaptureError(
       "navigation_mismatch",

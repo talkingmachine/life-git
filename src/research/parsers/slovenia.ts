@@ -101,6 +101,20 @@ function boundedSection(
   return lines.slice(beginIndexes[0]! + 1, endIndexes[0]);
 }
 
+function markersAreStrictlyOrdered(
+  lines: readonly string[],
+  markers: readonly string[],
+): boolean {
+  const indexes = markers.map((marker) =>
+    lines.flatMap((line, index) => line === marker ? [index] : []),
+  );
+  return indexes.every(
+    (matches, index) =>
+      matches.length === 1 &&
+      (index === 0 || indexes[index - 1]![0]! < matches[0]!),
+  );
+}
+
 function containsExact(lines: readonly string[] | null, expected: string): boolean {
   return lines !== null && lines.filter((line) => line === expected).length === 1;
 }
@@ -109,11 +123,12 @@ function selectedEffectiveState(lines: readonly string[], assessmentAt: string):
   if (uniqueLine(lines, "EFFECTIVE STATE LIST: COMPLETE.") === null) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(assessmentAt)) return null;
   const states = lines.flatMap((line) => {
-    const match = /^STATE (?:EFFECTIVE|FUTURE): (\d{4}-\d{2}-\d{2}); ID=([^.;]+)\.$/.exec(line);
-    return match === null ? [] : [{ date: match[1]!, id: match[2]! }];
+    const match = /^STATE (EFFECTIVE|FUTURE): (\d{4}-\d{2}-\d{2}); ID=([^.;]+)\.$/.exec(line);
+    return match === null ? [] : [{ kind: match[1]!, date: match[2]!, id: match[3]! }];
   });
   if (states.length === 0 || new Set(states.map(({ id }) => id)).size !== states.length) return null;
-  const applicable = states.filter(({ date }) => date <= assessmentAt);
+  if (states.some(({ kind, date }) => kind === "FUTURE" && date <= assessmentAt)) return null;
+  const applicable = states.filter(({ kind, date }) => kind === "EFFECTIVE" && date <= assessmentAt);
   if (applicable.length === 0) return null;
   const latestDate = applicable.map(({ date }) => date).sort().at(-1)!;
   return applicable.filter(({ date }) => date === latestDate).length === 1 ? latestDate : null;
@@ -212,8 +227,16 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
     lawExcerpt !== "ZAKO5761 | 51.a člen | effective 2025-11-21" ||
     eligibility !== "EU citizens; EEA citizens; Swiss citizens." ||
     routeSemantics.some((semantic) => uniqueLine(govLines, semantic) === null) ||
+    !markersAreStrictlyOrdered(govLines, routeSemantics) ||
     uniqueLine(lawLines, "LAW ID: ZAKO5761.") === null ||
+    !markersAreStrictlyOrdered(lawLines, [
+      "BEGIN 51.a člen",
+      "END 51.a člen",
+      "BEGIN 55. člen",
+      "END 55. člen",
+    ]) ||
     article51Semantics.some((semantic) => !containsExact(article51, semantic)) ||
+    !markersAreStrictlyOrdered(article51 ?? [], article51Semantics) ||
     !containsExact(
       article55,
       "General statutory refusal grounds applicable to temporary residence permits.",
@@ -224,6 +247,36 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
     return { ok: false, kind: "semantic_mismatch" };
   }
   if (article51 === null || article55 === null) return { ok: false, kind: "semantic_mismatch" };
+  const [
+    govTitle,
+    govPublicationDate,
+    govEligibilityComplete,
+    govEligibleCategory,
+    govNoGuarantee,
+    govRemoteComplete,
+    govNoSlovenianMarket,
+    govFamilyEntry,
+    govDuration,
+  ] = routeSemantics.map((semantic) => uniqueLine(govLines, semantic)!);
+  const govExclusions = uniqueLine(
+    govLines,
+    "Explicit nationality exclusions: EU citizens; EEA citizens; Swiss citizens.",
+  )!;
+  const [
+    lawRouteBasis,
+    lawWorkScope,
+    lawFamilyEntry,
+    lawDuration,
+    lawRequirementsComplete,
+    lawPassport,
+    lawInsurance,
+    lawArticle55Applies,
+    lawQualificationAbsent,
+  ] = article51Semantics.map((semantic) => uniqueLine(article51, semantic)!);
+  const lawArticle55Grounds = uniqueLine(
+    article55,
+    "General statutory refusal grounds applicable to temporary residence permits.",
+  )!;
   const govRef = (locator: string, lines: readonly string[]) =>
     evidenceRef(entry.sourceId, gov, sourcePeriod, locator, lines.join(" "));
   const lawRef = (locator: string, lines: readonly string[]) =>
@@ -239,43 +292,64 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
       effectiveFrom: "2025-11-21",
     }, [
       govRef("GOV.SI route title and publication date", [
-        "Temporary residence permit for digital nomads",
-        "21 November 2025",
+        govTitle,
+        govPublicationDate,
       ]),
-      lawRef("ZAKO5761 51.a člen route basis", [article51[0]!]),
+      lawRef("ZAKO5761 51.a člen route basis", [lawRouteBasis]),
     ]],
     ["citizenship_applicability", {
       eligibleCategory: "third_country_national",
       explicitNationalityExclusions: ["EU", "EEA", "Switzerland"],
     }, [
-      lawRef("ZAKO5761 51.a člen third-country scope", [article51[1]!]),
-      govRef("GOV.SI complete national eligibility scope", govLines.slice(3, 7)),
+      lawRef("ZAKO5761 51.a člen third-country scope", [lawWorkScope]),
+      govRef("GOV.SI complete national eligibility scope", [
+        govEligibilityComplete,
+        govEligibleCategory,
+        govExclusions,
+        govNoGuarantee,
+      ]),
     ]],
     ["remote_work_relations", {
       allowedRelations: ["foreign_employer", "own_foreign_business", "foreign_clients"],
       slovenianLabourMarketWorkIncluded: false,
     }, [
-      lawRef("ZAKO5761 51.a člen foreign work relations", [article51[1]!]),
-      govRef("GOV.SI complete remote-work relations", govLines.slice(7, 9)),
+      lawRef("ZAKO5761 51.a člen foreign work relations", [lawWorkScope]),
+      govRef("GOV.SI complete remote-work relations", [govRemoteComplete, govNoSlovenianMarket]),
     ]],
     ["qualification", { rule: "not_listed_in_authoritative_requirements" }, [
-      lawRef("ZAKO5761 51.a člen complete requirements", article51),
+      lawRef("ZAKO5761 51.a člen complete requirements", [
+        lawRouteBasis,
+        lawWorkScope,
+        lawFamilyEntry,
+        lawDuration,
+        lawRequirementsComplete,
+        lawPassport,
+        lawInsurance,
+        lawArticle55Applies,
+        lawQualificationAbsent,
+      ]),
     ]],
     ["companion_entry", { rule: "immediate_family_reunification_without_waiting_period" }, [
-      govRef("GOV.SI immediate family entry", [govLines[9]!]),
-      lawRef("ZAKO5761 51.a člen immediate family entry", [article51[2]!]),
+      govRef("GOV.SI immediate family entry", [govFamilyEntry]),
+      lawRef("ZAKO5761 51.a člen immediate family entry", [lawFamilyEntry]),
     ]],
     ["duration", { maximumMonths: 12, extendable: false, reapplyAfterMonths: 6 }, [
-      govRef("GOV.SI route duration", [govLines[10]!]),
-      lawRef("ZAKO5761 51.a člen route duration", [article51[3]!]),
+      govRef("GOV.SI route duration", [govDuration]),
+      lawRef("ZAKO5761 51.a člen route duration", [lawDuration]),
     ]],
     ["general_statutory_prerequisites", {
       passportBeyondPermitMonths: 3,
       healthInsurance: true,
       article55GroundsApply: true,
     }, [
-      lawRef("ZAKO5761 51.a člen complete statutory prerequisites", article51.slice(4)),
-      lawRef("ZAKO5761 55. člen applicable refusal grounds", article55),
+      lawRef("ZAKO5761 51.a člen complete statutory prerequisites", [
+        lawRequirementsComplete,
+        lawPassport,
+        lawInsurance,
+        lawArticle55Applies,
+        lawQualificationAbsent,
+      ]),
+      lawRef("ZAKO5761 55. člen applicable refusal grounds", [lawArticle55Grounds]),
     ]],
   ];
   return {
@@ -318,6 +392,34 @@ function decimalOrNull(value: string | undefined): Decimal | null {
   }
 }
 
+function pisrsPublicationSop(urlValue: string | undefined): string | null {
+  if (urlValue === undefined) return null;
+  try {
+    const url = new URL(urlValue);
+    const values = url.searchParams.getAll("sop");
+    if (
+      url.protocol !== "https:" ||
+      url.host !== "pisrs.si" ||
+      url.pathname !== "/pregledPredpisa" ||
+      values.length !== 1 ||
+      !/^\d{4}-\d{2}-\d{4}$/.test(values[0]!)
+    ) return null;
+    return values[0]!;
+  } catch {
+    return null;
+  }
+}
+
+function capturedPublicationSop(
+  entry: ParserEntry<SloveniaSourceId>,
+  artifact: ArtifactBytes,
+): string | null {
+  const captured = artifact as Partial<LiveCapturedArtifact<SloveniaSourceId>>;
+  const candidateSop = pisrsPublicationSop(entry.navigationUrl);
+  const requestSop = pisrsPublicationSop(captured.request?.url);
+  return candidateSop !== null && candidateSop === requestSop ? candidateSop : null;
+}
+
 function parseIncome(
   entry: ParserEntry<SloveniaSourceId>,
   assessmentAt: string,
@@ -337,10 +439,13 @@ function parseIncome(
   const metadataCodes = metadata.data.variables.map(({ code }) => code);
   const uniqueMetadataCodes = new Set(metadataCodes);
   const uniqueSeriesCodes = new Set(series.data.id);
+  const dimensionCodes = Object.keys(series.data.dimension);
   if (
     uniqueMetadataCodes.size !== metadataCodes.length ||
     uniqueSeriesCodes.size !== series.data.id.length ||
     series.data.size.length !== series.data.id.length ||
+    dimensionCodes.length !== series.data.id.length ||
+    dimensionCodes.some((code) => !uniqueSeriesCodes.has(code)) ||
     metadataCodes.length !== series.data.id.length ||
     metadataCodes.some((code, index) => code !== series.data.id[index])
   ) {
@@ -360,6 +465,7 @@ function parseIncome(
   const timeVariable = timeVariables[0]!;
   const metric = metricMatches[0]!;
   if (
+    metric.variable.code === timeVariable.code ||
     metadata.data.variables.some(({ values, valueTexts }) =>
       values.length !== valueTexts.length || new Set(values).size !== values.length
     ) ||
@@ -396,7 +502,8 @@ function parseIncome(
   const coordinates = series.data.id.map((code) => {
     if (code === metric.variable.code) return metric.variable.values.indexOf(metric.value!);
     if (code === timeVariable.code) return timeVariable.values.indexOf(period);
-    return -1;
+    const variable = metadata.data.variables.find(({ code: variableCode }) => variableCode === code);
+    return variable?.values.length === 1 ? 0 : -1;
   });
   if (coordinates.some((coordinate) => coordinate < 0)) {
     return { ok: false, kind: "semantic_mismatch" };
@@ -410,6 +517,7 @@ function parseIncome(
     return { ok: false, kind: "semantic_mismatch" };
   }
   const salary = new Decimal(rawNetSalary).toFixed(2);
+  const capturedSop = capturedPublicationSop(entry, publication);
   const publicationId = prefixedLine(publicationLines, "PUBLICATION ID:")?.replace(/\.$/, "");
   const publishedAt = prefixedLine(publicationLines, "PUBLISHED:")?.replace(/\.$/, "");
   const publicationPeriod = prefixedLine(publicationLines, "PERIOD:")?.replace(/\.$/, "");
@@ -417,14 +525,14 @@ function parseIncome(
   const publicationSalary = decimalOrNull(publicationValue);
   const publicationExcerpt = prefixedLine(publicationLines, "ANCHOR EXCERPT:");
   if (
-    publicationId !== "2026-01-1950" ||
+    capturedSop === null || publicationId !== capturedSop ||
     publishedAt === undefined || !isIsoDateAtOrBefore(publishedAt, assessmentAt) ||
     uniqueLine(publicationLines, "DATASET: H285S.px.") === null ||
     uniqueLine(publicationLines, "METRIC: average monthly net salary.") === null ||
     uniqueLine(publicationLines, "FORMULA: 2 × latest average monthly net salary.") === null ||
     publicationPeriod !== period ||
     publicationSalary === null || !publicationSalary.equals(salary) ||
-    publicationExcerpt !== `PISRS 2026-01-1950 | NET | ${period} | ${salary} EUR` ||
+    publicationExcerpt !== `PISRS ${capturedSop} | NET | ${period} | ${salary} EUR` ||
     metadata.data.anchorExcerpt !== "H285S.px | dimensions complete | no pagination" ||
     series.data.anchorExcerpt !== `H285S.px | NET | ${period} | ${salary}`
   ) {
@@ -435,7 +543,7 @@ function parseIncome(
       entry.sourceId,
       publication,
       period,
-      "PISRS salary publication 2026-01-1950",
+      `PISRS salary publication ${capturedSop}`,
       publicationExcerpt,
     ),
     evidenceRef(
@@ -500,7 +608,14 @@ function parseCompanion(
     essExcerpt !== "ESS | conditional local employment | informativni list | kontrola trga dela" ||
     lawExcerpt !== "ZAKO6655 | 32. člen + 33. člen | effective 2026-01-01" ||
     essSemantics.some((semantic) => uniqueLine(essLines, semantic) === null) ||
+    !markersAreStrictlyOrdered(essLines, essSemantics) ||
     uniqueLine(lawLines, "LAW ID: ZAKO6655.") === null ||
+    !markersAreStrictlyOrdered(lawLines, [
+      "BEGIN 32. člen",
+      "END 32. člen",
+      "BEGIN 33. člen",
+      "END 33. člen",
+    ]) ||
     !containsExact(
       article32,
       "For conditional employment under a residence permit, an informativni list (information sheet) is required.",
@@ -510,14 +625,28 @@ function parseCompanion(
       "A kontrola trga dela (labour-market check) is required before local employment.",
     ) ||
     !containsExact(article33, "The provision does not create automatic access.") ||
+    !markersAreStrictlyOrdered(article33 ?? [], [
+      "A kontrola trga dela (labour-market check) is required before local employment.",
+      "The provision does not create automatic access.",
+    ]) ||
     /Automatic labour-market access is granted/i.test(essText) ||
     /Remote work for a foreign company is automatically allowed/i.test(essText)
   ) {
     return { ok: false, kind: "semantic_mismatch" };
   }
   if (article32 === null || article33 === null) return { ok: false, kind: "semantic_mismatch" };
-  const essEvidenceLines = essSemantics;
-  const lawEvidenceLines = [...article32, ...article33];
+  const essEvidenceLines = essSemantics.map((semantic) => uniqueLine(essLines, semantic)!);
+  const lawEvidenceLines = [
+    uniqueLine(
+      article32,
+      "For conditional employment under a residence permit, an informativni list (information sheet) is required.",
+    )!,
+    uniqueLine(
+      article33,
+      "A kontrola trga dela (labour-market check) is required before local employment.",
+    )!,
+    uniqueLine(article33, "The provision does not create automatic access.")!,
+  ];
   const evidence = [
     evidenceRef(
       entry.sourceId,

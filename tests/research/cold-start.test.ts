@@ -27,6 +27,7 @@ import {
   resolveCountry,
 } from "../../src/research/country-registry";
 import type {
+  ClaimKind,
   ColdStartEvidenceClaim,
   SloveniaSourceId,
   SourceCandidate,
@@ -798,6 +799,13 @@ describe("Slovenia registry and official discovery", () => {
     });
     expect(call.body.text.format).toEqual(expect.objectContaining({ type: "json_schema" }));
     expect(call.options).toEqual({ timeout: 12_000, maxRetries: 0 });
+    if (!result.ok) throw new Error("discovery fixture must validate");
+    expect(Object.isFrozen(result.candidates)).toBe(true);
+    expect(Object.isFrozen(result.candidates[0])).toBe(true);
+    expect(Object.isFrozen(result.candidates[0]!.claimKinds)).toBe(true);
+    expect(() => {
+      (result.candidates[0]!.claimKinds as ClaimKind[]).push("income");
+    }).toThrow();
   });
 
   test("reconstructs the discovery payload without extra enumerable caller fields", async () => {
@@ -1151,6 +1159,34 @@ describe("Slovenia installed research plan", () => {
     });
   });
 
+  test("snapshots validated candidate scalars before caller mutation", async () => {
+    const mutableCandidates = SLOVENIA_CANDIDATES.map((candidate) => ({
+      ...candidate,
+      claimKinds: [...candidate.claimKinds],
+    }));
+    const expectedGovUrl = mutableCandidates[0]!.url;
+    const expectedLawUrl = mutableCandidates[1]!.url;
+    const { source: sloveniaSource } = createSloveniaResearch({ candidates: mutableCandidates });
+    mutableCandidates[0]!.url = "https://www.gov.si/mutated-after-construction";
+    mutableCandidates[1]!.url = "https://pisrs.si/mutated-after-construction";
+    mutableCandidates[0]!.claimKinds.splice(0);
+    const requests: HttpStepRequest<SloveniaSourceId>[] = [];
+
+    const result = await sloveniaSource.capture({
+      runId: "candidate-snapshot",
+      sourceId: "si-digital-nomad-route",
+      assessmentDate: ASSESSMENT_DATE,
+      deadlineAt: DEADLINE_AT,
+      signal: new AbortController().signal,
+    }, async (request) => {
+      requests.push(request);
+      return sloveniaArtifact(request);
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requests.map(({ url }) => url)).toEqual([expectedGovUrl, expectedLawUrl]);
+  });
+
   test.each([
     { name: "missing", candidates: SLOVENIA_CANDIDATES.filter((candidate) => candidate.candidateId !== "ztuj2") },
     { name: "ambiguous", candidates: [...SLOVENIA_CANDIDATES, { ...SLOVENIA_CANDIDATES[1]!, candidateId: "ztuj2-copy" }] },
@@ -1251,6 +1287,19 @@ function mutateFixture(name: string, mutate: (text: string) => string): Uint8Arr
   return new TextEncoder().encode(mutate(text));
 }
 
+function jsonBytes(value: unknown): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(value));
+}
+
+function swapFirstTwoSections(text: string): string {
+  const sections = [...text.matchAll(/<section>[\s\S]*?<\/section>/g)].map((match) => match[0]);
+  if (sections.length !== 2) throw new Error("fixture must have exactly two article sections");
+  return text
+    .replace(sections[0]!, "__FIRST_SECTION__")
+    .replace(sections[1]!, sections[0]!)
+    .replace("__FIRST_SECTION__", sections[1]!);
+}
+
 describe("Slovenia route validator", () => {
   test("emits all seven route claims in canonical order with current exact bundle evidence", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
@@ -1345,6 +1394,28 @@ describe("Slovenia route validator", () => {
     });
   });
 
+  test("anchors every claim to the same exact supporting lines after harmless page insertion", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const inserted = mutateFixture("route-gov.html", (text) => text.replace(
+      "<p>ELIGIBILITY SCOPE COMPLETE.</p>",
+      "<p>Harmless navigation notice.</p><p>ELIGIBILITY SCOPE COMPLETE.</p>",
+    ));
+
+    const [baseline, changed] = await Promise.all([
+      sloveniaPlan.validate(routeEntry(), ASSESSMENT_DATE),
+      sloveniaPlan.validate(routeEntry(inserted), ASSESSMENT_DATE),
+    ]);
+
+    expect(baseline.ok).toBe(true);
+    expect(changed.ok).toBe(true);
+    if (!baseline.ok || !changed.ok) throw new Error("route fixtures must validate");
+    const anchors = (claims: typeof baseline.claims) => claims.map((claim) => {
+      if (!("evidence" in claim)) throw new Error("route claim must carry evidence");
+      return claim.evidence.map(({ anchor: { locator, excerptSha256 } }) => ({ locator, excerptSha256 }));
+    });
+    expect(anchors(changed.claims)).toEqual(anchors(baseline.claims));
+  });
+
   test.each([
     {
       name: "incomplete effective-state listing",
@@ -1357,6 +1428,10 @@ describe("Slovenia route validator", () => {
     {
       name: "future-only state",
       law: () => mutateFixture("ztuj2.html", (text) => text.replaceAll("2024-01-01", "2027-01-01").replaceAll("2025-11-21", "2028-01-01")),
+    },
+    {
+      name: "future state dated before the assessment cutoff",
+      law: () => mutateFixture("ztuj2.html", (text) => text.replace("STATE FUTURE: 2027-01-01;", "STATE FUTURE: 2025-06-01;")),
     },
     {
       name: "changed article anchor",
@@ -1380,6 +1455,17 @@ describe("Slovenia route validator", () => {
         .replace("TEMP 51.a člen", "END 51.a člen")),
     },
     {
+      name: "Article 55 globally precedes Article 51a",
+      law: () => mutateFixture("ztuj2.html", swapFirstTwoSections),
+    },
+    {
+      name: "required Article 51a statements are reordered",
+      law: () => mutateFixture("ztuj2.html", (text) => text
+        .replace("<p>Immediate family reunification applies without a waiting period.</p>", "__FAMILY__")
+        .replace("<p>The permit lasts no more than 12 months, cannot be extended, and a new application may be made after 6 months.</p>", "<p>Immediate family reunification applies without a waiting period.</p>")
+        .replace("__FAMILY__", "<p>The permit lasts no more than 12 months, cannot be extended, and a new application may be made after 6 months.</p>")),
+    },
+    {
       name: "incomplete eligibility scope",
       gov: () => mutateFixture("route-gov.html", (text) => text.replace("ELIGIBILITY SCOPE COMPLETE.", "ELIGIBILITY SCOPE PARTIAL.")),
     },
@@ -1400,13 +1486,14 @@ function incomeEntry(
   salaryBytes?: Uint8Array,
   metadataBytes?: Uint8Array,
   seriesBytes?: Uint8Array,
+  publicationUrl = SLOVENIA_CANDIDATES[2]!.url,
 ): ParserEntry<SloveniaSourceId> {
   const artifacts = [
     fixtureArtifact(
       "si-income-threshold",
       "salary-publication",
       "salary-publication.html",
-      SLOVENIA_CANDIDATES[2]!.url,
+      publicationUrl,
     ),
     fixtureArtifact(
       "si-income-threshold",
@@ -1426,7 +1513,7 @@ function incomeEntry(
   const overrides = [salaryBytes, metadataBytes, seriesBytes];
   return {
     sourceId: "si-income-threshold",
-    navigationUrl: SLOVENIA_CANDIDATES[2]!.url,
+    navigationUrl: publicationUrl,
     resolvedEvidenceUrl: SLOVENIA_CANDIDATES[3]!.url,
     artifacts: artifacts.map((artifactValue, index) => {
       const bytes = overrides[index];
@@ -1509,6 +1596,73 @@ describe("Slovenia income validator", () => {
     });
   });
 
+  test("derives a different well-formed PISRS publication identity from its captured URL", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const publicationId = "2026-02-2000";
+    const publicationUrl = `https://pisrs.si/pregledPredpisa?sop=${publicationId}`;
+    const salary = mutateFixture("salary-publication.html", (text) =>
+      text.replaceAll("2026-01-1950", publicationId));
+
+    const result = await sloveniaPlan.validate(
+      incomeEntry(salary, undefined, undefined, publicationUrl),
+      ASSESSMENT_DATE,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("well-formed publication identity must validate");
+    const claim = result.claims[0]!;
+    if (!("evidence" in claim)) throw new Error("income claim must carry evidence");
+    expect(claim.evidence[0]).toMatchObject({
+      navigationUrl: publicationUrl,
+      anchor: { locator: `PISRS salary publication ${publicationId}` },
+    });
+  });
+
+  test("rejects a publication whose captured sop disagrees with its content identity", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const mismatchedUrl = "https://pisrs.si/pregledPredpisa?sop=2026-02-2000";
+
+    const result = await sloveniaPlan.validate(
+      incomeEntry(undefined, undefined, undefined, mismatchedUrl),
+      ASSESSMENT_DATE,
+    );
+
+    expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
+  });
+
+  test("accepts an explicitly selected singleton coordinate in every additional dimension", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const metadata = jsonBytes({
+      datasetId: "H285S.px",
+      anchorExcerpt: "H285S.px | dimensions complete | no pagination",
+      title: "Average monthly earnings",
+      complete: true,
+      pagination: { hasMore: false },
+      variables: [
+        { code: "MEASURE", text: "Measure", values: ["NET", "GROSS"], valueTexts: ["Average monthly net salary", "Average monthly gross salary"] },
+        { code: "TIME", text: "Period", time: true, values: ["2025M12", "2026M01", "2026M09"], valueTexts: ["2025M12", "2026M01", "2026M09"] },
+        { code: "REGION", text: "Region", values: ["SI"], valueTexts: ["Slovenia"] },
+      ],
+    });
+    const series = jsonBytes({
+      version: "2.0",
+      class: "dataset",
+      anchorExcerpt: "H285S.px | NET | 2026M01 | 1560.00",
+      id: ["MEASURE", "TIME", "REGION"],
+      size: [2, 3, 1],
+      dimension: {
+        MEASURE: { label: "Measure", category: { index: { NET: 0, GROSS: 1 }, label: { NET: "Average monthly net salary", GROSS: "Average monthly gross salary" } } },
+        TIME: { label: "Period", category: { index: { "2025M12": 0, "2026M01": 1, "2026M09": 2 }, label: { "2025M12": "2025M12", "2026M01": "2026M01", "2026M09": "2026M09" } } },
+        REGION: { label: "Region", category: { index: { SI: 0 }, label: { SI: "Slovenia" } } },
+      },
+      value: [1500, 1560, 1700, 2300, 2400, 2600],
+    });
+
+    const result = await sloveniaPlan.validate(incomeEntry(undefined, metadata, series), ASSESSMENT_DATE);
+
+    expect(result.ok).toBe(true);
+  });
+
   test.each([
     {
       name: "paginated metadata",
@@ -1521,6 +1675,43 @@ describe("Slovenia income validator", () => {
     {
       name: "missing series dimension",
       series: () => mutateFixture("sistat-series.json", (text) => text.replace('"id": ["MEASURE", "TIME"]', '"id": ["TIME"]')),
+    },
+    {
+      name: "dimension object missing an id dimension",
+      series: () => mutateFixture("sistat-series.json", (text) => text.replace(/,\n    "TIME": \{[\s\S]*?\n    \}\n/, "\n")),
+    },
+    {
+      name: "dimension object has a key absent from id",
+      series: () => mutateFixture("sistat-series.json", (text) => text.replace('"dimension": {', '"dimension": {"EXTRA":{"label":"Extra","category":{"index":{"X":0},"label":{"X":"X"}}},')),
+    },
+    {
+      name: "time and metric use the same dimension code",
+      metadata: () => jsonBytes({
+        datasetId: "H285S.px",
+        anchorExcerpt: "H285S.px | dimensions complete | no pagination",
+        title: "Average monthly earnings",
+        complete: true,
+        pagination: { hasMore: false },
+        variables: [{ code: "TIME", text: "Period", time: true, values: ["2026M01"], valueTexts: ["Average monthly net salary"] }],
+      }),
+      series: () => jsonBytes({
+        version: "2.0",
+        class: "dataset",
+        anchorExcerpt: "H285S.px | NET | 2026M01 | 1560.00",
+        id: ["TIME"],
+        size: [1],
+        dimension: { TIME: { label: "Period", category: { index: { "2026M01": 0 }, label: { "2026M01": "Average monthly net salary" } } } },
+        value: [1560],
+      }),
+    },
+    {
+      name: "unselected additional dimension has multiple coordinates",
+      metadata: () => mutateFixture("sistat-metadata.json", (text) => text.replace('\n  ]\n}', ',{"code":"REGION","text":"Region","values":["SI","AT"],"valueTexts":["Slovenia","Austria"]}\n  ]\n}')),
+      series: () => mutateFixture("sistat-series.json", (text) => text
+        .replace('"id": ["MEASURE", "TIME"]', '"id": ["MEASURE", "TIME", "REGION"]')
+        .replace('"size": [2, 3]', '"size": [2, 3, 2]')
+        .replace('\n  },\n  "value":', ',"REGION":{"label":"Region","category":{"index":{"SI":0,"AT":1},"label":{"SI":"Slovenia","AT":"Austria"}}}\n  },\n  "value":')
+        .replace('[1500.00, 1560.00, 1700.00, 2300.00, 2400.00, 2600.00]', '[1500,1500,1560,1560,1700,1700,2300,2300,2400,2400,2600,2600]')),
     },
     {
       name: "ambiguous net metric",
@@ -1640,6 +1831,28 @@ describe("Slovenia companion employment validator", () => {
     expect(JSON.stringify(claim)).not.toMatch(/automatic|foreign_company_remote_work/i);
   });
 
+  test("anchors companion evidence to exact support after harmless article insertion", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const inserted = mutateFixture("zzsdt.html", (text) => text.replace(
+      "<p>The provision does not create automatic access.</p>",
+      "<p>Harmless editorial note.</p><p>The provision does not create automatic access.</p>",
+    ));
+
+    const [baseline, changed] = await Promise.all([
+      sloveniaPlan.validate(companionEntry(), ASSESSMENT_DATE),
+      sloveniaPlan.validate(companionEntry(undefined, inserted), ASSESSMENT_DATE),
+    ]);
+
+    expect(baseline.ok).toBe(true);
+    expect(changed.ok).toBe(true);
+    if (!baseline.ok || !changed.ok) throw new Error("companion fixtures must validate");
+    const anchors = (claims: typeof baseline.claims) => claims.flatMap((claim) => {
+      if (!("evidence" in claim)) throw new Error("companion claim must carry evidence");
+      return claim.evidence.map(({ anchor: { locator, excerptSha256 } }) => ({ locator, excerptSha256 }));
+    });
+    expect(anchors(changed.claims)).toEqual(anchors(baseline.claims));
+  });
+
   test.each([
     {
       name: "incomplete effective-state listing",
@@ -1654,8 +1867,23 @@ describe("Slovenia companion employment validator", () => {
       law: () => mutateFixture("zzsdt.html", (text) => text.replaceAll("2024-01-01", "2027-01-01").replaceAll("2026-01-01", "2028-01-01")),
     },
     {
+      name: "future state dated before the assessment cutoff",
+      law: () => mutateFixture("zzsdt.html", (text) => text.replace("STATE FUTURE: 2027-01-01;", "STATE FUTURE: 2025-06-01;")),
+    },
+    {
       name: "changed article anchor",
       law: () => mutateFixture("zzsdt.html", (text) => text.replaceAll("33. člen", "34. člen")),
+    },
+    {
+      name: "Article 33 globally precedes Article 32",
+      law: () => mutateFixture("zzsdt.html", swapFirstTwoSections),
+    },
+    {
+      name: "required Article 33 statements are reordered",
+      law: () => mutateFixture("zzsdt.html", (text) => text
+        .replace("<p>A kontrola trga dela (labour-market check) is required before local employment.</p>", "__CHECK__")
+        .replace("<p>The provision does not create automatic access.</p>", "<p>A kontrola trga dela (labour-market check) is required before local employment.</p>")
+        .replace("__CHECK__", "<p>The provision does not create automatic access.</p>")),
     },
     {
       name: "missing information sheet",

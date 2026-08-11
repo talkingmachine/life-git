@@ -155,6 +155,47 @@ describe("captureHttpOnce", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  test("rejects a non-default port on the initial official-looking URL before fetch", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(captureHttpOnce(
+      { ...request, url: "https://www.cbr.ru:444/scripts/XML_daily.asp" },
+      new AbortController().signal,
+    )).rejects.toMatchObject({ kind: "navigation_mismatch", retryable: false });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test("rejects a non-default port on an intermediate redirect without requesting it", async () => {
+    const fetchSpy = vi.fn(async () => response(null, {
+      status: 302,
+      url: request.url,
+      headers: { location: "https://www.cbr.ru:444/hidden-hop" },
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(captureHttpOnce(request, new AbortController().signal)).rejects.toMatchObject({
+      kind: "navigation_mismatch",
+      retryable: false,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects a non-default port reported by the final response URL", async () => {
+    const fetchSpy = vi.fn(async () => response("unsafe", {
+      status: 200,
+      url: "https://www.cbr.ru:444/final.xml",
+      headers: { "content-type": "application/xml" },
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(captureHttpOnce(request, new AbortController().signal)).rejects.toMatchObject({
+      kind: "navigation_mismatch",
+      retryable: false,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   test("rejects a declared response larger than 30 MiB before reading it", async () => {
     const body = new ReadableStream<Uint8Array>({
       pull() {

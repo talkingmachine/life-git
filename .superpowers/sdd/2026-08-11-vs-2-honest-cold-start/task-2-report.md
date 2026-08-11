@@ -83,3 +83,58 @@ Created semantic fixtures:
 - The unrelated untracked `.superpowers/brainstorm/12369-1786346924/` files were not read, changed, staged, or removed.
 
 Independent review initially reported four issues: unordered article boundaries, possible extra-field discovery leakage, non-claim-specific route anchors, and mutable plan configuration. All four were accepted, reproduced with failing tests, fixed, and included in the fresh verification above. No unresolved code-review finding remains.
+
+## External review fix round 1
+
+Fix base: `59f013d0b874185383de9975e08bcfd18befb8ae`
+
+### Behavior-sensitive RED → GREEN evidence
+
+1. Gateway redirect ports
+   - RED: three focused tests admitted a non-default port at the initial URL, an intermediate redirect, and the final response URL (initial attempted fetch, intermediate followed the unsafe hop, final produced an artifact).
+   - GREEN: canonical allowlist comparison now uses `URL.host` on every existing gateway check; all 3 focused tests passed while default HTTPS port normalization remains valid.
+2. Effective-state selection and article bounds
+   - RED: route and companion validators accepted a `FUTURE` state dated before the assessment cutoff; they also accepted globally reversed Article 51a/55 and Article 32/33 sections.
+   - GREEN: selection preserves `EFFECTIVE`/`FUTURE`, chooses only the unique latest applicable `EFFECTIVE` state, rejects contradictory applicable `FUTURE` rows, and requires global non-overlapping article-marker order. The 4 focused state/order mutations passed.
+3. JSON-stat dimensional identity
+   - RED: a valid singleton third dimension was rejected, while an extra dimension key and one dimension serving as both metric and time were accepted.
+   - GREEN: dimension keys must exactly equal `id`; metric and time codes must differ; every other dimension must resolve unambiguously to its only coordinate. The 15-test income group passed, including explicit missing, extra, same-code, singleton, and multi-valued-unselected cases.
+4. Exact semantic provenance
+   - RED: harmless inserted page lines changed route/companion evidence hashes, and reordered required statements inside Article 51a/33 still validated.
+   - GREEN: evidence excerpts are assembled from unique actual supporting lines rather than positional slices or section contents; required semantic lines are strictly ordered. All 4 focused insertion/reordering tests passed.
+5. JIT publication identity
+   - RED: a different well-formed PISRS `sop` with matching content failed because `2026-01-1950` was literal, while a captured URL/content mismatch passed.
+   - GREEN: publication identity is derived from matching canonical candidate and captured request URLs, then bound to the content ID, excerpt, locator, selected SiStat period, and value. Both focused mutations passed; no salary value was stored in production.
+6. Candidate immutability
+   - RED: discovered `claimKinds` remained mutable, and caller URL mutations after adapter construction changed subsequent capture requests.
+   - GREEN: discovery copies and freezes `claimKinds`; the adapter snapshots and freezes candidate scalars and arrays before slot validation. Both focused mutation tests passed.
+
+### Files changed in this round
+
+- `src/infrastructure/sources/gateway.ts`
+- `tests/sources/gateway.test.ts`
+- `src/infrastructure/sources/official-source-discovery.ts`
+- `src/infrastructure/sources/slovenia-source-adapter.ts`
+- `src/research/parsers/slovenia.ts`
+- `tests/research/cold-start.test.ts`
+- `.superpowers/sdd/2026-08-11-vs-2-honest-cold-start/task-2-report.md`
+
+No fixtures or other production/test files were changed. The unrelated untracked brainstorm directory remains untouched.
+
+### Fresh final gates
+
+- `./node_modules/.bin/vitest run tests/research/cold-start.test.ts tests/sources/gateway.test.ts` — 2 files, 124 tests passed.
+- `./node_modules/.bin/vitest run tests/research/cold-start.test.ts tests/sources/gateway.test.ts tests/integration/current-evidence.test.ts` — 3 files, 137 tests passed.
+- `./node_modules/.bin/vitest run` — 22 files, 386 tests passed.
+- `./node_modules/.bin/tsc --noEmit` — exit 0.
+- `./node_modules/.bin/eslint .` — exit 0.
+- `git diff --check` — exit 0.
+
+### Self-review and concerns
+
+- The gateway expansion is one-token narrow (`hostname` to canonical `host`) and retains the existing initial, redirect, and final validation flow.
+- The Slovenia validators remain deterministic and all-or-nothing; no network, browser, dependency, crawler, cache, provider framework, database, application, UI, dossier, or second-runner work was added.
+- Publication validation contains no fixed publication ID or salary value; the fixture ID appears only in tests and semantic fixture content.
+- Review-round tests increased `tests/research/cold-start.test.ts` from 81 to 97 tests and `tests/sources/gateway.test.ts` by 3 tests.
+- A fresh independent review found no actionable issue and confirmed the diff is limited to the seven approved files in this round (including this report), with the unrelated brainstorm untouched.
+- No known concern remains after the fresh gates.

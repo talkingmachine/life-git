@@ -76,7 +76,11 @@ function validatedCandidates(
     ) {
       return null;
     }
-    candidates.push(Object.freeze({ ...candidate, discoveredFrom: "registry" as const }));
+    candidates.push(Object.freeze({
+      ...candidate,
+      claimKinds: Object.freeze([...candidate.claimKinds]),
+      discoveredFrom: "registry" as const,
+    }));
   }
   return Object.freeze(candidates);
 }

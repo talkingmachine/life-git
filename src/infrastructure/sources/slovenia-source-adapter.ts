@@ -90,6 +90,16 @@ function candidateSlots(candidates: readonly SourceCandidate[]): CandidateSlots 
   });
 }
 
+function snapshotCandidate(candidate: SourceCandidate): SourceCandidate {
+  return Object.freeze({
+    candidateId: candidate.candidateId,
+    url: candidate.url,
+    authorityRoot: candidate.authorityRoot,
+    claimKinds: Object.freeze([...candidate.claimKinds]),
+    discoveredFrom: candidate.discoveredFrom,
+  });
+}
+
 async function runStep(
   requestStep: RequestStep<SloveniaSourceId>,
   request: HttpStepRequest<SloveniaSourceId>,
@@ -173,7 +183,7 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
   readonly sourceNavigation: Readonly<Record<SloveniaSourceId, string>>;
 
   constructor(candidates: readonly SourceCandidate[]) {
-    this.slots = candidateSlots(candidates);
+    this.slots = candidateSlots(candidates.map(snapshotCandidate));
     this.sourceNavigation = Object.freeze({
       "si-digital-nomad-route": this.slots.routeGov?.url ?? "https://www.gov.si",
       "si-income-threshold": this.slots.salary?.url ?? "https://pisrs.si",
