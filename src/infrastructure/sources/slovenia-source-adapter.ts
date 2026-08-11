@@ -8,7 +8,6 @@ import type {
   RequestStep,
 } from "../../research/contracts";
 import type {
-  ClaimKind,
   SloveniaResearch,
   SloveniaSourceId,
   SourceCandidate,
@@ -21,6 +20,10 @@ import {
   type PisrsSelectedNpb,
 } from "../../research/parsers/slovenia";
 import { createSloveniaPlan } from "../../research/slovenia-plan";
+import {
+  selectSloveniaCandidateSlots,
+  type SloveniaCandidateSlots,
+} from "../../research/slovenia-source-set";
 import { SOURCE_POLICIES } from "../../research/source-policy";
 import { SourceCaptureError } from "./gateway";
 import { captureCbrEur } from "./official-source-adapter";
@@ -29,66 +32,6 @@ const PISRS_API_ROOT = "https://pisrs.si/api/rezultat";
 const SISTAT_ENDPOINT = "https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px";
 
 type CountrySourceId = Exclude<SloveniaSourceId, "cbr-eur">;
-
-interface CandidateSlots {
-  readonly routeGov?: SourceCandidate;
-  readonly routeLaw?: SourceCandidate;
-  readonly salary?: SourceCandidate;
-  readonly sistat?: SourceCandidate;
-  readonly companionEss?: SourceCandidate;
-  readonly companionLaw?: SourceCandidate;
-}
-
-function candidateMatches(
-  candidate: SourceCandidate,
-  host: string,
-  authorityRoot: string,
-  claimKind: ClaimKind,
-): boolean {
-  try {
-    const url = new URL(candidate.url);
-    return candidate.discoveredFrom === "registry" &&
-      url.protocol === "https:" &&
-      url.host.toLowerCase() === host &&
-      candidate.authorityRoot === authorityRoot &&
-      candidate.claimKinds.includes(claimKind);
-  } catch {
-    return false;
-  }
-}
-
-function uniqueCandidate(
-  candidates: readonly SourceCandidate[],
-  host: string,
-  authorityRoot: string,
-  claimKind: ClaimKind,
-): SourceCandidate | undefined {
-  const matches = candidates.filter((candidate) =>
-    candidateMatches(candidate, host, authorityRoot, claimKind)
-  );
-  return matches.length === 1 ? matches[0] : undefined;
-}
-
-function candidateSlots(candidates: readonly SourceCandidate[]): CandidateSlots {
-  return Object.freeze({
-    routeGov: uniqueCandidate(candidates, "www.gov.si", "https://www.gov.si", "route_basis"),
-    routeLaw: uniqueCandidate(candidates, "pisrs.si", "https://pisrs.si", "route_basis"),
-    salary: uniqueCandidate(candidates, "pisrs.si", "https://pisrs.si", "income"),
-    sistat: uniqueCandidate(candidates, "pxweb.stat.si", "https://pxweb.stat.si", "income"),
-    companionEss: uniqueCandidate(
-      candidates,
-      "www.ess.gov.si",
-      "https://www.ess.gov.si",
-      "companion_local_work_access",
-    ),
-    companionLaw: uniqueCandidate(
-      candidates,
-      "pisrs.si",
-      "https://pisrs.si",
-      "companion_local_work_access",
-    ),
-  });
-}
 
 function snapshotCandidate(candidate: SourceCandidate): SourceCandidate {
   return Object.freeze({
@@ -168,6 +111,16 @@ function unavailable(sourceId: SloveniaSourceId): CaptureResult<SloveniaSourceId
   };
 }
 
+function secondaryNavigationUrl(
+  slots: SloveniaCandidateSlots,
+  sourceId: SloveniaSourceId,
+): string | undefined {
+  if (sourceId === "si-digital-nomad-route") return slots.routeLaw?.url;
+  if (sourceId === "si-income-threshold") return slots.sistat?.url;
+  if (sourceId === "si-companion-employment") return slots.companionLaw?.url;
+  return undefined;
+}
+
 function pisrsIdentityFromCandidate(
   candidate: SourceCandidate,
   expected: PisrsRegistryIdentity,
@@ -236,12 +189,12 @@ function navigationMismatch(
 }
 
 export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceId> {
-  private readonly slots: CandidateSlots;
+  private readonly slots: SloveniaCandidateSlots;
 
   readonly sourceNavigation: Readonly<Record<SloveniaSourceId, string>>;
 
   constructor(candidates: readonly SourceCandidate[]) {
-    this.slots = candidateSlots(candidates.map(snapshotCandidate));
+    this.slots = selectSloveniaCandidateSlots(candidates.map(snapshotCandidate));
     this.sourceNavigation = Object.freeze({
       "si-digital-nomad-route": this.slots.routeGov?.url ?? "https://www.gov.si",
       "si-income-threshold": this.slots.salary?.url ?? "https://pisrs.si",
@@ -424,12 +377,14 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
           readonly partialArtifacts?: readonly LiveCapturedArtifact<SloveniaSourceId>[];
         }
       ).partialArtifacts ?? [];
+      const indexedSourceUrl = secondaryNavigationUrl(this.slots, request.sourceId);
       return {
         ok: false,
         sourceId: request.sourceId,
         kind: error.kind,
         attempts: 1,
         partialArtifacts,
+        ...(indexedSourceUrl === undefined ? {} : { indexedSourceUrl }),
       };
     }
   }

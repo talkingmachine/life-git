@@ -203,6 +203,7 @@ export type CaptureResult<S extends string = SourceId> =
       readonly kind: CaptureFailureKind;
       readonly attempts: 1 | 2;
       readonly partialArtifacts: readonly LiveCapturedArtifact<S>[];
+      readonly indexedSourceUrl?: string;
     };
 
 export interface OfficialSourcePort<S extends string = SourceId> {

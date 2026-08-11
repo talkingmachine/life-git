@@ -59,8 +59,8 @@ const terminalEvent = {
         personalFit: "research_incomplete",
         cityScope: "not_checked",
         reasons: [{
-          code: "country_evidence_incomplete",
-          summary: "Официальные данные по стране подтверждены не полностью.",
+          code: "country_not_installed",
+          summary: "Страна пока не установлена для проверки официальных данных.",
           claimIds: [],
           officialUrls: [],
         }],
@@ -412,6 +412,10 @@ describe("honest cold-start view projection", () => {
     expect(view.announcement).toBeUndefined();
     expect(view.marker).toBe("yellow");
     expect(view.globeMode).toBe("collapsed");
+    expect(view.candidate.reason).toEqual({
+      summary: "Страна пока не установлена для проверки официальных данных.",
+    });
+    expect("officialUrl" in view.candidate.reason!).toBe(false);
   });
 
   test("does not replace a sealed reload verdict with a later transport error", () => {
@@ -478,7 +482,10 @@ describe("cold-start comparator accessibility", () => {
 
     expect(screen.getByText("Нужно уточнить")).toBeTruthy();
     expect(container.querySelector('[data-icon="status-yellow"]')).toBeTruthy();
-    expect(screen.getByText(/официальные данные.*не полностью/i)).toBeTruthy();
+    expect(screen.getByText(/страна пока не установлена/i)).toBeTruthy();
+    expect(screen.queryByText("Проверенные официальные источники")).toBeNull();
+    expect(screen.getByText("Официальные источники не проверены")).toBeTruthy();
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: /проверить ещё раз/i }));
     expect(retry).toHaveBeenCalledOnce();
   });

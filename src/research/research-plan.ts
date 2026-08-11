@@ -393,6 +393,7 @@ function unavailableEntry<S extends string, C extends Claim<unknown, S>>(
   kind: EvidenceBlocker<S>["kind"],
   artifacts: readonly LiveCapturedArtifact<S>[],
   parserEntry?: ParserEntry<S>,
+  indexedSourceUrl?: string,
 ): TerminalEvidenceEntry<S, C> {
   const navigationUrl = parserEntry?.navigationUrl ?? plan.sourceNavigation[sourceId];
   const resolvedUrl = parserEntry?.resolvedEvidenceUrl ?? artifacts.at(-1)?.responseUrl;
@@ -401,6 +402,7 @@ function unavailableEntry<S extends string, C extends Claim<unknown, S>>(
     parserEntry: parserEntry ?? {
       sourceId,
       navigationUrl,
+      ...(indexedSourceUrl === undefined ? {} : { indexedSourceUrl }),
       resolvedEvidenceUrl: resolvedUrl ?? navigationUrl,
       artifacts,
     },
@@ -647,7 +649,14 @@ export async function prepareEvidencePlan<S extends string, C extends Claim<unkn
             return unavailableEntry(plan, sourceId, "integrity_mismatch", []);
           }
           for (const artifact of result.partialArtifacts) await persistArtifact(artifact, sourceId);
-          return unavailableEntry(plan, sourceId, result.kind, result.partialArtifacts);
+          return unavailableEntry(
+            plan,
+            sourceId,
+            result.kind,
+            result.partialArtifacts,
+            undefined,
+            result.indexedSourceUrl,
+          );
         }
         if (
           result.entry.sourceId !== sourceId ||

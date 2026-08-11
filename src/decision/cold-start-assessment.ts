@@ -69,6 +69,7 @@ const SUMMARY: Readonly<Record<string, string>> = {
   passport_validity_insufficient:
     "Срок действия паспорта меньше подтверждённого срока маршрута и обязательного запаса.",
   country_evidence_incomplete: "Официальные данные по стране подтверждены не полностью.",
+  country_not_installed: "Страна пока не установлена для проверки официальных данных.",
   income_basis_not_net: "Для сравнения нужен подтверждённый чистый доход.",
   fx_rate_unavailable: "Актуальный официальный курс EUR/RUB не подтверждён.",
   fx_rate_stale: "Подтверждённый курс EUR/RUB старше допустимого окна.",
@@ -233,11 +234,16 @@ function addMonths(dateText: string, months: number): Date | undefined {
 
 function researchIncomplete(input: ColdStartAssessmentInput): ColdStartComparator {
   const blockers = input.evidence.blockers.filter(({ sourceId }) => sourceId !== "cbr-eur");
+  const countryNotInstalled = blockers.length > 0 && blockers.every(
+    ({ kind }) => kind === "country_not_installed",
+  );
   return deepFreeze({
     marker: "yellow",
     personalFit: "research_incomplete",
     cityScope: "not_checked",
-    reasons: blockers.length === 0
+    reasons: countryNotInstalled
+      ? [reason("country_not_installed")]
+      : blockers.length === 0
       ? [reason("country_evidence_incomplete")]
       : blockers.map((blocker) => reason(
           "country_evidence_incomplete",

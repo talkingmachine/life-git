@@ -213,7 +213,9 @@ export function projectColdStartView(state: ColdStartScreenState): ColdStartView
       : {
           reason: {
             summary: terminal.comparator.reasons[0].summary,
-            officialUrl: terminal.comparator.reasons[0].officialUrls[0],
+            ...(terminal.comparator.reasons[0].officialUrls[0] === undefined
+              ? {}
+              : { officialUrl: terminal.comparator.reasons[0].officialUrls[0] }),
           },
         }),
   };

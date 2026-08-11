@@ -1042,6 +1042,7 @@ describe("Slovenia installed research plan", () => {
       "gov-route-page",
       "ztuj2-registry",
     ]);
+    expect(result.indexedSourceUrl).toBe(SLOVENIA_CANDIDATES[1]!.url);
     expect(requests.map(({ role }) => role)).toEqual([
       "gov-route-page",
       "ztuj2-registry",

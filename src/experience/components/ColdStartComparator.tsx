@@ -80,7 +80,11 @@ export function ColdStartComparator({
       </dl>
 
       <details className="cold-start-comparator__sources">
-        <summary>Проверенные официальные источники</summary>
+        <summary>
+          {readModel.sourceNavigation.length === 0
+            ? "Официальные источники не проверены"
+            : "Проверенные официальные источники"}
+        </summary>
         {readModel.sourceNavigation.length === 0 ? (
           <p>Для этого вывода нет доступных проверенных ссылок.</p>
         ) : (

@@ -20,6 +20,7 @@ import {
   REQUIRED_CLAIM_KINDS,
   resolveCountry,
 } from "../research/country-registry";
+import { isCompleteSloveniaSourceSet } from "../research/slovenia-source-set";
 import {
   buildCountryDossier,
   type DossierPublishResult,
@@ -528,7 +529,7 @@ export function createColdStartApplication(
         prepared.profileId,
         ports.integrity,
       );
-      if (!indexed.ok) {
+      if (!indexed.ok || !isCompleteSloveniaSourceSet(indexed.candidates)) {
         const preparedEvidence = await countryNotInstalledEvidence(
           prepared,
           expectedContextHash,

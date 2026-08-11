@@ -43,13 +43,14 @@ import type {
   SloveniaSourceId,
   VerifiedCountryClaim,
 } from "../../src/research/cold-start-contracts";
-import type { LiveCapturedArtifact } from "../../src/research/contracts";
+import type { HttpStepRequest, LiveCapturedArtifact } from "../../src/research/contracts";
 import {
   buildCountryDossier,
   type DossierPublishResult,
 } from "../../src/research/dossier";
 import { createSloveniaPlan } from "../../src/research/slovenia-plan";
 import { createInstalledCountrySourceIndex } from "../../src/infrastructure/sources/country-source-index";
+import { SourceCaptureError } from "../../src/infrastructure/sources/gateway";
 import {
   sealEvidencePlan,
   type SealedEvidence,
@@ -1029,6 +1030,59 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
   });
 
+  test.each([
+    ["partial", INSTALLED_CANDIDATES.slice(0, 5)],
+    [
+      "duplicate-role",
+      [...INSTALLED_CANDIDATES.slice(0, 5), INSTALLED_CANDIDATES[4]!],
+    ],
+  ] as const)(
+    "fails closed before real Slovenia Research for an incomplete %s installed index",
+    async (_case, candidates) => {
+      const db = database();
+      const requestStep = vi.fn(async () => {
+        throw new Error("incomplete installed index must not capture");
+      });
+      const application = createColdStartComposition({
+        database: db,
+        hmacKey: KEY,
+        countrySourceIndex: {
+          lookup: () => ({ ok: true as const, candidates }),
+        },
+        requestStep,
+        clock: () => new Date("2026-08-11T10:00:00.000Z"),
+        nextRunId: () => `incomplete-${_case}-run`,
+      });
+      const prepared = await application.prepare({
+        countryInput: "SI",
+        profile: RELOCATION_DRAFT,
+      });
+      const events: ColdStartEvent[] = [];
+
+      const result = await application.run(
+        prepared,
+        (event) => { events.push(event); },
+        new AbortController().signal,
+      );
+
+      expect(requestStep).not.toHaveBeenCalled();
+      expect(events.map(({ type }) => type)).toEqual(["assessment_completed"]);
+      expect(result).toMatchObject({
+        evidenceSnapshotId: `${prepared.runId}:evidence`,
+        coverage: { verified: 0, required: 9, claimKinds: [] },
+        comparator: { marker: "yellow", personalFit: "research_incomplete" },
+        sourceNavigation: [],
+      });
+      expect(result.dossier).toBeUndefined();
+      expect(db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(1);
+      expect(db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
+      expect(await application.present({
+        runId: prepared.runId,
+        profileId: prepared.profileId,
+      })).toEqual(result);
+    },
+  );
+
   test("resolves the country before one profile write and reloads it without duplication", async () => {
     const harness = coldStartHarness();
 
@@ -1205,6 +1259,80 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     })).rejects.toThrow("integrity_mismatch");
   });
 
+  test.each([
+    ["failed route capture", "si-digital-nomad-route", "gov-route-page", [], 0, 1],
+    ["partial route capture", "si-digital-nomad-route", "ztuj2-details", ["gov-route-page", "ztuj2-registry"], 0, 1],
+    ["failed income capture", "si-income-threshold", "salary-registry", [], 2, 3],
+    ["partial income capture", "si-income-threshold", "sistat-series", ["salary-registry", "salary-details", "sistat-metadata"], 2, 3],
+    ["failed companion capture", "si-companion-employment", "ess-companion-page", [], 4, 5],
+    ["partial companion capture", "si-companion-employment", "zzsdt-details", ["ess-companion-page", "zzsdt-registry"], 4, 5],
+  ] as const)(
+    "seals both installed seeds after %s and replays them offline",
+    async (
+      _case,
+      failedSourceId,
+      failedRole,
+      expectedPartialRoles,
+      primaryCandidateIndex,
+      secondaryCandidateIndex,
+    ) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-11T10:00:00.000Z"));
+      const db = database();
+      const runId = `route-${failedRole}-run`;
+      const fixture = await replayableFixture({ runId });
+      const requestStep = vi.fn(async (request: HttpStepRequest<SloveniaSourceId>) => {
+        if (request.sourceId === failedSourceId && request.role === failedRole) {
+          throw new SourceCaptureError("server_error", `injected ${failedRole} failure`);
+        }
+        const captured = fixture.artifacts.find((artifact) =>
+          artifact.sourceId === request.sourceId && artifact.role === request.role
+        );
+        if (captured === undefined) throw new Error(`missing fixture for ${request.role}`);
+        return captured;
+      });
+      const application = createColdStartComposition({
+        database: db,
+        hmacKey: KEY,
+        requestStep,
+        clock: () => new Date(),
+        nextRunId: () => runId,
+      });
+      const prepared = await application.prepare({
+        countryInput: "SI",
+        profile: RELOCATION_DRAFT,
+      });
+
+      const result = await application.run(
+        prepared,
+        () => undefined,
+        new AbortController().signal,
+      );
+      const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
+      const bundle = await evidenceStore.loadVerifiedBundle(`${runId}:evidence`, KEY);
+      const failedEntry = bundle.entries.find(
+        ({ sourceId }) => sourceId === failedSourceId,
+      );
+
+      expect(result).toMatchObject({
+        evidenceSnapshotId: `${runId}:evidence`,
+        comparator: { marker: "yellow", personalFit: "research_incomplete" },
+      });
+      expect(result.dossier).toBeUndefined();
+      expect(failedEntry).toMatchObject({
+        navigationUrl: INSTALLED_CANDIDATES[primaryCandidateIndex]!.url,
+        indexedSourceUrl: INSTALLED_CANDIDATES[secondaryCandidateIndex]!.url,
+      });
+      expect(failedEntry?.artifacts.map(({ role }) => role)).toEqual(expectedPartialRoles);
+      const callsBeforeReplay = requestStep.mock.calls.length;
+      expect(await application.present({
+        runId,
+        profileId: prepared.profileId,
+      })).toEqual(result);
+      expect(requestStep).toHaveBeenCalledTimes(callsBeforeReplay);
+    },
+  );
+
   test("returns terminal yellow without Research when the country is not installed", async () => {
     const harness = coldStartHarness({ countryInstalled: false });
     const prepared = await harness.application.prepare({
@@ -1222,6 +1350,12 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(result.comparator).toMatchObject({
       marker: "yellow",
       personalFit: "research_incomplete",
+      reasons: [{
+        code: "country_not_installed",
+        summary: "Страна пока не установлена для проверки официальных данных.",
+        claimIds: [],
+        officialUrls: [],
+      }],
     });
     expect(result.dossier).toBeUndefined();
     expect(harness.researchInputs).toHaveLength(0);
@@ -2385,7 +2519,17 @@ describe("cold-start finite HTTP stream", () => {
       payload: {
         readModel: {
           evidenceSnapshotId: "not-installed-stream-run:evidence",
-          comparator: { marker: "yellow", personalFit: "research_incomplete" },
+          comparator: {
+            marker: "yellow",
+            personalFit: "research_incomplete",
+            reasons: [{
+              code: "country_not_installed",
+              summary: "Страна пока не установлена для проверки официальных данных.",
+              claimIds: [],
+              officialUrls: [],
+            }],
+          },
+          sourceNavigation: [],
         },
       },
     });
