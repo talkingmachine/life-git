@@ -2131,9 +2131,11 @@ describe("Slovenia companion employment validator", () => {
 
   test("keeps companion locators and excerpt hashes stable after unrelated insertions", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const title = "Zaposlitev tujcev z dovoljenjem za prebivanje";
     const essBytes = mutateFixture("companion-ess.html", (text) => text.replace(
-      "<h1>Zaposlitev tujcev z dovoljenjem za prebivanje</h1>",
-      "<h1>Zaposlitev tujcev z dovoljenjem za prebivanje</h1><p>Neodvisno obvestilo.</p>",
+      "<main>",
+      `<nav aria-label="Breadcrumb"><ol><li class="breadcrumb-item active">${title}</li></ol></nav>`
+        + "<main><p>Neodvisno obvestilo.</p>",
     ));
     const detailsBytes = mutateJsonFixture<PisrsDetailsFixture>(
       "zzsdt-details.json",
@@ -2158,6 +2160,22 @@ describe("Slovenia companion employment validator", () => {
       return claim.evidence.map(({ anchor: { locator, excerptSha256 } }) => ({ locator, excerptSha256 }));
     });
     expect(anchors(changed.claims)).toEqual(anchors(baseline.claims));
+  });
+
+  test("rejects two matching ESS h1 headings despite allowing the breadcrumb title", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const title = "Zaposlitev tujcev z dovoljenjem za prebivanje";
+    const essBytes = mutateFixture("companion-ess.html", (text) => text.replace(
+      `<h1>${title}</h1>`,
+      `<h1>${title}</h1><h1>${title}</h1>`,
+    ));
+
+    const result = await sloveniaPlan.validate(
+      companionEntry({ essBytes }),
+      ASSESSMENT_DATE,
+    );
+
+    expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
   });
 
   test("rejects rather than silently changing evidence when an Article 33 sentence changes", async () => {

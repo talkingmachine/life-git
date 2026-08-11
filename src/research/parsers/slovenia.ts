@@ -175,11 +175,14 @@ const sistatSeriesSchema = z.object({
   value: z.array(z.number().finite().nullable()).min(1),
 }).passthrough();
 
-function htmlLines(artifact: ArtifactBytes): readonly string[] | null {
+function htmlLines(
+  artifact: ArtifactBytes,
+  selector = "h1,h2,h3,p,li,time",
+): readonly string[] | null {
   if (artifact.mediaType !== "text/html") return null;
   const $ = load(new TextDecoder().decode(artifact.bytes));
   $("script,style,noscript").remove();
-  return $("body").find("h1,h2,h3,p,li,time")
+  return $("body").find(selector)
     .map((_, element) => normalizedText($(element).text()))
     .get()
     .filter((line) => line.length > 0);
@@ -1060,7 +1063,7 @@ function parseCompanion(
     "zzsdt-details",
   );
   if (ess === undefined || document === null) return { ok: false, kind: "semantic_mismatch" };
-  const essLines = htmlLines(ess);
+  const essLines = htmlLines(ess, "h1,h2,h3,p,time");
   const article32 = findPisrsArticle(
     document,
     "32. člen",
