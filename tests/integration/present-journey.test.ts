@@ -31,7 +31,11 @@ const core: RunDetailsCore = {
       },
     },
   },
-  evidenceItems: [],
+  evidenceItems: [{
+    class: "unknown",
+    label: "Источник",
+    provenance: "unmodelled",
+  }],
 };
 
 const c0 = createCommit({
@@ -97,21 +101,25 @@ describe("journey presentation application", () => {
         revision: revision(c1, "branch-revision-1"),
         diff: diffCommits(c0, c1),
       }),
-      narrative: { select: async () => undefined },
     });
 
-    await expect(application.presentRun("run-1")).resolves.toMatchObject({
+    const initial = await application.presentRun("run-1");
+    expect(initial).toMatchObject({
       budget: { housingAll: "70000.00" },
       initialBranchCursor: { commitId: c0.id },
       branchCursor: { commitId: c0.id },
     });
-    await expect(application.saveInitialHousingJourney("run-1")).resolves.toMatchObject({
+    const c0Presentation = await application.saveInitialHousingJourney("run-1");
+    expect(c0Presentation).toMatchObject({
       budget: { housingAll: "70000.00" },
     });
-    await expect(application.forkHousingJourney({ commitId: c0.id }, "90000")).resolves.toMatchObject({
+    const c1Presentation = await application.forkHousingJourney({ commitId: c0.id }, "90000");
+    expect(c1Presentation).toMatchObject({
       budget: { housingAll: "90000.00" },
       branchDiff: { housing: { before: "70000.00", after: "90000.00" } },
     });
+    expect(initial.narrative).toEqual(c0Presentation.narrative);
+    expect(c0Presentation.narrative).toEqual(c1Presentation.narrative);
     expect(loadCore).toHaveBeenCalledTimes(3);
   });
 
@@ -126,7 +134,6 @@ describe("journey presentation application", () => {
         revision: revision(c1, "branch-revision-1"),
         diff: diffCommits(c0, c1),
       }),
-      narrative: { select: async () => undefined },
     });
     await expect(missing.presentRun("run-1")).resolves.toMatchObject({ run: { runId: "run-1" } });
 
@@ -140,7 +147,6 @@ describe("journey presentation application", () => {
         revision: revision(c1, "branch-revision-1"),
         diff: diffCommits(c0, c1),
       }),
-      narrative: { select: async () => undefined },
     });
     await expect(corrupt.presentRun("run-1")).rejects.toThrow("integrity_mismatch");
   });

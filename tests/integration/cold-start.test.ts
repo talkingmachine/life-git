@@ -974,7 +974,6 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     const composed = createConfirmedLifeComposition({
       database: database(),
       hmacKey: KEY,
-      narrative: { select: async () => undefined },
     });
 
     expect(typeof composed.prepare).toBe("function");

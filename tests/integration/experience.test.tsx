@@ -4,13 +4,9 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHousingBranchApplication } from "../../src/application/fork-housing";
-import {
-  createPresentRun,
-  FALLBACK_NARRATIVE,
-} from "../../src/application/present-run";
+import { projectNarrative } from "../../src/application/present-run";
 import type {
   BranchRunRevision,
-  NarrativeInput,
   RunDetails,
   RunDetailsCore,
 } from "../../src/application/contracts";
@@ -30,10 +26,6 @@ import { ResearchWorkspace } from "../../src/experience/components/ResearchWorks
 import { SourcesWorkspace } from "../../src/experience/components/SourcesWorkspace";
 import { Vs1Journey } from "../../src/experience/components/Vs1Journey";
 import { createJourneyView, groupEvidenceItems } from "../../src/experience/view-model";
-import {
-  createOpenAiNarrative,
-} from "../../src/infrastructure/narrative";
-import type { NarrativeParse } from "../../src/infrastructure/narrative";
 
 afterEach(cleanup);
 
@@ -301,7 +293,7 @@ describe("confirmed-life visual journey", () => {
         blockerKind: "semantic_mismatch",
         navigationUrl: "https://official.example/decision-858",
       }],
-      narrative: FALLBACK_NARRATIVE,
+      narrative: projectNarrative([{ class: "unknown" }]),
     };
     const unavailable = createJourneyView({
       ...base,
@@ -711,299 +703,49 @@ describe("confirmed-life visual journey", () => {
     expect(screen.getByText(/переиспользовано.*профиль.*доказательства.*правила/i)).toBeTruthy();
   });
 
-  it("uses one bounded gpt-5.6 structured-output call with no storage or tools", async () => {
-    const parse = vi.fn(async (...args: Parameters<NarrativeParse>) => {
-      void args;
-      return {
-        output: [],
-        output_parsed: {
-          headline: {
-            phraseId: "scoped_official_route",
-            claimIds: ["al-law-79-facts-1"],
-          },
-          bullets: [{
-            phraseId: "official_facts_separated",
-            claimIds: ["al-law-79-facts-1"],
-          }],
-        },
-      };
-    });
-    const adapter = createOpenAiNarrative({ apiKey: "test-key", parse });
-    const input: NarrativeInput = {
-      claimIds: ["al-law-79-facts-1"],
-      typedValues: [{ claimId: "al-law-79-facts-1", value: { requiresLawfulStay: true } }],
-    };
-
-    const selection = await adapter.select(input);
-
-    expect(selection).toEqual({
-      headline: { phraseId: "scoped_official_route", claimIds: ["al-law-79-facts-1"] },
-      bullets: [{ phraseId: "official_facts_separated", claimIds: ["al-law-79-facts-1"] }],
-    });
-    expect(parse).toHaveBeenCalledOnce();
-    const [body, requestOptions] = parse.mock.calls[0]!;
-    expect(body).toMatchObject({ model: "gpt-5.6", store: false, tools: [] });
-    expect(body.text.format).toMatchObject({ type: "json_schema" });
-    expect(JSON.parse(body.input)).toEqual(input);
-    expect(requestOptions).toEqual({ timeout: 8_000, maxRetries: 0 });
-  });
-
-  it("uses deterministic copy without calling OpenAI when the API key is missing", async () => {
-    const parse = vi.fn();
-    const adapter = createOpenAiNarrative({ apiKey: "", parse });
-
-    await expect(adapter.select({ claimIds: [], typedValues: [] })).resolves.toBeUndefined();
-    expect(parse).not.toHaveBeenCalled();
-  });
-
   it.each([
-    ["timeout", async () => { throw new Error("timeout"); }],
-    ["refusal", async () => ({
-      output: [{ type: "message", content: [{ type: "refusal", refusal: "no" }] }],
-      output_parsed: {
-        headline: { phraseId: "scoped_official_route", claimIds: ["al-law-79-facts-1"] },
-        bullets: [{ phraseId: "official_facts_separated", claimIds: ["al-law-79-facts-1"] }],
+    {
+      name: "no official facts",
+      evidenceItems: [{ class: "unknown", label: "Источник", provenance: "source_unavailable" }],
+      expected: {
+        headline: "Маршрут показан без недоказанных выводов",
+        bullets: [
+          "Вывод не расширяет официальные факты.",
+          "Неизвестные условия остаются отмеченными в паспорте доказательств.",
+        ],
       },
-    })],
-    ["invalid schema", async () => ({ output: [], output_parsed: { headline: "неверная схема" } })],
-  ] as const)("falls back for %s", async (_case, parse) => {
-    const adapter = createOpenAiNarrative({ apiKey: "test-key", parse });
-
-    await expect(adapter.select({
-      claimIds: ["al-law-79-facts-1"],
-      typedValues: [{ claimId: "al-law-79-facts-1", value: true }],
-    })).resolves.toBeUndefined();
-  });
-
-  it("presents only typed official claims and leaves evidence, assessment and calculations byte-equal", async () => {
-    const core: RunDetailsCore = {
-      run: {
-        runId: "run-private",
-        runRevisionId: "revision-private",
-        assessmentDate: "2026-08-08",
-        profileId: "profile-private",
-        evidenceSnapshotId: "evidence-private",
-        assessmentId: "assessment-private",
-        assessment: {
-          marker: "yellow",
-          reasons: [{
-            code: "foreign_contract_not_verified",
-            claimId: "al-law-79-art-68-contract",
-            sourceId: "al-law-79",
-          }],
-        },
-        mode: "current",
+    },
+    {
+      name: "official facts only",
+      evidenceItems: [{ class: "official_fact", label: "claim", displayValue: "PRIVATE VALUE" }],
+      expected: {
+        headline: "Маршрут показан в границах официальных источников",
+        bullets: ["Официальные факты отделены от пользовательских данных и допущений."],
       },
-      profile: {
-        id: "profile-private",
-        confirmedAt: "2026-08-08T10:00:00.000Z",
-        profile: {
-          availableResourcesAll: "987654",
-          monthlyIncome: { amount: "456789", currency: "RUB" },
-          incomeBasis: "foreign_contract",
-          companionBasis: "family",
-          relationship: "spouse",
-          conditions: spouseConditions,
-        },
-      },
+    },
+    {
+      name: "official facts and unknowns",
       evidenceItems: [
-        {
-          class: "user_fact",
-          label: "Секрет пользователя",
-          displayValue: "PRIVATE FREE TEXT",
-          provenance: "confirmed_profile",
-        },
-        {
-          class: "official_fact",
-          label: "al-law-79-facts-1",
-          displayValue: JSON.stringify({ requiresLawfulStay: true, contractTypes: ["foreign_employment"] }),
-          sourceId: "al-law-79",
-          scope: "VS-1 confirmed-life",
-          sourcePeriod: "cons-2026-08-01",
-          anchor: "Art. 68#abc",
-          resolvedUrl: "https://official.example/law-79",
-          integrity: "verified",
-        },
-        {
-          class: "calculation",
-          label: "Бюджет",
-          displayValue: "209864.57 ALL",
-          formulaId: "FORMULA-VS1-FX-01",
-          formulaVersion: "1",
-          inputs: [],
-          rounding: "UNROUNDED_THEN_HALF_UP_2DP",
-          outputHash: "a".repeat(64),
-        },
+        { class: "official_fact", label: "claim", displayValue: "PRIVATE VALUE" },
+        { class: "unknown", label: "private label", provenance: "unmodelled" },
       ],
-      budget: {
-        incomeAll: "209864.57",
-        housingAll: "70000.00",
-        knownResidualAll: "139864.57",
-        unknowns: ["taxes", "living_costs"],
+      expected: {
+        headline: "Маршрут показан в границах официальных источников",
+        bullets: [
+          "Официальные факты отделены от пользовательских данных и допущений.",
+          "Неизвестные условия остаются отмеченными в паспорте доказательств.",
+        ],
       },
-    };
-    const evidenceBefore = JSON.stringify(core.evidenceItems);
-    const assessmentBefore = JSON.stringify(core.run.assessment);
-    const budgetBefore = JSON.stringify(core.budget);
-    let outbound: NarrativeInput | undefined;
-    const presentRun = createPresentRun({
-      loadRunDetailsCore: async () => core,
-      narrative: {
-        select: async (input) => {
-          outbound = input;
-          return {
-            headline: {
-              phraseId: "scoped_official_route",
-              claimIds: ["al-law-79-facts-1"],
-            },
-            bullets: [{
-              phraseId: "official_facts_separated",
-              claimIds: ["al-law-79-facts-1"],
-            }],
-          };
-        },
-      },
-    });
+    },
+  ] as const)("projects deterministic copy for $name", ({ evidenceItems, expected }) => {
+    const first = projectNarrative(evidenceItems);
+    const second = projectNarrative(evidenceItems);
 
-    const details = await presentRun("run-private");
-
-    expect(outbound).toEqual({
-      claimIds: ["al-law-79-facts-1"],
-      typedValues: [{
-        claimId: "al-law-79-facts-1",
-        value: { requiresLawfulStay: true, contractTypes: ["foreign_employment"] },
-      }],
-    });
-    const serializedOutbound = JSON.stringify(outbound);
-    expect(serializedOutbound).not.toContain("PRIVATE FREE TEXT");
-    expect(serializedOutbound).not.toContain("987654");
-    expect(serializedOutbound).not.toContain("456789");
-    expect(JSON.stringify(details.evidenceItems)).toBe(evidenceBefore);
-    expect(JSON.stringify(details.run.assessment)).toBe(assessmentBefore);
-    expect(JSON.stringify(details.budget)).toBe(budgetBefore);
-    expect(details.narrative).toEqual({
-      headline: "Маршрут показан в границах официальных источников",
-      bullets: ["Официальные факты отделены от пользовательских данных и допущений."],
-      origin: "model",
-    });
-  });
-
-  it("rejects untrusted narrative prose at the application boundary", async () => {
-    const core: RunDetailsCore = {
-      run: {
-        runId: "run-untrusted",
-        runRevisionId: "revision-untrusted",
-        assessmentDate: "2026-08-08",
-        profileId: "profile-untrusted",
-        evidenceSnapshotId: "evidence-untrusted",
-        assessmentId: "assessment-untrusted",
-        assessment: { marker: "green", reasons: [] },
-        mode: "current",
-      },
-      profile: {
-        id: "profile-untrusted",
-        confirmedAt: "2026-08-08T10:00:00.000Z",
-        profile: {
-          availableResourcesAll: "500000",
-          monthlyIncome: { amount: "210000", currency: "RUB" },
-          incomeBasis: "foreign_contract",
-          companionBasis: "none",
-          relationship: "none",
-          conditions: soloConditions,
-        },
-      },
-      evidenceItems: [{
-        class: "official_fact",
-        label: "al-law-79-facts-1",
-        displayValue: JSON.stringify({ requiresLawfulStay: true }),
-        sourceId: "al-law-79",
-        scope: "VS-1 confirmed-life",
-        sourcePeriod: "cons-2026-08-01",
-        anchor: "Art. 68#abc",
-        resolvedUrl: "https://official.example/law-79",
-        integrity: "verified",
-      }],
-    };
-    const presentRun = createPresentRun({
-      loadRunDetailsCore: async () => core,
-      narrative: {
-        render: async () => ({
-          headline: "Тирана — самый безопасный и лучший вариант",
-          bullets: ["Переезд гарантирован"],
-          origin: "model",
-        }),
-        select: async () => ({
-          headline: "Тирана — самый безопасный и лучший вариант",
-          bullets: ["Переезд гарантирован"],
-        }),
-      } as never,
-    });
-
-    await expect(presentRun("run-untrusted")).resolves.toMatchObject({
-      narrative: FALLBACK_NARRATIVE,
-    });
-  });
-
-  it("rejects an unknowns narrative phrase when the presented core has no unknown item", async () => {
-    const core: RunDetailsCore = {
-      run: {
-        runId: "run-no-unknowns",
-        runRevisionId: "revision-no-unknowns",
-        assessmentDate: "2026-08-08",
-        profileId: "profile-no-unknowns",
-        evidenceSnapshotId: "evidence-no-unknowns",
-        assessmentId: "assessment-no-unknowns",
-        assessment: { marker: "green", reasons: [] },
-        mode: "current",
-      },
-      profile: {
-        id: "profile-no-unknowns",
-        confirmedAt: "2026-08-08T10:00:00.000Z",
-        profile: {
-          availableResourcesAll: "500000",
-          monthlyIncome: { amount: "210000", currency: "RUB" },
-          incomeBasis: "foreign_contract",
-          companionBasis: "none",
-          relationship: "none",
-          conditions: soloConditions,
-        },
-      },
-      evidenceItems: [{
-        class: "official_fact",
-        label: "al-law-79-facts-1",
-        displayValue: JSON.stringify({ requiresLawfulStay: true }),
-        sourceId: "al-law-79",
-        scope: "VS-1 confirmed-life",
-        sourcePeriod: "cons-2026-08-01",
-        anchor: "Art. 68#abc",
-        resolvedUrl: "https://official.example/law-79",
-        integrity: "verified",
-      }],
-    };
-    const presentRun = createPresentRun({
-      loadRunDetailsCore: async () => core,
-      narrative: {
-        select: async () => ({
-          headline: {
-            phraseId: "scoped_official_route",
-            claimIds: ["al-law-79-facts-1"],
-          },
-          bullets: [{
-            phraseId: "unknowns_explicit",
-            claimIds: ["al-law-79-facts-1"],
-          }],
-        }),
-      },
-    });
-
-    const presented = await presentRun("run-no-unknowns");
-
-    expect(presented).toMatchObject({ narrative: FALLBACK_NARRATIVE });
-    expect(presented.narrative.bullets.join(" ")).not.toMatch(/неизвест|пробел/i);
-  });
-
-  it("keeps fallback wording valid even when no official source is available", () => {
-    expect(FALLBACK_NARRATIVE.headline).toBe("Маршрут показан без недоказанных выводов");
+    expect(first).toEqual(expected);
+    expect(second).toEqual(expected);
+    expect(JSON.stringify(first)).not.toMatch(/PRIVATE VALUE|private label/);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.bullets)).toBe(true);
   });
 
   it("derives a command-center summary and complete evidence groups from run details", () => {
@@ -1045,7 +787,7 @@ describe("confirmed-life visual journey", () => {
         label: "Правило доступных средств",
         provenance: "unmodelled",
       }],
-      narrative: FALLBACK_NARRATIVE,
+      narrative: projectNarrative([{ class: "unknown" }]),
     };
 
     const view = createJourneyView(details);
@@ -1104,7 +846,7 @@ describe("confirmed-life visual journey", () => {
       budget: serverBudget,
       initialBranchCursor: { commitId: "a".repeat(64) },
       branchCursor: { commitId: "a".repeat(64) },
-      narrative: FALLBACK_NARRATIVE,
+      narrative: projectNarrative([{ class: "unknown" }]),
     };
 
     expect(createJourneyView(details).summary).toMatchObject({
@@ -1188,7 +930,6 @@ describe("confirmed-life visual journey", () => {
       narrative: {
         headline: "Нужна официальная проверка договора",
         bullets: ["Причина привязана к проверяемому источнику"],
-        origin: "fallback",
       },
     };
     const serialized = JSON.parse(JSON.stringify(details)) as RunDetails;

@@ -11,7 +11,6 @@ import {
   projectDecisionEvidence,
   projectVerifiedBudgetFacts,
 } from "../application/verified-evidence";
-import type { NarrativePort } from "../application/contracts";
 import { assessRoute } from "../decision/assessment";
 import type {
   OfficialSourcePort,
@@ -23,7 +22,6 @@ import {
 } from "../research/run";
 import { createEvidenceIntegrity } from "./integrity";
 import { createColdStartComposition } from "./cold-start-composition";
-import { createOpenAiNarrative } from "./narrative";
 import { captureHttpOnce } from "./sources/gateway";
 import { OfficialSourceAdapter } from "./sources/official-source-adapter";
 import { openEvidenceDatabase } from "./sqlite/db";
@@ -42,8 +40,6 @@ export interface ConfirmedLifeCompositionOptions {
   readonly clock?: () => Date;
   readonly nextId?: (kind: "run" | "revision" | "assessment") => string;
   readonly deadlineAt?: (now: Date) => Date;
-  readonly narrative?: NarrativePort;
-  readonly openAiApiKey?: string;
 }
 
 export function createConfirmedLifeComposition(options: ConfirmedLifeCompositionOptions) {
@@ -122,7 +118,6 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     projectDecisionEvidence,
     projectBudgetFacts: projectVerifiedBudgetFacts,
   });
-  const narrative = options.narrative ?? createOpenAiNarrative({ apiKey: options.openAiApiKey });
   const journey = createJourneyPresentation({
     loadRunDetailsCore: confirmedLife.loadRunDetailsCore,
     loadInitialBranchByRunId: (runId, assessmentRevisionId) =>
@@ -130,7 +125,6 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     loadBranchCommit: (commitId) => branchStore.loadVerified(commitId),
     saveInitialHousingBranch: housingBranch.saveInitialHousingBranch,
     forkHousingBranch: housingBranch.forkHousingBranch,
-    narrative,
   });
   return Object.freeze({
     ...confirmedLife,
@@ -152,7 +146,6 @@ export function getConfirmedLifeApplication(): ReturnType<typeof createConfirmed
   application = createConfirmedLifeComposition({
     database: openEvidenceDatabase(databasePath),
     hmacKey,
-    openAiApiKey: process.env.OPENAI_API_KEY,
   });
   return application;
 }

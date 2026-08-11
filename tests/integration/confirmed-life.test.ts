@@ -812,7 +812,7 @@ describe("confirmed-life orchestration", () => {
     expect(details.evidenceItems.some((item) => item.class === "projection")).toBe(false);
   });
 
-  test("keeps sealed but semantically rejected claims out of Passport and narrative input", async () => {
+  test("keeps sealed but semantically rejected claims out of Passport and deterministic narrative", async () => {
     const snapshot = await verifiedMixedSnapshot("al-law-79");
     const profile = confirmProfile(completeDraft, () => NOW);
     const revision = Object.freeze({
@@ -861,16 +861,7 @@ describe("confirmed-life orchestration", () => {
     });
 
     const core = await application.loadRunDetailsCore("projection-run");
-    let outboundClaimIds: readonly string[] = [];
-    await createPresentRun({
-      loadRunDetailsCore: async () => core,
-      narrative: {
-        select: async (input) => {
-          outboundClaimIds = input.claimIds;
-          return undefined;
-        },
-      },
-    })("projection-run");
+    const details = await createPresentRun({ loadRunDetailsCore: async () => core })("projection-run");
 
     expect(core.evidenceItems.some((item) =>
       item.class === "official_fact" && item.sourceId === "al-law-79"
@@ -883,7 +874,13 @@ describe("confirmed-life orchestration", () => {
         blockerKind: "semantic_mismatch",
       }),
     ]));
-    expect(outboundClaimIds.some((claimId) => claimId.startsWith("al-law-79-"))).toBe(false);
+    expect(details.narrative).toEqual({
+      headline: "Маршрут показан в границах официальных источников",
+      bullets: [
+        "Официальные факты отделены от пользовательских данных и допущений.",
+        "Неизвестные условия остаются отмеченными в паспорте доказательств.",
+      ],
+    });
   });
 
   test("adds a staged companion projection only for a confirmed spouse route", async () => {

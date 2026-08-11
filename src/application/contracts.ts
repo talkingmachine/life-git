@@ -125,49 +125,13 @@ export interface RunDetailsCore {
   readonly branchCursor?: BranchCursor;
 }
 
-export type NarrativeTypedValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly NarrativeTypedValue[]
-  | { readonly [key: string]: NarrativeTypedValue };
-
-export interface NarrativeInput {
-  readonly claimIds: readonly string[];
-  readonly typedValues: readonly {
-    readonly claimId: string;
-    readonly value: NarrativeTypedValue;
-  }[];
-}
-
 export interface NarrativeRead {
   readonly headline: string;
   readonly bullets: readonly string[];
-  readonly origin: "model" | "fallback";
-}
-
-export type NarrativePhraseId =
-  | "scoped_official_route"
-  | "official_facts_separated"
-  | "unknowns_explicit";
-
-export interface NarrativeSelectionSection {
-  readonly phraseId: NarrativePhraseId;
-  readonly claimIds: readonly string[];
-}
-
-export interface NarrativeSelection {
-  readonly headline: NarrativeSelectionSection;
-  readonly bullets: readonly NarrativeSelectionSection[];
 }
 
 export interface RunDetails extends RunDetailsCore {
   readonly narrative: NarrativeRead;
-}
-
-export interface NarrativePort {
-  select(input: NarrativeInput): Promise<unknown>;
 }
 
 export interface ResearchPort {
