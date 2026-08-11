@@ -187,6 +187,7 @@ interface PreparedOptions {
   readonly incomePeriod?: string;
   readonly incomeExcerpt?: string;
   readonly artifactIdSuffix?: string;
+  readonly assessmentDate?: string;
 }
 
 async function preparedFixture(
@@ -282,7 +283,7 @@ async function preparedFixture(
   ];
   const prepared = await sealEvidencePlan({
     id: options.snapshotId ?? `${runId}:evidence`,
-    assessmentDate: ASSESSMENT_DATE,
+    assessmentDate: options.assessmentDate ?? ASSESSMENT_DATE,
     entries,
     sourceIds: SOURCE_IDS,
     parserVersions: PARSER_VERSIONS,
@@ -780,6 +781,40 @@ describe("pure VS-2 cold-start comparator", () => {
     expect(blocked.personalFit).toBe("research_incomplete");
     expect(blocked.reasons[0]?.officialUrls).toEqual([SOURCE_URLS["si-income-threshold"]]);
   });
+
+  test.each([
+    ["month-end", "2026-01-31", "2027-04-30"],
+    ["leap-day target", "2022-11-30", "2024-02-29"],
+  ])("clamps %s passport arithmetic to the last valid target day", async (
+    _label,
+    assessmentAt,
+    passportValidUntil,
+  ) => {
+    const db = database();
+    const fixture = await preparedFixture({ assessmentDate: assessmentAt });
+    await appendArtifacts(db, fixture.artifacts);
+    const dossier = new SqliteDossierStore(db, KEY).publishWithEvidence({
+      preparedEvidence: fixture.prepared,
+      publishedAt: PUBLISHED_AT,
+    }).version;
+    const profile = confirmRelocationProfile({
+      ...RELOCATION_DRAFT,
+      passportValidUntil,
+      companions: [],
+    }, () => new Date(`${assessmentAt}T09:15:00.000Z`));
+
+    const result = assessColdStart({
+      assessmentAt,
+      profile,
+      evidence: fixture.prepared.snapshot,
+      dossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+
+    expect(result.marker).toBe("yellow");
+    expect(result.reasons.some(({ code }) => code === "passport_validity_insufficient"))
+      .toBe(false);
+  });
 });
 
 const DISCOVERED_CANDIDATES: readonly SourceCandidate[] = [
@@ -833,6 +868,7 @@ function coldStartHarness(options: {
   readonly afterPrepared?: () => void;
   readonly afterPublish?: () => void;
   readonly tamperPrepared?: boolean;
+  readonly discoveryError?: Error;
 } = {}) {
   const db = database();
   const profiles = new SqliteProfileStore(db);
@@ -847,6 +883,7 @@ function coldStartHarness(options: {
     discovery: {
       discover: async (input) => {
         discoveryInputs.push(structuredClone(input));
+        if (options.discoveryError !== undefined) throw options.discoveryError;
         if (options.mode === "blocked") {
           return { ok: false as const, kind: "model_error" as const, candidates: [] as const };
         }
@@ -1118,6 +1155,41 @@ describe("cold-start orchestration, reload and commit boundary", () => {
   });
 
   test("rejects invalid prepared signatures and honors abort on both sides of commit", async () => {
+    const preAborted = coldStartHarness();
+    const preAbortedPrepared = await preAborted.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    const preAbortedSignal = new AbortController();
+    preAbortedSignal.abort(new Error("cancel-before-discovery"));
+    await expect(preAborted.application.run(
+      preAbortedPrepared,
+      () => undefined,
+      preAbortedSignal.signal,
+    )).rejects.toThrow("cancel-before-discovery");
+    expect(preAborted.discoveryInputs).toHaveLength(0);
+    expect(preAborted.researchInputs).toHaveLength(0);
+    expect(preAborted.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
+    expect(preAborted.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
+
+    const unexpectedDiscovery = coldStartHarness({
+      discoveryError: new Error("unexpected-discovery-error"),
+    });
+    const unexpectedPrepared = await unexpectedDiscovery.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    await expect(unexpectedDiscovery.application.run(
+      unexpectedPrepared,
+      () => undefined,
+      new AbortController().signal,
+    )).rejects.toThrow("unexpected-discovery-error");
+    expect(unexpectedDiscovery.researchInputs).toHaveLength(0);
+    expect(unexpectedDiscovery.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get())
+      .toBe(0);
+    expect(unexpectedDiscovery.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get())
+      .toBe(0);
+
     const tampered = coldStartHarness({ tamperPrepared: true });
     const tamperedPrepared = await tampered.application.prepare({
       countryInput: "SI",

@@ -462,6 +462,7 @@ export function createColdStartApplication(
     },
 
     async run(prepared, emit, signal): Promise<ColdStartReadModel> {
+      if (signal.aborted) abortReason(signal);
       const resolved = resolveCountry(prepared.country.code);
       if (
         !resolved.ok ||
@@ -469,16 +470,13 @@ export function createColdStartApplication(
       ) integrityMismatch();
       const events = eventEmitter(prepared, emit, ports.clock);
       let candidates: readonly SourceCandidate[] = [];
-      try {
-        const discovered = await ports.discovery.discover({
-          country: prepared.country,
-          authorityRoots: SI_AUTHORITY_ROOTS,
-          requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-        });
-        if (discovered.ok) candidates = discovered.candidates;
-      } catch {
-        candidates = [];
-      }
+      const discovered = await ports.discovery.discover({
+        country: prepared.country,
+        authorityRoots: SI_AUTHORITY_ROOTS,
+        requiredClaimKinds: REQUIRED_CLAIM_KINDS,
+      });
+      if (signal.aborted) abortReason(signal);
+      if (discovered.ok) candidates = discovered.candidates;
       for (const candidate of candidates) {
         await events.send({
           type: "source_discovered",

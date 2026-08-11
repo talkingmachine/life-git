@@ -220,9 +220,15 @@ function cbrClaim(
 function addMonths(dateText: string, months: number): Date | undefined {
   const date = canonicalDay(dateText);
   if (date === undefined) return undefined;
-  const result = new Date(date.valueOf());
-  result.setUTCMonth(result.getUTCMonth() + months);
-  return result;
+  const absoluteMonth = date.getUTCFullYear() * 12 + date.getUTCMonth() + months;
+  const targetYear = Math.floor(absoluteMonth / 12);
+  const targetMonth = absoluteMonth % 12;
+  const lastTargetDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(
+    targetYear,
+    targetMonth,
+    Math.min(date.getUTCDate(), lastTargetDay),
+  ));
 }
 
 function researchIncomplete(input: ColdStartAssessmentInput): ColdStartComparator {

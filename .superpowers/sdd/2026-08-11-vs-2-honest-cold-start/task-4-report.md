@@ -42,3 +42,13 @@ Base: `1f56234260999b30d27a562edd6048d05b4f5b9d`
 ## Residual risks
 
 - The application/composition path is proven with current semantic Slovenia fixtures and deterministic injected ports. Live-source shape/drift and the one permitted browser scenario remain Task 6 gates; Task 4 performs no network or browser validation.
+
+## Review fix round 1
+
+- RED: the focused suite reported three failures: both UTC passport boundary cases were falsely red, and a pre-aborted run still called discovery.
+- Replaced overflowing month mutation with explicit UTC year/month calculation and target-month last-day clamping. `2026-01-31 + 15` now ends at `2027-04-30`; the leap target clamps `2022-11-30 + 15` to `2024-02-29`.
+- Added abort checks before discovery and immediately after its awaited result, before any Research work.
+- Removed the broad discovery catch: typed `ok:false` still drives honest blocked Evidence, while unexpected thrown errors propagate without Evidence/dossier commits.
+- Removed the unsafe legacy `RequestStep` cast; Cold Start now keeps its own typed default gateway wiring.
+- Focused Task 4 + legacy gate: 4 files, 114 tests passed.
+- Full suite: 23 files, 454 tests passed. TypeScript, ESLint and `git diff --check` passed.

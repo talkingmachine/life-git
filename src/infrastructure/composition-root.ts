@@ -17,7 +17,6 @@ import type {
   OfficialSourcePort,
   RequestStep,
 } from "../research/contracts";
-import type { SloveniaSourceId } from "../research/cold-start-contracts";
 import {
   runCurrentEvidence,
   type EvidenceParsers,
@@ -95,7 +94,6 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     database: options.database,
     hmacKey: options.hmacKey,
     ...(options.openAiApiKey === undefined ? {} : { openAiApiKey: options.openAiApiKey }),
-    requestStep: requestStep as unknown as RequestStep<SloveniaSourceId>,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
   });
