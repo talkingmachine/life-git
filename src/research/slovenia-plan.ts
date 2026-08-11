@@ -4,7 +4,11 @@ import type {
   SloveniaSourceId,
 } from "./cold-start-contracts";
 import type { ParserEntry } from "./contracts";
-import type { ResearchPlan, TerminalEvidenceEntry } from "./research-plan";
+import type {
+  ResearchPlan,
+  ResearchSourceLineage,
+  TerminalEvidenceEntry,
+} from "./research-plan";
 import { validateSloveniaEntry } from "./parsers/slovenia";
 import { REQUIRED_CLAIM_KINDS } from "./country-registry";
 
@@ -67,13 +71,18 @@ function applySloveniaRules(
 }
 
 export function createSloveniaPlan(
-  sourceNavigation: Readonly<Record<SloveniaSourceId, string>>,
+  sourceLineage: Readonly<Record<SloveniaSourceId, ResearchSourceLineage>>,
 ): ResearchPlan<SloveniaSourceId, ColdStartEvidenceClaim> {
   return Object.freeze({
     id: "vs2-slovenia@2",
     scope: "VS-2 Slovenia cold start",
     sourceIds: Object.freeze([...SOURCE_IDS]),
-    sourceNavigation: Object.freeze({ ...sourceNavigation }),
+    sourceLineage: Object.freeze(Object.fromEntries(
+      Object.entries(sourceLineage).map(([sourceId, lineage]) => [
+        sourceId,
+        Object.freeze({ ...lineage }),
+      ]),
+    ) as Record<SloveniaSourceId, ResearchSourceLineage>),
     parserVersions: Object.freeze({
       "si-digital-nomad-route": "si-route@2",
       "si-income-threshold": "si-income@2",

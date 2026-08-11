@@ -72,6 +72,28 @@ const INDEXED_SOURCE_URLS: Readonly<Partial<Record<SloveniaSourceId, string>>> =
   "si-income-threshold": "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
   "si-companion-employment": "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO6655",
 };
+const INSTALLED_SOURCE_LINEAGE = [
+  {
+    sourceId: "si-digital-nomad-route",
+    navigationUrl: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
+    indexedSourceUrl: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO5761&print=1",
+  },
+  {
+    sourceId: "si-income-threshold",
+    navigationUrl: "https://pisrs.si/pregledPredpisa?sop=2026-01-1950",
+    indexedSourceUrl: "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
+  },
+  {
+    sourceId: "si-companion-employment",
+    navigationUrl: "https://www.ess.gov.si/delodajalci/zaposlovanje-tujcev-iz-tretjih-drzav/zaposlitev-tujcev-z-dovoljenjem-za-prebivanje/",
+    indexedSourceUrl: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO6655",
+  },
+  {
+    sourceId: "cbr-eur",
+    navigationUrl: "https://www.cbr.ru/scripts/XML_daily.asp",
+    indexedSourceUrl: undefined,
+  },
+] as const;
 const COUNTRY_SOURCE_IDS = SOURCE_IDS.slice(0, 3) as readonly Exclude<
   SloveniaSourceId,
   "cbr-eur"
@@ -1333,6 +1355,139 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     },
   );
 
+  test("retains every installed source pair when the research deadline is already expired", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T10:00:00.000Z"));
+    const db = database();
+    const runId = "already-expired-deadline-run";
+    const requestStep = vi.fn();
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      requestStep,
+      clock: () => new Date(),
+      nextRunId: () => runId,
+    });
+    const prepared = await application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    vi.setSystemTime(new Date("2026-08-11T10:01:00.001Z"));
+
+    const result = await application.run(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+    const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
+    const bundle = await evidenceStore.loadVerifiedBundle(`${runId}:evidence`, KEY);
+
+    expect(result).toMatchObject({
+      evidenceSnapshotId: `${runId}:evidence`,
+      comparator: { marker: "yellow", personalFit: "research_incomplete" },
+    });
+    expect(result.dossier).toBeUndefined();
+    expect(requestStep).not.toHaveBeenCalled();
+    expect(bundle.entries.map(({ sourceId, navigationUrl, indexedSourceUrl }) => ({
+      sourceId,
+      navigationUrl,
+      indexedSourceUrl,
+    }))).toEqual(INSTALLED_SOURCE_LINEAGE);
+
+    expect(await application.present({
+      runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
+    expect(requestStep).not.toHaveBeenCalled();
+  });
+
+  test("retains every installed source pair at the Slovenia capture ceiling", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T10:00:00.000Z"));
+    const db = database();
+    const runId = "capture-ceiling-run";
+    const fixture = await replayableFixture({ runId });
+    let incomeHeld = true;
+    let companionHeld = true;
+    let rejectIncome!: (reason: unknown) => void;
+    let rejectCompanion!: (reason: unknown) => void;
+    let announceCbr!: () => void;
+    let announceIncomeSeries!: () => void;
+    const cbrObserved = new Promise<void>((resolve) => { announceCbr = resolve; });
+    const incomeSeriesObserved = new Promise<void>((resolve) => {
+      announceIncomeSeries = resolve;
+    });
+    const pendingIncome = new Promise<LiveCapturedArtifact<SloveniaSourceId>>((_resolve, reject) => {
+      rejectIncome = reject;
+    });
+    const pendingCompanion = new Promise<LiveCapturedArtifact<SloveniaSourceId>>(
+      (_resolve, reject) => { rejectCompanion = reject; },
+    );
+    const requestStep = vi.fn(async (request: HttpStepRequest<SloveniaSourceId>) => {
+      if (request.sourceId === "si-income-threshold" && request.role === "salary-registry" && incomeHeld) {
+        incomeHeld = false;
+        return pendingIncome;
+      }
+      if (
+        request.sourceId === "si-companion-employment" &&
+        request.role === "ess-companion-page" &&
+        companionHeld
+      ) {
+        companionHeld = false;
+        return pendingCompanion;
+      }
+      const captured = fixture.artifacts.find((artifact) =>
+        artifact.sourceId === request.sourceId && artifact.role === request.role
+      );
+      if (captured === undefined) throw new Error(`missing fixture for ${request.role}`);
+      if (request.sourceId === "cbr-eur") announceCbr();
+      if (request.sourceId === "si-income-threshold" && request.role === "sistat-series") {
+        announceIncomeSeries();
+      }
+      return captured;
+    });
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      requestStep,
+      clock: () => new Date(),
+      nextRunId: () => runId,
+    });
+    const prepared = await application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+
+    const run = application.run(prepared, () => undefined, new AbortController().signal);
+    await cbrObserved;
+    rejectIncome(new SourceCaptureError("server_error", "injected income retry"));
+    await incomeSeriesObserved;
+    rejectCompanion(new SourceCaptureError("server_error", "injected companion retry"));
+    const result = await run;
+    const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
+    const bundle = await evidenceStore.loadVerifiedBundle(`${runId}:evidence`, KEY);
+
+    expect(result).toMatchObject({
+      evidenceSnapshotId: `${runId}:evidence`,
+      comparator: { marker: "yellow", personalFit: "research_incomplete" },
+    });
+    expect(result.dossier).toBeUndefined();
+    expect(requestStep).toHaveBeenCalledTimes(11);
+    expect(bundle.entries.map(({ sourceId, navigationUrl, indexedSourceUrl }) => ({
+      sourceId,
+      navigationUrl,
+      indexedSourceUrl,
+    }))).toEqual(INSTALLED_SOURCE_LINEAGE);
+    expect(bundle.entries.find(({ sourceId }) => sourceId === "si-companion-employment")?.artifacts
+      .map(({ role }) => role)).toEqual(["ess-companion-page"]);
+
+    expect(await application.present({
+      runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
+    expect(requestStep).toHaveBeenCalledTimes(11);
+  });
+
   test("returns terminal yellow without Research when the country is not installed", async () => {
     const harness = coldStartHarness({ countryInstalled: false });
     const prepared = await harness.application.prepare({
@@ -2170,13 +2325,22 @@ async function replayableFixture(options: {
     request: { method: "GET", url: urls.cbr },
   };
   const artifacts = [...countryArtifacts, cbrArtifact];
-  const sourceNavigation: Readonly<Record<SloveniaSourceId, string>> = {
-    "si-digital-nomad-route": urls.gov,
-    "si-income-threshold": urls.salary,
-    "si-companion-employment": urls.ess,
-    "cbr-eur": urls.cbr,
+  const sourceLineage = {
+    "si-digital-nomad-route": {
+      navigationUrl: urls.gov,
+      indexedSourceUrl: INSTALLED_CANDIDATES[1]!.url,
+    },
+    "si-income-threshold": {
+      navigationUrl: urls.salary,
+      indexedSourceUrl: INSTALLED_CANDIDATES[3]!.url,
+    },
+    "si-companion-employment": {
+      navigationUrl: urls.ess,
+      indexedSourceUrl: INSTALLED_CANDIDATES[5]!.url,
+    },
+    "cbr-eur": { navigationUrl: urls.cbr },
   };
-  const plan = createSloveniaPlan(sourceNavigation);
+  const plan = createSloveniaPlan(sourceLineage);
   const parserEntries = [
     {
       sourceId: "si-digital-nomad-route" as const,

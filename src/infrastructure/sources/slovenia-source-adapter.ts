@@ -20,6 +20,7 @@ import {
   type PisrsSelectedNpb,
 } from "../../research/parsers/slovenia";
 import { createSloveniaPlan } from "../../research/slovenia-plan";
+import type { ResearchSourceLineage } from "../../research/research-plan";
 import {
   selectSloveniaCandidateSlots,
   type SloveniaCandidateSlots,
@@ -111,14 +112,24 @@ function unavailable(sourceId: SloveniaSourceId): CaptureResult<SloveniaSourceId
   };
 }
 
-function secondaryNavigationUrl(
+function sourceLineage(
   slots: SloveniaCandidateSlots,
-  sourceId: SloveniaSourceId,
-): string | undefined {
-  if (sourceId === "si-digital-nomad-route") return slots.routeLaw?.url;
-  if (sourceId === "si-income-threshold") return slots.sistat?.url;
-  if (sourceId === "si-companion-employment") return slots.companionLaw?.url;
-  return undefined;
+): Readonly<Record<SloveniaSourceId, ResearchSourceLineage>> {
+  return Object.freeze({
+    "si-digital-nomad-route": Object.freeze({
+      navigationUrl: slots.routeGov?.url ?? "https://www.gov.si",
+      ...(slots.routeLaw === undefined ? {} : { indexedSourceUrl: slots.routeLaw.url }),
+    }),
+    "si-income-threshold": Object.freeze({
+      navigationUrl: slots.salary?.url ?? "https://pisrs.si",
+      ...(slots.sistat === undefined ? {} : { indexedSourceUrl: slots.sistat.url }),
+    }),
+    "si-companion-employment": Object.freeze({
+      navigationUrl: slots.companionEss?.url ?? "https://www.ess.gov.si",
+      ...(slots.companionLaw === undefined ? {} : { indexedSourceUrl: slots.companionLaw.url }),
+    }),
+    "cbr-eur": Object.freeze({ navigationUrl: SOURCE_POLICIES["cbr-eur"].url }),
+  });
 }
 
 function pisrsIdentityFromCandidate(
@@ -191,16 +202,11 @@ function navigationMismatch(
 export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceId> {
   private readonly slots: SloveniaCandidateSlots;
 
-  readonly sourceNavigation: Readonly<Record<SloveniaSourceId, string>>;
+  readonly sourceLineage: Readonly<Record<SloveniaSourceId, ResearchSourceLineage>>;
 
   constructor(candidates: readonly SourceCandidate[]) {
     this.slots = selectSloveniaCandidateSlots(candidates.map(snapshotCandidate));
-    this.sourceNavigation = Object.freeze({
-      "si-digital-nomad-route": this.slots.routeGov?.url ?? "https://www.gov.si",
-      "si-income-threshold": this.slots.salary?.url ?? "https://pisrs.si",
-      "si-companion-employment": this.slots.companionEss?.url ?? "https://www.ess.gov.si",
-      "cbr-eur": SOURCE_POLICIES["cbr-eur"].url,
-    });
+    this.sourceLineage = sourceLineage(this.slots);
   }
 
   async capture(
@@ -377,7 +383,7 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
           readonly partialArtifacts?: readonly LiveCapturedArtifact<SloveniaSourceId>[];
         }
       ).partialArtifacts ?? [];
-      const indexedSourceUrl = secondaryNavigationUrl(this.slots, request.sourceId);
+      const indexedSourceUrl = this.sourceLineage[request.sourceId].indexedSourceUrl;
       return {
         ok: false,
         sourceId: request.sourceId,
@@ -395,7 +401,7 @@ export function createSloveniaResearch(input: {
 }): SloveniaResearch {
   const source = new SloveniaSourceAdapter(input.candidates);
   return Object.freeze({
-    plan: createSloveniaPlan(source.sourceNavigation),
+    plan: createSloveniaPlan(source.sourceLineage),
     source,
   });
 }

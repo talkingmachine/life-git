@@ -98,9 +98,9 @@ function plan(log: string[]): ResearchPlan<FakeSourceId, FakeClaim> {
     id: "fake-plan@1",
     scope: "two-source fixture",
     sourceIds: ["beta", "alpha"],
-    sourceNavigation: {
-      beta: "https://official.example/beta",
-      alpha: "https://official.example/alpha",
+    sourceLineage: {
+      beta: { navigationUrl: "https://official.example/beta" },
+      alpha: { navigationUrl: "https://official.example/alpha" },
     },
     parserVersions: { beta: "beta@7", alpha: "alpha@3" },
     rulesVersion: "fake-rules@1",
@@ -862,11 +862,20 @@ describe("Slovenia installed research plan", () => {
         "si-companion-employment",
         "cbr-eur",
       ],
-      sourceNavigation: {
-        "si-digital-nomad-route": SLOVENIA_CANDIDATES[0]!.url,
-        "si-income-threshold": SLOVENIA_CANDIDATES[2]!.url,
-        "si-companion-employment": SLOVENIA_CANDIDATES[4]!.url,
-        "cbr-eur": "https://www.cbr.ru/scripts/XML_daily.asp",
+      sourceLineage: {
+        "si-digital-nomad-route": {
+          navigationUrl: SLOVENIA_CANDIDATES[0]!.url,
+          indexedSourceUrl: SLOVENIA_CANDIDATES[1]!.url,
+        },
+        "si-income-threshold": {
+          navigationUrl: SLOVENIA_CANDIDATES[2]!.url,
+          indexedSourceUrl: SLOVENIA_CANDIDATES[3]!.url,
+        },
+        "si-companion-employment": {
+          navigationUrl: SLOVENIA_CANDIDATES[4]!.url,
+          indexedSourceUrl: SLOVENIA_CANDIDATES[5]!.url,
+        },
+        "cbr-eur": { navigationUrl: "https://www.cbr.ru/scripts/XML_daily.asp" },
       },
       parserVersions: {
         "si-digital-nomad-route": "si-route@2",
@@ -880,7 +889,7 @@ describe("Slovenia installed research plan", () => {
     expect(SLOVENIA_CANDIDATES.some((candidate) => candidate.url.includes("cbr.ru"))).toBe(false);
     expect(Object.isFrozen(plan)).toBe(true);
     expect(Object.isFrozen(plan.sourceIds)).toBe(true);
-    expect(Object.isFrozen(plan.sourceNavigation)).toBe(true);
+    expect(Object.isFrozen(plan.sourceLineage)).toBe(true);
     expect(Object.isFrozen(plan.parserVersions)).toBe(true);
     expect(Object.isFrozen(plan.limits)).toBe(true);
   });

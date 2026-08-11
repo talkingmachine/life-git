@@ -74,7 +74,7 @@ function validationUnavailable<S extends string, C extends Claim<unknown, S>>(
     blocker: {
       sourceId,
       kind,
-      navigationUrl: entry.navigationUrl || plan.sourceNavigation[sourceId],
+      navigationUrl: entry.navigationUrl || plan.sourceLineage[sourceId].navigationUrl,
       ...(resolvedUrl === undefined ? {} : { resolvedUrl }),
       artifactIds: entry.artifacts.map((artifact) => artifact.artifactId),
     },
@@ -175,13 +175,21 @@ export async function replayEvidenceByRules<
       verified.entries.filter((entry) => entry.sourceId === sourceId).length !== 1
     )
   ) throw new Error("integrity_mismatch");
-  const sourceNavigation = Object.fromEntries(expectedSources.map((sourceId) => [
-    sourceId,
-    verified.entries.find((entry) => entry.sourceId === sourceId)!.navigationUrl,
-  ])) as Record<SloveniaSourceId, string>;
+  const sourceLineage = Object.fromEntries(expectedSources.map((sourceId) => {
+    const entry = verified.entries.find((candidate) => candidate.sourceId === sourceId)!;
+    return [sourceId, {
+      navigationUrl: entry.navigationUrl,
+      ...(entry.indexedSourceUrl === undefined
+        ? {}
+        : { indexedSourceUrl: entry.indexedSourceUrl }),
+    }];
+  })) as Record<SloveniaSourceId, {
+    readonly navigationUrl: string;
+    readonly indexedSourceUrl?: string;
+  }>;
   return replayEvidencePlan(
     input,
-    createSloveniaPlan(sourceNavigation),
+    createSloveniaPlan(sourceLineage),
     {
       store: ports.store as unknown as ReplayEvidenceStore<
         SloveniaSourceId,

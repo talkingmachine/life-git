@@ -83,3 +83,45 @@ No browser, live network, package install/update, push, PR or merge was used.
 The required provider-free current-source browser walkthrough remains a separate approval-gated task.
 This wave preserves official capture/replay behavior and proves it offline; it does not claim fresh
 `source-verified` runtime evidence.
+
+## Scoped re-review fix — research-owned unavailable branches
+
+The scoped re-review found that adapter-owned failures retained the installed secondary URL, while
+the research-owned already-expired deadline and `CaptureLimitError` branches called
+`unavailableEntry` before a `CaptureResult` existed. Those branches therefore sealed only the
+primary navigation URL.
+
+- RED: the exact `remaining <= 0` composition path loaded all three country entries from verified
+  SQLite without their secondary URL. A deterministic Slovenia ceiling case made exactly 11 live
+  request-step calls, retained the companion partial artifact, then loaded the companion entry
+  without its ZZSDT secondary URL.
+- GREEN: `ResearchPlan` now owns one canonical `sourceLineage` map whose values contain the primary
+  navigation URL and optional installed secondary URL. `unavailableEntry` applies that lineage for
+  every research-owned unavailable branch. No second per-source map or persistence field was added.
+- `createSloveniaResearch` derives the map from the already-selected six candidate slots. VS-1 uses
+  the same plan contract with primary-only lineage, so CBR and all VS-1 sources remain single-URL.
+- Offline Slovenia replay reconstructs its plan lineage from the cryptographically verified sealed
+  entries; the existing reseal equality check validates the reconstructed result.
+
+Both regressions assert the exact GOV.SI/ZTuj-2, salary/SiStat and ESS/ZZSDT pairs plus the single CBR
+URL after verified SQLite load. `application.present` reproduces the terminal result without another
+request-step call. Existing external-abort tests remain green, and the ceiling remains 11 captures.
+
+### Scoped re-review verification
+
+| Gate | Result |
+| --- | --- |
+| New deadline/ceiling regressions | 2 tests passed |
+| Focused research + cold-start integration | 2 files, 188 tests passed |
+| Full Vitest | 25 files, 498 tests passed |
+| `npm run typecheck` | exit 0 |
+| `npm run lint` | exit 0 |
+| `npm run build` | exit 0 |
+| Extended zero-LLM/model-call audits | no matches; both inverted gates exit 0 |
+| Artifact/package JSON parse | exit 0 |
+| `git diff --check` | exit 0 |
+| Preserved brainstorm files | present and unstaged |
+
+Architecture concern: none for this scoped fix. The lineage belongs to the research plan boundary,
+the infrastructure adapter derives it from already-validated slots, and replay depends only on
+verified persisted entries. The browser-walkthrough concern above remains unchanged.

@@ -204,9 +204,11 @@ export function createVs1ResearchPlan(
     id: "vs1-confirmed-life@1",
     scope: "VS-1 confirmed-life",
     sourceIds: EVIDENCE_SOURCE_IDS,
-    sourceNavigation: Object.freeze(Object.fromEntries(
-      EVIDENCE_SOURCE_IDS.map((sourceId) => [sourceId, navigationUrl(sourceId)]),
-    ) as Record<SourceId, string>),
+    sourceLineage: Object.freeze(Object.fromEntries(
+      EVIDENCE_SOURCE_IDS.map((sourceId) => [sourceId, Object.freeze({
+        navigationUrl: navigationUrl(sourceId),
+      })]),
+    ) as Record<SourceId, { readonly navigationUrl: string }>),
     parserVersions: EVIDENCE_PARSER_VERSIONS,
     rulesVersion: EVIDENCE_RULES_VERSION,
     limits: Object.freeze({ concurrency: 5, maxCaptures: 20, deadlineMs: 45_000 }),

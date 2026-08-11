@@ -102,11 +102,16 @@ export interface EvidenceWriteStore<
   seal(sealed: SealedEvidence<S, C>): Promise<void>;
 }
 
+export interface ResearchSourceLineage {
+  readonly navigationUrl: string;
+  readonly indexedSourceUrl?: string;
+}
+
 export interface ResearchPlan<S extends string, C extends Claim<unknown, S>> {
   readonly id: string;
   readonly scope: string;
   readonly sourceIds: readonly S[];
-  readonly sourceNavigation: Readonly<Record<S, string>>;
+  readonly sourceLineage: Readonly<Record<S, ResearchSourceLineage>>;
   readonly parserVersions: Readonly<Record<S, string>>;
   readonly rulesVersion: string;
   readonly limits: {
@@ -395,17 +400,28 @@ function unavailableEntry<S extends string, C extends Claim<unknown, S>>(
   parserEntry?: ParserEntry<S>,
   indexedSourceUrl?: string,
 ): TerminalEvidenceEntry<S, C> {
-  const navigationUrl = parserEntry?.navigationUrl ?? plan.sourceNavigation[sourceId];
+  const plannedLineage = plan.sourceLineage[sourceId];
+  const navigationUrl = parserEntry?.navigationUrl ?? plannedLineage.navigationUrl;
+  const selectedIndexedSourceUrl = parserEntry?.indexedSourceUrl ??
+    indexedSourceUrl ??
+    plannedLineage.indexedSourceUrl;
   const resolvedUrl = parserEntry?.resolvedEvidenceUrl ?? artifacts.at(-1)?.responseUrl;
+  const terminalParserEntry = parserEntry === undefined
+    ? {
+        sourceId,
+        navigationUrl,
+        ...(selectedIndexedSourceUrl === undefined
+          ? {}
+          : { indexedSourceUrl: selectedIndexedSourceUrl }),
+        resolvedEvidenceUrl: resolvedUrl ?? navigationUrl,
+        artifacts,
+      }
+    : selectedIndexedSourceUrl === undefined || parserEntry.indexedSourceUrl !== undefined
+      ? parserEntry
+      : { ...parserEntry, indexedSourceUrl: selectedIndexedSourceUrl };
   return {
     sourceId,
-    parserEntry: parserEntry ?? {
-      sourceId,
-      navigationUrl,
-      ...(indexedSourceUrl === undefined ? {} : { indexedSourceUrl }),
-      resolvedEvidenceUrl: resolvedUrl ?? navigationUrl,
-      artifacts,
-    },
+    parserEntry: terminalParserEntry,
     coverage: "unavailable",
     blocker: {
       sourceId,
