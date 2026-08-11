@@ -866,6 +866,7 @@ async function blockedRunFixture(runId: string, contextHash: string) {
 
 function coldStartHarness(options: {
   readonly countryInstalled?: boolean;
+  readonly afterCountryNotInstalledEvidencePrepared?: () => void;
   readonly afterPrepared?: () => void;
   readonly afterPublish?: () => void;
   readonly tamperPrepared?: boolean;
@@ -949,7 +950,19 @@ function coldStartHarness(options: {
       findByPayload: (countryCode, schemaVersion, payloadHash) =>
         dossierStore.findByPayload(countryCode, schemaVersion, payloadHash),
     },
-    integrity: createEvidenceIntegrity(KEY),
+    integrity: (() => {
+      const integrity = createEvidenceIntegrity(KEY);
+      return {
+        ...integrity,
+        sign(value: string): string {
+          const signature = integrity.sign(value);
+          if (options.countryInstalled === false) {
+            options.afterCountryNotInstalledEvidencePrepared?.();
+          }
+          return signature;
+        },
+      };
+    })(),
     clock: () => new Date("2026-08-11T10:00:00.000Z"),
     nextRunId: () => `cold-run-${++runCounter}`,
   });
@@ -1220,6 +1233,49 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       runId: prepared.runId,
       profileId: prepared.profileId,
     })).toEqual(result);
+  });
+
+  test("does not present navigation for an uninstalled country without captures", async () => {
+    const harness = coldStartHarness({ countryInstalled: false });
+    const prepared = await harness.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+
+    const result = await harness.application.run(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    expect(result.sourceNavigation).toEqual([]);
+  });
+
+  test("does not persist or emit after aborting before an uninstalled-country seal", async () => {
+    const abort = new AbortController();
+    const harness = coldStartHarness({
+      countryInstalled: false,
+      afterCountryNotInstalledEvidencePrepared: () => abort.abort(
+        new Error("cancel-before-uninstalled-country-seal"),
+      ),
+    });
+    const prepared = await harness.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    const events: ColdStartEvent[] = [];
+
+    await expect(harness.application.run(
+      prepared,
+      (event) => { events.push(event); },
+      abort.signal,
+    )).rejects.toThrow("cancel-before-uninstalled-country-seal");
+
+    expect(harness.sourceIndexInputs).toEqual(["SI"]);
+    expect(harness.researchInputs).toEqual([]);
+    expect(events).toEqual([]);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
   });
 
   test("rejects invalid prepared signatures and honors abort on both sides of commit", async () => {

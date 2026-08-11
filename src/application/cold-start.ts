@@ -481,10 +481,13 @@ export function createColdStartApplication(
         claimKinds,
       },
       comparator,
-      sourceNavigation: SOURCE_IDS.map((sourceId) => ({
-        label: SOURCE_LABELS[sourceId],
-        url: navigation[sourceId],
-      })),
+      sourceNavigation: SOURCE_IDS.flatMap((sourceId) => {
+        const entry = bundle.entries.find((candidate) => candidate.sourceId === sourceId);
+        if (entry === undefined) integrityMismatch();
+        return entry.artifacts.length === 0
+          ? []
+          : [{ label: SOURCE_LABELS[sourceId], url: navigation[sourceId] }];
+      }),
     });
   };
 
@@ -536,6 +539,7 @@ export function createColdStartApplication(
           assessmentAt: prepared.assessmentAt,
           contextHash: expectedContextHash,
         }, ports.integrity);
+        if (signal.aborted) abortReason(signal);
         await ports.evidence.seal(preparedEvidence);
         const readModel = await loadReadModel(prepared.runId, prepared.profileId);
         await events.send({ type: "assessment_completed", payload: { readModel } });
