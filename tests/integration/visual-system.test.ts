@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+const researchGlobeCss = readFileSync(
+  resolve(process.cwd(), "src/experience/research-map/ResearchGlobe.module.css"),
+  "utf8",
+);
 
 function escaped(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -225,5 +229,15 @@ describe("calm command center visual contracts", () => {
   it("does not synthesize Unicode disclosure controls in CSS", () => {
     const evidenceRules = rules(css, ".evidence-passport__technical > summary::after");
     expect(evidenceRules.join("\n")).not.toMatch(/content\s*:\s*["'][+−]["']/u);
+  });
+
+  it("keeps destination CSS2D anchors hit-testable without making origins interactive", () => {
+    const anchor = rule(researchGlobeCss, ".cityBalloonAnchor");
+    const origin = rule(researchGlobeCss, ".cityBalloonOrigin");
+
+    expect(declaration(anchor, "width")).toBe("0");
+    expect(declaration(anchor, "height")).toBe("0");
+    expect(declaration(anchor, "pointer-events")).toBe("auto");
+    expect(declaration(origin, "pointer-events")).toBe("none");
   });
 });
