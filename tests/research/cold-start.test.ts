@@ -2110,6 +2110,25 @@ describe("Slovenia income validator", () => {
     });
   });
 
+  test("rejects an invalid assessment calendar date", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const entry = incomeEntry({
+      registryBytes: mutateFixture("salary-registry.json", (text) => text
+        .replaceAll("maj 2026", "februar 2028")
+        .replace('"objavljeno": "2026-07-28"', '"objavljeno": "2028-02-01"')),
+      detailsBytes: mutateFixture("salary-details.json", (text) =>
+        text.replaceAll("maj 2026", "februar 2028")),
+      metadataBytes: mutateFixture("sistat-metadata.json", (text) =>
+        text.replaceAll("2026M05", "2028M02")),
+      seriesBytes: mutateFixture("sistat-series.json", (text) =>
+        text.replaceAll("2026M05", "2028M02")),
+    });
+
+    const result = await sloveniaPlan.validate(entry, "2028-02-30");
+
+    expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
+  });
+
   test("derives a changed matching official value instead of remembering salary", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
