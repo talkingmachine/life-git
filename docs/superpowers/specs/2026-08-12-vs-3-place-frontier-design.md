@@ -2,16 +2,17 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `draft` — conversational design approved, exact-text review pending |
+| Статус | `amended draft` — product semantics approved; integrity/persistence clarifications pending exact-text re-approval |
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-12 |
 | Область | ranking стран, формальная проверка проживания, пополняемый frontier, planet history и Country Knowledge revisions |
 | Зависимости | `VS-2`, provider-free runtime design, Product Charter, Spec of Specs |
-| Approval evidence | пользователь утвердил search model, planet behavior, architecture и phased boundary 2026-08-12 |
-| Canonical effect | после exact-text approval supersedes прежние green-after-city, confirmed-city shortlist, upper-bound stability и research-budget stop rules; обновляет marker/top-5 glossary и demo wording |
+| Approval evidence | пользователь утвердил product/exact-text baseline 2026-08-12; amendments produced during implementation-plan review await approval together with tasks |
+| Canonical effect | supersedes прежние green-after-city, confirmed-city shortlist, upper-bound stability и research-budget stop rules; обновляет marker/top-5 glossary и demo wording |
 
-Этот документ фиксирует утверждённый дизайн, но до exact-text approval не изменяет канонические
-Product Charter, Spec of Specs или active change packages и не разрешает implementation.
+Product semantics этого `VS-3` baseline утверждены. Текущий exact text дополнен fail-closed
+integrity, replay и persistence contracts во время review implementation plan; эти amendments и
+traceable tasks первого vertical slice требуют совместного exact-text approval до implementation.
 
 ## 1. Цель и наблюдаемый результат
 
@@ -89,7 +90,7 @@ Preference criterion имеет mode `required | weighted`: verified mismatch re
   исчерпаны; red marker не удаляется; yellow считается non-red, но делает результат preliminary.
 - `REQ-PF-04` (`GOAL-PF-01`): пользователь видит фактический поиск на планете.
   Acceptance: gray/progress driven только domain events; red/yellow marker открывает краткую причину
-  и official links; все markers сохраняются после collapse и reload.
+  и official links; все terminal markers сохраняются после collapse и reload.
 - `REQ-PF-05` (`GOAL-PF-01`): проверенные новые country facts публикуются в Knowledge Base.
   Acceptance: только verified claims или evidence-backed status observations создают append-only
   Country Knowledge Revision; partial yellow сохраняет подтверждённый subset/status; source failure
@@ -183,7 +184,8 @@ updates имеют один append-only revision contract.
 reference, `capturedAt`, `publishedAt` при наличии, reference period, `effectiveFrom/effectiveTo`
 при наличии и `verifiedAt`. Public country metadata выводит:
 
-- `lastCheckedAt` — время последней завершённой попытки, производное от run/evidence records;
+- `lastCheckedAt` — ISO calendar date последней завершённой попытки, равная sealed Evidence
+  `assessmentDate` и поэтому воспроизводимая без отдельного run record;
 - `knowledgeUpdatedAt` — время последней evidence-backed revision с value, revalidation или
   подтверждённым изменением status;
 - coverage/unknowns, чтобы одна свежая часть не выглядела как полное обновление страны.
@@ -289,8 +291,10 @@ Marker после появления не удаляется:
 - Один impossible route при остальных unchecked: gray, пока Research продолжает; yellow, если
   оставшийся route невозможно разрешить; никогда не red.
 - Gray существует только пока bounded attempt/retry реально выполняется. Unexpected protocol,
-  decoder, storage или integrity failure завершает use case как `run_incomplete`; legal verdict и
-  Shortlist Snapshot не публикуются, UI сохраняет видимую partial history и предлагает retry.
+  storage или integrity failure до commit завершает use case как `run_incomplete`; legal verdict и
+  Shortlist Snapshot не публикуются. Client transport/decoder failure не принимает terminal в UI,
+  сохраняет видимую session-local partial history и предлагает retry/reload; уже committed на
+  сервере Shortlist Snapshot не откатывается и может быть восстановлен reload.
 - Retry создаёт новую run revision и не меняет sealed history.
 - Evidence/Knowledge integrity mismatch: fail closed; knowledge revision и shortlist не публикуются.
 
@@ -300,12 +304,14 @@ Marker после появления не удаляется:
 codes, factor projections, scoring/normalization version и createdAt. Free text, raw source bytes и
 secrets в него не входят.
 
-`ShortlistSnapshot` содержит rankingSnapshotId, ordered non-red countries, exact green/yellow
-composition, все observed markers, formal verdict references, evidence/knowledge revision IDs и
-stop condition. Он append-only. `run_incomplete` не является Shortlist Snapshot.
+`ShortlistSnapshot` содержит rankingSnapshotId, все completed markers, full formal verdict
+references, evidence/knowledge revision IDs и frontier rules version. Ordered non-red countries,
+green/yellow composition и stop condition детерминированно выводятся из markers + frozen ranking и
+не хранятся второй раз. Он append-only. `run_incomplete` не является Shortlist Snapshot.
 
 Historical replay читает exact snapshots и validators без сети. New current check всегда создаёт
-новый run. Marker history принадлежит run и не становится общей пользовательской аналитикой.
+новый run. Terminal marker history принадлежит Shortlist Snapshot; incomplete gray/session history
+отдельно не сохраняется и не становится общей пользовательской аналитикой.
 
 ## 10. Первый vertical slice и не-цели
 
@@ -344,7 +350,8 @@ Canonical amendment этого slice обязан удалить старый in
 5. Snapshot/replay test: mid-run knowledge update не меняет order; reload делает zero network и
    exact marker/card projection.
 6. Один experience test для gray -> red -> replacement -> preliminary/terminal collapse,
-   green/yellow composition и red/yellow details; run_incomplete не публикует shortlist.
+   green/yellow composition и red/yellow details; pre-commit application/storage/integrity failure
+   не публикует shortlist, а client decoder rejection не принимает terminal и проверяет reload.
 7. Один browser E2E на реально installed country packages; smaller preliminary result допустим и
    должен называться честно.
 
@@ -379,14 +386,16 @@ Canonical amendment этого slice обязан удалить старый in
 markers, runtime LLM ranking, remembered official facts, unsupported-yellow automated slots и
 автоматический universal country crawler.
 
-## 13. Exact-text review gate
+## 13. Approval record and canonical amendment gate
 
-Перед implementation planning пользователь должен утвердить этот exact text. После approval
-отдельный narrow change package обязан:
+Product baseline утверждён пользователем 2026-08-12; текущие integrity/persistence amendments
+ожидают совместного approval с implementation tasks. Отдельный narrow change package обязан:
 
 1. поправить Product Charter, Spec of Specs, glossary, demo story и VS-2 marker semantics, включая
    прежние confirmed-city, upper-bound stability и research-budget stop rules;
 2. зафиксировать requirements/design/tasks первого vertical slice без добавления city scope;
 3. провести отдельный source feasibility gate перед каждым новым country package.
 
-До этого active readiness и production behavior не меняются.
+Canonical amendment и implementation plan сами по себе не меняют production behavior. Для каждого
+нового country package остаётся обязательным отдельный source-feasibility gate; implementation
+readiness возникает только после утверждения traceable tasks первого vertical slice.
