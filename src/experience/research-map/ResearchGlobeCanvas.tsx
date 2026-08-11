@@ -467,15 +467,21 @@ export function ResearchGlobeCanvas({
     if (selectedRouteKey !== undefined) return;
     const routeKey = returnFocusKey.current;
     if (routeKey === undefined) return;
-    const focusFrame = window.requestAnimationFrame(() => {
-      const container = size.container.current;
-      const marker = visibleMarkerButton(container, routeKey)
-        ?? firstVisibleMarkerButton(container);
-      if (marker !== undefined) marker.focus();
-      else container?.focus();
-      returnFocusKey.current = undefined;
+    let focusFrame: number | undefined;
+    const settleRendererFrame = window.requestAnimationFrame(() => {
+      focusFrame = window.requestAnimationFrame(() => {
+        const container = size.container.current;
+        const marker = visibleMarkerButton(container, routeKey)
+          ?? firstVisibleMarkerButton(container);
+        if (marker !== undefined) marker.focus();
+        else container?.focus();
+        returnFocusKey.current = undefined;
+      });
     });
-    return () => window.cancelAnimationFrame(focusFrame);
+    return () => {
+      window.cancelAnimationFrame(settleRendererFrame);
+      if (focusFrame !== undefined) window.cancelAnimationFrame(focusFrame);
+    };
   }, [cityLabelData, selectedRouteKey]);
 
   useEffect(() => {

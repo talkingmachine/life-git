@@ -105,13 +105,17 @@ vi.mock("react-globe.gl", async () => {
         const stopGlobeBubble = (event: Event) => event.stopPropagation();
         labels.current.addEventListener("click", stopGlobeBubble);
         labels.current.addEventListener("pointerdown", stopGlobeBubble);
-        const replaceLabels = window.requestAnimationFrame(() => {
-          labels.current?.replaceChildren(
-            ...(props.htmlElementsData ?? []).map((datum) => props.htmlElement!(datum).cloneNode(true)),
-          );
+        let replaceLabels: number | undefined;
+        const scheduleReplacement = window.requestAnimationFrame(() => {
+          replaceLabels = window.requestAnimationFrame(() => {
+            labels.current?.replaceChildren(
+              ...(props.htmlElementsData ?? []).map((datum) => props.htmlElement!(datum).cloneNode(true)),
+            );
+          });
         });
         return () => {
-          window.cancelAnimationFrame(replaceLabels);
+          window.cancelAnimationFrame(scheduleReplacement);
+          if (replaceLabels !== undefined) window.cancelAnimationFrame(replaceLabels);
           labels.current?.removeEventListener("click", stopGlobeBubble);
           labels.current?.removeEventListener("pointerdown", stopGlobeBubble);
         };
@@ -138,6 +142,11 @@ const origin = {
 
 function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+async function nextRendererFrame(): Promise<void> {
+  await nextAnimationFrame();
+  await nextAnimationFrame();
 }
 
 function route(key: string, status: GlobeRoute["status"]): GlobeRoute {
@@ -195,7 +204,7 @@ it("does not restart an active flight when rerenders replace its route object wi
   expect(lifecycle.stopJourney).toHaveBeenCalled();
 });
 
-it("opens country marker details with native keyboard controls and returns focus after close", async () => {
+it("keeps cloned country marker focus through mouse and native keyboard closure", async () => {
   const countryOrigin = {
     coordinate: origin.coordinate,
     country: "Россия",
@@ -235,22 +244,29 @@ it("opens country marker details with native keyboard controls and returns focus
   expect(detailId).toBeTruthy();
   fireEvent.keyDown(marker, { key: "ArrowDown" });
   expect(screen.queryByRole("dialog")).toBeNull();
-  fireEvent.keyDown(marker, { key: "Enter" });
+  fireEvent.click(marker);
 
   const heading = screen.getByRole("heading", { name: "Словения" });
   expect(document.activeElement).toBe(heading);
   expect(screen.getByRole("dialog").id).toBe(detailId);
   expect(screen.getAllByRole("dialog")).toHaveLength(1);
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-  await nextAnimationFrame();
+  await nextRendererFrame();
 
   const returnedMarker = screen.getByRole("button", { name: "Открыть страну Словения" });
   expect(returnedMarker.getAttribute("aria-expanded")).toBe("false");
   expect(document.activeElement).toBe(returnedMarker);
-  fireEvent.keyDown(returnedMarker, { key: " " });
+  fireEvent.keyDown(returnedMarker, { key: "Enter" });
   expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Словения" }));
   fireEvent.click(screen.getByRole("button", { name: "Закрыть карточку" }));
-  await nextAnimationFrame();
+  await nextRendererFrame();
+  const markerAfterClose = screen.getByRole("button", { name: "Открыть страну Словения" });
+  expect(document.activeElement).toBe(markerAfterClose);
+  expect(fireEvent.keyDown(markerAfterClose, { key: " " })).toBe(false);
+  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Словения" }));
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  await nextRendererFrame();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Открыть страну Словения" }));
 });
 
@@ -311,7 +327,7 @@ it("moves focus to a remaining marker or the globe when a selected marker is rem
     />,
   );
 
-  await nextAnimationFrame();
+  await nextRendererFrame();
   const remainingMarker = screen.getByRole("button", { name: "Открыть страну Словакия" });
   await waitFor(() => expect(document.activeElement).toBe(remainingMarker));
 
@@ -382,7 +398,7 @@ it("returns focus to a cloned marker when a new overview clears its details", as
     />,
   );
 
-  await nextAnimationFrame();
+  await nextRendererFrame();
   const marker = screen.getByRole("button", { name: "Открыть страну Словения" });
   await waitFor(() => expect(document.activeElement).toBe(marker));
 });
