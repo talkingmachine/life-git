@@ -108,22 +108,16 @@ export interface SourceCandidate {
   readonly discoveredFrom: "registry";
 }
 
-export interface OfficialSourceDiscoveryInput {
-  readonly country: CountryRef;
-  readonly authorityRoots: readonly string[];
-  readonly requiredClaimKinds: readonly ClaimKind[];
-}
-
-export type OfficialSourceDiscoveryResult =
+export type CountrySourceIndexResult =
   | { readonly ok: true; readonly candidates: readonly SourceCandidate[] }
   | {
       readonly ok: false;
-      readonly kind: "refused" | "invalid_output" | "model_error" | "timeout";
+      readonly kind: "country_not_installed";
       readonly candidates: readonly [];
     };
 
-export interface OfficialSourceDiscoveryPort {
-  discover(input: OfficialSourceDiscoveryInput): Promise<OfficialSourceDiscoveryResult>;
+export interface CountrySourceIndexPort {
+  lookup(countryCode: string): CountrySourceIndexResult;
 }
 
 export interface SloveniaResearch {

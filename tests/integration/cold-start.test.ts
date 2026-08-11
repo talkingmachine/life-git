@@ -38,7 +38,6 @@ import type {
   ClaimKind,
   ClaimValueByKind,
   ColdStartEvidenceClaim,
-  SourceCandidate,
   SloveniaSourceId,
   VerifiedCountryClaim,
 } from "../../src/research/cold-start-contracts";
@@ -48,6 +47,7 @@ import {
   type DossierPublishResult,
 } from "../../src/research/dossier";
 import { createSloveniaPlan } from "../../src/research/slovenia-plan";
+import { createInstalledCountrySourceIndex } from "../../src/infrastructure/sources/country-source-index";
 import {
   sealEvidencePlan,
   type SealedEvidence,
@@ -63,6 +63,12 @@ const SOURCE_IDS = [
   "si-companion-employment",
   "cbr-eur",
 ] as const satisfies readonly SloveniaSourceId[];
+
+const INDEXED_SOURCE_URLS: Readonly<Partial<Record<SloveniaSourceId, string>>> = {
+  "si-digital-nomad-route": "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO5761&print=1",
+  "si-income-threshold": "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
+  "si-companion-employment": "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO6655",
+};
 const COUNTRY_SOURCE_IDS = SOURCE_IDS.slice(0, 3) as readonly Exclude<
   SloveniaSourceId,
   "cbr-eur"
@@ -259,6 +265,9 @@ async function preparedFixture(
     parserEntry: {
       sourceId,
       navigationUrl: SOURCE_URLS[sourceId],
+      ...(INDEXED_SOURCE_URLS[sourceId] === undefined
+        ? {}
+        : { indexedSourceUrl: INDEXED_SOURCE_URLS[sourceId] }),
       resolvedEvidenceUrl: SOURCE_URLS[sourceId],
       artifacts: artifacts.filter((candidate) => candidate.sourceId === sourceId),
     },
@@ -820,22 +829,9 @@ describe("pure VS-2 cold-start comparator", () => {
   });
 });
 
-const DISCOVERED_CANDIDATES: readonly SourceCandidate[] = [
-  {
-    candidateId: "route-gov",
-    url: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
-    authorityRoot: "https://www.gov.si",
-    claimKinds: ["route_basis"],
-    discoveredFrom: "registry",
-  },
-  {
-    candidateId: "route-law",
-    url: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO5761&print=1",
-    authorityRoot: "https://pisrs.si",
-    claimKinds: ["route_basis"],
-    discoveredFrom: "registry",
-  },
-];
+const installedIndexResult = createInstalledCountrySourceIndex().lookup("SI");
+if (!installedIndexResult.ok) throw new Error("Slovenia test index must be installed");
+const INSTALLED_CANDIDATES = installedIndexResult.candidates;
 
 async function blockedRunFixture(runId: string, contextHash: string) {
   const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] =
@@ -867,30 +863,29 @@ async function blockedRunFixture(runId: string, contextHash: string) {
 }
 
 function coldStartHarness(options: {
-  readonly mode?: "full" | "blocked";
+  readonly countryInstalled?: boolean;
   readonly afterPrepared?: () => void;
   readonly afterPublish?: () => void;
   readonly tamperPrepared?: boolean;
-  readonly discoveryError?: Error;
+  readonly sourceIndexError?: Error;
 } = {}) {
   const db = database();
   const profiles = new SqliteProfileStore(db);
   const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
   const dossierStore = new SqliteDossierStore(db, KEY);
-  const discoveryInputs: unknown[] = [];
+  const sourceIndexInputs: string[] = [];
   const researchInputs: unknown[] = [];
   let runCounter = 0;
 
   const application = createColdStartApplication({
     profiles,
-    discovery: {
-      discover: async (input) => {
-        discoveryInputs.push(structuredClone(input));
-        if (options.discoveryError !== undefined) throw options.discoveryError;
-        if (options.mode === "blocked") {
-          return { ok: false as const, kind: "model_error" as const, candidates: [] as const };
-        }
-        return { ok: true as const, candidates: DISCOVERED_CANDIDATES };
+    countrySourceIndex: {
+      lookup(countryCode) {
+        sourceIndexInputs.push(countryCode);
+        if (options.sourceIndexError !== undefined) throw options.sourceIndexError;
+        return options.countryInstalled === false
+          ? { ok: false as const, kind: "country_not_installed" as const, candidates: [] as const }
+          : { ok: true as const, candidates: INSTALLED_CANDIDATES };
       },
     },
     research: {
@@ -902,7 +897,7 @@ function coldStartHarness(options: {
           contextHash: input.contextHash,
           candidates: structuredClone(input.candidates),
         });
-        const fixture = options.mode === "blocked"
+        const fixture = options.countryInstalled === false
           ? { prepared: await blockedRunFixture(input.runId, input.contextHash), artifacts: [] }
           : await replayableFixture({
               runId: input.runId,
@@ -956,7 +951,7 @@ function coldStartHarness(options: {
     clock: () => new Date("2026-08-11T10:00:00.000Z"),
     nextRunId: () => `cold-run-${++runCounter}`,
   });
-  return { application, db, discoveryInputs, researchInputs };
+  return { application, db, evidenceStore, sourceIndexInputs, researchInputs };
 }
 
 describe("cold-start orchestration, reload and commit boundary", () => {
@@ -1024,16 +1019,7 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       new AbortController().signal,
     );
 
-    expect(harness.discoveryInputs).toEqual([{
-      country: prepared.country,
-      authorityRoots: [
-        "https://www.gov.si",
-        "https://pisrs.si",
-        "https://pxweb.stat.si",
-        "https://www.ess.gov.si",
-      ],
-      requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-    }]);
+    expect(harness.sourceIndexInputs).toEqual(["SI"]);
     expect(harness.researchInputs).toEqual([{
       runId: prepared.runId,
       assessmentDate: prepared.assessmentAt,
@@ -1042,16 +1028,18 @@ describe("cold-start orchestration, reload and commit boundary", () => {
         runId: prepared.runId,
         profileId: prepared.profileId,
       })),
-      candidates: DISCOVERED_CANDIDATES,
+      candidates: INSTALLED_CANDIDATES,
     }]);
     expect(events.map(({ sequence }) => sequence)).toEqual(
       events.map((_event, index) => index + 1),
     );
     expect(events.map(({ type }) => type)).toEqual([
-      "source_discovered",
-      "authority_verified",
-      "source_discovered",
-      "authority_verified",
+      "source_discovered", "authority_verified",
+      "source_discovered", "authority_verified",
+      "source_discovered", "authority_verified",
+      "source_discovered", "authority_verified",
+      "source_discovered", "authority_verified",
+      "source_discovered", "authority_verified",
       "artifact_captured",
       "claim_verified",
       "dossier_published",
@@ -1092,16 +1080,46 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       "https://www.ess.gov.si/delodajalci/zaposlovanje-tujcev-iz-tretjih-drzav/zaposlitev-tujcev-z-dovoljenjem-za-prebivanje/",
       SOURCE_URLS["cbr-eur"],
     ]);
+    const verifiedBundle = await harness.evidenceStore.loadVerifiedBundle(
+      `${prepared.runId}:evidence`,
+      KEY,
+    );
+    expect(verifiedBundle.entries.map(({ sourceId, navigationUrl, indexedSourceUrl }) => ({
+      sourceId,
+      navigationUrl,
+      indexedSourceUrl,
+    }))).toEqual([
+      {
+        sourceId: "si-digital-nomad-route",
+        navigationUrl: INSTALLED_CANDIDATES[0]!.url,
+        indexedSourceUrl: INSTALLED_CANDIDATES[1]!.url,
+      },
+      {
+        sourceId: "si-income-threshold",
+        navigationUrl: INSTALLED_CANDIDATES[2]!.url,
+        indexedSourceUrl: INSTALLED_CANDIDATES[3]!.url,
+      },
+      {
+        sourceId: "si-companion-employment",
+        navigationUrl: INSTALLED_CANDIDATES[4]!.url,
+        indexedSourceUrl: INSTALLED_CANDIDATES[5]!.url,
+      },
+      {
+        sourceId: "cbr-eur",
+        navigationUrl: SOURCE_URLS["cbr-eur"],
+        indexedSourceUrl: undefined,
+      },
+    ]);
 
     const beforePresentCalls = {
-      discovery: harness.discoveryInputs.length,
+      sourceIndex: harness.sourceIndexInputs.length,
       research: harness.researchInputs.length,
     };
     expect(await harness.application.present({
       runId: prepared.runId,
       profileId: prepared.profileId,
     })).toEqual(result);
-    expect(harness.discoveryInputs).toHaveLength(beforePresentCalls.discovery);
+    expect(harness.sourceIndexInputs).toHaveLength(beforePresentCalls.sourceIndex);
     expect(harness.researchInputs).toHaveLength(beforePresentCalls.research);
 
     const retry = await harness.application.prepare({
@@ -1127,7 +1145,7 @@ describe("cold-start orchestration, reload and commit boundary", () => {
   });
 
   test("seals blocked Evidence alone and reproduces its yellow read model offline", async () => {
-    const harness = coldStartHarness({ mode: "blocked" });
+    const harness = coldStartHarness({ countryInstalled: false });
     const prepared = await harness.application.prepare({
       countryInput: "SI",
       profile: RELOCATION_DRAFT,
@@ -1147,6 +1165,8 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(result.dossier).toBeUndefined();
     expect(harness.researchInputs).toHaveLength(1);
     expect(harness.researchInputs[0]).toMatchObject({ candidates: [] });
+    expect(events.filter(({ type }) => type === "source_discovered")).toHaveLength(0);
+    expect(events.filter(({ type }) => type === "authority_verified")).toHaveLength(0);
     expect(events.some(({ type }) => type === "dossier_published")).toBe(false);
     expect(events.at(-1)?.type).toBe("assessment_completed");
     expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(1);
@@ -1164,33 +1184,33 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       profile: RELOCATION_DRAFT,
     });
     const preAbortedSignal = new AbortController();
-    preAbortedSignal.abort(new Error("cancel-before-discovery"));
+    preAbortedSignal.abort(new Error("cancel-before-source-index"));
     await expect(preAborted.application.run(
       preAbortedPrepared,
       () => undefined,
       preAbortedSignal.signal,
-    )).rejects.toThrow("cancel-before-discovery");
-    expect(preAborted.discoveryInputs).toHaveLength(0);
+    )).rejects.toThrow("cancel-before-source-index");
+    expect(preAborted.sourceIndexInputs).toHaveLength(0);
     expect(preAborted.researchInputs).toHaveLength(0);
     expect(preAborted.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
     expect(preAborted.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
 
-    const unexpectedDiscovery = coldStartHarness({
-      discoveryError: new Error("unexpected-discovery-error"),
+    const unexpectedSourceIndex = coldStartHarness({
+      sourceIndexError: new Error("unexpected-source-index-error"),
     });
-    const unexpectedPrepared = await unexpectedDiscovery.application.prepare({
+    const unexpectedPrepared = await unexpectedSourceIndex.application.prepare({
       countryInput: "SI",
       profile: RELOCATION_DRAFT,
     });
-    await expect(unexpectedDiscovery.application.run(
+    await expect(unexpectedSourceIndex.application.run(
       unexpectedPrepared,
       () => undefined,
       new AbortController().signal,
-    )).rejects.toThrow("unexpected-discovery-error");
-    expect(unexpectedDiscovery.researchInputs).toHaveLength(0);
-    expect(unexpectedDiscovery.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get())
+    )).rejects.toThrow("unexpected-source-index-error");
+    expect(unexpectedSourceIndex.researchInputs).toHaveLength(0);
+    expect(unexpectedSourceIndex.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get())
       .toBe(0);
-    expect(unexpectedDiscovery.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get())
+    expect(unexpectedSourceIndex.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get())
       .toBe(0);
 
     const tampered = coldStartHarness({ tamperPrepared: true });
@@ -1225,7 +1245,7 @@ describe("cold-start orchestration, reload and commit boundary", () => {
 
     const blockedAbort = new AbortController();
     const blockedBefore = coldStartHarness({
-      mode: "blocked",
+      countryInstalled: false,
       afterPrepared: () => blockedAbort.abort(new Error("cancel-blocked-before-seal")),
     });
     const blockedPrepared = await blockedBefore.application.prepare({
@@ -1943,18 +1963,21 @@ async function replayableFixture(options: {
     {
       sourceId: "si-digital-nomad-route" as const,
       navigationUrl: urls.gov,
+      indexedSourceUrl: INSTALLED_CANDIDATES[1]!.url,
       resolvedEvidenceUrl: urls.routeDetails,
       artifacts: artifacts.filter(({ sourceId }) => sourceId === "si-digital-nomad-route"),
     },
     {
       sourceId: "si-income-threshold" as const,
       navigationUrl: urls.salary,
+      indexedSourceUrl: INSTALLED_CANDIDATES[3]!.url,
       resolvedEvidenceUrl: urls.sistat,
       artifacts: artifacts.filter(({ sourceId }) => sourceId === "si-income-threshold"),
     },
     {
       sourceId: "si-companion-employment" as const,
       navigationUrl: urls.ess,
+      indexedSourceUrl: INSTALLED_CANDIDATES[5]!.url,
       resolvedEvidenceUrl: urls.companionDetails,
       artifacts: artifacts.filter(({ sourceId }) => sourceId === "si-companion-employment"),
     },

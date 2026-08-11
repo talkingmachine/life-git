@@ -93,7 +93,6 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
   const coldStart = createColdStartComposition({
     database: options.database,
     hmacKey: options.hmacKey,
-    ...(options.openAiApiKey === undefined ? {} : { openAiApiKey: options.openAiApiKey }),
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
   });

@@ -2,10 +2,9 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type OpenAI from "openai";
 
 import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
-import { createOfficialSourceDiscovery } from "../../src/infrastructure/sources/official-source-discovery";
+import { createInstalledCountrySourceIndex } from "../../src/infrastructure/sources/country-source-index";
 import type {
   CaptureResult,
   Claim,
@@ -21,16 +20,10 @@ import {
   type EvidenceWriteStore,
   type ResearchPlan,
 } from "../../src/research/research-plan";
-import {
-  REQUIRED_CLAIM_KINDS,
-  SI_AUTHORITY_ROOTS,
-  resolveCountry,
-} from "../../src/research/country-registry";
+import { resolveCountry } from "../../src/research/country-registry";
 import type {
-  ClaimKind,
   ColdStartEvidenceClaim,
   SloveniaSourceId,
-  SourceCandidate,
 } from "../../src/research/cold-start-contracts";
 import { createSloveniaResearch } from "../../src/infrastructure/sources/slovenia-source-adapter";
 
@@ -681,7 +674,7 @@ describe("generic evidence research plan", () => {
   });
 });
 
-describe("Slovenia registry and official discovery", () => {
+describe("Slovenia registry", () => {
   test.each(["SI", " si ", "Slovenia", " slovenia ", "Словения", " словения "])(
     "resolves the supported alias %j to the frozen data-only SI entry",
     (input) => {
@@ -723,316 +716,11 @@ describe("Slovenia registry and official discovery", () => {
     expect(result).toEqual({ ok: false, kind: "unsupported_country" });
     expect(JSON.stringify(result)).not.toContain(sentinel);
   });
-
-  test("sends the exact data-only registry request and stamps a valid model proposal", async () => {
-    const country = resolveCountry("SI");
-    expect(country.ok).toBe(true);
-    if (!country.ok) throw new Error("SI fixture must resolve");
-    const calls: { body?: unknown; options?: unknown }[] = [];
-    const client = {
-      responses: {
-        parse: async (body: unknown, options: unknown) => {
-          calls.push({ body, options });
-          return {
-            output_parsed: {
-              candidates: [{
-                candidateId: "route-gov",
-                url: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
-                authorityRoot: "https://www.gov.si",
-                claimKinds: ["route_basis", "duration"],
-              }],
-            },
-            output: [],
-          };
-        },
-      },
-    } as unknown as OpenAI;
-
-    const result = await createOfficialSourceDiscovery(client).discover({
-      country: country.country,
-      authorityRoots: SI_AUTHORITY_ROOTS,
-      requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-    });
-
-    expect(result).toEqual({
-      ok: true,
-      candidates: [{
-        candidateId: "route-gov",
-        url: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
-        authorityRoot: "https://www.gov.si",
-        claimKinds: ["route_basis", "duration"],
-        discoveredFrom: "registry",
-      }],
-    });
-    expect(calls).toHaveLength(1);
-    const call = calls[0] as {
-      body: {
-        model: string;
-        input: string;
-        store: boolean;
-        tools: unknown[];
-        text: { format: unknown };
-      };
-      options: unknown;
-    };
-    expect(JSON.parse(call.body.input)).toEqual({
-      country: country.country,
-      authorityRoots: SI_AUTHORITY_ROOTS,
-      requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-    });
-    expect(Object.keys(JSON.parse(call.body.input))).toEqual([
-      "country",
-      "authorityRoots",
-      "requiredClaimKinds",
-    ]);
-    expect(call.body.input).not.toMatch(/210000|passport|profile|incomeRub|Russian|free.?text/i);
-    expect(call.body).toMatchObject({
-      model: "gpt-5.6",
-      store: false,
-      tools: [{
-        type: "web_search",
-        search_context_size: "low",
-        filters: {
-          allowed_domains: ["www.gov.si", "pisrs.si", "pxweb.stat.si", "www.ess.gov.si"],
-        },
-      }],
-    });
-    expect(call.body.text.format).toEqual(expect.objectContaining({ type: "json_schema" }));
-    expect(call.options).toEqual({ timeout: 12_000, maxRetries: 0 });
-    if (!result.ok) throw new Error("discovery fixture must validate");
-    expect(Object.isFrozen(result.candidates)).toBe(true);
-    expect(Object.isFrozen(result.candidates[0])).toBe(true);
-    expect(Object.isFrozen(result.candidates[0]!.claimKinds)).toBe(true);
-    expect(() => {
-      (result.candidates[0]!.claimKinds as ClaimKind[]).push("income");
-    }).toThrow();
-  });
-
-  test("reconstructs the discovery payload without extra enumerable caller fields", async () => {
-    const country = resolveCountry("SI");
-    if (!country.ok) throw new Error("SI fixture must resolve");
-    let serializedInput = "";
-    const client = {
-      responses: {
-        parse: async (body: { readonly input: string }) => {
-          serializedInput = body.input;
-          return { output_parsed: { candidates: [] }, output: [] };
-        },
-      },
-    } as unknown as OpenAI;
-    const taintedCountry = {
-      ...country.country,
-      profile: { monthlyIncomeRub: "210000", citizenship: "RU" },
-      freeText: "private sentinel",
-    };
-
-    await createOfficialSourceDiscovery(client).discover({
-      country: taintedCountry,
-      authorityRoots: SI_AUTHORITY_ROOTS,
-      requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-    });
-
-    expect(JSON.parse(serializedInput)).toEqual({
-      country: country.country,
-      authorityRoots: SI_AUTHORITY_ROOTS,
-      requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-    });
-    expect(serializedInput).not.toMatch(/210000|monthlyIncomeRub|"citizenship":|private sentinel|freeText/i);
-  });
-
-  test.each([
-    {
-      name: "more than six candidates",
-      output: {
-        candidates: Array.from({ length: 7 }, (_, index) => ({
-          candidateId: `candidate-${index}`,
-          url: `https://pisrs.si/${index}`,
-          authorityRoot: "https://pisrs.si",
-          claimKinds: ["income"],
-        })),
-      },
-    },
-    {
-      name: "non-HTTPS URL",
-      output: { candidates: [{
-        candidateId: "bad-http",
-        url: "http://pisrs.si/law",
-        authorityRoot: "https://pisrs.si",
-        claimKinds: ["income"],
-      }] },
-    },
-    {
-      name: "uninstalled subdomain",
-      output: { candidates: [{
-        candidateId: "bad-host",
-        url: "https://e-uprava.gov.si/route",
-        authorityRoot: "https://www.gov.si",
-        claimKinds: ["route_basis"],
-      }] },
-    },
-    {
-      name: "noncanonical port",
-      output: { candidates: [{
-        candidateId: "bad-port",
-        url: "https://pisrs.si:444/law",
-        authorityRoot: "https://pisrs.si",
-        claimKinds: ["income"],
-      }] },
-    },
-    {
-      name: "mismatched authority root",
-      output: { candidates: [{
-        candidateId: "wrong-root",
-        url: "https://pisrs.si/law",
-        authorityRoot: "https://www.gov.si",
-        claimKinds: ["route_basis"],
-      }] },
-    },
-    {
-      name: "duplicate claim kind",
-      output: { candidates: [{
-        candidateId: "duplicate-kind",
-        url: "https://pisrs.si/law",
-        authorityRoot: "https://pisrs.si",
-        claimKinds: ["route_basis", "route_basis"],
-      }] },
-    },
-    {
-      name: "empty claim kinds",
-      output: { candidates: [{
-        candidateId: "empty-kinds",
-        url: "https://pisrs.si/law",
-        authorityRoot: "https://pisrs.si",
-        claimKinds: [],
-      }] },
-    },
-    {
-      name: "kind outside the requested set",
-      output: { candidates: [{
-        candidateId: "unrequested-kind",
-        url: "https://pisrs.si/law",
-        authorityRoot: "https://pisrs.si",
-        claimKinds: ["income"],
-      }] },
-      requested: ["route_basis"] as const,
-    },
-  ])("rejects the entire batch for $name", async ({ output, requested }) => {
-    const country = resolveCountry("SI");
-    if (!country.ok) throw new Error("SI fixture must resolve");
-    const client = {
-      responses: { parse: async () => ({ output_parsed: output, output: [] }) },
-    } as unknown as OpenAI;
-
-    const result = await createOfficialSourceDiscovery(client).discover({
-      country: country.country,
-      authorityRoots: SI_AUTHORITY_ROOTS,
-      requiredClaimKinds: requested ?? REQUIRED_CLAIM_KINDS,
-    });
-
-    expect(result).toEqual({ ok: false, kind: "invalid_output", candidates: [] });
-  });
-
-  test.each([
-    {
-      name: "refusal",
-      response: {
-        output_parsed: null,
-        output: [{ type: "message", content: [{ type: "refusal", refusal: "no" }] }],
-      },
-      kind: "refused",
-    },
-    { name: "schema mismatch", response: { output_parsed: { candidates: "bad" }, output: [] }, kind: "invalid_output" },
-    { name: "empty parse", response: { output_parsed: null, output: [] }, kind: "invalid_output" },
-  ])("returns an empty typed blocker for $name", async ({ response, kind }) => {
-    const country = resolveCountry("SI");
-    if (!country.ok) throw new Error("SI fixture must resolve");
-    const client = {
-      responses: { parse: async () => response },
-    } as unknown as OpenAI;
-
-    await expect(createOfficialSourceDiscovery(client).discover({
-      country: country.country,
-      authorityRoots: SI_AUTHORITY_ROOTS,
-      requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-    })).resolves.toEqual({ ok: false, kind, candidates: [] });
-  });
-
-  test("classifies model and timeout errors without exposing a partial candidate", async () => {
-    const country = resolveCountry("SI");
-    if (!country.ok) throw new Error("SI fixture must resolve");
-    const input = {
-      country: country.country,
-      authorityRoots: SI_AUTHORITY_ROOTS,
-      requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-    };
-    const modelClient = {
-      responses: { parse: async () => { throw new Error("upstream failed"); } },
-    } as unknown as OpenAI;
-    const timeoutClient = {
-      responses: {
-        parse: async () => {
-          throw Object.assign(new Error("request timed out"), { name: "APIConnectionTimeoutError" });
-        },
-      },
-    } as unknown as OpenAI;
-
-    await expect(createOfficialSourceDiscovery(modelClient).discover(input)).resolves.toEqual({
-      ok: false,
-      kind: "model_error",
-      candidates: [],
-    });
-    await expect(createOfficialSourceDiscovery(timeoutClient).discover(input)).resolves.toEqual({
-      ok: false,
-      kind: "timeout",
-      candidates: [],
-    });
-  });
 });
 
-const SLOVENIA_CANDIDATES: readonly SourceCandidate[] = [
-  {
-    candidateId: "gov-route",
-    url: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
-    authorityRoot: "https://www.gov.si",
-    claimKinds: ["route_basis", "citizenship_applicability", "remote_work_relations", "qualification", "companion_entry", "duration", "general_statutory_prerequisites"],
-    discoveredFrom: "registry",
-  },
-  {
-    candidateId: "ztuj2",
-    url: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO5761&print=1",
-    authorityRoot: "https://pisrs.si",
-    claimKinds: ["route_basis", "citizenship_applicability", "remote_work_relations", "qualification", "companion_entry", "duration", "general_statutory_prerequisites"],
-    discoveredFrom: "registry",
-  },
-  {
-    candidateId: "salary-publication",
-    url: "https://pisrs.si/pregledPredpisa?sop=2026-01-1950",
-    authorityRoot: "https://pisrs.si",
-    claimKinds: ["income"],
-    discoveredFrom: "registry",
-  },
-  {
-    candidateId: "sistat",
-    url: "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
-    authorityRoot: "https://pxweb.stat.si",
-    claimKinds: ["income"],
-    discoveredFrom: "registry",
-  },
-  {
-    candidateId: "ess-companion",
-    url: "https://www.ess.gov.si/delodajalci/zaposlovanje-tujcev-iz-tretjih-drzav/zaposlitev-tujcev-z-dovoljenjem-za-prebivanje/",
-    authorityRoot: "https://www.ess.gov.si",
-    claimKinds: ["companion_local_work_access"],
-    discoveredFrom: "registry",
-  },
-  {
-    candidateId: "zzsdt",
-    url: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO6655",
-    authorityRoot: "https://pisrs.si",
-    claimKinds: ["companion_local_work_access"],
-    discoveredFrom: "registry",
-  },
-];
+const installedIndexResult = createInstalledCountrySourceIndex().lookup("SI");
+if (!installedIndexResult.ok) throw new Error("Slovenia test index must be installed");
+const SLOVENIA_CANDIDATES = installedIndexResult.candidates;
 
 // Provenance: docs/superpowers/specs/2026-08-11-slovenia-official-source-field-map.md.
 // Each compact role retains its recorded official URL and response-byte SHA-256 below.
@@ -1200,6 +888,7 @@ describe("Slovenia installed research plan", () => {
   test("captures the canonical eleven artifacts and builds the official all-dimensions SiStat query", async () => {
     const { source: sloveniaSource } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
     const requests: HttpStepRequest<SloveniaSourceId>[] = [];
+    const entries: ParserEntry<SloveniaSourceId>[] = [];
     const requestStep: RequestStep<SloveniaSourceId> = async (request) => {
       requests.push(request);
       return sloveniaArtifact(request);
@@ -1218,7 +907,35 @@ describe("Slovenia installed research plan", () => {
         signal: new AbortController().signal,
       }, requestStep);
       expect(result.ok).toBe(true);
+      if (result.ok) entries.push(result.entry);
     }
+
+    expect(entries.map(({ sourceId, navigationUrl, indexedSourceUrl }) => ({
+      sourceId,
+      navigationUrl,
+      indexedSourceUrl,
+    }))).toEqual([
+      {
+        sourceId: "si-digital-nomad-route",
+        navigationUrl: SLOVENIA_CANDIDATES[0]!.url,
+        indexedSourceUrl: SLOVENIA_CANDIDATES[1]!.url,
+      },
+      {
+        sourceId: "si-income-threshold",
+        navigationUrl: SLOVENIA_CANDIDATES[2]!.url,
+        indexedSourceUrl: SLOVENIA_CANDIDATES[3]!.url,
+      },
+      {
+        sourceId: "si-companion-employment",
+        navigationUrl: SLOVENIA_CANDIDATES[4]!.url,
+        indexedSourceUrl: SLOVENIA_CANDIDATES[5]!.url,
+      },
+      {
+        sourceId: "cbr-eur",
+        navigationUrl: "https://www.cbr.ru/scripts/XML_daily.asp",
+        indexedSourceUrl: undefined,
+      },
+    ]);
 
     expect(requests.map(({ sourceId, role, method }) => ({ sourceId, role, method }))).toEqual([
       { sourceId: "si-digital-nomad-route", role: "gov-route-page", method: "GET" },

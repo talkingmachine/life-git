@@ -11,14 +11,13 @@ import {
 import type {
   ClaimKind,
   ColdStartEvidenceClaim,
+  CountrySourceIndexPort,
   CountryRef,
-  OfficialSourceDiscoveryPort,
   SloveniaSourceId,
   SourceCandidate,
 } from "../research/cold-start-contracts";
 import {
   REQUIRED_CLAIM_KINDS,
-  SI_AUTHORITY_ROOTS,
   resolveCountry,
 } from "../research/country-registry";
 import {
@@ -155,7 +154,7 @@ export interface ColdStartApplicationPorts {
     appendRelocation(snapshot: RelocationProfileSnapshot): Promise<void>;
     loadRelocationVerified(id: string): Promise<RelocationProfileSnapshot>;
   };
-  readonly discovery: OfficialSourceDiscoveryPort;
+  readonly countrySourceIndex: CountrySourceIndexPort;
   readonly research: {
     prepare(input: ColdStartResearchPrepareInput): Promise<
       SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaim>
@@ -469,14 +468,9 @@ export function createColdStartApplication(
         ports.integrity.canonical(resolved.country) !== ports.integrity.canonical(prepared.country)
       ) integrityMismatch();
       const events = eventEmitter(prepared, emit, ports.clock);
-      let candidates: readonly SourceCandidate[] = [];
-      const discovered = await ports.discovery.discover({
-        country: prepared.country,
-        authorityRoots: SI_AUTHORITY_ROOTS,
-        requiredClaimKinds: REQUIRED_CLAIM_KINDS,
-      });
+      const indexed = ports.countrySourceIndex.lookup(prepared.country.code);
+      const candidates = indexed.ok ? indexed.candidates : [];
       if (signal.aborted) abortReason(signal);
-      if (discovered.ok) candidates = discovered.candidates;
       for (const candidate of candidates) {
         await events.send({
           type: "source_discovered",

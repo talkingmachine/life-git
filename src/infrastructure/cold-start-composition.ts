@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import type Database from "better-sqlite3";
-import OpenAI from "openai";
 
 import {
   createColdStartApplication,
@@ -10,14 +9,14 @@ import {
 import { replayEvidenceByRules } from "../application/replay-evidence";
 import type {
   ColdStartEvidenceClaim,
-  OfficialSourceDiscoveryPort,
+  CountrySourceIndexPort,
   SloveniaSourceId,
 } from "../research/cold-start-contracts";
 import type { RequestStep } from "../research/contracts";
 import { prepareEvidencePlan } from "../research/research-plan";
 import { createEvidenceIntegrity } from "./integrity";
+import { createInstalledCountrySourceIndex } from "./sources/country-source-index";
 import { captureHttpOnce } from "./sources/gateway";
-import { createOfficialSourceDiscovery } from "./sources/official-source-discovery";
 import { createSloveniaResearch } from "./sources/slovenia-source-adapter";
 import { SqliteDossierStore } from "./sqlite/dossier-store";
 import { SqliteEvidenceStore } from "./sqlite/evidence-store";
@@ -26,21 +25,10 @@ import { SqliteProfileStore } from "./sqlite/profile-store";
 export interface ColdStartCompositionOptions {
   readonly database: Database.Database;
   readonly hmacKey: string;
-  readonly openAiApiKey?: string;
-  readonly discovery?: OfficialSourceDiscoveryPort;
+  readonly countrySourceIndex?: CountrySourceIndexPort;
   readonly requestStep?: RequestStep<SloveniaSourceId>;
   readonly clock?: () => Date;
   readonly nextRunId?: () => string;
-}
-
-function unavailableDiscovery(): OfficialSourceDiscoveryPort {
-  return Object.freeze({
-    discover: async () => ({
-      ok: false as const,
-      kind: "model_error" as const,
-      candidates: [] as const,
-    }),
-  });
 }
 
 export function createColdStartComposition(
@@ -53,16 +41,11 @@ export function createColdStartComposition(
   const profileStore = new SqliteProfileStore(options.database);
   const integrity = createEvidenceIntegrity(options.hmacKey);
   const requestStep = options.requestStep ?? captureHttpOnce;
-  const apiKey = options.openAiApiKey?.trim();
-  const discovery = options.discovery ?? (
-    apiKey === undefined || apiKey.length === 0
-      ? unavailableDiscovery()
-      : createOfficialSourceDiscovery(new OpenAI({ apiKey }))
-  );
+  const countrySourceIndex = options.countrySourceIndex ?? createInstalledCountrySourceIndex();
 
   return createColdStartApplication({
     profiles: profileStore,
-    discovery,
+    countrySourceIndex,
     research: {
       prepare: (input) => {
         const research = createSloveniaResearch({ candidates: input.candidates });

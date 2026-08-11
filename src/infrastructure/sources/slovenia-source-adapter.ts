@@ -146,11 +146,13 @@ function getRequest(
 function entry(
   sourceId: CountrySourceId,
   navigationUrl: string,
+  indexedSourceUrl: string,
   artifacts: readonly LiveCapturedArtifact<SloveniaSourceId>[],
 ): CapturedEntry<SloveniaSourceId> {
   return {
     sourceId,
     navigationUrl,
+    indexedSourceUrl,
     resolvedEvidenceUrl: artifacts.at(-1)?.responseUrl ?? navigationUrl,
     artifacts,
   };
@@ -266,7 +268,9 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
         const identity = law === undefined
           ? null
           : pisrsIdentityFromCandidate(law, { kind: "record-id", value: "ZAKO5761" });
-        if (gov === undefined || identity === null) return unavailable(request.sourceId);
+        if (gov === undefined || law === undefined || identity === null) {
+          return unavailable(request.sourceId);
+        }
         const govArtifact = await runStep(requestStep, getRequest(
           request,
           "gov-route-page",
@@ -296,7 +300,7 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
           "pisrs.si",
           "application/json",
         ), request.signal, [govArtifact, registryArtifact]);
-        captured = entry(request.sourceId, gov.url, [
+        captured = entry(request.sourceId, gov.url, law.url, [
           govArtifact,
           registryArtifact,
           detailsArtifact,
@@ -362,7 +366,7 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
           allowedHosts: ["pxweb.stat.si"],
           allowedMediaTypes: ["application/json"],
         }, request.signal, [registryArtifact, detailsArtifact, metadataArtifact]);
-        captured = entry(request.sourceId, salary.url, [
+        captured = entry(request.sourceId, salary.url, sistat.url, [
           registryArtifact,
           detailsArtifact,
           metadataArtifact,
@@ -374,7 +378,9 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
         const identity = law === undefined
           ? null
           : pisrsIdentityFromCandidate(law, { kind: "record-id", value: "ZAKO6655" });
-        if (ess === undefined || identity === null) return unavailable(request.sourceId);
+        if (ess === undefined || law === undefined || identity === null) {
+          return unavailable(request.sourceId);
+        }
         const essArtifact = await runStep(requestStep, getRequest(
           request,
           "ess-companion-page",
@@ -404,7 +410,7 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
           "pisrs.si",
           "application/json",
         ), request.signal, [essArtifact, registryArtifact]);
-        captured = entry(request.sourceId, ess.url, [
+        captured = entry(request.sourceId, ess.url, law.url, [
           essArtifact,
           registryArtifact,
           detailsArtifact,
