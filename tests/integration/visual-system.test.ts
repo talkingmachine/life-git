@@ -124,6 +124,17 @@ describe("calm command center visual contracts", () => {
     expect(declaration(overview, "background")).toBe("transparent");
   });
 
+  it("lets collapsed globe markers pass through empty Research workspace areas", () => {
+    const workspace = rule(css, ".cold-start-journey--collapsed > .research-workspace");
+    const panels = rule(
+      css,
+      ".cold-start-journey--collapsed > .research-workspace > :is(.research-workspace__candidate, .research-workspace__progress, .research-workspace__retry)",
+    );
+
+    expect(declaration(workspace, "pointer-events")).toBe("none");
+    expect(declaration(panels, "pointer-events")).toBe("auto");
+  });
+
   it("does not retain obsolete globe or route-art selectors", () => {
     expect(css).not.toMatch(/\.orbit-globe|globe-arrival|\.research-map__art|\.research-map__airplane|route-arrival/);
   });

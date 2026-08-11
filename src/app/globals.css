@@ -2060,6 +2060,14 @@ input[type="checkbox"] {
   gap: clamp(1rem, 3vw, 2.5rem);
 }
 
+.cold-start-journey--collapsed > .research-workspace {
+  pointer-events: none;
+}
+
+.cold-start-journey--collapsed > .research-workspace > :is(.research-workspace__candidate, .research-workspace__progress, .research-workspace__retry) {
+  pointer-events: auto;
+}
+
 .cold-start-journey__transport {
   position: absolute;
   z-index: 5;
