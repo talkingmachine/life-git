@@ -9,8 +9,10 @@ import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
+import { createConfirmedLifeComposition } from "../../src/infrastructure/composition-root";
 import { SqliteDossierStore } from "../../src/infrastructure/sqlite/dossier-store";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
+import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-store";
 import {
   canonicalJson,
   createEvidenceIntegrity,
@@ -18,11 +20,22 @@ import {
   sha256Text,
 } from "../../src/infrastructure/integrity";
 import { replayEvidenceByRules } from "../../src/application/replay-evidence";
+import {
+  createColdStartApplication,
+  type ColdStartEvent,
+} from "../../src/application/cold-start";
+import { confirmProfile } from "../../src/decision/profile";
+import { assessColdStart } from "../../src/decision/cold-start-assessment";
+import {
+  confirmRelocationProfile,
+  type RelocationProfileDraft,
+} from "../../src/decision/relocation-profile";
 import { REQUIRED_CLAIM_KINDS } from "../../src/research/country-registry";
 import type {
   ClaimKind,
   ClaimValueByKind,
   ColdStartEvidenceClaim,
+  SourceCandidate,
   SloveniaSourceId,
   VerifiedCountryClaim,
 } from "../../src/research/cold-start-contracts";
@@ -136,7 +149,7 @@ function validatorFor(sourceId: Exclude<SloveniaSourceId, "cbr-eur">): string {
 }
 
 function artifact(
-  sourceId: Exclude<SloveniaSourceId, "cbr-eur">,
+  sourceId: SloveniaSourceId,
   runId: string,
   capturedAt: string,
   url: string = SOURCE_URLS[sourceId],
@@ -464,6 +477,710 @@ function publishWorker(input: {
   worker.on("error", (error) => reject(error));
   return { ready, result };
 }
+
+const RELOCATION_DRAFT: RelocationProfileDraft = {
+  currentCountryCode: "RU",
+  citizenships: ["RU"],
+  monthlyIncome: { amount: "210000.00", currency: "RUB", basis: "net" },
+  remoteWork: { relation: "foreign_employment", legallyAllowed: true },
+  education: "none",
+  relevantExperienceYears: 6,
+  passportValidUntil: "2029-11-30",
+  healthInsurance: "confirmed",
+  companions: [
+    { relationship: "minor_child" },
+    { relationship: "spouse" },
+    { relationship: "minor_child" },
+  ],
+};
+
+describe("relocation profile confirmation boundary", () => {
+  test("normalizes a strict non-PII draft into one stable deeply immutable snapshot", () => {
+    const input = structuredClone(RELOCATION_DRAFT);
+    let clockCalls = 0;
+    const clock = (): Date => {
+      clockCalls += 1;
+      return new Date("2026-08-11T09:15:00.000Z");
+    };
+
+    const first = confirmRelocationProfile(input, clock);
+    const second = confirmRelocationProfile(RELOCATION_DRAFT, () =>
+      new Date("2026-08-11T09:15:00.000Z")
+    );
+
+    expect(clockCalls).toBe(1);
+    expect(first).toEqual({
+      schemaVersion: "relocation-profile@1",
+      id: "006f978ccb642469af54b2241b31f794c85123c211970fd4dac12c559fb6227e",
+      confirmedAt: "2026-08-11T09:15:00.000Z",
+      profile: {
+        ...RELOCATION_DRAFT,
+        monthlyIncome: { amount: "210000", currency: "RUB", basis: "net" },
+        companions: [
+          { relationship: "spouse" },
+          { relationship: "minor_child" },
+          { relationship: "minor_child" },
+        ],
+      },
+    });
+    expect(first).toEqual(second);
+    expect(input).toEqual(RELOCATION_DRAFT);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.profile.monthlyIncome)).toBe(true);
+    expect(Object.isFrozen(first.profile.companions)).toBe(true);
+    expect(Object.isFrozen(first.profile.companions[0])).toBe(true);
+  });
+
+  test.each([
+    ["top-level PII", { ...RELOCATION_DRAFT, email: "private@example.test" }],
+    ["nested unknown key", {
+      ...RELOCATION_DRAFT,
+      monthlyIncome: { ...RELOCATION_DRAFT.monthlyIncome, employer: "secret" },
+    }],
+    ["passport number", { ...RELOCATION_DRAFT, passportNumber: "123456789" }],
+    ["arbitrary relationship", {
+      ...RELOCATION_DRAFT,
+      companions: [{ relationship: "partner called Alice" }],
+    }],
+    ["non-canonical date", { ...RELOCATION_DRAFT, passportValidUntil: "2029-02-29" }],
+    ["over-precise income", {
+      ...RELOCATION_DRAFT,
+      monthlyIncome: { ...RELOCATION_DRAFT.monthlyIncome, amount: "210000.001" },
+    }],
+  ])("rejects %s before persistence", (_label, draft) => {
+    expect(() => confirmRelocationProfile(draft, () => new Date())).toThrow();
+  });
+
+  test("stores relocation snapshots explicitly while legacy VS-1 rows stay byte-identical", async () => {
+    const db = database();
+    const store = new SqliteProfileStore(db);
+    const legacy = confirmProfile({
+      availableResourcesAll: "408000",
+      monthlyIncome: { amount: "210000", currency: "RUB" },
+      incomeBasis: "foreign_contract",
+      companionBasis: "none",
+      relationship: "none",
+      conditions: {
+        incomeContinues12Months: true,
+        lawfulStayPrerequisiteAccepted: true,
+        stagedSpouseRouteAccepted: false,
+      },
+    }, () => new Date("2026-08-11T08:00:00.000Z"));
+    await store.append(legacy);
+    const legacyJson = db.prepare(
+      "SELECT snapshot_json FROM profile_snapshots WHERE id = ?",
+    ).pluck().get(legacy.id);
+
+    const relocation = confirmRelocationProfile(
+      RELOCATION_DRAFT,
+      () => new Date("2026-08-11T09:15:00.000Z"),
+    );
+    await store.appendRelocation(relocation);
+
+    expect(await store.loadRelocationVerified(relocation.id)).toEqual(relocation);
+    expect(await store.loadVerified(legacy.id)).toEqual(legacy);
+    expect(db.prepare(
+      "SELECT snapshot_json FROM profile_snapshots WHERE id = ?",
+    ).pluck().get(legacy.id)).toBe(legacyJson);
+    await expect(store.loadRelocationVerified(legacy.id)).rejects.toThrow("integrity_mismatch");
+  });
+});
+
+async function publishedAssessmentFixture(options: {
+  readonly cbrRate?: string;
+  readonly cbrEffectiveDate?: string;
+  readonly mutateClaim?: (claim: VerifiedCountryClaim) => VerifiedCountryClaim;
+} = {}) {
+  const db = database();
+  const fixture = await replayableFixture({
+    cbrRate: options.cbrRate ?? "90",
+    cbrEffectiveDate: options.cbrEffectiveDate ?? "2026-08-10",
+    ...(options.mutateClaim === undefined ? {} : { mutateClaim: options.mutateClaim }),
+  });
+  await appendArtifacts(db, fixture.artifacts);
+  const published = new SqliteDossierStore(db, KEY).publishWithEvidence({
+    preparedEvidence: fixture.prepared,
+    publishedAt: PUBLISHED_AT,
+  });
+  return { fixture, dossier: published.version };
+}
+
+function confirmedRelocation(
+  overrides: Partial<RelocationProfileDraft> = {},
+) {
+  return confirmRelocationProfile({
+    ...RELOCATION_DRAFT,
+    companions: [],
+    ...overrides,
+  }, () => new Date("2026-08-11T09:15:00.000Z"));
+}
+
+describe("pure VS-2 cold-start comparator", () => {
+  test("returns a lineage-backed red formula using unrounded Decimal income", async () => {
+    const { fixture, dossier } = await publishedAssessmentFixture({ cbrRate: "90" });
+    const profile = confirmedRelocation({
+      passportValidUntil: "unknown",
+      healthInsurance: "unknown",
+    });
+
+    const result = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile,
+      evidence: fixture.prepared.snapshot,
+      dossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+
+    expect(result).toEqual({
+      marker: "red",
+      personalFit: "verified_veto",
+      cityScope: "not_checked",
+      reasons: [{
+        code: "income_below_verified_threshold",
+        summary: "Подтверждённого чистого дохода недостаточно для порога маршрута.",
+        claimIds: ["si-income-threshold:income:si-income@1", "cbr-eur-facts-1"],
+        officialUrls: [
+          SOURCE_URLS["si-income-threshold"],
+          "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
+          SOURCE_URLS["cbr-eur"],
+        ],
+      }],
+      formula: {
+        formulaId: "FORMULA-VS2-INCOME-01",
+        formulaVersion: "1",
+        expression: "monthlyIncomeRub / eurRub < thresholdEur",
+        monthlyIncomeRub: "210000",
+        eurRub: "90",
+        incomeEur: "2333.33",
+        thresholdEur: "3120.00",
+        rounding: "UNROUNDED_THEN_HALF_UP_2DP",
+        sourceClaimIds: ["si-income-threshold:income:si-income@1", "cbr-eur-facts-1"],
+      },
+    });
+  });
+
+  test("changes the decision when verified FX or threshold changes and never returns green", async () => {
+    const compatible = await publishedAssessmentFixture({ cbrRate: "60" });
+    const thresholdVeto = await publishedAssessmentFixture({
+      cbrRate: "60",
+      mutateClaim: (claim) => claim.claimKind === "income"
+        ? { ...claim, value: { ...claim.value as ClaimValueByKind["income"], thresholdEur: "3600.00" } }
+        : claim,
+    });
+    const profile = confirmedRelocation();
+
+    const compatibleResult = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile,
+      evidence: compatible.fixture.prepared.snapshot,
+      dossier: compatible.dossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+    const thresholdResult = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile,
+      evidence: thresholdVeto.fixture.prepared.snapshot,
+      dossier: thresholdVeto.dossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+
+    expect(compatibleResult.marker).toBe("yellow");
+    expect(compatibleResult.personalFit).toBe("route_compatible_city_unverified");
+    expect(compatibleResult.cityScope).toBe("not_checked");
+    expect(compatibleResult.formula?.incomeEur).toBe("3500.00");
+    expect(thresholdResult.marker).toBe("red");
+    expect(thresholdResult.formula?.thresholdEur).toBe("3600.00");
+  });
+
+  test("keeps gross, unavailable or stale FX and unresolved prerequisites yellow", async () => {
+    const current = await publishedAssessmentFixture();
+    const unavailable = await preparedFixture();
+    const unavailableDb = database();
+    await appendArtifacts(unavailableDb, unavailable.artifacts);
+    const unavailableDossier = new SqliteDossierStore(unavailableDb, KEY).publishWithEvidence({
+      preparedEvidence: unavailable.prepared,
+      publishedAt: PUBLISHED_AT,
+    }).version;
+    const stale = await publishedAssessmentFixture({ cbrEffectiveDate: "2026-08-01" });
+
+    const gross = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile: confirmedRelocation({
+        monthlyIncome: { amount: "210000", currency: "RUB", basis: "gross" },
+      }),
+      evidence: current.fixture.prepared.snapshot,
+      dossier: current.dossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+    const missingFx = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile: confirmedRelocation(),
+      evidence: unavailable.prepared.snapshot,
+      dossier: unavailableDossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+    const staleFx = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile: confirmedRelocation(),
+      evidence: stale.fixture.prepared.snapshot,
+      dossier: stale.dossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+
+    for (const result of [gross, missingFx, staleFx]) {
+      expect(result.marker).toBe("yellow");
+      expect(result.personalFit).toBe("personal_evidence_missing");
+    }
+    expect(gross.formula).toBeUndefined();
+    expect(missingFx.formula).toBeUndefined();
+    expect(staleFx.formula).toBeUndefined();
+  });
+
+  test("requires current official dossier lineage and maps blocked country evidence to yellow", async () => {
+    const { fixture, dossier } = await publishedAssessmentFixture();
+    const withoutIncomeLineage = structuredClone(dossier);
+    const income = withoutIncomeLineage.payload.claims.find((claim) => claim.claimKind === "income")!;
+    (income as unknown as { evidence: unknown[] }).evidence = [];
+
+    expect(() => assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile: confirmedRelocation(),
+      evidence: fixture.prepared.snapshot,
+      dossier: withoutIncomeLineage,
+      sourceNavigation: SOURCE_URLS,
+    })).toThrow("integrity_mismatch");
+
+    const blockedSnapshot = {
+      ...fixture.prepared.snapshot,
+      coverage: {
+        ...fixture.prepared.snapshot.coverage,
+        "si-income-threshold": "unavailable" as const,
+      },
+      claims: fixture.prepared.snapshot.claims.filter(
+        (claim) => !("claimKind" in claim) || claim.claimKind !== "income",
+      ),
+      blockers: [
+        ...fixture.prepared.snapshot.blockers,
+        {
+          sourceId: "si-income-threshold" as const,
+          kind: "semantic_mismatch" as const,
+          navigationUrl: SOURCE_URLS["si-income-threshold"],
+          artifactIds: [],
+        },
+      ],
+    };
+    const blocked = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile: confirmedRelocation(),
+      evidence: blockedSnapshot,
+      sourceNavigation: SOURCE_URLS,
+    });
+
+    expect(blocked.marker).toBe("yellow");
+    expect(blocked.personalFit).toBe("research_incomplete");
+    expect(blocked.reasons[0]?.officialUrls).toEqual([SOURCE_URLS["si-income-threshold"]]);
+  });
+});
+
+const DISCOVERED_CANDIDATES: readonly SourceCandidate[] = [
+  {
+    candidateId: "route-gov",
+    url: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
+    authorityRoot: "https://www.gov.si",
+    claimKinds: ["route_basis"],
+    discoveredFrom: "registry",
+  },
+  {
+    candidateId: "route-law",
+    url: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO5761&print=1",
+    authorityRoot: "https://pisrs.si",
+    claimKinds: ["route_basis"],
+    discoveredFrom: "registry",
+  },
+];
+
+async function blockedRunFixture(runId: string, contextHash: string) {
+  const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] =
+    SOURCE_IDS.map((sourceId) => ({
+      sourceId,
+      parserEntry: {
+        sourceId,
+        navigationUrl: SOURCE_URLS[sourceId],
+        resolvedEvidenceUrl: SOURCE_URLS[sourceId],
+        artifacts: [],
+      },
+      coverage: "unavailable" as const,
+      blocker: {
+        sourceId,
+        kind: "navigation_mismatch" as const,
+        navigationUrl: SOURCE_URLS[sourceId],
+        artifactIds: [],
+      },
+    }));
+  return sealEvidencePlan({
+    id: `${runId}:evidence`,
+    assessmentDate: ASSESSMENT_DATE,
+    entries,
+    sourceIds: SOURCE_IDS,
+    parserVersions: PARSER_VERSIONS,
+    rulesVersion: "vs2-si-evidence@1",
+    contextHash,
+  }, createEvidenceIntegrity(KEY));
+}
+
+function coldStartHarness(options: {
+  readonly mode?: "full" | "blocked";
+  readonly afterPrepared?: () => void;
+  readonly afterPublish?: () => void;
+  readonly tamperPrepared?: boolean;
+} = {}) {
+  const db = database();
+  const profiles = new SqliteProfileStore(db);
+  const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
+  const dossierStore = new SqliteDossierStore(db, KEY);
+  const discoveryInputs: unknown[] = [];
+  const researchInputs: unknown[] = [];
+  let runCounter = 0;
+
+  const application = createColdStartApplication({
+    profiles,
+    discovery: {
+      discover: async (input) => {
+        discoveryInputs.push(structuredClone(input));
+        if (options.mode === "blocked") {
+          return { ok: false as const, kind: "model_error" as const, candidates: [] as const };
+        }
+        return { ok: true as const, candidates: DISCOVERED_CANDIDATES };
+      },
+    },
+    research: {
+      prepare: async (input) => {
+        researchInputs.push({
+          runId: input.runId,
+          assessmentDate: input.assessmentDate,
+          deadlineAt: input.deadlineAt,
+          contextHash: input.contextHash,
+          candidates: structuredClone(input.candidates),
+        });
+        const fixture = options.mode === "blocked"
+          ? { prepared: await blockedRunFixture(input.runId, input.contextHash), artifacts: [] }
+          : await replayableFixture({
+              runId: input.runId,
+              contextHash: input.contextHash,
+              cbrRate: "90",
+              cbrEffectiveDate: "2026-08-10",
+            });
+        for (const captured of fixture.artifacts) await evidenceStore.appendArtifact(captured);
+        const firstArtifact = fixture.artifacts[0];
+        if (firstArtifact !== undefined) {
+          await input.onProgress({
+            type: "artifact_captured",
+            sourceId: firstArtifact.sourceId,
+            artifact: firstArtifact,
+          });
+        }
+        const firstClaim = fixture.prepared.snapshot.claims[0];
+        if (firstClaim !== undefined) {
+          await input.onProgress({
+            type: "claim_verified",
+            sourceId: firstClaim.sourceId,
+            claim: firstClaim,
+          });
+        }
+        options.afterPrepared?.();
+        if (!options.tamperPrepared) return fixture.prepared;
+        return {
+          ...fixture.prepared,
+          snapshot: { ...fixture.prepared.snapshot, hmac: "0".repeat(64) },
+        };
+      },
+    },
+    evidence: {
+      seal: (sealed) => evidenceStore.seal(sealed),
+      loadVerifiedBundle: (id) => evidenceStore.loadVerifiedBundle(id, KEY),
+      replay: (id) => replayEvidenceByRules(
+        { snapshotId: id, hmacKey: KEY },
+        { store: evidenceStore },
+      ),
+    },
+    dossiers: {
+      publishWithEvidence: (input) => {
+        const published = dossierStore.publishWithEvidence(input);
+        options.afterPublish?.();
+        return published;
+      },
+      findByPayload: (countryCode, schemaVersion, payloadHash) =>
+        dossierStore.findByPayload(countryCode, schemaVersion, payloadHash),
+    },
+    integrity: createEvidenceIntegrity(KEY),
+    clock: () => new Date("2026-08-11T10:00:00.000Z"),
+    nextRunId: () => `cold-run-${++runCounter}`,
+  });
+  return { application, db, discoveryInputs, researchInputs };
+}
+
+describe("cold-start orchestration, reload and commit boundary", () => {
+  test("adds the cold-start application to the existing composition root", () => {
+    const composed = createConfirmedLifeComposition({
+      database: database(),
+      hmacKey: KEY,
+      narrative: { select: async () => undefined },
+    });
+
+    expect(typeof composed.prepare).toBe("function");
+    expect(typeof composed.run).toBe("function");
+    expect(typeof composed.present).toBe("function");
+    expect(typeof composed.startConfirmedLife).toBe("function");
+  });
+
+  test("resolves the country before one profile write and reloads it without duplication", async () => {
+    const harness = coldStartHarness();
+
+    await expect(harness.application.prepare({
+      countryInput: "France",
+      profile: RELOCATION_DRAFT,
+    })).rejects.toThrow("unsupported_country");
+    expect(harness.db.prepare("SELECT COUNT(*) FROM profile_snapshots").pluck().get()).toBe(0);
+
+    const first = await harness.application.prepare({
+      countryInput: " Словения ",
+      profile: RELOCATION_DRAFT,
+    });
+    const retry = await harness.application.prepare({
+      countryInput: "SI",
+      profileId: first.profileId,
+    });
+
+    expect(first).toEqual({
+      runId: "cold-run-1",
+      profileId: first.profileId,
+      country: {
+        code: "SI",
+        englishName: "Slovenia",
+        displayName: "Словения",
+        flag: "🇸🇮",
+        coordinate: { lat: 46.1512, lng: 14.9955 },
+      },
+      assessmentAt: "2026-08-11",
+      deadlineAt: "2026-08-11T10:01:00.000Z",
+    });
+    expect(retry.runId).toBe("cold-run-2");
+    expect(retry.profileId).toBe(first.profileId);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM profile_snapshots").pluck().get()).toBe(1);
+  });
+
+  test("commits, reloads and re-presents one privacy-safe ordered terminal result", async () => {
+    const harness = coldStartHarness();
+    const prepared = await harness.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    const events: ColdStartEvent[] = [];
+
+    const result = await harness.application.run(
+      prepared,
+      async (event) => { events.push(event); },
+      new AbortController().signal,
+    );
+
+    expect(harness.discoveryInputs).toEqual([{
+      country: prepared.country,
+      authorityRoots: [
+        "https://www.gov.si",
+        "https://pisrs.si",
+        "https://pxweb.stat.si",
+        "https://www.ess.gov.si",
+      ],
+      requiredClaimKinds: REQUIRED_CLAIM_KINDS,
+    }]);
+    expect(harness.researchInputs).toEqual([{
+      runId: prepared.runId,
+      assessmentDate: prepared.assessmentAt,
+      deadlineAt: prepared.deadlineAt,
+      contextHash: sha256Text(canonicalJson({
+        runId: prepared.runId,
+        profileId: prepared.profileId,
+      })),
+      candidates: DISCOVERED_CANDIDATES,
+    }]);
+    expect(events.map(({ sequence }) => sequence)).toEqual(
+      events.map((_event, index) => index + 1),
+    );
+    expect(events.map(({ type }) => type)).toEqual([
+      "source_discovered",
+      "authority_verified",
+      "source_discovered",
+      "authority_verified",
+      "artifact_captured",
+      "claim_verified",
+      "dossier_published",
+      "assessment_completed",
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      type: "assessment_completed",
+      payload: { readModel: result },
+    });
+    expect(events.filter(({ type }) => type === "assessment_completed")).toHaveLength(1);
+    const artifactEvent = events.find(({ type }) => type === "artifact_captured");
+    expect(artifactEvent).toMatchObject({
+      payload: {
+        sourceId: "si-digital-nomad-route",
+        role: "gov-route-page",
+        resolvedUrl: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
+      },
+    });
+    expect(Object.keys(artifactEvent!.payload)).toEqual([
+      "sourceId",
+      "role",
+      "resolvedUrl",
+      "sha256",
+    ]);
+    const nonterminalJson = JSON.stringify(events.slice(0, -1));
+    expect(nonterminalJson).not.toContain("210000");
+    expect(nonterminalJson).not.toContain(prepared.profileId);
+    expect(nonterminalJson).not.toContain("contextHash");
+    expect(result.comparator.marker).toBe("red");
+    expect(result.coverage).toEqual({
+      verified: 9,
+      required: 9,
+      claimKinds: REQUIRED_CLAIM_KINDS,
+    });
+    expect(result.sourceNavigation.map(({ url }) => url)).toEqual([
+      "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
+      "https://pisrs.si/pregledPredpisa?sop=2026-01-1950",
+      "https://www.ess.gov.si/conditional-employment/",
+      SOURCE_URLS["cbr-eur"],
+    ]);
+
+    const beforePresentCalls = {
+      discovery: harness.discoveryInputs.length,
+      research: harness.researchInputs.length,
+    };
+    expect(await harness.application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
+    expect(harness.discoveryInputs).toHaveLength(beforePresentCalls.discovery);
+    expect(harness.researchInputs).toHaveLength(beforePresentCalls.research);
+
+    const retry = await harness.application.prepare({
+      countryInput: "Slovenia",
+      profileId: prepared.profileId,
+    });
+    await harness.application.run(retry, () => undefined, new AbortController().signal);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(2);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(1);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM profile_snapshots").pluck().get()).toBe(1);
+
+    const other = await harness.application.prepare({
+      countryInput: "SI",
+      profile: {
+        ...RELOCATION_DRAFT,
+        monthlyIncome: { amount: "300000", currency: "RUB", basis: "net" },
+      },
+    });
+    await expect(harness.application.present({
+      runId: prepared.runId,
+      profileId: other.profileId,
+    })).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("seals blocked Evidence alone and reproduces its yellow read model offline", async () => {
+    const harness = coldStartHarness({ mode: "blocked" });
+    const prepared = await harness.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    const events: ColdStartEvent[] = [];
+
+    const result = await harness.application.run(
+      prepared,
+      (event) => { events.push(event); },
+      new AbortController().signal,
+    );
+
+    expect(result.comparator).toMatchObject({
+      marker: "yellow",
+      personalFit: "research_incomplete",
+    });
+    expect(result.dossier).toBeUndefined();
+    expect(harness.researchInputs).toHaveLength(1);
+    expect(harness.researchInputs[0]).toMatchObject({ candidates: [] });
+    expect(events.some(({ type }) => type === "dossier_published")).toBe(false);
+    expect(events.at(-1)?.type).toBe("assessment_completed");
+    expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(1);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
+    expect(await harness.application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
+  });
+
+  test("rejects invalid prepared signatures and honors abort on both sides of commit", async () => {
+    const tampered = coldStartHarness({ tamperPrepared: true });
+    const tamperedPrepared = await tampered.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    await expect(tampered.application.run(
+      tamperedPrepared,
+      () => undefined,
+      new AbortController().signal,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(tampered.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
+
+    const beforeCommitAbort = new AbortController();
+    const before = coldStartHarness({
+      afterPrepared: () => beforeCommitAbort.abort(new Error("cancel-before-commit")),
+    });
+    const beforePrepared = await before.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    await expect(before.application.run(
+      beforePrepared,
+      () => undefined,
+      beforeCommitAbort.signal,
+    )).rejects.toThrow("cancel-before-commit");
+    expect(before.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
+    expect(before.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
+    expect(before.db.prepare("SELECT COUNT(*) FROM artifacts WHERE sealed = 0").pluck().get())
+      .toBeGreaterThan(0);
+
+    const blockedAbort = new AbortController();
+    const blockedBefore = coldStartHarness({
+      mode: "blocked",
+      afterPrepared: () => blockedAbort.abort(new Error("cancel-blocked-before-seal")),
+    });
+    const blockedPrepared = await blockedBefore.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    await expect(blockedBefore.application.run(
+      blockedPrepared,
+      () => undefined,
+      blockedAbort.signal,
+    )).rejects.toThrow("cancel-blocked-before-seal");
+    expect(blockedBefore.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
+
+    const afterCommitAbort = new AbortController();
+    const after = coldStartHarness({
+      afterPublish: () => afterCommitAbort.abort(new Error("cancel-after-commit")),
+    });
+    const afterPrepared = await after.application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    await expect(after.application.run(
+      afterPrepared,
+      () => undefined,
+      afterCommitAbort.signal,
+    )).resolves.toMatchObject({ runId: afterPrepared.runId });
+    expect(after.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(1);
+    expect(after.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(1);
+  });
+});
 
 describe("immutable country dossier publication", () => {
   test("normalizes the nine verified country claims and publishes v1 without CBR", async () => {
@@ -1053,11 +1770,16 @@ function validatorArtifact(
 async function replayableFixture(options: {
   readonly rulesVersion?: string;
   readonly parserVersions?: Readonly<Record<SloveniaSourceId, string>>;
+  readonly runId?: string;
+  readonly contextHash?: string;
+  readonly cbrRate?: string;
+  readonly cbrEffectiveDate?: string;
+  readonly mutateClaim?: (claim: VerifiedCountryClaim) => VerifiedCountryClaim;
 } = {}): Promise<{
   readonly prepared: SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaim>;
   readonly artifacts: readonly LiveCapturedArtifact<SloveniaSourceId>[];
 }> {
-  const runId = "offline-replay";
+  const runId = options.runId ?? "offline-replay";
   const urls = {
     gov: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
     routeLaw: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO5761&print=1",
@@ -1067,7 +1789,7 @@ async function replayableFixture(options: {
     companionLaw: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO6655",
     cbr: SOURCE_URLS["cbr-eur"],
   } as const;
-  const artifacts = [
+  const countryArtifacts = [
     validatorArtifact(runId, "si-digital-nomad-route", "gov-route-page", "route-gov.html", urls.gov),
     validatorArtifact(runId, "si-digital-nomad-route", "ztuj2-consolidated", "ztuj2.html", urls.routeLaw),
     validatorArtifact(runId, "si-income-threshold", "salary-publication", "salary-publication.html", urls.salary),
@@ -1076,6 +1798,34 @@ async function replayableFixture(options: {
     validatorArtifact(runId, "si-companion-employment", "ess-companion-page", "companion-ess.html", urls.ess),
     validatorArtifact(runId, "si-companion-employment", "zzsdt-consolidated", "zzsdt.html", urls.companionLaw),
   ];
+  const cbrBytes = options.cbrRate === undefined
+    ? undefined
+    : new TextEncoder().encode(
+        `<?xml version="1.0" encoding="windows-1251"?><ValCurs Date="${(
+          options.cbrEffectiveDate ?? "2026-08-10"
+        ).split("-").reverse().join(".")}"><Valute><CharCode>EUR</CharCode><Nominal>1</Nominal><VunitRate>${options.cbrRate}</VunitRate></Valute></ValCurs>`,
+      );
+  const cbrArtifact: LiveCapturedArtifact<SloveniaSourceId> | undefined =
+    cbrBytes === undefined
+      ? undefined
+      : {
+          artifactId: `cbr-eur:official-document:${createHash("sha256").update(cbrBytes).digest("hex")}`,
+          runId,
+          sourceId: "cbr-eur",
+          role: "official-document",
+          url: urls.cbr,
+          mediaType: "application/xml",
+          sha256: createHash("sha256").update(cbrBytes).digest("hex"),
+          bytes: cbrBytes,
+          origin: "live",
+          capturedAt: "2026-08-11T10:00:00.000Z",
+          responseStatus: 200,
+          responseUrl: urls.cbr,
+          request: { method: "GET", url: urls.cbr },
+        };
+  const artifacts = cbrArtifact === undefined
+    ? countryArtifacts
+    : [...countryArtifacts, cbrArtifact];
   const sourceNavigation: Readonly<Record<SloveniaSourceId, string>> = {
     "si-digital-nomad-route": urls.gov,
     "si-income-threshold": urls.salary,
@@ -1114,31 +1864,58 @@ async function replayableFixture(options: {
       claims: validated.claims,
     });
   }
-  entries.push({
-    sourceId: "cbr-eur",
-    parserEntry: {
+  if (cbrArtifact === undefined) {
+    entries.push({
       sourceId: "cbr-eur",
+      parserEntry: {
+        sourceId: "cbr-eur",
+        navigationUrl: urls.cbr,
+        resolvedEvidenceUrl: urls.cbr,
+        artifacts: [],
+      },
+      coverage: "unavailable",
+      blocker: {
+        sourceId: "cbr-eur",
+        kind: "navigation_mismatch",
+        navigationUrl: urls.cbr,
+        resolvedUrl: urls.cbr,
+        artifactIds: [],
+      },
+    });
+  } else {
+    const parserEntry = {
+      sourceId: "cbr-eur" as const,
       navigationUrl: urls.cbr,
       resolvedEvidenceUrl: urls.cbr,
-      artifacts: [],
-    },
-    coverage: "unavailable",
-    blocker: {
+      artifacts: [cbrArtifact],
+    };
+    const validated = await plan.validate(parserEntry, ASSESSMENT_DATE);
+    if (!validated.ok) throw new Error("CBR validator fixture must be current");
+    entries.push({
       sourceId: "cbr-eur",
-      kind: "navigation_mismatch",
-      navigationUrl: urls.cbr,
-      resolvedUrl: urls.cbr,
-      artifactIds: [],
-    },
-  });
+      parserEntry,
+      coverage: "verified",
+      claims: validated.claims,
+    });
+  }
+  const finalEntries = options.mutateClaim === undefined
+    ? entries
+    : entries.map((entry) => entry.coverage === "verified"
+      ? {
+          ...entry,
+          claims: entry.claims.map((claim) =>
+            "claimKind" in claim ? options.mutateClaim!(claim) : claim
+          ),
+        }
+      : entry);
   const prepared = await sealEvidencePlan({
     id: `${runId}:evidence`,
     assessmentDate: ASSESSMENT_DATE,
-    entries: plan.applyRules(entries, ASSESSMENT_DATE),
+    entries: plan.applyRules(finalEntries, ASSESSMENT_DATE),
     sourceIds: SOURCE_IDS,
     parserVersions: options.parserVersions ?? PARSER_VERSIONS,
     rulesVersion: options.rulesVersion ?? "vs2-si-evidence@1",
-    contextHash: "b".repeat(64),
+    contextHash: options.contextHash ?? "b".repeat(64),
   }, createEvidenceIntegrity(KEY));
   return { prepared, artifacts };
 }

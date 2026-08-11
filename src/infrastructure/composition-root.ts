@@ -17,11 +17,13 @@ import type {
   OfficialSourcePort,
   RequestStep,
 } from "../research/contracts";
+import type { SloveniaSourceId } from "../research/cold-start-contracts";
 import {
   runCurrentEvidence,
   type EvidenceParsers,
 } from "../research/run";
 import { createEvidenceIntegrity } from "./integrity";
+import { createColdStartComposition } from "./cold-start-composition";
 import { createOpenAiNarrative } from "./narrative";
 import { captureHttpOnce } from "./sources/gateway";
 import { OfficialSourceAdapter } from "./sources/official-source-adapter";
@@ -54,6 +56,9 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
   const source = options.source ?? new OfficialSourceAdapter();
   const requestStep = options.requestStep ?? captureHttpOnce;
   const integrity = createEvidenceIntegrity(options.hmacKey);
+  const nextId = options.nextId ?? (
+    (kind: "run" | "revision" | "assessment") => `${kind}-${randomUUID()}`
+  );
 
   const confirmedLife = createConfirmedLife({
     profileStore,
@@ -83,10 +88,17 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     },
     assess: assessRoute,
     clock: options.clock ?? (() => new Date()),
-    nextId: options.nextId ?? ((kind) => `${kind}-${randomUUID()}`),
+    nextId,
     deadlineAt: options.deadlineAt ?? ((now) => new Date(now.getTime() + 45_000)),
   });
-  const nextId = options.nextId ?? ((kind: "run" | "revision" | "assessment") => `${kind}-${randomUUID()}`);
+  const coldStart = createColdStartComposition({
+    database: options.database,
+    hmacKey: options.hmacKey,
+    ...(options.openAiApiKey === undefined ? {} : { openAiApiKey: options.openAiApiKey }),
+    requestStep: requestStep as unknown as RequestStep<SloveniaSourceId>,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    nextRunId: () => nextId("run"),
+  });
   const housingBranch = createHousingBranchApplication({
     profileStore,
     runStore,
@@ -125,6 +137,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
   });
   return Object.freeze({
     ...confirmedLife,
+    ...coldStart,
     ...housingBranch,
     ...replay,
     ...journey,
