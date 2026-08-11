@@ -189,7 +189,15 @@ const comparatorSchema = z.object({
   cityScope: z.literal("not_checked"),
   formalVerdict: formalResidenceVerdictSchema,
   formula: formulaSchema.optional(),
-}).strict();
+}).strict().superRefine((comparator, context) => {
+  if (comparator.marker !== comparator.formalVerdict.marker) {
+    context.addIssue({
+      code: "custom",
+      message: "formal_marker_mismatch",
+      path: ["marker"],
+    });
+  }
+});
 
 const readModelSchema = z.object({
   runId: z.string().min(1),

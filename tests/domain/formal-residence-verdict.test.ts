@@ -252,6 +252,47 @@ describe("formal residence marker semantics", () => {
     expect(verdict.routeOutcomes[0]?.status).toBe("unknown");
   });
 
+  test("normalizes a verified route when one determining reason lacks its own proof", () => {
+    const unprovedReason = {
+      code: "unproved_determining_fact",
+      summary: "A determining fact has no verified proof.",
+      claimIds: ["claim-unproved"],
+      evidence: [],
+      navigation: [{
+        sourceId: "manual-source",
+        url: "https://example.test/manual-source",
+        label: "manual check",
+      }],
+    };
+    const verdict = assess([{
+      ...route("dn", "viable"),
+      reasons: [...route("dn", "viable").reasons, unprovedReason],
+    }], complete(["dn"]));
+
+    expect(verdict.marker).toBe("yellow");
+    expect(verdict.routeOutcomes[0]?.status).toBe("unknown");
+  });
+
+  test("keeps navigation-only reasons representable on an honest unknown route", () => {
+    const verdict = assess([{
+      ...route("dn", "unknown"),
+      reasons: [{
+        code: "manual_check_required",
+        summary: "Manual checking remains necessary.",
+        claimIds: [],
+        evidence: [],
+        navigation: [{
+          sourceId: "manual-source",
+          url: "https://example.test/manual-source",
+          label: "manual check",
+        }],
+      }],
+    }]);
+
+    expect(verdict.marker).toBe("yellow");
+    expect(verdict.routeOutcomes[0]?.reasons[0]?.navigation).toHaveLength(1);
+  });
+
   test("accepts an unknown route without effective dates", () => {
     expect(assess([route("dn", "unknown")], complete(["dn"])).marker).toBe("yellow");
   });

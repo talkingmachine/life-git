@@ -361,6 +361,19 @@ describe("finite cold-start decoder and reducer", () => {
     expect(coldStartEventSchema.safeParse(mutated).success).toBe(false);
   });
 
+  test("rejects a terminal payload whose outer marker contradicts the formal verdict", () => {
+    const contradictory = structuredClone({
+      ...terminalEvent,
+      payload: { readModel: greenReadModel },
+    }) as Record<string, unknown>;
+    const readModel = (contradictory.payload as {
+      readModel: Record<string, unknown>;
+    }).readModel;
+    (readModel.comparator as Record<string, unknown>).marker = "yellow";
+
+    expect(coldStartEventSchema.safeParse(contradictory).success).toBe(false);
+  });
+
   test("rejects normal EOF with a partial line or without one terminal event", async () => {
     const partial = new TextEncoder().encode(JSON.stringify(terminalEvent));
     await expect(collect(streamOf(partial))).rejects.toThrow("trailing_partial_line");

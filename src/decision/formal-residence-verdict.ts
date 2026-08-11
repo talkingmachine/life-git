@@ -191,6 +191,15 @@ function routeEvidence(route: ResidenceRouteOutcome): readonly FormalEvidenceRef
   return route.reasons.flatMap(({ evidence }) => evidence);
 }
 
+function hasDeterminingProof(reason: FormalReason): boolean {
+  return isNonEmpty(reason.code) &&
+    isNonEmpty(reason.summary) &&
+    reason.claimIds.length > 0 &&
+    hasUniqueNonEmptyStrings(reason.claimIds) &&
+    reason.evidence.length > 0 &&
+    reason.evidence.every((reference) => isSealedEvidenceReference(reference));
+}
+
 function hasCurrentVerifiedRouteProof(
   route: ResidenceRouteOutcome,
   verdictAsOf: string,
@@ -204,6 +213,8 @@ function hasCurrentVerifiedRouteProof(
     isCurrentInterval(route.ruleEffectiveFrom, route.ruleEffectiveTo, verdictAsOf) &&
     route.evidenceSnapshotIds.length > 0 &&
     hasUniqueNonEmptyStrings(route.evidenceSnapshotIds) &&
+    route.reasons.length > 0 &&
+    route.reasons.every(hasDeterminingProof) &&
     references.length > 0 &&
     references.every((reference) => isSealedEvidenceReference(reference)) &&
     referencedSnapshotIds.length === route.evidenceSnapshotIds.length &&

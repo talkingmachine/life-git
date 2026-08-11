@@ -267,14 +267,16 @@ function cbrClaim(
 function formalEvidenceForCbr(
   input: ColdStartAssessmentInput,
   claim: Extract<ColdStartEvidenceClaim, { readonly sourceId: "cbr-eur" }>,
-): FormalEvidenceReference {
+): FormalEvidenceReference | undefined {
   const navigationUrl = input.sourceNavigation["cbr-eur"];
+  const resolvedEvidenceUrl = input.sourceResolvedEvidence?.["cbr-eur"];
+  if (resolvedEvidenceUrl === undefined) return undefined;
   return {
     evidenceSnapshotId: input.evidence.id,
     artifactId: claim.anchor.artifactId,
     sourceId: claim.sourceId,
     navigationUrl,
-    resolvedEvidenceUrl: input.sourceResolvedEvidence?.["cbr-eur"] ?? navigationUrl,
+    resolvedEvidenceUrl,
     sourcePeriod: claim.sourcePeriod,
     locator: claim.anchor.locator,
     excerptSha256: claim.anchor.excerptSha256,
@@ -348,6 +350,10 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
   const hardVetoes: FormalReason[] = [];
   const personalUnknowns: FormalReason[] = [];
   let formula: ColdStartFormula | undefined;
+  let verifiedCbrFact: {
+    readonly claimId: string;
+    readonly evidence: FormalEvidenceReference;
+  } | undefined;
 
   const citizenship = dossierClaims.citizenship_applicability;
   const citizenshipValue = citizenship.value as ClaimValueByKind["citizenship_applicability"];
@@ -450,27 +456,38 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
   } else if (incomeValue.metric !== "latest_official_average_monthly_net_salary") {
     integrityMismatch();
   } else {
-    const monthlyIncome = new Decimal(input.profile.profile.monthlyIncome.amount);
-    const threshold = new Decimal(incomeValue.thresholdEur);
-    const incomeEur = monthlyIncome.div(currentCbr.rate);
-    const claimIds = [income.claimId, currentCbr.claim.claimId];
-    const formalEvidence = [
-      ...formalEvidenceForClaims(input.evidence, [income]),
-      formalEvidenceForCbr(input, currentCbr.claim),
-    ];
-    formula = {
-      formulaId: "FORMULA-VS2-INCOME-01",
-      formulaVersion: "1",
-      expression: "monthlyIncomeRub / eurRub < thresholdEur",
-      monthlyIncomeRub: monthlyIncome.toFixed(),
-      eurRub: currentCbr.rate.toFixed(),
-      incomeEur: incomeEur.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2),
-      thresholdEur: threshold.toFixed(2),
-      rounding: "UNROUNDED_THEN_HALF_UP_2DP",
-      sourceClaimIds: claimIds,
-    };
-    if (incomeEur.lessThan(threshold)) {
-      hardVetoes.push(reason("income_below_verified_threshold", claimIds, formalEvidence));
+    const cbrEvidence = formalEvidenceForCbr(input, currentCbr.claim);
+    if (cbrEvidence === undefined) {
+      personalUnknowns.push(reason(
+        "fx_rate_unavailable",
+        [],
+        [],
+        [manualNavigation("cbr-eur", input.sourceNavigation["cbr-eur"])],
+      ));
+    } else {
+      verifiedCbrFact = { claimId: currentCbr.claim.claimId, evidence: cbrEvidence };
+      const monthlyIncome = new Decimal(input.profile.profile.monthlyIncome.amount);
+      const threshold = new Decimal(incomeValue.thresholdEur);
+      const incomeEur = monthlyIncome.div(currentCbr.rate);
+      const claimIds = [income.claimId, currentCbr.claim.claimId];
+      const formalEvidence = [
+        ...formalEvidenceForClaims(input.evidence, [income]),
+        cbrEvidence,
+      ];
+      formula = {
+        formulaId: "FORMULA-VS2-INCOME-01",
+        formulaVersion: "1",
+        expression: "monthlyIncomeRub / eurRub < thresholdEur",
+        monthlyIncomeRub: monthlyIncome.toFixed(),
+        eurRub: currentCbr.rate.toFixed(),
+        incomeEur: incomeEur.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2),
+        thresholdEur: threshold.toFixed(2),
+        rounding: "UNROUNDED_THEN_HALF_UP_2DP",
+        sourceClaimIds: claimIds,
+      };
+      if (incomeEur.lessThan(threshold)) {
+        hardVetoes.push(reason("income_below_verified_threshold", claimIds, formalEvidence));
+      }
     }
   }
 
@@ -481,8 +498,14 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
     : "viable" as const;
   const positiveReason = reason(
     "route_requirements_verified",
-    Object.values(dossierClaims).map(({ claimId }) => claimId),
-    formalEvidenceForClaims(input.evidence, Object.values(dossierClaims)),
+    [
+      ...Object.values(dossierClaims).map(({ claimId }) => claimId),
+      ...(verifiedCbrFact === undefined ? [] : [verifiedCbrFact.claimId]),
+    ],
+    [
+      ...formalEvidenceForClaims(input.evidence, Object.values(dossierClaims)),
+      ...(verifiedCbrFact === undefined ? [] : [verifiedCbrFact.evidence]),
+    ],
   );
   const routeReasons = status === "viable"
     ? [positiveReason]

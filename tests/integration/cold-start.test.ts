@@ -715,6 +715,7 @@ describe("pure VS-2 cold-start comparator", () => {
       evidence: compatible.fixture.prepared.snapshot,
       dossier: compatible.dossier,
       sourceNavigation: SOURCE_URLS,
+      sourceResolvedEvidence: SOURCE_URLS,
     });
     const thresholdResult = assessColdStart({
       assessmentAt: ASSESSMENT_DATE,
@@ -722,6 +723,7 @@ describe("pure VS-2 cold-start comparator", () => {
       evidence: thresholdVeto.fixture.prepared.snapshot,
       dossier: thresholdVeto.dossier,
       sourceNavigation: SOURCE_URLS,
+      sourceResolvedEvidence: SOURCE_URLS,
     });
 
     expect(compatibleResult.marker).toBe("green");
@@ -731,9 +733,43 @@ describe("pure VS-2 cold-start comparator", () => {
       kind: "insurance",
       completed: false,
     });
+    const viableReason = compatibleResult.formalVerdict.routeOutcomes[0]?.reasons.find(
+      ({ code }) => code === "route_requirements_verified",
+    );
+    expect(viableReason?.claimIds).toContain("cbr-eur-facts-1");
+    expect(viableReason?.evidence).toContainEqual(expect.objectContaining({
+      sourceId: "cbr-eur",
+      artifactId: expect.stringMatching(/^cbr-eur:/),
+      evidenceSnapshotId: compatible.fixture.prepared.snapshot.id,
+    }));
     expect(compatibleResult.formula?.incomeEur).toBe("3500.00");
     expect(thresholdResult.marker).toBe("yellow");
     expect(thresholdResult.formula?.thresholdEur).toBe("3600.00");
+  });
+
+  test("does not promote CBR navigation into verified Evidence when resolved metadata is absent", async () => {
+    const compatible = await publishedAssessmentFixture({ cbrRate: "60" });
+
+    const result = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile: confirmedRelocation(),
+      evidence: compatible.fixture.prepared.snapshot,
+      dossier: compatible.dossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+
+    expect(result.marker).toBe("yellow");
+    expect(result.personalFit).toBe("personal_evidence_missing");
+    expect(result.formalVerdict.routeOutcomes[0]?.status).toBe("unknown");
+    expect(result.formalVerdict.reasons).toContainEqual(expect.objectContaining({
+      code: "fx_rate_unavailable",
+      evidence: [],
+      navigation: [{
+        sourceId: "cbr-eur",
+        url: SOURCE_URLS["cbr-eur"],
+        label: "источник для ручной проверки",
+      }],
+    }));
   });
 
   test("keeps passport, remote-work legality and unavailable FX as separate yellow unknowns", async () => {
