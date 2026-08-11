@@ -285,7 +285,7 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
         const selected = decodePisrsRegistry(registryArtifact, identity, registryUrl);
         if (selected === null) {
           throw navigationMismatch(
-            "ZTuj-2 registry did not provide one complete current NPB sequence",
+            "ZTuj-2 registry did not provide a valid internally gapless Osnovni..NPB N sequence from the captured single-record response",
             [govArtifact, registryArtifact],
           );
         }
@@ -324,7 +324,7 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
         const selected = decodePisrsRegistry(registryArtifact, identity, registryUrl);
         if (selected === null) {
           throw navigationMismatch(
-            "Salary registry did not provide one complete publication version sequence",
+            "Salary registry did not provide a valid internally gapless Osnovni..NPB N sequence from the captured single-record response",
             [registryArtifact],
           );
         }
@@ -393,7 +393,7 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
         const selected = decodePisrsRegistry(registryArtifact, identity, registryUrl);
         if (selected === null) {
           throw navigationMismatch(
-            "ZZSDT registry did not provide one complete current NPB sequence",
+            "ZZSDT registry did not provide a valid internally gapless Osnovni..NPB N sequence from the captured single-record response",
             [essArtifact, registryArtifact],
           );
         }

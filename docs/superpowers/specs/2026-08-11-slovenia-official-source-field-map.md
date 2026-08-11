@@ -43,7 +43,7 @@ Observed identities:
 
 | Record | Status | Observed version set | Selected current entry |
 | --- | --- | --- | --- |
-| `ZAKO5761`, `Zakon o tujcih (ZTuj-2)`, SOP `2011-01-2360` | `{id:156,naziv:"Veljaven predpis"}` | 21 unique entries: `Osnovni`, `NPB 1` … `NPB 20` | `{id:298532110,naziv:"NPB 20"}` |
+| `ZAKO5761`, `Zakon o tujcih (ZTuj-2)`, SOP `2011-01-2360`, `objavljeno:"2011-06-27"` | `{id:156,naziv:"Veljaven predpis"}` | 21 unique entries: `Osnovni`, `NPB 1` … `NPB 20` | `{id:298532110,naziv:"NPB 20"}` |
 | `ZAKO6655`, `Zakon o zaposlovanju, samozaposlovanju in delu tujcev (ZZSDT)`, SOP `2015-01-1930`, `objavljeno:"2015-06-30"` | `{id:156,naziv:"Veljaven predpis"}` | 9 unique entries: `Osnovni`, `NPB 1` … `NPB 8` | `{id:270729002,naziv:"NPB 8"}` |
 | SOP `2026-01-1950`, `zunanjiID:"SKLE14464"`, `Sklep o objavi gibanja plač za maj 2026` | `{id:153,naziv:"Objavljen akt brez datuma začetka veljavnosti"}` | one `Osnovni` entry | `{id:613486752,naziv:"Osnovni"}`; `objavljeno:"2026-07-28"` |
 
