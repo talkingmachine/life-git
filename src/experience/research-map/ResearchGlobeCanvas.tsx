@@ -123,6 +123,12 @@ function markerButtonFromEventTarget(target: EventTarget | null): HTMLButtonElem
   return target.closest<HTMLButtonElement>("button[data-route-key]");
 }
 
+function markerRouteKey(container: HTMLElement | null, target: EventTarget | null): string | undefined {
+  const marker = markerButtonFromEventTarget(target);
+  if (marker === null || container === null || !container.contains(marker)) return undefined;
+  return marker.dataset.routeKey;
+}
+
 function visibleMarkerButton(
   container: HTMLElement | null,
   routeKey: string,
@@ -405,14 +411,25 @@ export function ResearchGlobeCanvas({
     return element;
   }, []);
 
-  const openMarkerDetails = useEffectEvent((event: MouseEvent) => {
-    const container = size.container.current;
-    const marker = markerButtonFromEventTarget(event.target);
-    if (marker === null || container === null || !container.contains(marker)) return;
-    const routeKey = marker.dataset.routeKey;
-    if (routeKey === undefined || !readRoutes().some((route) => route.key === routeKey)) return;
-    event.stopPropagation();
+  const activateMarker = useEffectEvent((target: EventTarget | null): boolean => {
+    const routeKey = markerRouteKey(size.container.current, target);
+    if (routeKey === undefined || !readRoutes().some((route) => route.key === routeKey)) {
+      return false;
+    }
     setSelectedRouteKey(routeKey);
+    return true;
+  });
+
+  const openMarkerDetails = useEffectEvent((event: MouseEvent) => {
+    if (!activateMarker(event.target)) return;
+    event.stopPropagation();
+  });
+
+  const openMarkerDetailsFromKeyboard = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (!activateMarker(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
   });
 
   const stopGlobeMarkerPointer = useEffectEvent((event: PointerEvent) => {
@@ -425,9 +442,11 @@ export function ResearchGlobeCanvas({
     const container = size.container.current;
     if (container === null) return;
     container.addEventListener("click", openMarkerDetails, true);
+    container.addEventListener("keydown", openMarkerDetailsFromKeyboard, true);
     container.addEventListener("pointerdown", stopGlobeMarkerPointer, true);
     return () => {
       container.removeEventListener("click", openMarkerDetails, true);
+      container.removeEventListener("keydown", openMarkerDetailsFromKeyboard, true);
       container.removeEventListener("pointerdown", stopGlobeMarkerPointer, true);
     };
   }, []);
@@ -441,16 +460,22 @@ export function ResearchGlobeCanvas({
   useLayoutEffect(() => {
     if (selectedRouteKey !== undefined) {
       detailHeading.current?.focus();
-      return;
     }
+  }, [selectedRouteKey]);
+
+  useEffect(() => {
+    if (selectedRouteKey !== undefined) return;
     const routeKey = returnFocusKey.current;
     if (routeKey === undefined) return;
-    const container = size.container.current;
-    const marker = visibleMarkerButton(container, routeKey)
-      ?? firstVisibleMarkerButton(container);
-    if (marker !== undefined) marker.focus();
-    else container?.focus();
-    returnFocusKey.current = undefined;
+    const focusFrame = window.requestAnimationFrame(() => {
+      const container = size.container.current;
+      const marker = visibleMarkerButton(container, routeKey)
+        ?? firstVisibleMarkerButton(container);
+      if (marker !== undefined) marker.focus();
+      else container?.focus();
+      returnFocusKey.current = undefined;
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
   }, [cityLabelData, selectedRouteKey]);
 
   useEffect(() => {
