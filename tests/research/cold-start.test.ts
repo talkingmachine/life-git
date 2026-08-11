@@ -1075,11 +1075,11 @@ function sloveniaArtifact(
 }
 
 describe("Slovenia installed research plan", () => {
-  test("freezes the four-source plan contract and keeps CBR outside discovery", () => {
-    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+  test("installs only the Slovenia v2 evidence contract", () => {
+    const { plan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
-    expect(sloveniaPlan).toMatchObject({
-      id: "vs2-slovenia@1",
+    expect(plan).toMatchObject({
+      id: "vs2-slovenia@2",
       scope: "VS-2 Slovenia cold start",
       sourceIds: [
         "si-digital-nomad-route",
@@ -1094,20 +1094,20 @@ describe("Slovenia installed research plan", () => {
         "cbr-eur": "https://www.cbr.ru/scripts/XML_daily.asp",
       },
       parserVersions: {
-        "si-digital-nomad-route": "si-route@1",
-        "si-income-threshold": "si-income@1",
-        "si-companion-employment": "si-companion@1",
+        "si-digital-nomad-route": "si-route@2",
+        "si-income-threshold": "si-income@2",
+        "si-companion-employment": "si-companion@2",
         "cbr-eur": "cbr-eur@1",
       },
-      rulesVersion: "vs2-si-evidence@1",
-      limits: { concurrency: 3, maxCaptures: 10, deadlineMs: 60_000 },
+      rulesVersion: "vs2-si-evidence@2",
+      limits: { concurrency: 3, maxCaptures: 11, deadlineMs: 60_000 },
     });
     expect(SLOVENIA_CANDIDATES.some((candidate) => candidate.url.includes("cbr.ru"))).toBe(false);
-    expect(Object.isFrozen(sloveniaPlan)).toBe(true);
-    expect(Object.isFrozen(sloveniaPlan.sourceIds)).toBe(true);
-    expect(Object.isFrozen(sloveniaPlan.sourceNavigation)).toBe(true);
-    expect(Object.isFrozen(sloveniaPlan.parserVersions)).toBe(true);
-    expect(Object.isFrozen(sloveniaPlan.limits)).toBe(true);
+    expect(Object.isFrozen(plan)).toBe(true);
+    expect(Object.isFrozen(plan.sourceIds)).toBe(true);
+    expect(Object.isFrozen(plan.sourceNavigation)).toBe(true);
+    expect(Object.isFrozen(plan.parserVersions)).toBe(true);
+    expect(Object.isFrozen(plan.limits)).toBe(true);
   });
 
   test("captures the canonical eight artifacts and builds an all-dimensions SiStat query", async () => {
@@ -1332,7 +1332,7 @@ describe("Slovenia route validator", () => {
         scope: "VS-2 Slovenia cold start",
         sourcePeriod: "2025-11-21",
         status: "verified",
-        validatorVersion: "si-route@1",
+        validatorVersion: "si-route@2",
       });
       if (!("evidence" in claim)) throw new Error("route claim must carry evidence");
       expect(claim.evidence.length).toBeGreaterThan(0);
@@ -1548,7 +1548,7 @@ describe("Slovenia income validator", () => {
         period: "2026M01",
       },
       sourcePeriod: "2026M01",
-      validatorVersion: "si-income@1",
+      validatorVersion: "si-income@2",
       status: "verified",
     });
     if (!("evidence" in claim)) throw new Error("income claim must carry evidence");
@@ -1796,7 +1796,7 @@ describe("Slovenia companion employment validator", () => {
       sourceId: "si-companion-employment",
       value: { access: "conditional", labourMarketCheck: true, informationSheet: true },
       sourcePeriod: "2026-01-01",
-      validatorVersion: "si-companion@1",
+      validatorVersion: "si-companion@2",
       status: "verified",
     });
     if (!("evidence" in claim)) throw new Error("companion claim must carry evidence");

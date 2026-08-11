@@ -250,7 +250,7 @@ function researchIncomplete(input: ColdStartAssessmentInput): ColdStartComparato
 export function assessColdStart(input: ColdStartAssessmentInput): ColdStartComparator {
   if (
     input.profile.schemaVersion !== "relocation-profile@1" ||
-    input.evidence.rulesVersion !== "vs2-si-evidence@1" ||
+    input.evidence.rulesVersion !== "vs2-si-evidence@2" ||
     input.evidence.assessmentDate !== input.assessmentAt ||
     canonicalDay(input.assessmentAt) === undefined
   ) integrityMismatch();

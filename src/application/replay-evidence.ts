@@ -160,7 +160,7 @@ export async function replayEvidenceByRules<
       { store: ports.store as unknown as ReplayEvidenceStore },
     ) as unknown as Promise<EvidenceSnapshot<S, C>>;
   }
-  if (verified.snapshot.rulesVersion !== "vs2-si-evidence@1") {
+  if (verified.snapshot.rulesVersion !== "vs2-si-evidence@2") {
     throw new Error("integrity_mismatch");
   }
   const expectedSources = [

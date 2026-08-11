@@ -118,7 +118,7 @@ function structuralSourceIds<S extends string, C extends Claim<unknown, S>>(
       "tirana-urban-lines",
     ] as unknown as readonly S[];
   }
-  if (snapshot.rulesVersion === "vs2-si-evidence@1") {
+  if (snapshot.rulesVersion === "vs2-si-evidence@2") {
     return [
       "si-digital-nomad-route",
       "si-income-threshold",

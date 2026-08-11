@@ -361,7 +361,7 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
         value,
         sourcePeriod,
         claimEvidence,
-        "si-route@1",
+        "si-route@2",
       )
     ) as readonly VerifiedCountryClaim[],
   };
@@ -574,7 +574,7 @@ function parseIncome(
       },
       period,
       evidence,
-      "si-income@1",
+      "si-income@2",
     )],
   };
 }
@@ -671,7 +671,7 @@ function parseCompanion(
       { access: "conditional", labourMarketCheck: true, informationSheet: true },
       sourcePeriod,
       evidence,
-      "si-companion@1",
+      "si-companion@2",
     )],
   };
 }

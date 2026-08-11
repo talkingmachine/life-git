@@ -68,9 +68,9 @@ const COUNTRY_SOURCE_IDS = SOURCE_IDS.slice(0, 3) as readonly Exclude<
   "cbr-eur"
 >[];
 const PARSER_VERSIONS = {
-  "si-digital-nomad-route": "si-route@1",
-  "si-income-threshold": "si-income@1",
-  "si-companion-employment": "si-companion@1",
+  "si-digital-nomad-route": "si-route@2",
+  "si-income-threshold": "si-income@2",
+  "si-companion-employment": "si-companion@2",
   "cbr-eur": "cbr-eur@1",
 } as const;
 const SOURCE_URLS = {
@@ -146,9 +146,9 @@ function sourceFor(kind: ClaimKind): Exclude<SloveniaSourceId, "cbr-eur"> {
 }
 
 function validatorFor(sourceId: Exclude<SloveniaSourceId, "cbr-eur">): string {
-  if (sourceId === "si-income-threshold") return "si-income@1";
-  if (sourceId === "si-companion-employment") return "si-companion@1";
-  return "si-route@1";
+  if (sourceId === "si-income-threshold") return "si-income@2";
+  if (sourceId === "si-companion-employment") return "si-companion@2";
+  return "si-route@2";
 }
 
 function artifact(
@@ -290,7 +290,7 @@ async function preparedFixture(
     entries,
     sourceIds: SOURCE_IDS,
     parserVersions: PARSER_VERSIONS,
-    rulesVersion: options.rulesVersion ?? "vs2-si-evidence@1",
+    rulesVersion: options.rulesVersion ?? "vs2-si-evidence@2",
     ...(options.contextHash === undefined ? {} : { contextHash: options.contextHash }),
   }, createEvidenceIntegrity(KEY));
   return { prepared, artifacts };
@@ -642,7 +642,7 @@ describe("pure VS-2 cold-start comparator", () => {
       reasons: [{
         code: "income_below_verified_threshold",
         summary: "Подтверждённого чистого дохода недостаточно для порога маршрута.",
-        claimIds: ["si-income-threshold:income:si-income@1", "cbr-eur-facts-1"],
+        claimIds: ["si-income-threshold:income:si-income@2", "cbr-eur-facts-1"],
         officialUrls: [
           SOURCE_URLS["si-income-threshold"],
           "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
@@ -658,7 +658,7 @@ describe("pure VS-2 cold-start comparator", () => {
         incomeEur: "2333.33",
         thresholdEur: "3120.00",
         rounding: "UNROUNDED_THEN_HALF_UP_2DP",
-        sourceClaimIds: ["si-income-threshold:income:si-income@1", "cbr-eur-facts-1"],
+        sourceClaimIds: ["si-income-threshold:income:si-income@2", "cbr-eur-facts-1"],
       },
     });
   });
@@ -861,7 +861,7 @@ async function blockedRunFixture(runId: string, contextHash: string) {
     entries,
     sourceIds: SOURCE_IDS,
     parserVersions: PARSER_VERSIONS,
-    rulesVersion: "vs2-si-evidence@1",
+    rulesVersion: "vs2-si-evidence@2",
     contextHash,
   }, createEvidenceIntegrity(KEY));
 }
@@ -1989,13 +1989,35 @@ async function replayableFixture(options: {
     entries: plan.applyRules(finalEntries, ASSESSMENT_DATE),
     sourceIds: SOURCE_IDS,
     parserVersions: options.parserVersions ?? PARSER_VERSIONS,
-    rulesVersion: options.rulesVersion ?? "vs2-si-evidence@1",
+    rulesVersion: options.rulesVersion ?? "vs2-si-evidence@2",
     contextHash: options.contextHash ?? "b".repeat(64),
   }, createEvidenceIntegrity(KEY));
   return { prepared, artifacts };
 }
 
 describe("plan-aware offline evidence replay", () => {
+  test("rejects the unreleased Slovenia v1 rules version", async () => {
+    const fixture = await replayableFixture({ rulesVersion: "vs2-si-evidence@1" });
+    const store = {
+      loadVerifiedBundle: async () => ({
+        snapshot: fixture.prepared.snapshot,
+        entries: fixture.prepared.manifest.entries.map((entry) => ({
+          sourceId: entry.sourceId,
+          navigationUrl: entry.navigationUrl,
+          resolvedEvidenceUrl: entry.resolvedEvidenceUrl,
+          artifacts: entry.artifactIds.map((artifactId) =>
+            fixture.artifacts.find((artifact) => artifact.artifactId === artifactId)!
+          ),
+        })),
+      }),
+    };
+
+    await expect(replayEvidenceByRules(
+      { snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY },
+      { store },
+    )).rejects.toThrow("integrity_mismatch");
+  });
+
   test("dispatches Slovenia rules twice from verified raw bytes without a network port", async () => {
     const db = database();
     const fixture = await replayableFixture();

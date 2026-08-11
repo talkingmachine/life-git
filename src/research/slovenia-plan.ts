@@ -70,18 +70,18 @@ export function createSloveniaPlan(
   sourceNavigation: Readonly<Record<SloveniaSourceId, string>>,
 ): ResearchPlan<SloveniaSourceId, ColdStartEvidenceClaim> {
   return Object.freeze({
-    id: "vs2-slovenia@1",
+    id: "vs2-slovenia@2",
     scope: "VS-2 Slovenia cold start",
     sourceIds: Object.freeze([...SOURCE_IDS]),
     sourceNavigation: Object.freeze({ ...sourceNavigation }),
     parserVersions: Object.freeze({
-      "si-digital-nomad-route": "si-route@1",
-      "si-income-threshold": "si-income@1",
-      "si-companion-employment": "si-companion@1",
+      "si-digital-nomad-route": "si-route@2",
+      "si-income-threshold": "si-income@2",
+      "si-companion-employment": "si-companion@2",
       "cbr-eur": "cbr-eur@1",
     }),
-    rulesVersion: "vs2-si-evidence@1",
-    limits: Object.freeze({ concurrency: 3, maxCaptures: 10, deadlineMs: 60_000 }),
+    rulesVersion: "vs2-si-evidence@2",
+    limits: Object.freeze({ concurrency: 3, maxCaptures: 11, deadlineMs: 60_000 }),
     validate: async (
       entry: ParserEntry<SloveniaSourceId>,
       assessmentAt: string,

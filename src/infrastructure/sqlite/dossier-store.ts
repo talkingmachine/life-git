@@ -51,9 +51,9 @@ interface DossierManifest {
 }
 
 const EXPECTED_PARSERS: Readonly<Record<SloveniaSourceId, string>> = {
-  "si-digital-nomad-route": "si-route@1",
-  "si-income-threshold": "si-income@1",
-  "si-companion-employment": "si-companion@1",
+  "si-digital-nomad-route": "si-route@2",
+  "si-income-threshold": "si-income@2",
+  "si-companion-employment": "si-companion@2",
   "cbr-eur": "cbr-eur@1",
 };
 
@@ -317,7 +317,7 @@ export class SqliteDossierStore {
       this.database,
       row.evidence_snapshot_id,
       this.hmacKey,
-      { parserVersions: EXPECTED_PARSERS, rulesVersion: "vs2-si-evidence@1" },
+      { parserVersions: EXPECTED_PARSERS, rulesVersion: "vs2-si-evidence@2" },
     );
   }
 }

@@ -236,7 +236,7 @@ function verifyPrepared(
     prepared.snapshot.id !== `${expected.runId}:evidence` ||
     prepared.snapshot.assessmentDate !== expected.assessmentAt ||
     prepared.snapshot.contextHash !== expected.contextHash ||
-    prepared.snapshot.rulesVersion !== "vs2-si-evidence@1" ||
+    prepared.snapshot.rulesVersion !== "vs2-si-evidence@2" ||
     prepared.canonicalManifest !== canonicalManifest ||
     integrity.canonical(prepared.manifest.snapshot) !==
       integrity.canonical(snapshotPayload(prepared.snapshot)) ||

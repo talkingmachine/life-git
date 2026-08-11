@@ -74,9 +74,9 @@ const EXPECTED_SOURCE: Readonly<Record<ClaimKind, typeof COUNTRY_SOURCES[number]
   general_statutory_prerequisites: "si-digital-nomad-route",
 };
 const EXPECTED_VALIDATOR = {
-  "si-digital-nomad-route": "si-route@1",
-  "si-income-threshold": "si-income@1",
-  "si-companion-employment": "si-companion@1",
+  "si-digital-nomad-route": "si-route@2",
+  "si-income-threshold": "si-income@2",
+  "si-companion-employment": "si-companion@2",
 } as const;
 const EXPECTED_PARSERS: Readonly<Record<SloveniaSourceId, string>> = {
   ...EXPECTED_VALIDATOR,
@@ -242,7 +242,7 @@ function countryClaims(
 ): readonly VerifiedCountryClaim[] {
   const { snapshot, manifest } = preparedEvidence;
   if (
-    snapshot.rulesVersion !== "vs2-si-evidence@1" ||
+    snapshot.rulesVersion !== "vs2-si-evidence@2" ||
     !exactParserVersions(snapshot.parserVersions) ||
     COUNTRY_SOURCES.some((sourceId) => snapshot.coverage[sourceId] !== "verified") ||
     !exactKeys(snapshot.coverage, ["si-digital-nomad-route", "si-income-threshold", "si-companion-employment", "cbr-eur"]) ||
