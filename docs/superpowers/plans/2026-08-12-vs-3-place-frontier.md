@@ -1578,6 +1578,6 @@ Expected: push succeeds; merge remains the user’s action.
 
 ### Approval state
 
-Product requirements and formal marker/frontier semantics are approved. Review-driven
-integrity/persistence amendments and this exact task plan are draft until the user explicitly
-approves them together; implementation must not begin before that approval.
+Product requirements, formal marker/frontier semantics, review-driven integrity/persistence
+amendments and this exact task plan were approved together by the user on 2026-08-12 by selecting
+Subagent-Driven execution. Implementation is authorized task-by-task with the review gates above.

@@ -2,17 +2,17 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `amended draft` — product semantics approved; integrity/persistence clarifications pending exact-text re-approval |
+| Статус | `approved` — product semantics, integrity/persistence amendments and exact implementation tasks approved |
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-12 |
 | Область | ranking стран, формальная проверка проживания, пополняемый frontier, planet history и Country Knowledge revisions |
 | Зависимости | `VS-2`, provider-free runtime design, Product Charter, Spec of Specs |
-| Approval evidence | пользователь утвердил product/exact-text baseline 2026-08-12; amendments produced during implementation-plan review await approval together with tasks |
+| Approval evidence | пользователь утвердил product baseline и затем выбрал `1` — Subagent-Driven execution утверждённых amendments и exact tasks — 2026-08-12 |
 | Canonical effect | supersedes прежние green-after-city, confirmed-city shortlist, upper-bound stability и research-budget stop rules; обновляет marker/top-5 glossary и demo wording |
 
-Product semantics этого `VS-3` baseline утверждены. Текущий exact text дополнен fail-closed
-integrity, replay и persistence contracts во время review implementation plan; эти amendments и
-traceable tasks первого vertical slice требуют совместного exact-text approval до implementation.
+Product semantics этого `VS-3` baseline утверждены. Fail-closed integrity, replay и persistence
+contracts, добавленные во время review implementation plan, и traceable tasks первого vertical
+slice совместно утверждены пользователем 2026-08-12.
 
 ## 1. Цель и наблюдаемый результат
 
@@ -388,8 +388,8 @@ markers, runtime LLM ranking, remembered official facts, unsupported-yellow auto
 
 ## 13. Approval record and canonical amendment gate
 
-Product baseline утверждён пользователем 2026-08-12; текущие integrity/persistence amendments
-ожидают совместного approval с implementation tasks. Отдельный narrow change package обязан:
+Product baseline, integrity/persistence amendments и implementation tasks утверждены пользователем
+2026-08-12. Отдельный narrow change package обязан:
 
 1. поправить Product Charter, Spec of Specs, glossary, demo story и VS-2 marker semantics, включая
    прежние confirmed-city, upper-bound stability и research-budget stop rules;
@@ -398,4 +398,4 @@ Product baseline утверждён пользователем 2026-08-12; те�
 
 Canonical amendment и implementation plan сами по себе не меняют production behavior. Для каждого
 нового country package остаётся обязательным отдельный source-feasibility gate; implementation
-readiness возникает только после утверждения traceable tasks первого vertical slice.
+readiness возникла после утверждения traceable tasks первого vertical slice 2026-08-12.

@@ -2,13 +2,13 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `draft` — product requirements approved; amended design/tasks pending exact-text approval |
+| Статус | `approved` — implementation in progress |
 | Владелец решения | пользователь проекта |
 | Последняя проверка | 2026-08-12 |
 | Область ответственности | первый country-frontier slice: formal marker semantics, frozen place ranking, red replacement, Country Knowledge revisions и planet history |
 | Supersedes | green-after-city, confirmed-city shortlist, optimistic upper-bound stability и отдельный research-budget shortlist stop |
 | Зависимости | [`Product Charter`](../../../product/charter.md), [`Spec of Specs`](../../../architecture/spec-of-specs.md), [`VS-2`](../vs-2-honest-cold-start/change.md), [`approved design`](../../../superpowers/specs/2026-08-12-vs-3-place-frontier-design.md) |
-| Approval | product semantics approved by user 2026-08-12; review-driven integrity/persistence amendments and implementation tasks pending |
+| Approval | product semantics, review-driven integrity/persistence amendments and exact implementation tasks approved by user 2026-08-12 |
 | Implementation evidence | `pending` |
 
 ## 1. Goal и наблюдаемый результат
@@ -203,9 +203,9 @@ Exact code steps и review gates определены в
 ## 12. Approval gate
 
 - [x] Product requirements and formal marker/frontier semantics approved by the user 2026-08-12.
-- [ ] Review-driven integrity/persistence design amendments approved by the user.
+- [x] Review-driven integrity/persistence design amendments approved by the user 2026-08-12.
 - [x] Canonical Charter, Spec of Specs, glossary, demo story and VS-2 semantics amended.
-- [ ] Exact implementation tasks approved by the user.
+- [x] Exact implementation tasks approved by the user 2026-08-12.
 - [ ] Implementation verified; evidence recorded without retroactively editing snapshots.
 
 Production changes must not start before the user approves the exact implementation plan.
