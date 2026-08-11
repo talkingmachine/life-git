@@ -329,6 +329,7 @@ export function ResearchGlobeCanvas({
   const lighting = useMemo(createGlobeLighting, []);
   const activeFlightKey = activeFlight?.key;
   const readActiveFlight = useEffectEvent(() => activeFlight);
+  const readRoutes = useEffectEvent(() => routes);
   const readSelectedRouteKey = useEffectEvent(() => selectedRouteKey);
 
   const customLayerData = useMemo<CustomLayerDatum[]>(
@@ -407,18 +408,31 @@ export function ResearchGlobeCanvas({
     return anchor;
   }, []);
 
-  const openMarkerDetails = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+  const openMarkerDetails = useEffectEvent((event: MouseEvent) => {
+    const container = size.container.current;
     const marker = markerButtonFromEventTarget(event.target);
-    if (marker === null || !event.currentTarget.contains(marker)) return;
+    if (marker === null || container === null || !container.contains(marker)) return;
     const routeKey = marker.dataset.routeKey;
-    if (routeKey === undefined || !routes.some((route) => route.key === routeKey)) return;
+    if (routeKey === undefined || !readRoutes().some((route) => route.key === routeKey)) return;
     event.stopPropagation();
     setSelectedRouteKey(routeKey);
-  }, [routes]);
+  });
 
-  const stopGlobeMarkerPointer = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+  const stopGlobeMarkerPointer = useEffectEvent((event: PointerEvent) => {
+    const container = size.container.current;
     const marker = markerButtonFromEventTarget(event.target);
-    if (marker !== null && event.currentTarget.contains(marker)) event.stopPropagation();
+    if (marker !== null && container?.contains(marker)) event.stopPropagation();
+  });
+
+  useLayoutEffect(() => {
+    const container = size.container.current;
+    if (container === null) return;
+    container.addEventListener("click", openMarkerDetails, true);
+    container.addEventListener("pointerdown", stopGlobeMarkerPointer, true);
+    return () => {
+      container.removeEventListener("click", openMarkerDetails, true);
+      container.removeEventListener("pointerdown", stopGlobeMarkerPointer, true);
+    };
   }, []);
 
   const closeSelectedRoute = useCallback(() => {
@@ -791,8 +805,6 @@ export function ResearchGlobeCanvas({
     <div
       aria-label="Глобус маршрутов"
       className={styles.globe}
-      onClick={openMarkerDetails}
-      onPointerDown={stopGlobeMarkerPointer}
       ref={size.container}
       role="region"
       style={{ background: backgroundColor }}

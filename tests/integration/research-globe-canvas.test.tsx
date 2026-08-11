@@ -102,9 +102,16 @@ vi.mock("react-globe.gl", async () => {
       React.useImperativeHandle(ref, () => methods, [methods]);
       React.useLayoutEffect(() => {
         if (labels.current === null || props.htmlElement === undefined) return;
+        const stopGlobeBubble = (event: Event) => event.stopPropagation();
+        labels.current.addEventListener("click", stopGlobeBubble);
+        labels.current.addEventListener("pointerdown", stopGlobeBubble);
         labels.current.replaceChildren(
           ...(props.htmlElementsData ?? []).map((datum) => props.htmlElement!(datum).cloneNode(true)),
         );
+        return () => {
+          labels.current?.removeEventListener("click", stopGlobeBubble);
+          labels.current?.removeEventListener("pointerdown", stopGlobeBubble);
+        };
       }, [props.htmlElement, props.htmlElementsData]);
       return (
         <div data-testid="globe-mock">
