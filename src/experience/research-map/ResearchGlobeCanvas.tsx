@@ -371,8 +371,6 @@ export function ResearchGlobeCanvas({
   const selectedLongitude = selectedRoute?.to.lng;
   const createCityBalloon = useCallback((datum: object): HTMLElement => {
     const label = datum as CityLabelDatum;
-    const anchor = document.createElement("div");
-    anchor.className = styles.cityBalloonAnchor;
     const element = document.createElement(label.kind === "origin" ? "div" : "button");
     element.className = [
       styles.cityBalloon,
@@ -404,8 +402,7 @@ export function ResearchGlobeCanvas({
     const place = document.createElement("span");
     place.textContent = label.label;
     element.append(flag, place);
-    anchor.append(element);
-    return anchor;
+    return element;
   }, []);
 
   const openMarkerDetails = useEffectEvent((event: MouseEvent) => {

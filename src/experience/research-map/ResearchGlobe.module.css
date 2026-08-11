@@ -112,20 +112,12 @@
   height: 100% !important;
 }
 
-.cityBalloonAnchor {
-  width: 0;
-  height: 0;
-  pointer-events: auto;
-}
-
 .cityBalloon {
   position: absolute;
-  bottom: 0.34rem;
-  left: 0;
+  translate: 0 calc(-50% - 0.34rem);
   display: inline-flex;
   align-items: center;
   gap: 0.38rem;
-  transform: translateX(-50%);
   appearance: none;
   padding: 0.36rem 0.62rem;
   border: 1px solid rgba(21, 32, 30, 0.14);

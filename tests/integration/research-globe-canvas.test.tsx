@@ -222,6 +222,7 @@ it("opens country marker details accessibly and returns focus on Escape", async 
   );
 
   const marker = await screen.findByRole("button", { name: "Открыть страну Словения" });
+  expect(marker.parentElement).toBe(screen.getByTestId("globe-labels"));
   const detailId = marker.getAttribute("aria-controls");
   expect(marker.getAttribute("aria-expanded")).toBe("false");
   expect(detailId).toBeTruthy();

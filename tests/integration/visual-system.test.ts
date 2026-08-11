@@ -231,13 +231,14 @@ describe("calm command center visual contracts", () => {
     expect(evidenceRules.join("\n")).not.toMatch(/content\s*:\s*["'][+−]["']/u);
   });
 
-  it("keeps destination CSS2D anchors hit-testable without making origins interactive", () => {
-    const anchor = rule(researchGlobeCss, ".cityBalloonAnchor");
+  it("keeps direct destination CSS2D markers hit-testable without making origins interactive", () => {
+    const marker = rule(researchGlobeCss, ".cityBalloon");
     const origin = rule(researchGlobeCss, ".cityBalloonOrigin");
 
-    expect(declaration(anchor, "width")).toBe("0");
-    expect(declaration(anchor, "height")).toBe("0");
-    expect(declaration(anchor, "pointer-events")).toBe("auto");
+    expect(researchGlobeCss).not.toContain(".cityBalloonAnchor");
+    expect(declaration(marker, "pointer-events")).toBe("auto");
+    expect(declaration(marker, "translate")).toBe("0 calc(-50% - 0.34rem)");
+    expect(marker).not.toMatch(/(?:^|;)\s*(?:bottom|left|transform)\s*:/);
     expect(declaration(origin, "pointer-events")).toBe("none");
   });
 });
