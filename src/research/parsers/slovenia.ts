@@ -103,6 +103,7 @@ interface PisrsDocument {
 
 interface PisrsArticle {
   readonly startIndex: number;
+  readonly contentsIndex: number;
   readonly items: readonly PisrsTextItem[];
 }
 
@@ -460,7 +461,11 @@ function isArticleHeading(value: string): boolean {
   return /^\d+\.(?:[a-z]\s+|\s+)člen$/u.test(value);
 }
 
-function findPisrsArticle(document: PisrsDocument, heading: string): PisrsArticle | null {
+function findPisrsArticle(
+  document: PisrsDocument,
+  heading: string,
+  contentsName: string,
+): PisrsArticle | null {
   const starts = document.items.flatMap((item, index) =>
     item.struktura === "clen" && normalizedMarkupText(item.vsebina) === heading ? [index] : []
   );
@@ -478,14 +483,18 @@ function findPisrsArticle(document: PisrsDocument, heading: string): PisrsArticl
   const first = items[0];
   const last = items.at(-1);
   if (first === undefined || last === undefined) return null;
-  const bindings = document.contents.filter((entry) =>
-    entry.struktura === "clen" &&
-    entry.idStrukturniElement === first.id &&
-    entry.idStrukturniElementPostavljeno === last.id &&
-    (normalizedMarkupText(entry.kazaloIme) === heading ||
-      normalizedMarkupText(entry.kazaloIme).startsWith(`${heading} `))
+  const bindings = document.contents.flatMap((entry, contentsIndex) =>
+    entry.struktura === "clen" && normalizedMarkupText(entry.kazaloIme) === contentsName
+      ? [{ entry, contentsIndex }]
+      : []
   );
-  return bindings.length === 1 ? { startIndex, items } : null;
+  if (bindings.length !== 1) return null;
+  const binding = bindings[0]!;
+  if (
+    binding.entry.idStrukturniElement !== first.id ||
+    binding.entry.idStrukturniElementPostavljeno !== last.id
+  ) return null;
+  return { startIndex, contentsIndex: binding.contentsIndex, items };
 }
 
 function uniquePisrsItem(
@@ -539,8 +548,16 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
   );
   if (gov === undefined || document === null) return { ok: false, kind: "semantic_mismatch" };
   const govLines = htmlLines(gov);
-  const article51 = findPisrsArticle(document, "51.a člen");
-  const article55 = findPisrsArticle(document, "55. člen");
+  const article51 = findPisrsArticle(
+    document,
+    "51.a člen",
+    "51.a člen (dovoljenje za začasno prebivanje za digitalnega nomada)",
+  );
+  const article55 = findPisrsArticle(
+    document,
+    "55. člen",
+    "55. člen (zavrnitev izdaje dovoljenja za prebivanje)",
+  );
   if (govLines === null || article51 === null || article55 === null) {
     return { ok: false, kind: "semantic_mismatch" };
   }
@@ -597,6 +614,7 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
     [opening, workScope, passport, insurance, funds, refusalGrounds, duration, reapplication,
       article55Opening].some((item) => item === null) ||
     article51.startIndex >= article55.startIndex ||
+    article51.contentsIndex >= article55.contentsIndex ||
     /\b(?:diploma|degree|qualification)\b|izobraz/iu.test(completeArticle51)
   ) return { ok: false, kind: "semantic_mismatch" };
 
@@ -927,8 +945,16 @@ function parseCompanion(
   );
   if (ess === undefined || document === null) return { ok: false, kind: "semantic_mismatch" };
   const essLines = htmlLines(ess);
-  const article32 = findPisrsArticle(document, "32. člen");
-  const article33 = findPisrsArticle(document, "33. člen");
+  const article32 = findPisrsArticle(
+    document,
+    "32. člen",
+    "32. člen (splošna določba)",
+  );
+  const article33 = findPisrsArticle(
+    document,
+    "33. člen",
+    "33. člen (zaposlovanje)",
+  );
   if (essLines === null || article32 === null || article33 === null) {
     return { ok: false, kind: "semantic_mismatch" };
   }
@@ -958,6 +984,7 @@ function parseCompanion(
     !markersAreStrictlyOrdered(essLines, orderedEssLines) ||
     [permitScope, labourMarketCondition, writtenNotice, cardAccess].some((item) => item === null) ||
     article32.startIndex >= article33.startIndex ||
+    article32.contentsIndex >= article33.contentsIndex ||
     article32.items[0]?.navezavaNPB !== null ||
     article33.items[0]?.navezavaNPB !== null
   ) return { ok: false, kind: "semantic_mismatch" };

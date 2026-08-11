@@ -2342,6 +2342,63 @@ describe("Slovenia companion employment validator", () => {
   });
 });
 
+describe("Slovenia native PISRS TOC binding", () => {
+  test.each([
+    {
+      source: "route",
+      mutation: "duplicate target TOC entry with conflicting bounds",
+      entry: () => routeEntry({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("ztuj2-details.json", (details) => {
+          details.data.kazalo.push({
+            idStrukturniElement: 358812008,
+            idStrukturniElementPostavljeno: 358812031,
+            kazaloIme: "51.a člen (dovoljenje za začasno prebivanje za digitalnega nomada)",
+            struktura: "clen",
+          });
+        }),
+      }),
+    },
+    {
+      source: "route",
+      mutation: "swapped required TOC order",
+      entry: () => routeEntry({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("ztuj2-details.json", (details) => {
+          details.data.kazalo.reverse();
+        }),
+      }),
+    },
+    {
+      source: "companion",
+      mutation: "duplicate target TOC entry with conflicting bounds",
+      entry: () => companionEntry({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("zzsdt-details.json", (details) => {
+          details.data.kazalo.push({
+            idStrukturniElement: 422791327,
+            idStrukturniElementPostavljeno: 422791336,
+            kazaloIme: "32. člen (splošna določba)",
+            struktura: "clen",
+          });
+        }),
+      }),
+    },
+    {
+      source: "companion",
+      mutation: "swapped required TOC order",
+      entry: () => companionEntry({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("zzsdt-details.json", (details) => {
+          details.data.kazalo.reverse();
+        }),
+      }),
+    },
+  ])("rejects $source evidence for $mutation", async ({ entry }) => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+
+    const result = await sloveniaPlan.validate(entry(), ASSESSMENT_DATE);
+
+    expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
+  });
+});
+
 describe("Slovenia cross-source claim rules", () => {
   async function verifiedCountryEntries() {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
