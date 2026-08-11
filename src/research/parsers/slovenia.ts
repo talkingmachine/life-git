@@ -165,7 +165,7 @@ const categorySchema = z.object({
 const sistatSeriesSchema = z.object({
   version: z.literal("2.0"),
   class: z.literal("dataset"),
-  source: z.string().optional(),
+  source: z.string().min(1),
   id: z.array(z.string().min(1)).min(1),
   size: z.array(z.number().int().positive()).min(1),
   dimension: z.record(z.string(), z.object({
@@ -681,10 +681,18 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
   };
 }
 
+function gregorianMonthLength(year: number, month: number): number {
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  if (month === 2) return isLeapYear ? 29 : 28;
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
 function periodAtOrBefore(period: string, assessmentAt: string): boolean {
   const match = /^(\d{4})M(0[1-9]|1[0-2])$/.exec(period);
-  if (match === null || !/^\d{4}-\d{2}-\d{2}$/.test(assessmentAt)) return false;
-  return `${match[1]}-${match[2]}` <= assessmentAt.slice(0, 7);
+  if (match === null) return false;
+  const monthLength = gregorianMonthLength(Number(match[1]), Number(match[2]));
+  const monthEnd = `${match[1]}-${match[2]}-${String(monthLength).padStart(2, "0")}`;
+  return isIsoDateAtOrBefore(monthEnd, assessmentAt);
 }
 
 function isIsoDateAtOrBefore(value: string, assessmentAt: string): boolean {

@@ -1855,6 +1855,7 @@ const SISTAT_NET_COORDINATE_PROJECTION = JSON.stringify({
 });
 
 interface SiStatSeriesFixture {
+  source?: string;
   id: string[];
   size: number[];
   dimension: Record<string, {
@@ -1958,6 +1959,78 @@ function changedSeriesValue(amount: number): Uint8Array {
   });
 }
 
+function reorderedIncomeEntryOptions(): IncomeEntryOptions {
+  return {
+    registryBytes: mutateFixture("salary-registry.json", (text) =>
+      text.replaceAll("maj 2026", "junij 2026")),
+    detailsBytes: mutateFixture("salary-details.json", (text) => text
+      .replaceAll("maj 2026", "junij 2026")
+      .replace("1.680,80", "1.734,56")),
+    metadataBytes: jsonBytes({
+      title: "Average monthly earnings by EARNINGS, UNIT and MONTH",
+      variables: [
+        {
+          code: "PLAČE",
+          text: "EARNINGS",
+          values: ["1", "2", "3", "4"],
+          valueTexts: [
+            "Gross earnings",
+            "Net earnings",
+            "Average gross earnings for the last three months",
+            "Average net earnings for the last three months",
+          ],
+        },
+        { code: "ENOTA", text: "UNIT", values: ["EUR"], valueTexts: ["Euro"] },
+        {
+          code: "MESEC",
+          text: "MONTH",
+          time: true,
+          values: ["2026M04", "2026M05", "2026M06"],
+          valueTexts: ["2026M04", "2026M05", "2026M06"],
+        },
+      ],
+    }),
+    seriesBytes: jsonBytes({
+      version: "2.0",
+      class: "dataset",
+      source: "Statistical Office of the Republic of Slovenia",
+      id: ["PLAČE", "ENOTA", "MESEC"],
+      size: [4, 1, 3],
+      dimension: {
+        "PLAČE": {
+          label: "EARNINGS",
+          category: {
+            index: { "1": 0, "2": 1, "3": 2, "4": 3 },
+            label: {
+              "1": "Gross earnings",
+              "2": "Net earnings",
+              "3": "Average gross earnings for the last three months",
+              "4": "Average net earnings for the last three months",
+            },
+          },
+        },
+        ENOTA: {
+          label: "UNIT",
+          category: { index: { EUR: 0 }, label: { EUR: "Euro" } },
+        },
+        MESEC: {
+          label: "MONTH",
+          category: {
+            index: { "2026M04": 0, "2026M05": 1, "2026M06": 2 },
+            label: {
+              "2026M04": "2026M04",
+              "2026M05": "2026M05",
+              "2026M06": "2026M06",
+            },
+          },
+        },
+      },
+      value: [null, null, null, 1600, 1680.8, 1734.56, null, null, null, null, null, null],
+    }),
+    seriesBodySha256: "b43fbe355244ed6fa0db839da31f0a029ebf86816896c462b2e63b579bbb7d65",
+  };
+}
+
 describe("Slovenia income validator", () => {
   test("derives one verified income claim from official PISRS and JSON-stat2 shapes", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
@@ -2007,6 +2080,36 @@ describe("Slovenia income validator", () => {
     expect(JSON.stringify(claim)).not.toMatch(/gross_to_net|conversion|estimated/i);
   });
 
+  test("applies a leap-February monthly period only at its UTC month end", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const entry = incomeEntry({
+      registryBytes: mutateFixture("salary-registry.json", (text) => text
+        .replaceAll("maj 2026", "februar 2028")
+        .replace('"objavljeno": "2026-07-28"', '"objavljeno": "2028-02-01"')),
+      detailsBytes: mutateFixture("salary-details.json", (text) =>
+        text.replaceAll("maj 2026", "februar 2028")),
+      metadataBytes: mutateFixture("sistat-metadata.json", (text) =>
+        text.replaceAll("2026M05", "2028M02")),
+      seriesBytes: mutateFixture("sistat-series.json", (text) =>
+        text.replaceAll("2026M05", "2028M02")),
+    });
+
+    const [beforeMonthEnd, atMonthEnd] = await Promise.all([
+      sloveniaPlan.validate(entry, "2028-02-28"),
+      sloveniaPlan.validate(entry, "2028-02-29"),
+    ]);
+
+    expect(beforeMonthEnd).toEqual({ ok: false, kind: "semantic_mismatch" });
+    expect(atMonthEnd.ok).toBe(true);
+    if (!atMonthEnd.ok) throw new Error("leap-February fixture must validate at month end");
+    expect(atMonthEnd.claims[0]?.value).toEqual({
+      metric: "latest_official_average_monthly_net_salary",
+      multiplier: "2",
+      thresholdEur: "3361.60",
+      period: "2028M02",
+    });
+  });
+
   test("derives a changed matching official value instead of remembering salary", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
@@ -2023,6 +2126,55 @@ describe("Slovenia income validator", () => {
       thresholdEur: "3400.00",
       period: "2026M05",
     });
+  });
+
+  test("uses declared dimension order for a nondegenerate row-major coordinate", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+
+    const result = await sloveniaPlan.validate(
+      incomeEntry(reorderedIncomeEntryOptions()),
+      ASSESSMENT_DATE,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("reordered JSON-stat2 fixture must validate");
+    expect(result.claims[0]?.value).toEqual({
+      metric: "latest_official_average_monthly_net_salary",
+      multiplier: "2",
+      thresholdEur: "3469.12",
+      period: "2026M06",
+    });
+    if (!("evidence" in result.claims[0]!)) throw new Error("income claim must carry evidence");
+    expect(result.claims[0]!.evidence.at(-1)?.anchor).toEqual({
+      artifactId: expect.stringContaining("sistat-series"),
+      locator: "H285S.px series > 2026M06 > Net earnings",
+      excerptSha256: createHash("sha256").update(JSON.stringify({
+        coordinate: { "PLAČE": "2", ENOTA: "EUR", MESEC: "2026M06" },
+        value: 1734.56,
+      })).digest("hex"),
+    });
+  });
+
+  test("rejects a multi-valued unselected JSON-stat2 dimension as ambiguous", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const options = reorderedIncomeEntryOptions();
+    const metadata = JSON.parse(new TextDecoder().decode(options.metadataBytes)) as SiStatMetadataFixture;
+    const series = JSON.parse(new TextDecoder().decode(options.seriesBytes)) as SiStatSeriesFixture;
+    metadata.variables[1]!.values.push("INDEX");
+    metadata.variables[1]!.valueTexts.push("Index");
+    series.size[1] = 2;
+    series.dimension.ENOTA!.category.index.INDEX = 1;
+    series.dimension.ENOTA!.category.label.INDEX = "Index";
+    series.value = new Array<number | null>(24).fill(null);
+    series.value[8] = 1734.56;
+
+    const result = await sloveniaPlan.validate(incomeEntry({
+      ...options,
+      metadataBytes: jsonBytes(metadata),
+      seriesBytes: jsonBytes(series),
+    }), ASSESSMENT_DATE);
+
+    expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
   });
 
   test.each([
@@ -2094,6 +2246,22 @@ describe("Slovenia income validator", () => {
       options: (): IncomeEntryOptions => ({
         seriesBytes: mutateJsonFixture<SiStatSeriesFixture>("sistat-series.json", (series) => {
           series.dimension["PLAČE"]!.category.index["2"] = 0;
+        }),
+      }),
+    },
+    {
+      name: "series source is missing",
+      options: (): IncomeEntryOptions => ({
+        seriesBytes: mutateJsonFixture<SiStatSeriesFixture>("sistat-series.json", (series) => {
+          delete series.source;
+        }),
+      }),
+    },
+    {
+      name: "series source is empty",
+      options: (): IncomeEntryOptions => ({
+        seriesBytes: mutateJsonFixture<SiStatSeriesFixture>("sistat-series.json", (series) => {
+          series.source = "";
         }),
       }),
     },
