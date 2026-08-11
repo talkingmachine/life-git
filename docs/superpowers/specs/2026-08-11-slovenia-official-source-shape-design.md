@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed written design for the approved VS-2 live-source repair. Implementation starts only after this document is reviewed and approved.
+Approved on 2026-08-11 for the VS-2 live-source repair.
 
 ## Context
 
@@ -14,6 +14,8 @@ The live-source check established the actual official machine surfaces:
 - PISRS human pages are JavaScript shells, while the official `https://pisrs.si/api` registry and consolidated-text endpoints expose the authoritative data;
 - SiStat's human page is HTML, while `https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px` exposes PxWeb metadata and JSON-stat2;
 - the existing CBR adapter already consumes a usable official endpoint and needs no source-shape change.
+
+The exact paths, selected structural IDs, compact native excerpts, request body, response sizes, and observed SHA-256 provenance are recorded in [`Slovenia Official Source Field Map`](./2026-08-11-slovenia-official-source-field-map.md). That map is fixture provenance, not a production cache: every new run still fetches and validates current official bytes.
 
 Keeping the synthetic parser would make the live gate permanently yellow. Adding a fallback or asking an LLM to rewrite official content would make the evidence impossible to reproduce. The repair therefore replaces the unreleased fixture-only VS-2 validator contract with deterministic, source-specific parsing of the real official schemas.
 
@@ -36,7 +38,7 @@ The verified result must remain reproducible from the captured bytes alone. A la
 
 Each Slovenia bundle receives one explicit capture recipe and one pure deterministic validator. The adapter derives official machine endpoints only from a candidate whose HTTPS host, authority root, and required claim slot have passed the existing discovery boundary. Exact record identity is then proven from the captured official registry before it is used.
 
-The adapter captures exact official bytes. The validator parses only documented fields and stable structural identifiers from those bytes. It emits a claim only when identity, completeness, temporal applicability, and cross-source agreement all succeed. Missing, duplicate, ambiguous, future-only, structurally changed, or contradictory data produces the existing typed unavailable/yellow path; no last-known value is reused.
+The adapter captures exact official bytes and their request/response provenance. The validator parses only documented fields and stable structural identifiers from those bytes. It emits a claim only when identity, transport integrity, temporal applicability, and cross-source agreement all succeed. Missing, duplicate, ambiguous, future-only, structurally changed, or contradictory data produces the existing typed unavailable/yellow path; no last-known value is reused.
 
 Human navigation and machine verification remain visibly distinct:
 
@@ -53,18 +55,18 @@ The revised Slovenia plan keeps four source bundles, concurrency `3`, and deadli
 | Bundle | Artifact role | Official request | Purpose |
 | --- | --- | --- | --- |
 | route | `gov-route-page` | discovered GOV.SI human page | readable national route summary |
-| route | `ztuj2-registry` | `https://pisrs.si/api/rezultat/zbirka/id/ZAKO5761` | exact law identity, current status, complete NPB listing |
+| route | `ztuj2-registry` | `https://pisrs.si/api/rezultat/zbirka/id/ZAKO5761` | exact law identity, current status, single-record NPB listing |
 | route | `ztuj2-details` | `https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/{selectedNpbId}/details` | Articles 51.a and 55 from the selected version |
 | income | `salary-registry` | `https://pisrs.si/api/rezultat/zbirka/sop/{candidateSop}` | exact publication identity, status, and version listing |
 | income | `salary-details` | `https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/{selectedNpbId}/details` | dated official monthly net-salary publication |
 | income | `sistat-metadata` | GET `https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px` | complete dimension and category listing |
 | income | `sistat-series` | POST the same endpoint with every dimension set to `all`, response `json-stat2` | complete official time series |
 | companion | `ess-companion-page` | discovered ESS human page | readable conditional-employment procedure |
-| companion | `zzsdt-registry` | `https://pisrs.si/api/rezultat/zbirka/id/ZAKO6655` | exact law identity, current status, complete NPB listing |
+| companion | `zzsdt-registry` | `https://pisrs.si/api/rezultat/zbirka/id/ZAKO6655` | exact law identity, current status, single-record NPB listing |
 | companion | `zzsdt-details` | `https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/{selectedNpbId}/details` | Articles 32 and 33 from the selected version |
 | FX | existing `official-document` | existing CBR request | current EUR/RUB rate, unchanged |
 
-The PISRS details request is permitted only after the registry artifact validates enough structure to derive one selected `npbId`. A malformed registry therefore causes no details request. The same pure registry decoder is run again by the validator over the sealed artifacts; capture-time endpoint derivation is not accepted as evidence. The SiStat POST body is derived from every unique metadata dimension, and the validator likewise rechecks that derivation offline. A malformed or incomplete metadata response causes no series request.
+The PISRS details request is permitted only after the registry artifact validates enough structure to derive one selected `npbId`. A malformed registry therefore causes no details request. The same pure registry decoder is run again by the validator over the sealed artifacts; capture-time endpoint derivation is not accepted as evidence. It also rechecks that the sealed artifact came from the exact expected GET request and final response URL. The SiStat POST body is derived from every unique metadata dimension, and the validator likewise rechecks the exact POST URL, method, and body hash offline. A malformed or incomplete metadata response causes no series request.
 
 ## PISRS Registry Contract
 
@@ -72,12 +74,14 @@ The route, companion, and salary registries share one small internal parser, not
 
 - the requested record identity is exactly `ZAKO5761`, `ZAKO6655`, or the candidate salary SOP;
 - the record is currently marked as a valid official instrument;
-- the registry contains one unambiguous, complete sequence `Osnovni`, `NPB 1`, ..., `NPB N` with unique IDs and no gaps or duplicates;
+- the single-record official registry response contains one unambiguous sequence `Osnovni`, `NPB 1`, ..., `NPB N` with unique IDs and no gaps or duplicates;
 - the selected version is the unique maximum `N`; the registry is not used to infer its effective date;
-- the selected details prove that the required provisions are applicable at `assessmentAt`;
+- the selected details contain the required provisions; when PISRS supplies target-level `navezavaNPB`, its applicability date must be at or before `assessmentAt`;
 - the details response belongs to the selected registry ID.
 
-The validator does not assume that array order means “latest”. It derives and checks the ordinal, binds the details artifact to the selected ID, and only then verifies the target provisions' effective-state metadata against `assessmentAt`. It does not silently fall back to an older NPB when the current details are future-only or ambiguous. Pagination, an incomplete list, an unknown status, a future-only target provision, a duplicate maximum, or a registry/details mismatch fails closed.
+The validator does not assume that array order means “latest”. It derives and checks the ordinal, binds the details artifact to the selected ID, and then proves current applicability from the official `Veljaven predpis` registry status plus the target sections in that selected current consolidated text. Where a target section includes `navezavaNPB`, that date is an additional mandatory cutoff check. It does not invent a missing effective date or silently fall back to an older NPB. Partial HTTP content, malformed JSON, an internal gap, an unknown status, an explicitly future target provision, a duplicate maximum, a registry/details mismatch, or a newly introduced pagination/total contract that the parser does not understand fails closed. A claim without a target-level effective date uses the selected official NPB identity as its source period, not a fabricated calendar date.
+
+PISRS currently returns `npbVerzije` in one non-paginated record and publishes no independent total or continuation token. The system can prove that it received and parsed that authoritative response whole and that the returned sequence is internally gapless; it cannot prove that the authority did not itself omit a syntactically valid tail when no total exists. This is an explicit source-authority limitation. The product must not describe the check as stronger than the official interface permits.
 
 ## Route Validation
 
@@ -96,6 +100,8 @@ GOV.SI must provide the expected route identity and publication date plus the re
 Article sections are bounded by their actual structural entries and the next article heading. They are not selected by incidental CSS classes or artificial begin/end lines. Required provisions must establish the third-country digital-nomad route, foreign work relationships, exclusion of Slovenian labour-market work, immediate family reunification, duration and reapplication rules, passport validity, health insurance, the twice-net-salary rule, and the applicable Article 55 grounds.
 
 The qualification claim remains deliberately narrow: it states only that no qualification requirement is listed in the proven complete authoritative requirements. The citizenship claim never upgrades general third-country eligibility into a nationality-specific or consular guarantee.
+
+The current official route text explicitly excludes EU and EEA citizens. The validator therefore emits only those two exclusions. It must not retain the synthetic fixture's unsupported `Switzerland` value unless a captured authoritative source states it explicitly.
 
 Each claim anchor is made from the exact matched official text in its artifact. Changed or duplicate target articles, missing prerequisites, contradictory GOV.SI/PISRS semantics, or inability to prove the complete requirement boundary rejects the entire route bundle.
 
@@ -146,6 +152,7 @@ Replay uses only the sealed raw artifacts. It re-runs the same registry selectio
 ## Failure, Security, and Privacy Semantics
 
 - Candidate URLs remain untrusted. Every request uses HTTPS, exact approved `URL.host`, explicit media types, bounded redirects, byte limits, the shared deadline, and no retries beyond the frozen plan.
+- During current validation and offline replay, every machine artifact must still prove `origin:"live"`, status `200`, the expected role, exact request method and URL, exact final response URL, and—when present—the recomputed request-body SHA-256. Correct-looking bytes from another official path are not interchangeable evidence.
 - Machine endpoints are derived from exact validated IDs, not arbitrary URLs returned by the model or content.
 - Scripts from official HTML are never executed.
 - Unsupported source shapes, extra ambiguity, or inability to prove completeness yields yellow; it never yields partial verified claims.
@@ -155,12 +162,12 @@ Replay uses only the sealed raw artifacts. It re-runs the same registry selectio
 
 ## Testing Strategy
 
-Use small official-shaped fixtures based on the real response schemas and exact relevant text, not full megabyte responses and not remembered semantic summaries. Fixtures exercise the same field paths, structural IDs, version names, article entries, dimension declarations, and JSON-stat2 layout as the official APIs.
+Use small official-shaped fixtures mechanically reduced from the responses recorded in the field map, not full megabyte responses and not remembered semantic summaries. Fixtures exercise the same field paths, structural IDs, version names, article entries, dimension declarations, JSON-stat2 layout, and request provenance as the official APIs.
 
 Required representative TDD cases:
 
 - happy route, income, and companion bundles produce the existing nine-claim coverage;
-- incomplete or duplicate NPB sequence fails closed;
+- an internal gap or duplicate in the returned NPB sequence fails closed; the tests do not claim to detect an authority-side tail omission without a published total;
 - wrong record identity or registry/details binding fails closed;
 - missing, duplicated, reordered, or substantively changed target article fails closed;
 - salary period/value mismatch between PISRS and SiStat fails closed;
