@@ -63,11 +63,106 @@ const countrySchema = z.object({
   }).strict(),
 }).strict();
 
-const reasonSchema = z.object({
+const formalEvidenceReferenceSchema = z.object({
+  evidenceSnapshotId: z.string().min(1),
+  artifactId: z.string().min(1),
+  sourceId: z.string().min(1),
+  navigationUrl: z.string().url(),
+  resolvedEvidenceUrl: z.string().url(),
+  sourcePeriod: z.string().min(1),
+  locator: z.string().min(1),
+  excerptSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  validatorVersion: z.string().min(1),
+}).strict();
+
+const formalReasonSchema = z.object({
   code: z.string().min(1),
   summary: z.string().min(1),
   claimIds: z.array(z.string().min(1)),
-  officialUrls: z.array(z.string().url()),
+  evidence: z.array(formalEvidenceReferenceSchema),
+  navigation: z.array(z.object({
+    sourceId: z.string().min(1),
+    url: z.string().url(),
+    label: z.string().min(1),
+  }).strict()),
+}).strict();
+
+const routeBase = {
+  routeId: z.string().min(1),
+  reasons: z.array(formalReasonSchema),
+  evidenceSnapshotIds: z.array(z.string().min(1)),
+  proceduralActions: z.array(z.object({
+    kind: z.enum(["insurance", "registration", "document_submission"]),
+    completed: z.literal(false),
+  }).strict()),
+  contingentActions: z.array(z.object({
+    kind: z.enum(["job_offer", "admission"]),
+    eligibility: z.literal("verified"),
+    acquired: z.literal(false),
+  }).strict()),
+};
+
+const residenceRouteOutcomeSchema = z.discriminatedUnion("status", [
+  z.object({
+    ...routeBase,
+    status: z.enum(["viable", "impossible"]),
+    ruleEffectiveFrom: z.iso.date(),
+    ruleEffectiveTo: z.iso.date().optional(),
+    evidenceSnapshotIds: z.array(z.string().min(1)).min(1),
+  }).strict(),
+  z.object({
+    ...routeBase,
+    status: z.literal("unknown"),
+    ruleEffectiveFrom: z.iso.date().optional(),
+    ruleEffectiveTo: z.iso.date().optional(),
+  }).strict(),
+]);
+
+const catalogRouteCoverageSchema = z.discriminatedUnion("applicability", [
+  z.object({
+    routeId: z.string().min(1),
+    applicability: z.literal("applicable"),
+    evidence: z.array(formalEvidenceReferenceSchema).min(1),
+  }).strict(),
+  z.object({
+    routeId: z.string().min(1),
+    applicability: z.literal("excluded"),
+    exclusionCode: z.string().min(1),
+    claimIds: z.array(z.string().min(1)).min(1),
+    evidence: z.array(formalEvidenceReferenceSchema).min(1),
+  }).strict(),
+]);
+
+const catalogCompletenessAttestationSchema = z.object({
+  catalogRevisionId: z.string().min(1),
+  jurisdiction: z.string().min(1),
+  authority: z.string().min(1),
+  scopeKind: z.literal("all_long_term_residence_routes_for_profile"),
+  profileSnapshotId: z.string().min(1),
+  catalogRoutes: z.array(catalogRouteCoverageSchema).min(1),
+  validatorVersion: z.string().min(1),
+  effectiveFrom: z.iso.date(),
+  effectiveTo: z.iso.date().optional(),
+  evidenceSnapshotId: z.string().min(1),
+  catalogEvidence: z.array(formalEvidenceReferenceSchema).min(1),
+}).strict();
+
+const formalResidenceVerdictSchema = z.object({
+  rulesVersion: z.literal("formal-residence@1"),
+  marker: z.enum(["green", "yellow", "red"]),
+  verdictAsOf: z.iso.date(),
+  routeOutcomes: z.array(residenceRouteOutcomeSchema),
+  reasons: z.array(formalReasonSchema),
+  catalogCompleteness: z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("verified"),
+      attestation: catalogCompletenessAttestationSchema,
+    }).strict(),
+    z.object({
+      status: z.literal("unproven"),
+      reasonCode: z.literal("catalog_completeness_unprovable"),
+    }).strict(),
+  ]),
 }).strict();
 
 const formulaSchema = z.object({
@@ -83,15 +178,16 @@ const formulaSchema = z.object({
 }).strict();
 
 const comparatorSchema = z.object({
-  marker: z.enum(["red", "yellow"]),
+  marker: z.enum(["green", "yellow", "red"]),
   personalFit: z.enum([
-    "verified_veto",
+    "verified_route_available",
+    "route_blocked_catalog_incomplete",
     "research_incomplete",
     "personal_evidence_missing",
-    "route_compatible_city_unverified",
+    "all_routes_impossible",
   ]),
   cityScope: z.literal("not_checked"),
-  reasons: z.array(reasonSchema),
+  formalVerdict: formalResidenceVerdictSchema,
   formula: formulaSchema.optional(),
 }).strict();
 

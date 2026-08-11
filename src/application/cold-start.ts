@@ -274,6 +274,16 @@ function sourceNavigation(
   ])) as Record<SloveniaSourceId, string>;
 }
 
+function sourceResolvedEvidence(
+  bundle: ColdStartVerifiedBundle,
+): Readonly<Record<SloveniaSourceId, string>> {
+  return Object.fromEntries(SOURCE_IDS.map((sourceId) => {
+    const entry = bundle.entries.find((candidate) => candidate.sourceId === sourceId);
+    if (entry === undefined) integrityMismatch();
+    return [sourceId, entry.resolvedEvidenceUrl];
+  })) as Record<SloveniaSourceId, string>;
+}
+
 function terminalEntries(
   bundle: ColdStartVerifiedBundle,
 ): readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] {
@@ -457,6 +467,7 @@ export function createColdStartApplication(
       evidence: replayed,
       ...(dossier === undefined ? {} : { dossier }),
       sourceNavigation: navigation,
+      sourceResolvedEvidence: sourceResolvedEvidence(bundle),
     });
     const claimKinds = REQUIRED_CLAIM_KINDS.filter((kind) =>
       replayed.claims.some((claim) => "claimKind" in claim && claim.claimKind === kind)

@@ -654,7 +654,7 @@ function confirmedRelocation(
 }
 
 describe("pure VS-2 cold-start comparator", () => {
-  test("returns a lineage-backed red formula using unrounded Decimal income", async () => {
+  test("keeps a lineage-backed failed route yellow when the national catalog is unproven", async () => {
     const { fixture, dossier } = await publishedAssessmentFixture({ cbrRate: "90" });
     const profile = confirmedRelocation({
       passportValidUntil: "unknown",
@@ -667,37 +667,39 @@ describe("pure VS-2 cold-start comparator", () => {
       evidence: fixture.prepared.snapshot,
       dossier,
       sourceNavigation: SOURCE_URLS,
+      sourceResolvedEvidence: {
+        ...SOURCE_URLS,
+        "cbr-eur": "https://www.cbr.ru/resolved/XML_daily.asp",
+      },
     });
 
-    expect(result).toEqual({
-      marker: "red",
-      personalFit: "verified_veto",
-      cityScope: "not_checked",
-      reasons: [{
-        code: "income_below_verified_threshold",
-        summary: "Подтверждённого чистого дохода недостаточно для порога маршрута.",
-        claimIds: ["si-income-threshold:income:si-income@2", "cbr-eur-facts-1"],
-        officialUrls: [
-          "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/613486752/details",
-          SISTAT_API_URL,
-          SOURCE_URLS["cbr-eur"],
-        ],
-      }],
-      formula: {
-        formulaId: "FORMULA-VS2-INCOME-01",
-        formulaVersion: "1",
-        expression: "monthlyIncomeRub / eurRub < thresholdEur",
-        monthlyIncomeRub: "210000",
-        eurRub: "90",
-        incomeEur: "2333.33",
-        thresholdEur: "3361.60",
-        rounding: "UNROUNDED_THEN_HALF_UP_2DP",
-        sourceClaimIds: ["si-income-threshold:income:si-income@2", "cbr-eur-facts-1"],
-      },
+    expect(result.marker).toBe("yellow");
+    expect(result.personalFit).toBe("route_blocked_catalog_incomplete");
+    expect(result.formalVerdict.routeOutcomes).toEqual([
+      expect.objectContaining({
+        routeId: "si-temporary-residence-digital-nomad",
+        status: "impossible",
+      }),
+    ]);
+    expect(result.formalVerdict.catalogCompleteness.status).toBe("unproven");
+    expect(result.formalVerdict.reasons.map(({ code }) => code)).toContain(
+      "catalog_completeness_unprovable",
+    );
+    expect(result.formalVerdict.reasons.flatMap(({ evidence }) => evidence)).toContainEqual(
+      expect.objectContaining({
+        sourceId: "cbr-eur",
+        resolvedEvidenceUrl: "https://www.cbr.ru/resolved/XML_daily.asp",
+      }),
+    );
+    expect(result.formula).toMatchObject({
+      monthlyIncomeRub: "210000",
+      eurRub: "90",
+      incomeEur: "2333.33",
+      thresholdEur: "3361.60",
     });
   });
 
-  test("changes the decision when verified FX or threshold changes and never returns green", async () => {
+  test("makes a compatible route green while insurance remains a procedural action", async () => {
     const compatible = await publishedAssessmentFixture({ cbrRate: "60" });
     const thresholdVeto = await publishedAssessmentFixture({
       cbrRate: "60",
@@ -705,7 +707,7 @@ describe("pure VS-2 cold-start comparator", () => {
         ? { ...claim, value: { ...claim.value as ClaimValueByKind["income"], thresholdEur: "3600.00" } }
         : claim,
     });
-    const profile = confirmedRelocation();
+    const profile = confirmedRelocation({ healthInsurance: "unknown" });
 
     const compatibleResult = assessColdStart({
       assessmentAt: ASSESSMENT_DATE,
@@ -722,12 +724,67 @@ describe("pure VS-2 cold-start comparator", () => {
       sourceNavigation: SOURCE_URLS,
     });
 
-    expect(compatibleResult.marker).toBe("yellow");
-    expect(compatibleResult.personalFit).toBe("route_compatible_city_unverified");
+    expect(compatibleResult.marker).toBe("green");
+    expect(compatibleResult.personalFit).toBe("verified_route_available");
     expect(compatibleResult.cityScope).toBe("not_checked");
+    expect(compatibleResult.formalVerdict.routeOutcomes[0]?.proceduralActions).toContainEqual({
+      kind: "insurance",
+      completed: false,
+    });
     expect(compatibleResult.formula?.incomeEur).toBe("3500.00");
-    expect(thresholdResult.marker).toBe("red");
+    expect(thresholdResult.marker).toBe("yellow");
     expect(thresholdResult.formula?.thresholdEur).toBe("3600.00");
+  });
+
+  test("keeps passport, remote-work legality and unavailable FX as separate yellow unknowns", async () => {
+    const current = await publishedAssessmentFixture({ cbrRate: "60" });
+    const unavailable = await preparedFixture();
+    const unavailableDb = database();
+    await appendArtifacts(unavailableDb, unavailable.artifacts);
+    const unavailableDossier = new SqliteDossierStore(unavailableDb, KEY).publishWithEvidence({
+      preparedEvidence: unavailable.prepared,
+      publishedAt: PUBLISHED_AT,
+    }).version;
+    const cases = [
+      {
+        expectedCode: "passport_validity_unknown",
+        result: assessColdStart({
+          assessmentAt: ASSESSMENT_DATE,
+          profile: confirmedRelocation({ passportValidUntil: "unknown" }),
+          evidence: current.fixture.prepared.snapshot,
+          dossier: current.dossier,
+          sourceNavigation: SOURCE_URLS,
+        }),
+      },
+      {
+        expectedCode: "remote_work_prerequisite_unknown",
+        result: assessColdStart({
+          assessmentAt: ASSESSMENT_DATE,
+          profile: confirmedRelocation({
+            remoteWork: { relation: "foreign_employment", legallyAllowed: "unknown" },
+          }),
+          evidence: current.fixture.prepared.snapshot,
+          dossier: current.dossier,
+          sourceNavigation: SOURCE_URLS,
+        }),
+      },
+      {
+        expectedCode: "fx_rate_unavailable",
+        result: assessColdStart({
+          assessmentAt: ASSESSMENT_DATE,
+          profile: confirmedRelocation(),
+          evidence: unavailable.prepared.snapshot,
+          dossier: unavailableDossier,
+          sourceNavigation: SOURCE_URLS,
+        }),
+      },
+    ];
+
+    for (const { expectedCode, result } of cases) {
+      expect(result.marker).toBe("yellow");
+      expect(result.personalFit).toBe("personal_evidence_missing");
+      expect(result.formalVerdict.reasons.map(({ code }) => code)).toContain(expectedCode);
+    }
   });
 
   test("keeps gross, unavailable or stale FX and unresolved prerequisites yellow", async () => {
@@ -816,7 +873,11 @@ describe("pure VS-2 cold-start comparator", () => {
 
     expect(blocked.marker).toBe("yellow");
     expect(blocked.personalFit).toBe("research_incomplete");
-    expect(blocked.reasons[0]?.officialUrls).toEqual([SOURCE_URLS["si-income-threshold"]]);
+    expect(blocked.formalVerdict.reasons[0]?.navigation).toEqual([{
+      sourceId: "si-income-threshold",
+      url: SOURCE_URLS["si-income-threshold"],
+      label: "источник для ручной проверки",
+    }]);
   });
 
   test.each([
@@ -849,7 +910,9 @@ describe("pure VS-2 cold-start comparator", () => {
     });
 
     expect(result.marker).toBe("yellow");
-    expect(result.reasons.some(({ code }) => code === "passport_validity_insufficient"))
+    expect(result.formalVerdict.reasons.some(
+      ({ code }) => code === "passport_validity_insufficient",
+    ))
       .toBe(false);
   });
 });
@@ -1205,7 +1268,17 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(nonterminalJson).not.toContain("210000");
     expect(nonterminalJson).not.toContain(prepared.profileId);
     expect(nonterminalJson).not.toContain("contextHash");
-    expect(result.comparator.marker).toBe("red");
+    expect(result.comparator.marker).toBe("yellow");
+    expect(result.comparator.formalVerdict.routeOutcomes).toEqual([
+      expect.objectContaining({
+        routeId: "si-temporary-residence-digital-nomad",
+        status: "impossible",
+      }),
+    ]);
+    expect(result.comparator.formalVerdict.catalogCompleteness.status).toBe("unproven");
+    expect(result.comparator.formalVerdict.reasons.map(({ code }) => code)).toContain(
+      "catalog_completeness_unprovable",
+    );
     expect(result.coverage).toEqual({
       verified: 9,
       required: 9,
@@ -1279,6 +1352,32 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       runId: prepared.runId,
       profileId: other.profileId,
     })).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("returns a green read model for one verified viable route before city research", async () => {
+    const harness = coldStartHarness();
+    const prepared = await harness.application.prepare({
+      countryInput: "SI",
+      profile: {
+        ...RELOCATION_DRAFT,
+        monthlyIncome: { amount: "400000", currency: "RUB", basis: "net" },
+        healthInsurance: "unknown",
+      },
+    });
+
+    const readModel = await harness.application.run(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    expect(readModel.comparator.marker).toBe("green");
+    expect(readModel.comparator.personalFit).toBe("verified_route_available");
+    expect(readModel.comparator.cityScope).toBe("not_checked");
+    expect(readModel.comparator.formalVerdict.routeOutcomes[0]?.proceduralActions).toContainEqual({
+      kind: "insurance",
+      completed: false,
+    });
   });
 
   test.each([
@@ -1505,12 +1604,15 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(result.comparator).toMatchObject({
       marker: "yellow",
       personalFit: "research_incomplete",
-      reasons: [{
-        code: "country_not_installed",
-        summary: "Страна пока не установлена для проверки официальных данных.",
-        claimIds: [],
-        officialUrls: [],
-      }],
+      formalVerdict: {
+        reasons: [{
+          code: "country_not_installed",
+          summary: "Страна пока не установлена для проверки официальных данных.",
+          claimIds: [],
+          evidence: [],
+          navigation: [],
+        }, expect.objectContaining({ code: "catalog_completeness_unprovable" })],
+      },
     });
     expect(result.dossier).toBeUndefined();
     expect(harness.researchInputs).toHaveLength(0);
@@ -2494,12 +2596,36 @@ describe("cold-start finite HTTP stream", () => {
       marker: "yellow",
       personalFit: "research_incomplete",
       cityScope: "not_checked",
-      reasons: [{
-        code: "country_evidence_incomplete",
-        summary: "Официальные данные по стране подтверждены не полностью.",
-        claimIds: [],
-        officialUrls: [],
-      }],
+      formalVerdict: {
+        rulesVersion: "formal-residence@1",
+        marker: "yellow",
+        verdictAsOf: prepared.assessmentAt,
+        routeOutcomes: [{
+          routeId: "si-temporary-residence-digital-nomad",
+          reasons: [{
+            code: "country_evidence_incomplete",
+            summary: "Официальные данные по стране подтверждены не полностью.",
+            claimIds: [],
+            evidence: [],
+            navigation: [],
+          }],
+          evidenceSnapshotIds: [],
+          proceduralActions: [],
+          contingentActions: [],
+          status: "unknown",
+        }],
+        reasons: [{
+          code: "country_evidence_incomplete",
+          summary: "Официальные данные по стране подтверждены не полностью.",
+          claimIds: [],
+          evidence: [],
+          navigation: [],
+        }],
+        catalogCompleteness: {
+          status: "unproven",
+          reasonCode: "catalog_completeness_unprovable",
+        },
+      },
     },
     sourceNavigation: [],
   };
@@ -2686,12 +2812,12 @@ describe("cold-start finite HTTP stream", () => {
           comparator: {
             marker: "yellow",
             personalFit: "research_incomplete",
-            reasons: [{
-              code: "country_not_installed",
-              summary: "Страна пока не установлена для проверки официальных данных.",
-              claimIds: [],
-              officialUrls: [],
-            }],
+            formalVerdict: {
+              reasons: [
+                expect.objectContaining({ code: "country_not_installed" }),
+                expect.objectContaining({ code: "catalog_completeness_unprovable" }),
+              ],
+            },
           },
           sourceNavigation: [],
         },

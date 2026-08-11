@@ -16,6 +16,13 @@ import {
 } from "../research/dossier";
 import type { EvidenceSnapshot } from "../research/contracts";
 import type { RelocationProfileSnapshot } from "./relocation-profile";
+import {
+  assessFormalResidence,
+  type FormalEvidenceReference,
+  type FormalReason,
+  type FormalResidenceVerdict,
+  type ResidenceRouteOutcome,
+} from "./formal-residence-verdict";
 
 export const COLD_START_ASSESSMENT_RULES_VERSION = "cold-start-assessment@1";
 
@@ -32,19 +39,15 @@ export interface ColdStartFormula {
 }
 
 export interface ColdStartComparator {
-  readonly marker: "red" | "yellow";
+  readonly marker: FormalResidenceVerdict["marker"];
   readonly personalFit:
-    | "verified_veto"
+    | "verified_route_available"
+    | "route_blocked_catalog_incomplete"
     | "research_incomplete"
     | "personal_evidence_missing"
-    | "route_compatible_city_unverified";
+    | "all_routes_impossible";
   readonly cityScope: "not_checked";
-  readonly reasons: readonly {
-    readonly code: string;
-    readonly summary: string;
-    readonly claimIds: readonly string[];
-    readonly officialUrls: readonly string[];
-  }[];
+  readonly formalVerdict: FormalResidenceVerdict;
   readonly formula?: ColdStartFormula;
 }
 
@@ -54,9 +57,8 @@ export interface ColdStartAssessmentInput {
   readonly evidence: EvidenceSnapshot<SloveniaSourceId, ColdStartEvidenceClaim>;
   readonly dossier?: DossierVersion;
   readonly sourceNavigation: Readonly<Record<SloveniaSourceId, string>>;
+  readonly sourceResolvedEvidence?: Readonly<Record<SloveniaSourceId, string>>;
 }
-
-type AssessmentReason = ColdStartComparator["reasons"][number];
 
 const SUMMARY: Readonly<Record<string, string>> = {
   income_below_verified_threshold:
@@ -75,9 +77,8 @@ const SUMMARY: Readonly<Record<string, string>> = {
   fx_rate_stale: "Подтверждённый курс EUR/RUB старше допустимого окна.",
   remote_work_prerequisite_unknown: "Юридическая допустимость удалённой работы не подтверждена.",
   passport_validity_unknown: "Срок действия паспорта не подтверждён.",
-  health_insurance_not_confirmed: "Медицинская страховка не подтверждена.",
   companion_route_unverified: "Маршрут для этого типа сопровождающего не подтверждён.",
-  city_not_checked: "Страна совместима с профилем, но подходящий город ещё не проверен.",
+  route_requirements_verified: "Формальные требования маршрута подтверждены.",
 };
 
 function deepFreeze<T>(value: T): T {
@@ -109,20 +110,21 @@ function integrityMismatch(): never {
   throw new Error("integrity_mismatch");
 }
 
-function unique(values: readonly string[]): readonly string[] {
-  return [...new Set(values)];
-}
-
 function reason(
   code: keyof typeof SUMMARY,
   claimIds: readonly string[] = [],
-  officialUrls: readonly string[] = [],
-): AssessmentReason {
+  evidence: readonly FormalEvidenceReference[] = [],
+  navigation: FormalReason["navigation"] = [],
+): FormalReason {
   return {
     code,
     summary: SUMMARY[code],
-    claimIds: unique(claimIds),
-    officialUrls: unique(officialUrls),
+    claimIds: [...new Set(claimIds)],
+    evidence: [...new Map(evidence.map((reference) => [
+      `${reference.evidenceSnapshotId}:${reference.artifactId}:${reference.locator}`,
+      reference,
+    ])).values()],
+    navigation: [...new Map(navigation.map((link) => [link.url, link])).values()],
   };
 }
 
@@ -187,6 +189,50 @@ function verifiedDossierClaims(
   return claims;
 }
 
+function formalEvidenceForClaim(
+  evidence: EvidenceSnapshot<SloveniaSourceId, ColdStartEvidenceClaim>,
+  claimId: string,
+): readonly FormalEvidenceReference[] {
+  const claim = countryClaims(evidence).find((candidate) => candidate.claimId === claimId);
+  if (claim === undefined) integrityMismatch();
+  return claim.evidence.map((reference) => ({
+    evidenceSnapshotId: evidence.id,
+    artifactId: reference.artifactId,
+    sourceId: reference.sourceId,
+    navigationUrl: reference.navigationUrl,
+    resolvedEvidenceUrl: reference.resolvedEvidenceUrl,
+    sourcePeriod: reference.sourcePeriod,
+    locator: reference.anchor.locator,
+    excerptSha256: reference.anchor.excerptSha256,
+    validatorVersion: claim.validatorVersion,
+  }));
+}
+
+function formalEvidenceForClaims(
+  evidence: EvidenceSnapshot<SloveniaSourceId, ColdStartEvidenceClaim>,
+  claims: readonly DossierClaim[],
+): readonly FormalEvidenceReference[] {
+  return claims.flatMap((claim) => formalEvidenceForClaim(evidence, claim.claimId));
+}
+
+function manualNavigation(
+  sourceId: string,
+  url: string,
+): FormalReason["navigation"][number] {
+  return { sourceId, url, label: "источник для ручной проверки" };
+}
+
+function unknownRoute(reasons: readonly FormalReason[]): ResidenceRouteOutcome {
+  return {
+    routeId: "si-temporary-residence-digital-nomad",
+    status: "unknown",
+    reasons,
+    evidenceSnapshotIds: [],
+    proceduralActions: [],
+    contingentActions: [],
+  };
+}
+
 function cbrClaim(
   evidence: EvidenceSnapshot<SloveniaSourceId, ColdStartEvidenceClaim>,
   assessmentAt: string,
@@ -218,6 +264,24 @@ function cbrClaim(
   return { claim, rate };
 }
 
+function formalEvidenceForCbr(
+  input: ColdStartAssessmentInput,
+  claim: Extract<ColdStartEvidenceClaim, { readonly sourceId: "cbr-eur" }>,
+): FormalEvidenceReference {
+  const navigationUrl = input.sourceNavigation["cbr-eur"];
+  return {
+    evidenceSnapshotId: input.evidence.id,
+    artifactId: claim.anchor.artifactId,
+    sourceId: claim.sourceId,
+    navigationUrl,
+    resolvedEvidenceUrl: input.sourceResolvedEvidence?.["cbr-eur"] ?? navigationUrl,
+    sourcePeriod: claim.sourcePeriod,
+    locator: claim.anchor.locator,
+    excerptSha256: claim.anchor.excerptSha256,
+    validatorVersion: input.evidence.parserVersions["cbr-eur"],
+  };
+}
+
 function addMonths(dateText: string, months: number): Date | undefined {
   const date = canonicalDay(dateText);
   if (date === undefined) return undefined;
@@ -237,19 +301,26 @@ function researchIncomplete(input: ColdStartAssessmentInput): ColdStartComparato
   const countryNotInstalled = blockers.length > 0 && blockers.every(
     ({ kind }) => kind === "country_not_installed",
   );
+  const reasons = countryNotInstalled
+    ? [reason("country_not_installed")]
+    : blockers.length === 0
+    ? [reason("country_evidence_incomplete")]
+    : blockers.map((blocker) => reason(
+        "country_evidence_incomplete",
+        [],
+        [],
+        [manualNavigation(blocker.sourceId, blocker.navigationUrl)],
+      ));
+  const formalVerdict = assessFormalResidence({
+    profileSnapshotId: input.profile.id,
+    verdictAsOf: input.assessmentAt,
+    routes: [unknownRoute(reasons)],
+  });
   return deepFreeze({
-    marker: "yellow",
+    marker: formalVerdict.marker,
     personalFit: "research_incomplete",
     cityScope: "not_checked",
-    reasons: countryNotInstalled
-      ? [reason("country_not_installed")]
-      : blockers.length === 0
-      ? [reason("country_evidence_incomplete")]
-      : blockers.map((blocker) => reason(
-          "country_evidence_incomplete",
-          [],
-          [blocker.navigationUrl],
-        )),
+    formalVerdict,
   });
 }
 
@@ -274,8 +345,8 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
   }
 
   const dossierClaims = verifiedDossierClaims(input.evidence, input.dossier);
-  const hardVetoes: AssessmentReason[] = [];
-  const personalUnknowns: AssessmentReason[] = [];
+  const hardVetoes: FormalReason[] = [];
+  const personalUnknowns: FormalReason[] = [];
   let formula: ColdStartFormula | undefined;
 
   const citizenship = dossierClaims.citizenship_applicability;
@@ -284,7 +355,7 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
     hardVetoes.push(reason(
       "citizenship_excluded",
       [citizenship.claimId],
-      citizenship.evidence.map(({ navigationUrl }) => navigationUrl),
+      formalEvidenceForClaims(input.evidence, [citizenship]),
     ));
   }
 
@@ -294,7 +365,7 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
     hardVetoes.push(reason(
       "remote_work_not_legally_allowed",
       [remote.claimId],
-      remote.evidence.map(({ navigationUrl }) => navigationUrl),
+      formalEvidenceForClaims(input.evidence, [remote]),
     ));
   } else if (
     input.profile.profile.remoteWork.relation === "foreign_employment" &&
@@ -305,19 +376,27 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
     hardVetoes.push(reason(
       "remote_work_relation_not_allowed",
       [remote.claimId],
-      remote.evidence.map(({ navigationUrl }) => navigationUrl),
+      formalEvidenceForClaims(input.evidence, [remote]),
     ));
   } else if (
     input.profile.profile.remoteWork.relation === "unknown" ||
     input.profile.profile.remoteWork.legallyAllowed === "unknown"
   ) {
-    personalUnknowns.push(reason("remote_work_prerequisite_unknown", [remote.claimId]));
+    personalUnknowns.push(reason(
+      "remote_work_prerequisite_unknown",
+      [remote.claimId],
+      formalEvidenceForClaims(input.evidence, [remote]),
+    ));
   }
 
   const duration = dossierClaims.duration;
   const statutory = dossierClaims.general_statutory_prerequisites;
   if (input.profile.profile.passportValidUntil === "unknown") {
-    personalUnknowns.push(reason("passport_validity_unknown", [duration.claimId, statutory.claimId]));
+    personalUnknowns.push(reason(
+      "passport_validity_unknown",
+      [duration.claimId, statutory.claimId],
+      formalEvidenceForClaims(input.evidence, [duration, statutory]),
+    ));
   } else {
     const durationValue = duration.value as ClaimValueByKind["duration"];
     const statutoryValue = statutory.value as ClaimValueByKind["general_statutory_prerequisites"];
@@ -331,20 +410,17 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
       hardVetoes.push(reason(
         "passport_validity_insufficient",
         [duration.claimId, statutory.claimId],
-        [...duration.evidence, ...statutory.evidence].map(({ navigationUrl }) => navigationUrl),
+        formalEvidenceForClaims(input.evidence, [duration, statutory]),
       ));
     }
   }
 
-  if (input.profile.profile.healthInsurance !== "confirmed") {
-    personalUnknowns.push(reason("health_insurance_not_confirmed", [statutory.claimId]));
-  }
   if (input.profile.profile.companions.some(({ relationship }) => relationship === "other_family")) {
     const companion = dossierClaims.companion_entry;
     personalUnknowns.push(reason(
       "companion_route_unverified",
       [companion.claimId],
-      companion.evidence.map(({ navigationUrl }) => navigationUrl),
+      formalEvidenceForClaims(input.evidence, [companion]),
     ));
   }
 
@@ -352,11 +428,25 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
   const incomeValue = income.value as ClaimValueByKind["income"];
   const currentCbr = cbrClaim(input.evidence, input.assessmentAt);
   if (input.profile.profile.monthlyIncome.basis !== "net") {
-    personalUnknowns.push(reason("income_basis_not_net", [income.claimId]));
+    personalUnknowns.push(reason(
+      "income_basis_not_net",
+      [income.claimId],
+      formalEvidenceForClaims(input.evidence, [income]),
+    ));
   } else if (currentCbr === "unavailable") {
-    personalUnknowns.push(reason("fx_rate_unavailable"));
+    personalUnknowns.push(reason(
+      "fx_rate_unavailable",
+      [],
+      [],
+      [manualNavigation("cbr-eur", input.sourceNavigation["cbr-eur"])],
+    ));
   } else if (currentCbr === "stale") {
-    personalUnknowns.push(reason("fx_rate_stale"));
+    personalUnknowns.push(reason(
+      "fx_rate_stale",
+      [],
+      [],
+      [manualNavigation("cbr-eur", input.sourceNavigation["cbr-eur"])],
+    ));
   } else if (incomeValue.metric !== "latest_official_average_monthly_net_salary") {
     integrityMismatch();
   } else {
@@ -364,9 +454,9 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
     const threshold = new Decimal(incomeValue.thresholdEur);
     const incomeEur = monthlyIncome.div(currentCbr.rate);
     const claimIds = [income.claimId, currentCbr.claim.claimId];
-    const officialUrls = [
-      ...income.evidence.map(({ navigationUrl }) => navigationUrl),
-      input.sourceNavigation["cbr-eur"],
+    const formalEvidence = [
+      ...formalEvidenceForClaims(input.evidence, [income]),
+      formalEvidenceForCbr(input, currentCbr.claim),
     ];
     formula = {
       formulaId: "FORMULA-VS2-INCOME-01",
@@ -380,33 +470,52 @@ export function assessColdStart(input: ColdStartAssessmentInput): ColdStartCompa
       sourceClaimIds: claimIds,
     };
     if (incomeEur.lessThan(threshold)) {
-      hardVetoes.push(reason("income_below_verified_threshold", claimIds, officialUrls));
+      hardVetoes.push(reason("income_below_verified_threshold", claimIds, formalEvidence));
     }
   }
 
-  if (hardVetoes.length > 0) {
-    return deepFreeze({
-      marker: "red",
-      personalFit: "verified_veto",
-      cityScope: "not_checked",
-      reasons: hardVetoes,
-      ...(formula === undefined ? {} : { formula }),
-    });
-  }
-  if (personalUnknowns.length > 0) {
-    return deepFreeze({
-      marker: "yellow",
-      personalFit: "personal_evidence_missing",
-      cityScope: "not_checked",
-      reasons: personalUnknowns,
-      ...(formula === undefined ? {} : { formula }),
-    });
-  }
+  const status = hardVetoes.length > 0
+    ? "impossible" as const
+    : personalUnknowns.length > 0
+    ? "unknown" as const
+    : "viable" as const;
+  const positiveReason = reason(
+    "route_requirements_verified",
+    Object.values(dossierClaims).map(({ claimId }) => claimId),
+    formalEvidenceForClaims(input.evidence, Object.values(dossierClaims)),
+  );
+  const routeReasons = status === "viable"
+    ? [positiveReason]
+    : [...hardVetoes, ...personalUnknowns];
+  const routeBase = {
+    routeId: "si-temporary-residence-digital-nomad",
+    reasons: routeReasons,
+    evidenceSnapshotIds: [input.evidence.id] as const,
+    proceduralActions: input.profile.profile.healthInsurance === "confirmed"
+      ? []
+      : [{ kind: "insurance" as const, completed: false as const }],
+    contingentActions: [],
+  };
+  const routeBasis = dossierClaims.route_basis;
+  const routeBasisValue = routeBasis.value as ClaimValueByKind["route_basis"];
+  const route: ResidenceRouteOutcome = status === "unknown"
+    ? { ...routeBase, status }
+    : { ...routeBase, status, ruleEffectiveFrom: routeBasisValue.effectiveFrom };
+  const formalVerdict = assessFormalResidence({
+    profileSnapshotId: input.profile.id,
+    verdictAsOf: input.assessmentAt,
+    routes: [route],
+  });
+  const personalFit = status === "viable"
+    ? "verified_route_available" as const
+    : status === "impossible"
+    ? "route_blocked_catalog_incomplete" as const
+    : "personal_evidence_missing" as const;
   return deepFreeze({
-    marker: "yellow",
-    personalFit: "route_compatible_city_unverified",
+    marker: formalVerdict.marker,
+    personalFit,
     cityScope: "not_checked",
-    reasons: [reason("city_not_checked")],
+    formalVerdict,
     ...(formula === undefined ? {} : { formula }),
   });
 }

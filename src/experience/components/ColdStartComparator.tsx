@@ -15,10 +15,17 @@ const PERSONAL_FIT_LABELS: Readonly<Record<
   ColdStartReadModel["comparator"]["personalFit"],
   string
 >> = {
-  verified_veto: "Подтверждён обязательный запрет",
+  verified_route_available: "Подтверждён доступный маршрут",
+  route_blocked_catalog_incomplete: "Маршрут не подходит, каталог страны неполон",
   research_incomplete: "Исследование не завершено",
   personal_evidence_missing: "Не хватает данных профиля",
-  route_compatible_city_unverified: "Маршрут совместим, город не проверен",
+  all_routes_impossible: "Все формальные маршруты исключены",
+};
+
+const MARKER_COPY = {
+  green: { heading: "Формальный маршрут доступен", icon: "status-green" as const },
+  yellow: { heading: "Нужно уточнить", icon: "status-yellow" as const },
+  red: { heading: "Не подходит", icon: "status-red" as const },
 };
 
 export function ColdStartComparator({
@@ -30,6 +37,8 @@ export function ColdStartComparator({
   const trigger = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const isRed = readModel.comparator.marker === "red";
+  const isGreen = readModel.comparator.marker === "green";
+  const markerCopy = MARKER_COPY[readModel.comparator.marker];
   const detailId = `cold-start-reasons-${readModel.runId}`;
 
   useLayoutEffect(() => {
@@ -50,12 +59,12 @@ export function ColdStartComparator({
       <header className="cold-start-comparator__header">
         <UiIcon
           className="cold-start-comparator__status-icon"
-          name={isRed ? "status-red" : "status-yellow"}
+          name={markerCopy.icon}
           weight="duotone"
         />
         <div>
           <p className="eyebrow">Персональное сравнение</p>
-          <h2>{isRed ? "Не подходит" : "Нужно уточнить"}</h2>
+          <h2>{markerCopy.heading}</h2>
         </div>
       </header>
 
@@ -98,7 +107,31 @@ export function ColdStartComparator({
         )}
       </details>
 
-      {isRed ? (
+      {isGreen ? (
+        <section className="cold-start-comparator__blockers">
+          <h3>Процедурные шаги</h3>
+          {readModel.comparator.formalVerdict.routeOutcomes.flatMap(
+            ({ proceduralActions }) => proceduralActions,
+          ).length === 0 ? (
+            <p>Дополнительные процедурные шаги не отмечены.</p>
+          ) : (
+            <ul>
+              {readModel.comparator.formalVerdict.routeOutcomes.flatMap(
+                ({ proceduralActions }) => proceduralActions,
+              ).map((action, index) => (
+                <li key={`${action.kind}-${index}`}>
+                  {action.kind === "insurance"
+                    ? "Медицинская страховка"
+                    : action.kind === "registration"
+                    ? "Регистрация"
+                    : "Подача документов"}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p>Формальная проверка не гарантирует одобрение и не оценивает город.</p>
+        </section>
+      ) : isRed ? (
         <>
           <button
             aria-controls={detailId}
@@ -131,7 +164,7 @@ export function ColdStartComparator({
               <h3 id={`${detailId}-heading`} ref={heading} tabIndex={-1}>
                 Проверенный запрет
               </h3>
-              <ReasonList reasons={readModel.comparator.reasons} />
+              <ReasonList reasons={readModel.comparator.formalVerdict.reasons} />
               {readModel.comparator.formula === undefined ? null : (
                 <dl className="cold-start-comparator__formula">
                   <div><dt>Формула</dt><dd>{readModel.comparator.formula.expression}</dd></div>
@@ -152,7 +185,7 @@ export function ColdStartComparator({
       ) : (
         <section className="cold-start-comparator__blockers">
           <h3>Что нужно подтвердить</h3>
-          <ReasonList reasons={readModel.comparator.reasons} />
+          <ReasonList reasons={readModel.comparator.formalVerdict.reasons} />
           {onRetry === undefined ? null : (
             <button disabled={retryPending} onClick={onRetry} type="button">
               <UiIcon name="retry" />
@@ -168,7 +201,7 @@ export function ColdStartComparator({
 function ReasonList({
   reasons,
 }: {
-  readonly reasons: ColdStartReadModel["comparator"]["reasons"];
+  readonly reasons: ColdStartReadModel["comparator"]["formalVerdict"]["reasons"];
 }) {
   return (
     <ol className="cold-start-comparator__reason-list">
@@ -178,9 +211,14 @@ function ReasonList({
           {reason.claimIds.length === 0 ? null : (
             <p>Claim IDs: {reason.claimIds.join(" · ")}</p>
           )}
-          {reason.officialUrls.map((url, urlIndex) => (
-            <a href={url} key={url}>
+          {reason.evidence.map((reference, urlIndex) => (
+            <a href={reference.navigationUrl} key={`${reference.artifactId}-${urlIndex}`}>
               Официальный источник для причины {reasonIndex + 1}.{urlIndex + 1}
+            </a>
+          ))}
+          {reason.navigation.map((navigation) => (
+            <a href={navigation.url} key={`${navigation.sourceId}-${navigation.url}`}>
+              {navigation.label}
             </a>
           ))}
         </li>
