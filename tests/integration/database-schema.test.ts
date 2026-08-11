@@ -149,9 +149,21 @@ describe("database schema preflight", () => {
     ).all()).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "dossier_versions" },
       { name: "evidence_snapshots" },
       { name: "profile_snapshots" },
       { name: "run_revisions" },
+    ]);
+
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE name LIKE 'dossier_versions_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "index", name: "dossier_versions_one_root" },
+      { type: "index", name: "dossier_versions_one_successor" },
+      { type: "trigger", name: "dossier_versions_no_delete" },
+      { type: "trigger", name: "dossier_versions_no_update" },
     ]);
   });
 });

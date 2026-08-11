@@ -9,6 +9,10 @@ import type {
   LiveCapturedArtifact,
   SourceId,
 } from "../research/contracts";
+import type {
+  ColdStartEvidenceClaim,
+  SloveniaSourceId,
+} from "../research/cold-start-contracts";
 import {
   sealEvidencePlan,
   type ResearchPlan,
@@ -20,6 +24,7 @@ import {
   createVs1ResearchPlan,
   type EvidenceParsers,
 } from "../research/run";
+import { createSloveniaPlan } from "../research/slovenia-plan";
 
 export interface ReplayEvidenceInput {
   readonly snapshotId: string;
@@ -138,4 +143,50 @@ export async function replayEvidence(
     ? VS1_RESEARCH_PLAN
     : createVs1ResearchPlan(ports.parsers ?? STANDARD_EVIDENCE_PARSERS);
   return replayEvidencePlan(input, plan, { store: ports.store });
+}
+
+export async function replayEvidenceByRules<
+  S extends string,
+  C extends Claim<unknown, S>,
+>(
+  input: ReplayEvidenceInput,
+  ports: { readonly store: ReplayEvidenceStore<S, C> },
+): Promise<EvidenceSnapshot<S, C>> {
+  const verified = await ports.store.loadVerifiedBundle(input.snapshotId, input.hmacKey);
+  if (verified.snapshot.rulesVersion === "vs1-evidence@1") {
+    return replayEvidencePlan(
+      input,
+      VS1_RESEARCH_PLAN,
+      { store: ports.store as unknown as ReplayEvidenceStore },
+    ) as unknown as Promise<EvidenceSnapshot<S, C>>;
+  }
+  if (verified.snapshot.rulesVersion !== "vs2-si-evidence@1") {
+    throw new Error("integrity_mismatch");
+  }
+  const expectedSources = [
+    "si-digital-nomad-route",
+    "si-income-threshold",
+    "si-companion-employment",
+    "cbr-eur",
+  ] as const satisfies readonly SloveniaSourceId[];
+  if (
+    verified.entries.length !== expectedSources.length ||
+    expectedSources.some((sourceId) =>
+      verified.entries.filter((entry) => entry.sourceId === sourceId).length !== 1
+    )
+  ) throw new Error("integrity_mismatch");
+  const sourceNavigation = Object.fromEntries(expectedSources.map((sourceId) => [
+    sourceId,
+    verified.entries.find((entry) => entry.sourceId === sourceId)!.navigationUrl,
+  ])) as Record<SloveniaSourceId, string>;
+  return replayEvidencePlan(
+    input,
+    createSloveniaPlan(sourceNavigation),
+    {
+      store: ports.store as unknown as ReplayEvidenceStore<
+        SloveniaSourceId,
+        ColdStartEvidenceClaim
+      >,
+    },
+  ) as unknown as Promise<EvidenceSnapshot<S, C>>;
 }

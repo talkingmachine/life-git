@@ -115,6 +115,110 @@ function snapshotPayload<S extends string, C extends Claim<unknown, S>>(
   };
 }
 
+export function insertSealedEvidence<S extends string, C extends Claim<unknown, S>>(
+  database: Database.Database,
+  sealed: SealedEvidence<S, C>,
+): void {
+  for (const expected of sealed.manifest.artifacts) {
+    const row = database.prepare(
+      `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
+    ).get(expected.runId, expected.artifactId) as ArtifactRow<S> | undefined;
+    if (
+      row === undefined ||
+      canonicalJson(rowProvenance(row)) !== canonicalJson(expected) ||
+      row.byte_length !== row.bytes.byteLength ||
+      bytesHash(row.bytes) !== expected.sha256
+    ) {
+      integrityMismatch();
+    }
+  }
+  for (const artifact of sealed.manifest.artifacts) {
+    database.prepare(`
+      UPDATE artifacts SET sealed = 1
+      WHERE sealed = 0 AND run_id = ? AND artifact_id = ?
+    `).run(artifact.runId, artifact.artifactId);
+  }
+  database.prepare(`
+    INSERT INTO evidence_snapshots (
+      id, assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
+      parser_versions_json, rules_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    sealed.snapshot.id,
+    sealed.snapshot.assessmentDate,
+    canonicalJson(sealed.snapshot),
+    sealed.canonicalManifest,
+    sealed.snapshot.manifestHash,
+    sealed.snapshot.hmac,
+    canonicalJson(sealed.snapshot.parserVersions),
+    sealed.snapshot.rulesVersion,
+  );
+}
+
+/** @internal Synchronous verifier for callers that must remain inside a SQLite transaction. */
+export function loadVerifiedEvidence<S extends string, C extends Claim<unknown, S>>(
+  database: Database.Database,
+  id: string,
+  key: string,
+  expected: VerifiedLoadExpectations<S> = {},
+): EvidenceSnapshot<S, C> {
+  const row = database.prepare(`
+    SELECT assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
+           parser_versions_json, rules_version
+    FROM evidence_snapshots WHERE id = ?
+  `).get(id) as SnapshotRow | undefined;
+  if (row === undefined) throw new Error("evidence_not_found");
+
+  let snapshot: EvidenceSnapshot<S, C>;
+  let manifest: EvidenceManifest<S, C>;
+  try {
+    snapshot = JSON.parse(row.snapshot_json) as EvidenceSnapshot<S, C>;
+    manifest = JSON.parse(row.manifest_json) as EvidenceManifest<S, C>;
+  } catch {
+    integrityMismatch();
+  }
+  const canonicalManifest = canonicalJson(manifest);
+  if (
+    snapshot.id !== id ||
+    row.assessment_date !== snapshot.assessmentDate ||
+    row.rules_version !== snapshot.rulesVersion ||
+    row.parser_versions_json !== canonicalJson(snapshot.parserVersions) ||
+    canonicalJson(manifest.snapshot) !== canonicalJson(snapshotPayload(snapshot)) ||
+    !secureHexEqual(row.manifest_hash, sha256Text(canonicalManifest)) ||
+    !secureHexEqual(snapshot.manifestHash, row.manifest_hash) ||
+    !secureHexEqual(row.hmac, hmacSha256(canonicalManifest, key)) ||
+    !secureHexEqual(snapshot.hmac, row.hmac) ||
+    (expected.assessmentDate !== undefined && snapshot.assessmentDate !== expected.assessmentDate) ||
+    (expected.rulesVersion !== undefined && snapshot.rulesVersion !== expected.rulesVersion) ||
+    (expected.parserVersions !== undefined &&
+      canonicalJson(snapshot.parserVersions) !== canonicalJson(expected.parserVersions))
+  ) {
+    integrityMismatch();
+  }
+  if (
+    snapshot.artifactIds.length !== manifest.artifacts.length ||
+    canonicalJson(snapshot.artifactIds) !==
+      canonicalJson(manifest.artifacts.map((artifact) => artifact.artifactId))
+  ) {
+    integrityMismatch();
+  }
+  for (const expectedArtifact of manifest.artifacts) {
+    const artifact = database.prepare(
+      `SELECT ${ARTIFACT_COLUMNS} FROM artifacts
+       WHERE run_id = ? AND artifact_id = ? AND sealed = 1`,
+    ).get(expectedArtifact.runId, expectedArtifact.artifactId) as ArtifactRow<S> | undefined;
+    if (
+      artifact === undefined ||
+      canonicalJson(rowProvenance(artifact)) !== canonicalJson(expectedArtifact) ||
+      artifact.byte_length !== artifact.bytes.byteLength ||
+      bytesHash(artifact.bytes) !== expectedArtifact.sha256
+    ) {
+      integrityMismatch();
+    }
+  }
+  return snapshot;
+}
+
 export class SqliteEvidenceStore<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
@@ -164,42 +268,9 @@ export class SqliteEvidenceStore<
   }
 
   async seal(sealed: SealedEvidence<S, C>): Promise<void> {
-    const sealTransaction = this.database.transaction(() => {
-      for (const expected of sealed.manifest.artifacts) {
-        const row = this.database.prepare(
-          `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
-        ).get(expected.runId, expected.artifactId) as ArtifactRow<S> | undefined;
-        if (
-          row === undefined ||
-          canonicalJson(rowProvenance(row)) !== canonicalJson(expected) ||
-          row.byte_length !== row.bytes.byteLength ||
-          bytesHash(row.bytes) !== expected.sha256
-        ) {
-          integrityMismatch();
-        }
-      }
-      for (const artifact of sealed.manifest.artifacts) {
-        this.database.prepare(`
-          UPDATE artifacts SET sealed = 1
-          WHERE sealed = 0 AND run_id = ? AND artifact_id = ?
-        `).run(artifact.runId, artifact.artifactId);
-      }
-      this.database.prepare(`
-        INSERT INTO evidence_snapshots (
-          id, assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
-          parser_versions_json, rules_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        sealed.snapshot.id,
-        sealed.snapshot.assessmentDate,
-        canonicalJson(sealed.snapshot),
-        sealed.canonicalManifest,
-        sealed.snapshot.manifestHash,
-        sealed.snapshot.hmac,
-        canonicalJson(sealed.snapshot.parserVersions),
-        sealed.snapshot.rulesVersion,
-      );
-    });
+    const sealTransaction = this.database.transaction(() =>
+      insertSealedEvidence(this.database, sealed)
+    );
     sealTransaction();
   }
 
@@ -208,61 +279,7 @@ export class SqliteEvidenceStore<
     key: string,
     expected: VerifiedLoadExpectations<S> = {},
   ): Promise<EvidenceSnapshot<S, C>> {
-    const row = this.database.prepare(`
-      SELECT assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
-             parser_versions_json, rules_version
-      FROM evidence_snapshots WHERE id = ?
-    `).get(id) as SnapshotRow | undefined;
-    if (row === undefined) throw new Error("evidence_not_found");
-
-    let snapshot: EvidenceSnapshot<S, C>;
-    let manifest: EvidenceManifest<S, C>;
-    try {
-      snapshot = JSON.parse(row.snapshot_json) as EvidenceSnapshot<S, C>;
-      manifest = JSON.parse(row.manifest_json) as EvidenceManifest<S, C>;
-    } catch {
-      integrityMismatch();
-    }
-    const canonicalManifest = canonicalJson(manifest);
-    if (
-      snapshot.id !== id ||
-      row.assessment_date !== snapshot.assessmentDate ||
-      row.rules_version !== snapshot.rulesVersion ||
-      row.parser_versions_json !== canonicalJson(snapshot.parserVersions) ||
-      canonicalJson(manifest.snapshot) !== canonicalJson(snapshotPayload(snapshot)) ||
-      !secureHexEqual(row.manifest_hash, sha256Text(canonicalManifest)) ||
-      !secureHexEqual(snapshot.manifestHash, row.manifest_hash) ||
-      !secureHexEqual(row.hmac, hmacSha256(canonicalManifest, key)) ||
-      !secureHexEqual(snapshot.hmac, row.hmac) ||
-      (expected.assessmentDate !== undefined && snapshot.assessmentDate !== expected.assessmentDate) ||
-      (expected.rulesVersion !== undefined && snapshot.rulesVersion !== expected.rulesVersion) ||
-      (expected.parserVersions !== undefined &&
-        canonicalJson(snapshot.parserVersions) !== canonicalJson(expected.parserVersions))
-    ) {
-      integrityMismatch();
-    }
-    if (
-      snapshot.artifactIds.length !== manifest.artifacts.length ||
-      canonicalJson(snapshot.artifactIds) !==
-        canonicalJson(manifest.artifacts.map((artifact) => artifact.artifactId))
-    ) {
-      integrityMismatch();
-    }
-    for (const expectedArtifact of manifest.artifacts) {
-      const artifact = this.database.prepare(
-        `SELECT ${ARTIFACT_COLUMNS} FROM artifacts
-         WHERE run_id = ? AND artifact_id = ? AND sealed = 1`,
-      ).get(expectedArtifact.runId, expectedArtifact.artifactId) as ArtifactRow<S> | undefined;
-      if (
-        artifact === undefined ||
-        canonicalJson(rowProvenance(artifact)) !== canonicalJson(expectedArtifact) ||
-        artifact.byte_length !== artifact.bytes.byteLength ||
-        bytesHash(artifact.bytes) !== expectedArtifact.sha256
-      ) {
-        integrityMismatch();
-      }
-    }
-    return snapshot;
+    return loadVerifiedEvidence(this.database, id, key, expected);
   }
 
   async loadVerifiedBundle(

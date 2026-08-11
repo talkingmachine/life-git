@@ -1099,7 +1099,7 @@ describe("Slovenia installed research plan", () => {
         "si-companion-employment": "si-companion@1",
         "cbr-eur": "cbr-eur@1",
       },
-      rulesVersion: "vs2-evidence@1",
+      rulesVersion: "vs2-si-evidence@1",
       limits: { concurrency: 3, maxCaptures: 10, deadlineMs: 60_000 },
     });
     expect(SLOVENIA_CANDIDATES.some((candidate) => candidate.url.includes("cbr.ru"))).toBe(false);
