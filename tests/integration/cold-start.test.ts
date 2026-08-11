@@ -10,6 +10,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { createConfirmedLifeComposition } from "../../src/infrastructure/composition-root";
+import { createColdStartComposition } from "../../src/infrastructure/cold-start-composition";
 import { SqliteDossierStore } from "../../src/infrastructure/sqlite/dossier-store";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
 import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-store";
@@ -968,6 +969,53 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(typeof composed.startConfirmedLife).toBe("function");
   });
 
+  test("fails closed before real Slovenia Research when the country is not installed", async () => {
+    const db = database();
+    const now = new Date();
+    const requestStepCalls: unknown[] = [];
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      countrySourceIndex: {
+        lookup: () => ({
+          ok: false as const,
+          kind: "country_not_installed" as const,
+          candidates: [] as const,
+        }),
+      },
+      requestStep: async (request) => {
+        requestStepCalls.push(request);
+        throw new Error("country-not-installed must not capture");
+      },
+      clock: () => new Date(now),
+      nextRunId: () => "not-installed-run",
+    });
+    const prepared = await application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    const events: ColdStartEvent[] = [];
+
+    const result = await application.run(
+      prepared,
+      (event) => { events.push(event); },
+      new AbortController().signal,
+    );
+
+    expect(requestStepCalls).toEqual([]);
+    expect(events.map(({ type }) => type)).toEqual(["assessment_completed"]);
+    expect(result).toMatchObject({
+      runId: prepared.runId,
+      country: prepared.country,
+      evidenceSnapshotId: `${prepared.runId}:country_not_installed`,
+      coverage: { verified: 0, required: 9, claimKinds: [] },
+      comparator: { marker: "yellow", personalFit: "research_incomplete" },
+    });
+    expect(result.dossier).toBeUndefined();
+    expect(db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
+  });
+
   test("resolves the country before one profile write and reloads it without duplication", async () => {
     const harness = coldStartHarness();
 
@@ -1144,7 +1192,7 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     })).rejects.toThrow("integrity_mismatch");
   });
 
-  test("seals blocked Evidence alone and reproduces its yellow read model offline", async () => {
+  test("returns terminal yellow without Research when the country is not installed", async () => {
     const harness = coldStartHarness({ countryInstalled: false });
     const prepared = await harness.application.prepare({
       countryInput: "SI",
@@ -1163,18 +1211,10 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       personalFit: "research_incomplete",
     });
     expect(result.dossier).toBeUndefined();
-    expect(harness.researchInputs).toHaveLength(1);
-    expect(harness.researchInputs[0]).toMatchObject({ candidates: [] });
-    expect(events.filter(({ type }) => type === "source_discovered")).toHaveLength(0);
-    expect(events.filter(({ type }) => type === "authority_verified")).toHaveLength(0);
-    expect(events.some(({ type }) => type === "dossier_published")).toBe(false);
-    expect(events.at(-1)?.type).toBe("assessment_completed");
-    expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(1);
+    expect(harness.researchInputs).toHaveLength(0);
+    expect(events.map(({ type }) => type)).toEqual(["assessment_completed"]);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
     expect(harness.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
-    expect(await harness.application.present({
-      runId: prepared.runId,
-      profileId: prepared.profileId,
-    })).toEqual(result);
   });
 
   test("rejects invalid prepared signatures and honors abort on both sides of commit", async () => {
@@ -1242,22 +1282,6 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(before.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
     expect(before.db.prepare("SELECT COUNT(*) FROM artifacts WHERE sealed = 0").pluck().get())
       .toBeGreaterThan(0);
-
-    const blockedAbort = new AbortController();
-    const blockedBefore = coldStartHarness({
-      countryInstalled: false,
-      afterPrepared: () => blockedAbort.abort(new Error("cancel-blocked-before-seal")),
-    });
-    const blockedPrepared = await blockedBefore.application.prepare({
-      countryInput: "SI",
-      profile: RELOCATION_DRAFT,
-    });
-    await expect(blockedBefore.application.run(
-      blockedPrepared,
-      () => undefined,
-      blockedAbort.signal,
-    )).rejects.toThrow("cancel-blocked-before-seal");
-    expect(blockedBefore.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
 
     const afterCommitAbort = new AbortController();
     const after = coldStartHarness({

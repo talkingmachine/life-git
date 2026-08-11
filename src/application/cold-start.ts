@@ -298,6 +298,51 @@ function contextHash(
   return integrity.hash(integrity.canonical({ runId, profileId }));
 }
 
+function countryNotInstalledReadModel(
+  prepared: ColdStartPrepared,
+  profile: RelocationProfileSnapshot,
+): ColdStartReadModel {
+  const unavailableEvidence: EvidenceSnapshot<SloveniaSourceId, ColdStartEvidenceClaim> = {
+    id: `${prepared.runId}:country_not_installed`,
+    assessmentDate: prepared.assessmentAt,
+    artifactIds: [],
+    claims: [],
+    blockers: [],
+    coverage: Object.fromEntries(SOURCE_IDS.map((sourceId) => [sourceId, "unavailable"])) as
+      Record<SloveniaSourceId, "unavailable">,
+    parserVersions: {
+      "si-digital-nomad-route": "si-route@2",
+      "si-income-threshold": "si-income@2",
+      "si-companion-employment": "si-companion@2",
+      "cbr-eur": "cbr-eur@1",
+    },
+    rulesVersion: "vs2-si-evidence@2",
+    manifestHash: "",
+    hmac: "",
+  };
+  const sourceNavigation = Object.fromEntries(SOURCE_IDS.map((sourceId) => [sourceId, ""])) as
+    Record<SloveniaSourceId, string>;
+  return deepFreeze({
+    runId: prepared.runId,
+    country: prepared.country,
+    checkedAt: prepared.assessmentAt,
+    evidenceSnapshotId: unavailableEvidence.id,
+    assessmentRulesVersion: COLD_START_ASSESSMENT_RULES_VERSION,
+    coverage: {
+      verified: 0,
+      required: 9,
+      claimKinds: [],
+    },
+    comparator: assessColdStart({
+      assessmentAt: prepared.assessmentAt,
+      profile,
+      evidence: unavailableEvidence,
+      sourceNavigation,
+    }),
+    sourceNavigation: [],
+  });
+}
+
 function eventEmitter(
   prepared: ColdStartPrepared,
   emit: (event: ColdStartEvent) => void | Promise<void>,
@@ -469,8 +514,14 @@ export function createColdStartApplication(
       ) integrityMismatch();
       const events = eventEmitter(prepared, emit, ports.clock);
       const indexed = ports.countrySourceIndex.lookup(prepared.country.code);
-      const candidates = indexed.ok ? indexed.candidates : [];
       if (signal.aborted) abortReason(signal);
+      if (!indexed.ok) {
+        const profile = await ports.profiles.loadRelocationVerified(prepared.profileId);
+        const readModel = countryNotInstalledReadModel(prepared, profile);
+        await events.send({ type: "assessment_completed", payload: { readModel } });
+        return readModel;
+      }
+      const candidates = indexed.candidates;
       for (const candidate of candidates) {
         await events.send({
           type: "source_discovered",
