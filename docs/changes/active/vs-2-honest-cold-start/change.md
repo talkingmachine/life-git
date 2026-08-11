@@ -11,7 +11,7 @@
 | Approval | пользователь проекта / 2026-08-11 / VS-2 exact-text baseline / approved |
 | Implementation evidence | [provider-free current-source walkthrough](./implementation-evidence.md) / пользователь подтвердил 2026-08-11 |
 | Provider-free runtime | `verified` |
-| Source verification | `not earned` — current ESS/ZZSDT companion-employment evidence завершилось `semantic_mismatch` |
+| Source verification | `earned` — provider-free current-source run подтвердил `9 / 9`, четыре verified coverage-группы, `blockers: []` и immutable Slovenia dossier v1 |
 | Demo gate | `partially earned` — final-HEAD capture/claim frame и физический Tab не подтверждены black-box наблюдением |
 
 ## 1. Почему и какой результат

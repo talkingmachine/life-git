@@ -129,3 +129,58 @@ replayable evidence snapshot. It is not ready to claim that the current Slovenia
 supports all nine required facts. No parser fallback, recorded fixture or remembered fact was used
 to turn the yellow result into a success. Committing this evidence or updating active readiness
 status requires explicit user acceptance of the two browser-observation limitations above.
+
+## Follow-up: ESS source-shape repair
+
+This section supersedes only the source-readiness conclusion above. The original observation remains
+the immutable record of the first provider-free run.
+
+- Observed at: `2026-08-11 23:09 MSK (UTC+03:00)`.
+- HEAD: `0981f8bffb5afb7270436c12d4b061083b593abf`.
+- Repair: the live ESS page repeats its title in a breadcrumb `<li>` and the canonical `<h1>`.
+  The validator now evaluates ESS claim content from headings, paragraphs and time nodes while a
+  second matching `<h1>` still fails closed.
+- TDD: the live-shaped breadcrumb case failed before the repair and passed afterward; a duplicate
+  real heading remained `semantic_mismatch`.
+- Local gate: 25 files / 503 tests, typecheck, ESLint and production build all passed.
+- Runtime configuration again contained only an isolated `DATABASE_PATH` and synthetic unrecorded
+  `EVIDENCE_HMAC_KEY`; no LLM/API credential or external model call was used.
+
+The follow-up terminal route was:
+
+`http://127.0.0.1:62124/?flow=cold-start&run=run-4f7b28f7-0335-4374-b37a-a8679baea002&profile=37d9f9f4cc1375ade7f6245c3cbf421481842c13a831123c72ad9cb19f8caf9e`
+
+The same synthetic profile and all six installed navigation pairs produced:
+
+- country coverage `9 / 9`;
+- evidence snapshot `run-4f7b28f7-0335-4374-b37a-a8679baea002:evidence`;
+- all four coverage groups `verified` and blockers `[]`;
+- 11 fresh HTTP 200 artifacts, all sealed;
+- 10 Evidence claims: the nine dossier claims plus the CBR EUR/RUB claim;
+- immutable `Словения · досье v1` with nine normalized claims;
+- `si-companion@2` claim
+  `{ access: "conditional", labourMarketCheck: true, informationSheet: true }`;
+- `si-income@2` threshold `3361.60 EUR` for period `2026M05`;
+- no browser console errors.
+
+The comparator correctly remained yellow rather than fabricating a personal verdict. Its remaining
+unknowns are the unconfirmed passport-validity date, unconfirmed health insurance and an FX
+effective date outside the applicable assessment window. These are profile/applicability issues,
+not incomplete country evidence.
+
+Reloading the exact terminal URL reproduced `9 / 9`, dossier v1, the same snapshot and one marker.
+Database counts remained exactly `1 profile / 11 artifacts / 1 evidence snapshot / 1 dossier`, so
+reload performed no new official capture.
+
+### Updated readiness conclusion
+
+- Provider-free runtime: **verified**.
+- Slovenia current-source dossier publication: **verified**.
+- `source-verified: earned` for the declared VS-2 country-evidence scope.
+- Personal red/green verdict: **not earned**; the result is honestly yellow for profile and FX
+  applicability unknowns.
+- Complete Task 4 demo gate: **still partially unearned** because the final run did not preserve a
+  separate capture/claim visual frame and physical Tab traversal was not black-box measurable.
+
+The user accepted this exact wording on 2026-08-11. The active readiness status may therefore record
+the earned country-evidence scope without upgrading the personal verdict or complete demo gate.
