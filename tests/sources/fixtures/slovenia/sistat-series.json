@@ -1,31 +1,29 @@
 {
   "version": "2.0",
   "class": "dataset",
-  "anchorExcerpt": "H285S.px | NET | 2026M01 | 1560.00",
-  "id": ["MEASURE", "TIME"],
-  "size": [2, 3],
+  "source": "Statistical Office of the Republic of Slovenia",
+  "id": ["MESEC", "PLAČE"],
+  "size": [1, 4],
   "dimension": {
-    "MEASURE": {
-      "label": "Measure",
+    "MESEC": {
+      "label": "MONTH",
       "category": {
-        "index": { "NET": 0, "GROSS": 1 },
-        "label": {
-          "NET": "Average monthly net salary",
-          "GROSS": "Average monthly gross salary"
-        }
+        "index": { "2026M05": 0 },
+        "label": { "2026M05": "2026M05" }
       }
     },
-    "TIME": {
-      "label": "Period",
+    "PLAČE": {
+      "label": "EARNINGS",
       "category": {
-        "index": { "2025M12": 0, "2026M01": 1, "2026M09": 2 },
+        "index": { "1": 0, "2": 1, "3": 2, "4": 3 },
         "label": {
-          "2025M12": "2025M12",
-          "2026M01": "2026M01",
-          "2026M09": "2026M09"
+          "1": "Gross earnings",
+          "2": "Net earnings",
+          "3": "Average gross earnings for the last three months",
+          "4": "Average net earnings for the last three months"
         }
       }
     }
   },
-  "value": [1500.00, 1560.00, 1700.00, 2300.00, 2400.00, 2600.00]
+  "value": [null, 1680.8, null, null]
 }

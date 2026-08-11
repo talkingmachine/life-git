@@ -1,22 +1,23 @@
 {
-  "datasetId": "H285S.px",
-  "anchorExcerpt": "H285S.px | dimensions complete | no pagination",
-  "title": "Average monthly earnings",
-  "complete": true,
-  "pagination": { "hasMore": false },
+  "title": "Average monthly earnings by MONTH and EARNINGS",
   "variables": [
     {
-      "code": "MEASURE",
-      "text": "Measure",
-      "values": ["NET", "GROSS"],
-      "valueTexts": ["Average monthly net salary", "Average monthly gross salary"]
+      "code": "MESEC",
+      "text": "MONTH",
+      "time": true,
+      "values": ["2026M05"],
+      "valueTexts": ["2026M05"]
     },
     {
-      "code": "TIME",
-      "text": "Period",
-      "time": true,
-      "values": ["2025M12", "2026M01", "2026M09"],
-      "valueTexts": ["2025M12", "2026M01", "2026M09"]
+      "code": "PLAČE",
+      "text": "EARNINGS",
+      "values": ["1", "2", "3", "4"],
+      "valueTexts": [
+        "Gross earnings",
+        "Net earnings",
+        "Average gross earnings for the last three months",
+        "Average net earnings for the last three months"
+      ]
     }
   ]
 }

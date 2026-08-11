@@ -31,6 +31,97 @@ type SloveniaValidationResult =
       readonly kind: "integrity_mismatch" | "semantic_mismatch" | "stale" | "conflict";
     };
 
+export type PisrsRegistryIdentity =
+  | { readonly kind: "record-id"; readonly value: "ZAKO5761" | "ZAKO6655" }
+  | { readonly kind: "sop"; readonly value: string };
+
+export interface PisrsSelectedNpb {
+  readonly identity: string;
+  readonly npbId: number;
+  readonly ordinal: number;
+  readonly label: "Osnovni" | `NPB ${number}`;
+}
+
+export interface SiStatMetadata {
+  readonly dimensions: readonly {
+    readonly code: string;
+    readonly values: readonly string[];
+    readonly labels: readonly string[];
+    readonly isTime: boolean;
+  }[];
+}
+
+const pisrsRegistrySchema = z.object({
+  data: z.object({
+    evidencniPodatki: z.object({
+      semafor: z.object({
+        id: z.number().int(),
+        naziv: z.string(),
+      }).passthrough(),
+      naslov: z.string(),
+      zunanjiID: z.string(),
+      sop: z.string(),
+      objavljeno: z.string(),
+    }).passthrough(),
+    besedilo: z.object({
+      npbVerzije: z.array(z.object({
+        id: z.number().int().positive(),
+        naziv: z.string(),
+      }).passthrough()).min(1),
+    }).passthrough(),
+  }).passthrough(),
+  error: z.unknown().nullable(),
+}).passthrough();
+
+const sistatWireMetadataSchema = z.object({
+  title: z.string().min(1),
+  variables: z.array(z.object({
+    code: z.string().min(1),
+    text: z.string().min(1),
+    time: z.boolean().optional(),
+    values: z.array(z.string().min(1)).min(1),
+    valueTexts: z.array(z.string().min(1)).min(1),
+  }).passthrough()).min(1),
+}).passthrough();
+
+interface LiveProvenanceExpectation {
+  readonly sourceId: SloveniaSourceId;
+  readonly role: string;
+  readonly method: "GET" | "POST";
+  readonly requestUrl: string;
+  readonly bodySha256?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExpectedLiveProvenance(
+  artifact: ArtifactBytes,
+  expected: LiveProvenanceExpectation,
+): artifact is LiveCapturedArtifact<SloveniaSourceId> {
+  const candidate: unknown = artifact;
+  if (!isRecord(candidate) || !isRecord(candidate.request)) return false;
+  const request = candidate.request;
+  const hasExpectedBody = expected.bodySha256 === undefined
+    ? request.bodyMediaType === undefined && request.bodySha256 === undefined
+    : request.bodyMediaType === "application/json" &&
+      request.bodySha256 === expected.bodySha256;
+  return candidate.origin === "live" &&
+    typeof candidate.runId === "string" &&
+    candidate.runId.length > 0 &&
+    candidate.sourceId === expected.sourceId &&
+    candidate.role === expected.role &&
+    candidate.mediaType === "application/json" &&
+    candidate.responseStatus === 200 &&
+    candidate.url === expected.requestUrl &&
+    candidate.responseUrl === expected.requestUrl &&
+    typeof candidate.capturedAt === "string" &&
+    request.method === expected.method &&
+    request.url === expected.requestUrl &&
+    hasExpectedBody;
+}
+
 const metadataVariableSchema = z.object({
   code: z.string().min(1),
   text: z.string().min(1),
@@ -182,6 +273,146 @@ function jsonValue(artifact: ArtifactBytes): unknown | null {
   } catch {
     return null;
   }
+}
+
+function pisrsRegistryProvenance(
+  identity: PisrsRegistryIdentity,
+  requestUrl: string,
+): LiveProvenanceExpectation {
+  if (identity.kind === "sop") {
+    return {
+      sourceId: "si-income-threshold",
+      role: "salary-registry",
+      method: "GET",
+      requestUrl,
+    };
+  }
+  return identity.value === "ZAKO5761"
+    ? {
+        sourceId: "si-digital-nomad-route",
+        role: "ztuj2-registry",
+        method: "GET",
+        requestUrl,
+      }
+    : {
+        sourceId: "si-companion-employment",
+        role: "zzsdt-registry",
+        method: "GET",
+        requestUrl,
+      };
+}
+
+function registryIdentityMatches(
+  identity: PisrsRegistryIdentity,
+  record: z.infer<typeof pisrsRegistrySchema>["data"]["evidencniPodatki"],
+): boolean {
+  const expectedStatus = identity.kind === "record-id"
+    ? { id: 156, naziv: "Veljaven predpis" }
+    : { id: 153, naziv: "Objavljen akt brez datuma začetka veljavnosti" };
+  const hasExpectedIdentity = identity.kind === "record-id"
+    ? record.zunanjiID === identity.value
+    : record.sop === identity.value;
+  return hasExpectedIdentity &&
+    record.semafor.id === expectedStatus.id &&
+    record.semafor.naziv === expectedStatus.naziv;
+}
+
+function hasUnsupportedCompletenessField(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasUnsupportedCompletenessField);
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, nested]) =>
+    ["total", "hasMore", "continuationToken", "pagination"].includes(key) ||
+    hasUnsupportedCompletenessField(nested)
+  );
+}
+
+function npbOrdinal(label: string): number | null {
+  if (label === "Osnovni") return 0;
+  const match = /^NPB ([1-9]\d*)$/.exec(label);
+  if (match === null) return null;
+  const ordinal = Number(match[1]);
+  return Number.isSafeInteger(ordinal) ? ordinal : null;
+}
+
+export function decodePisrsRegistry(
+  artifact: ArtifactBytes,
+  expected: PisrsRegistryIdentity,
+  expectedRequestUrl: string,
+): PisrsSelectedNpb | null {
+  if (!hasExpectedLiveProvenance(
+    artifact,
+    pisrsRegistryProvenance(expected, expectedRequestUrl),
+  )) return null;
+  const parsed = pisrsRegistrySchema.safeParse(jsonValue(artifact));
+  if (
+    !parsed.success ||
+    parsed.data.error !== null ||
+    !registryIdentityMatches(expected, parsed.data.data.evidencniPodatki) ||
+    hasUnsupportedCompletenessField(parsed.data)
+  ) return null;
+
+  const versions = parsed.data.data.besedilo.npbVerzije.map((version) => ({
+    id: version.id,
+    ordinal: npbOrdinal(version.naziv),
+  }));
+  if (
+    versions.some(({ ordinal }) => ordinal === null) ||
+    new Set(versions.map(({ id }) => id)).size !== versions.length ||
+    new Set(versions.map(({ ordinal }) => ordinal)).size !== versions.length
+  ) return null;
+  const ordinals = versions.map(({ ordinal }) => ordinal!);
+  const maximumOrdinal = Math.max(...ordinals);
+  if (
+    ordinals.filter((ordinal) => ordinal === 0).length !== 1 ||
+    versions.length !== maximumOrdinal + 1
+  ) return null;
+  const selected = versions.find(({ ordinal }) => ordinal === maximumOrdinal)!;
+  return {
+    identity: expected.value,
+    npbId: selected.id,
+    ordinal: maximumOrdinal,
+    label: maximumOrdinal === 0 ? "Osnovni" : `NPB ${maximumOrdinal}`,
+  };
+}
+
+export function decodeSiStatMetadata(
+  artifact: ArtifactBytes,
+  expectedRequestUrl: string,
+): SiStatMetadata | null {
+  if (!hasExpectedLiveProvenance(artifact, {
+    sourceId: "si-income-threshold",
+    role: "sistat-metadata",
+    method: "GET",
+    requestUrl: expectedRequestUrl,
+  })) return null;
+  const parsed = sistatWireMetadataSchema.safeParse(jsonValue(artifact));
+  if (!parsed.success) return null;
+  const codes = parsed.data.variables.map(({ code }) => code);
+  if (
+    new Set(codes).size !== codes.length ||
+    parsed.data.variables.filter(({ time }) => time === true).length !== 1 ||
+    parsed.data.variables.some(({ values, valueTexts }) =>
+      values.length !== valueTexts.length || new Set(values).size !== values.length
+    )
+  ) return null;
+  return {
+    dimensions: parsed.data.variables.map(({ code, values, valueTexts, time }) => ({
+      code,
+      values: [...values],
+      labels: [...valueTexts],
+      isTime: time === true,
+    })),
+  };
+}
+
+export function encodeSiStatAllDimensionsQuery(metadata: SiStatMetadata): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify({
+    query: metadata.dimensions.map(({ code }) => ({
+      code,
+      selection: { filter: "all", values: ["*"] },
+    })),
+    response: { format: "json-stat2" },
+  }));
 }
 
 function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string): SloveniaValidationResult {

@@ -1,0 +1,37 @@
+{
+  "data": {
+    "evidencniPodatki": {
+      "semafor": { "id": 156, "naziv": "Veljaven predpis" },
+      "naslov": "Zakon o tujcih (ZTuj-2)",
+      "zunanjiID": "ZAKO5761",
+      "sop": "2011-01-2360",
+      "objavljeno": "2011-06-27"
+    },
+    "besedilo": {
+      "npbVerzije": [
+        { "id": 10882829, "naziv": "Osnovni" },
+        { "id": 11362997, "naziv": "NPB 1" },
+        { "id": 11213128, "naziv": "NPB 2" },
+        { "id": 11221930, "naziv": "NPB 3" },
+        { "id": 10447487, "naziv": "NPB 4" },
+        { "id": 11464787, "naziv": "NPB 5" },
+        { "id": 9382488, "naziv": "NPB 6" },
+        { "id": 9485590, "naziv": "NPB 7" },
+        { "id": 10070710, "naziv": "NPB 8" },
+        { "id": 9674822, "naziv": "NPB 9" },
+        { "id": 5202061, "naziv": "NPB 10" },
+        { "id": 9635489, "naziv": "NPB 11" },
+        { "id": 9710879, "naziv": "NPB 12" },
+        { "id": 9972309, "naziv": "NPB 13" },
+        { "id": 10363860, "naziv": "NPB 14" },
+        { "id": 10568665, "naziv": "NPB 15" },
+        { "id": 121564298, "naziv": "NPB 16" },
+        { "id": 169849164, "naziv": "NPB 17" },
+        { "id": 269752613, "naziv": "NPB 18" },
+        { "id": 269801239, "naziv": "NPB 19" },
+        { "id": 298532110, "naziv": "NPB 20" }
+      ]
+    }
+  },
+  "error": null
+}

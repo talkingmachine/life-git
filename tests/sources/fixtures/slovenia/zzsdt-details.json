@@ -1,0 +1,34 @@
+{
+  "data": {
+    "besedilo": [
+      { "id": 422791324, "struktura": "clen", "vsebina": "32. člen", "navezavaNPB": null },
+      { "id": 422791325, "struktura": "clen", "vsebina": "(splošna določba)", "navezavaNPB": null },
+      { "id": 422791326, "struktura": "odstavek", "vsebina": "Tujec z dovoljenjem za začasno prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, in ki mu ni prepovedano zaposlovanje, samozaposlovanje in delo v skladu z 42. členom tega zakona, se lahko zaposli, samozaposli ali dela v skladu z določbami tega poglavja, razen tujcev, ki imajo pravico do prostega dostopa na slovenski trg dela na podlagi tega zakona.", "navezavaNPB": null },
+      { "id": 422791327, "struktura": "clen", "vsebina": "33. člen", "navezavaNPB": null },
+      { "id": 422791328, "struktura": "clen", "vsebina": "(zaposlovanje)", "navezavaNPB": null },
+      { "id": 422791329, "struktura": "odstavek", "vsebina": "(1) Tujec z dovoljenjem za začasno prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, se lahko zaposli le na delovnem mestu, za katerega v evidenci brezposelnih oseb ni ustreznih brezposelnih oseb, razen v primeru opravljanja dela zastopnika.", "navezavaNPB": null },
+      { "id": 422791330, "struktura": "odstavek", "vsebina": "(2) V primeru, da v evidenci brezposelnih oseb ni vpisanih ustreznih kandidatov, zavod v petih delovnih dneh od sporočila o prostem delovnem mestu delodajalcu, upravni enoti ter pristojnemu nadzornemu organu o tem posreduje pisno obvestilo ter informativni list, na katerem so navedeni vsi pogoji in elementi zaposlitve, ki jih je delodajalec opredelil v sporočilu. V primeru zaposlitve tujca za opravljanje dela zastopnika in tujca, ki je bil predhodno že zakonito zaposlen pri istem delodajalcu na istem delovnem mestu, se informativni list izda brez preverjanja obstoja ustreznih brezposelnih oseb v evidenci zavoda.", "navezavaNPB": null },
+      { "id": 422791331, "struktura": "odstavek", "vsebina": "(3) Če so v evidenci brezposelnih oseb vpisani ustrezni kandidati, zavod v petih delovnih dneh od sporočila o prostem delovnem mestu o tem pisno obvesti delodajalca.", "navezavaNPB": null },
+      { "id": 422791332, "struktura": "odstavek", "vsebina": "(4) Tujec z dovoljenjem za začasno prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, je lahko zaposlen le na podlagi veljavne izkaznice dovoljenja za prebivanje, na kateri je označena pravica do dela, kateri upravna enota ob vročitvi priloži tudi informativni list. Do izdaje izkaznice dovoljenja za prebivanje, na kateri je označena pravica do dela, se tujec lahko zaposli in vključi v obvezna socialna zavarovanja na podlagi veljavne izkaznice dovoljenja za prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, in informativnega lista iz drugega odstavka tega člena.", "navezavaNPB": null },
+      { "id": 422791333, "struktura": "odstavek", "vsebina": "(5) Pisno obvestilo iz drugega odstavka tega člena se šteje kot dokazilo o izpolnjenem pogoju iz prvega odstavka tega člena, če tujec nastopi delo v roku 30 dni od izdaje pisnega obvestila. V času trajanja delovnega razmerja morajo biti izpolnjeni vsi pogoji in elementi zaposlitve, navedeni na informativnem listu.", "navezavaNPB": null },
+      { "id": 422791334, "struktura": "odstavek", "vsebina": "(6) Tujec je lahko še naprej zaposlen pri istem delodajalcu tudi v času, ko v Republiki Sloveniji prebiva na podlagi potrdila o pravočasno vloženi prošnji za podaljšanje dovoljenja za prebivanje ali za izdajo nadaljnjega dovoljenja za prebivanje, izdanega na podlagi zakona, ki ureja vstop in prebivanje tujcev, vendar izključno pod pogoji in v obsegu, kot mu je bilo dovoljeno s predhodnim dovoljenjem za prebivanje.", "navezavaNPB": null },
+      { "id": 422791335, "struktura": "odstavek", "vsebina": "(7) Ne glede na določbo prvega odstavka tega člena se tujec z dovoljenjem za začasno prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, lahko zaposli tudi v primerih, ki jih minister, pristojen za delo, določi na podlagi sedmega ali osmega odstavka 17. člena tega zakona.", "navezavaNPB": null },
+      { "id": 422791336, "struktura": "odstavek", "vsebina": "(8) Za potrebe izdaje izkaznice dovoljenja za začasno prebivanje, na kateri je označena pravica do dostopa na trg dela, ki se izdaja na podlagi zakona, ki ureja vstop in prebivanje tujcev, v primeru iz drugega odstavka tega člena posebna odločitev zavoda o pravici do dostopa na trg dela ni potrebna.", "navezavaNPB": null }
+    ],
+    "kazalo": [
+      {
+        "idStrukturniElement": 422791324,
+        "idStrukturniElementPostavljeno": 422791326,
+        "kazaloIme": "32. člen (splošna določba)",
+        "struktura": "clen"
+      },
+      {
+        "idStrukturniElement": 422791327,
+        "idStrukturniElementPostavljeno": 422791336,
+        "kazaloIme": "33. člen (zaposlovanje)",
+        "struktura": "clen"
+      }
+    ]
+  },
+  "error": null
+}

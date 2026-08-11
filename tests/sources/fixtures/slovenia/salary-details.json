@@ -1,0 +1,22 @@
+{
+  "data": {
+    "besedilo": [
+      { "id": 613963148, "struktura": "naslov", "vsebina": "Sklep o objavi gibanja plač za maj 2026", "navezavaNPB": null },
+      { "id": 613963149, "struktura": "odstavek", "vsebina": "Povprečna mesečna bruto plača na zaposleno osebo v Sloveniji za maj 2026 je znašala 2.682,36 EUR in je bila za 0,5 % nižja kot za april 2026.", "navezavaNPB": null },
+      { "id": 613963150, "struktura": "odstavek", "vsebina": "Povprečna mesečna neto plača na zaposleno osebo v Sloveniji za maj 2026 je znašala 1.680,80 EUR in je bila za 0,5 % nižja kot za april 2026.", "navezavaNPB": null },
+      { "id": 613963151, "struktura": "odstavek", "vsebina": "Povprečna mesečna bruto plača za obdobje januar–maj 2026 je znašala 2.658,34 EUR.", "navezavaNPB": null },
+      { "id": 613963152, "struktura": "odstavek", "vsebina": "Povprečna mesečna neto plača za obdobje januar–maj 2026 je znašala 1.668,75 EUR.", "navezavaNPB": null },
+      { "id": 613963153, "struktura": "odstavek", "vsebina": "Povprečna mesečna bruto plača za obdobje marec–maj 2026 je znašala 2.685,23 EUR.", "navezavaNPB": null },
+      { "id": 613963154, "struktura": "evidencna_stevilka", "vsebina": "Št. 9616-370/2026", "navezavaNPB": null }
+    ],
+    "kazalo": [
+      {
+        "idStrukturniElement": 613963148,
+        "idStrukturniElementPostavljeno": 613963148,
+        "kazaloIme": "Sklep o objavi gibanja plač za maj 2026",
+        "struktura": "naslov"
+      }
+    ]
+  },
+  "error": null
+}

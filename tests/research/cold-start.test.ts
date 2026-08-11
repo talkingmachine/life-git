@@ -1034,20 +1034,105 @@ const SLOVENIA_CANDIDATES: readonly SourceCandidate[] = [
   },
 ];
 
+const SLOVENIA_CAPTURE_FIXTURES = {
+  "gov-route-page": {
+    name: "route-gov.html",
+    url: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
+    responseSha256: "57a166b3637d5c2351eb32fe79b30f7dc18f3e1c73953af1d09ee70047dd1985",
+  },
+  "ztuj2-registry": {
+    name: "ztuj2-registry.json",
+    url: "https://pisrs.si/api/rezultat/zbirka/id/ZAKO5761",
+    responseSha256: "e7a7f1dcfe91624e1383a5ded3403b4a1ef630e125d05bce9d158b0b89f5dfdb",
+  },
+  "ztuj2-details": {
+    name: "ztuj2-details.json",
+    url: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/298532110/details",
+    responseSha256: "e4f8b71aaaa02dad8fc2833fe78aa465a005ad54ba593109cd2b367d5beeaf26",
+  },
+  "salary-registry": {
+    name: "salary-registry.json",
+    url: "https://pisrs.si/api/rezultat/zbirka/sop/2026-01-1950",
+    responseSha256: "a17f7e97aaa00583ec732bc231667fc3315842617421da677501c08c32bc95b6",
+  },
+  "salary-details": {
+    name: "salary-details.json",
+    url: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/613486752/details",
+    responseSha256: "6e42c781690646b3a30475c965b7ae8c4fe823243823475e9a47668cb3011651",
+  },
+  "sistat-metadata": {
+    name: "sistat-metadata.json",
+    url: "https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px",
+    responseSha256: "6ca031a46b4f171b87983c752396fb8642e0736acda79ee3a586de93016d9ca0",
+  },
+  "sistat-series": {
+    name: "sistat-series.json",
+    url: "https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px",
+    responseSha256: "7118fba1fdb78e0722efb134083f00f01f2e829c82158b516612e88b365b263f",
+  },
+  "ess-companion-page": {
+    name: "companion-ess.html",
+    url: "https://www.ess.gov.si/delodajalci/zaposlovanje-tujcev-iz-tretjih-drzav/zaposlitev-tujcev-z-dovoljenjem-za-prebivanje/",
+    responseSha256: "a71d5d64369421a1b4b9cd3d7a6037d09b493ba4e835c550a3171900455c057b",
+  },
+  "zzsdt-registry": {
+    name: "zzsdt-registry.json",
+    url: "https://pisrs.si/api/rezultat/zbirka/id/ZAKO6655",
+    responseSha256: "10544a5f750982789e31ccc27de536d1021a5da760984df661da8cd15169f081",
+  },
+  "zzsdt-details": {
+    name: "zzsdt-details.json",
+    url: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/270729002/details",
+    responseSha256: "a9e61386a1bb8d6fc3ab13d78dd2fa4495fc8bd7ab48c5e9c63b4c12611ba98c",
+  },
+} as const;
+
+interface SloveniaArtifactOverrides {
+  readonly bytes?: Uint8Array;
+  readonly requestMethod?: "GET" | "POST";
+  readonly requestUrl?: string;
+  readonly responseUrl?: string;
+}
+
+interface PisrsRegistryFixture {
+  data: {
+    evidencniPodatki: {
+      semafor: { id: number; naziv: string };
+      zunanjiID: string;
+    };
+    besedilo: {
+      npbVerzije: { id: number; naziv: string }[];
+      total?: number;
+    };
+  };
+  error: unknown;
+}
+
+interface SiStatMetadataFixture {
+  variables: {
+    code: string;
+    time?: boolean;
+    values: string[];
+    valueTexts: string[];
+  }[];
+}
+
+function captureFixtureBytes(role: string): Uint8Array {
+  if (role === "official-document") {
+    return new TextEncoder().encode("<ValCurs Date=\"11.08.2026\"></ValCurs>");
+  }
+  const fixture = SLOVENIA_CAPTURE_FIXTURES[role as keyof typeof SLOVENIA_CAPTURE_FIXTURES];
+  if (fixture === undefined) return new TextEncoder().encode(`legacy:${role}`);
+  return new Uint8Array(readFileSync(
+    new URL(`../sources/fixtures/slovenia/${fixture.name}`, import.meta.url),
+  ));
+}
+
 function sloveniaArtifact(
   request: HttpStepRequest<SloveniaSourceId>,
+  overrides: SloveniaArtifactOverrides = {},
 ): LiveCapturedArtifact<SloveniaSourceId> {
-  const fixtureBytes = request.role === "sistat-metadata"
-    ? new TextEncoder().encode(JSON.stringify({
-        title: "Average monthly earnings",
-        variables: [
-          { code: "MEASURE", text: "Measure", values: ["NET"], valueTexts: ["Net salary"] },
-          { code: "TIME", text: "Period", time: true, values: ["2025M12", "2026M01"], valueTexts: ["2025M12", "2026M01"] },
-        ],
-      }))
-    : request.role === "official-document"
-      ? new TextEncoder().encode("<ValCurs Date=\"11.08.2026\"></ValCurs>")
-      : new TextEncoder().encode(`${request.sourceId}:${request.role}`);
+  const fixtureBytes = overrides.bytes ?? captureFixtureBytes(request.role);
   const sha256 = createHash("sha256").update(fixtureBytes).digest("hex");
   const mediaType = request.allowedMediaTypes[0]!;
   return {
@@ -1062,10 +1147,10 @@ function sloveniaArtifact(
     origin: "live",
     capturedAt: "2026-08-11T10:00:01.000Z",
     responseStatus: 200,
-    responseUrl: request.url,
+    responseUrl: overrides.responseUrl ?? request.url,
     request: {
-      method: request.method,
-      url: request.url,
+      method: overrides.requestMethod ?? request.method,
+      url: overrides.requestUrl ?? request.url,
       ...(request.bodyMediaType === undefined ? {} : { bodyMediaType: request.bodyMediaType }),
       ...(request.bodyBytes === undefined
         ? {}
@@ -1110,7 +1195,7 @@ describe("Slovenia installed research plan", () => {
     expect(Object.isFrozen(plan.limits)).toBe(true);
   });
 
-  test("captures the canonical eight artifacts and builds an all-dimensions SiStat query", async () => {
+  test("captures the canonical eleven artifacts and builds the official all-dimensions SiStat query", async () => {
     const { source: sloveniaSource } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
     const requests: HttpStepRequest<SloveniaSourceId>[] = [];
     const requestStep: RequestStep<SloveniaSourceId> = async (request) => {
@@ -1124,7 +1209,7 @@ describe("Slovenia installed research plan", () => {
       "cbr-eur",
     ] as const) {
       const result = await sloveniaSource.capture({
-        runId: "eight-captures",
+        runId: "eleven-captures",
         sourceId,
         assessmentDate: ASSESSMENT_DATE,
         deadlineAt: DEADLINE_AT,
@@ -1135,25 +1220,42 @@ describe("Slovenia installed research plan", () => {
 
     expect(requests.map(({ sourceId, role, method }) => ({ sourceId, role, method }))).toEqual([
       { sourceId: "si-digital-nomad-route", role: "gov-route-page", method: "GET" },
-      { sourceId: "si-digital-nomad-route", role: "ztuj2-consolidated", method: "GET" },
-      { sourceId: "si-income-threshold", role: "salary-publication", method: "GET" },
+      { sourceId: "si-digital-nomad-route", role: "ztuj2-registry", method: "GET" },
+      { sourceId: "si-digital-nomad-route", role: "ztuj2-details", method: "GET" },
+      { sourceId: "si-income-threshold", role: "salary-registry", method: "GET" },
+      { sourceId: "si-income-threshold", role: "salary-details", method: "GET" },
       { sourceId: "si-income-threshold", role: "sistat-metadata", method: "GET" },
       { sourceId: "si-income-threshold", role: "sistat-series", method: "POST" },
       { sourceId: "si-companion-employment", role: "ess-companion-page", method: "GET" },
-      { sourceId: "si-companion-employment", role: "zzsdt-consolidated", method: "GET" },
+      { sourceId: "si-companion-employment", role: "zzsdt-registry", method: "GET" },
+      { sourceId: "si-companion-employment", role: "zzsdt-details", method: "GET" },
       { sourceId: "cbr-eur", role: "official-document", method: "GET" },
     ]);
+    expect(requests.find(({ role }) => role === "ztuj2-registry")?.url)
+      .toBe(SLOVENIA_CAPTURE_FIXTURES["ztuj2-registry"].url);
+    expect(requests.find(({ role }) => role === "ztuj2-details")?.url)
+      .toBe(SLOVENIA_CAPTURE_FIXTURES["ztuj2-details"].url);
+    expect(requests.find(({ role }) => role === "salary-registry")?.url)
+      .toBe(SLOVENIA_CAPTURE_FIXTURES["salary-registry"].url);
+    expect(requests.find(({ role }) => role === "salary-details")?.url)
+      .toBe(SLOVENIA_CAPTURE_FIXTURES["salary-details"].url);
+    expect(requests.find(({ role }) => role === "zzsdt-registry")?.url)
+      .toBe(SLOVENIA_CAPTURE_FIXTURES["zzsdt-registry"].url);
+    expect(requests.find(({ role }) => role === "zzsdt-details")?.url)
+      .toBe(SLOVENIA_CAPTURE_FIXTURES["zzsdt-details"].url);
+    expect(requests.find(({ role }) => role === "sistat-metadata")?.url)
+      .toBe(SLOVENIA_CAPTURE_FIXTURES["sistat-metadata"].url);
     const series = requests.find((request) => request.role === "sistat-series");
     expect(series).toMatchObject({
-      url: "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
+      url: SLOVENIA_CAPTURE_FIXTURES["sistat-series"].url,
       bodyMediaType: "application/json",
       headers: { accept: "application/json", "content-type": "application/json" },
       allowedHosts: ["pxweb.stat.si"],
     });
     expect(JSON.parse(new TextDecoder().decode(series?.bodyBytes))).toEqual({
       query: [
-        { code: "MEASURE", selection: { filter: "all", values: ["*"] } },
-        { code: "TIME", selection: { filter: "all", values: ["*"] } },
+        { code: "MESEC", selection: { filter: "all", values: ["*"] } },
+        { code: "PLAČE", selection: { filter: "all", values: ["*"] } },
       ],
       response: { format: "json-stat2" },
     });
@@ -1165,7 +1267,8 @@ describe("Slovenia installed research plan", () => {
       claimKinds: [...candidate.claimKinds],
     }));
     const expectedGovUrl = mutableCandidates[0]!.url;
-    const expectedLawUrl = mutableCandidates[1]!.url;
+    const expectedRegistryUrl = SLOVENIA_CAPTURE_FIXTURES["ztuj2-registry"].url;
+    const expectedDetailsUrl = SLOVENIA_CAPTURE_FIXTURES["ztuj2-details"].url;
     const { source: sloveniaSource } = createSloveniaResearch({ candidates: mutableCandidates });
     mutableCandidates[0]!.url = "https://www.gov.si/mutated-after-construction";
     mutableCandidates[1]!.url = "https://pisrs.si/mutated-after-construction";
@@ -1184,13 +1287,227 @@ describe("Slovenia installed research plan", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(requests.map(({ url }) => url)).toEqual([expectedGovUrl, expectedLawUrl]);
+    expect(requests.map(({ url }) => url)).toEqual([
+      expectedGovUrl,
+      expectedRegistryUrl,
+      expectedDetailsUrl,
+    ]);
+  });
+
+  test("stops before PISRS details when the registry omits an internal NPB ordinal", async () => {
+    const { source: sloveniaSource } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const registry = JSON.parse(new TextDecoder().decode(
+      captureFixtureBytes("ztuj2-registry"),
+    )) as { data: { besedilo: { npbVerzije: { naziv: string }[] } } };
+    registry.data.besedilo.npbVerzije = registry.data.besedilo.npbVerzije.filter(
+      ({ naziv }) => naziv !== "NPB 1",
+    );
+    const requests: HttpStepRequest<SloveniaSourceId>[] = [];
+
+    const result = await sloveniaSource.capture({
+      runId: "registry-gap",
+      sourceId: "si-digital-nomad-route",
+      assessmentDate: ASSESSMENT_DATE,
+      deadlineAt: DEADLINE_AT,
+      signal: new AbortController().signal,
+    }, async (request) => {
+      requests.push(request);
+      return sloveniaArtifact(request, request.role === "ztuj2-registry"
+        ? { bytes: jsonBytes(registry) }
+        : {});
+    });
+
+    expect(result).toMatchObject({ ok: false, kind: "navigation_mismatch" });
+    if (result.ok) throw new Error("registry gap must stop capture");
+    expect(result.partialArtifacts.map(({ role }) => role)).toEqual([
+      "gov-route-page",
+      "ztuj2-registry",
+    ]);
+    expect(requests.map(({ role }) => role)).toEqual([
+      "gov-route-page",
+      "ztuj2-registry",
+    ]);
+  });
+
+  test.each([
+    {
+      name: "non-null API error",
+      mutate: (registry: PisrsRegistryFixture) => { registry.error = { message: "failed" }; },
+    },
+    {
+      name: "wrong record identity",
+      mutate: (registry: PisrsRegistryFixture) => {
+        registry.data.evidencniPodatki.zunanjiID = "ZAKO6655";
+      },
+    },
+    {
+      name: "wrong record status",
+      mutate: (registry: PisrsRegistryFixture) => {
+        registry.data.evidencniPodatki.semafor.id = 153;
+      },
+    },
+    {
+      name: "duplicate NPB id",
+      mutate: (registry: PisrsRegistryFixture) => {
+        registry.data.besedilo.npbVerzije[1]!.id = registry.data.besedilo.npbVerzije[0]!.id;
+      },
+    },
+    {
+      name: "missing Osnovni",
+      mutate: (registry: PisrsRegistryFixture) => {
+        registry.data.besedilo.npbVerzije[0]!.naziv = "NPB 21";
+      },
+    },
+    {
+      name: "unsupported total field",
+      mutate: (registry: PisrsRegistryFixture) => {
+        registry.data.besedilo.total = registry.data.besedilo.npbVerzije.length;
+      },
+    },
+  ])("stops before PISRS details for $name", async ({ mutate }) => {
+    const { source: sloveniaSource } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const registry = JSON.parse(new TextDecoder().decode(
+      captureFixtureBytes("ztuj2-registry"),
+    )) as PisrsRegistryFixture;
+    mutate(registry);
+    const requests: HttpStepRequest<SloveniaSourceId>[] = [];
+
+    const result = await sloveniaSource.capture({
+      runId: "invalid-registry",
+      sourceId: "si-digital-nomad-route",
+      assessmentDate: ASSESSMENT_DATE,
+      deadlineAt: DEADLINE_AT,
+      signal: new AbortController().signal,
+    }, async (request) => {
+      requests.push(request);
+      return sloveniaArtifact(request, request.role === "ztuj2-registry"
+        ? { bytes: jsonBytes(registry) }
+        : {});
+    });
+
+    expect(result).toMatchObject({ ok: false, kind: "navigation_mismatch" });
+    expect(requests.map(({ role }) => role)).toEqual([
+      "gov-route-page",
+      "ztuj2-registry",
+    ]);
+  });
+
+  test("stops before SiStat series when metadata duplicates a dimension code", async () => {
+    const { source: sloveniaSource } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const metadata = JSON.parse(new TextDecoder().decode(
+      captureFixtureBytes("sistat-metadata"),
+    )) as { variables: unknown[] };
+    metadata.variables.push(metadata.variables[0]!);
+    const requests: HttpStepRequest<SloveniaSourceId>[] = [];
+
+    const result = await sloveniaSource.capture({
+      runId: "duplicate-metadata",
+      sourceId: "si-income-threshold",
+      assessmentDate: ASSESSMENT_DATE,
+      deadlineAt: DEADLINE_AT,
+      signal: new AbortController().signal,
+    }, async (request) => {
+      requests.push(request);
+      return sloveniaArtifact(request, request.role === "sistat-metadata"
+        ? { bytes: jsonBytes(metadata) }
+        : {});
+    });
+
+    expect(result).toMatchObject({ ok: false, kind: "navigation_mismatch" });
+    if (result.ok) throw new Error("duplicate metadata must stop capture");
+    expect(result.partialArtifacts.map(({ role }) => role)).toEqual([
+      "salary-registry",
+      "salary-details",
+      "sistat-metadata",
+    ]);
+    expect(requests.map(({ role }) => role)).toEqual([
+      "salary-registry",
+      "salary-details",
+      "sistat-metadata",
+    ]);
+  });
+
+  test.each([
+    {
+      name: "misaligned values and labels",
+      mutate: (metadata: SiStatMetadataFixture) => { metadata.variables[0]!.valueTexts = []; },
+    },
+    {
+      name: "duplicate category value",
+      mutate: (metadata: SiStatMetadataFixture) => {
+        metadata.variables[1]!.values[1] = metadata.variables[1]!.values[0]!;
+      },
+    },
+    {
+      name: "missing time dimension",
+      mutate: (metadata: SiStatMetadataFixture) => { delete metadata.variables[0]!.time; },
+    },
+    {
+      name: "multiple time dimensions",
+      mutate: (metadata: SiStatMetadataFixture) => { metadata.variables[1]!.time = true; },
+    },
+  ])("stops before SiStat series for $name", async ({ mutate }) => {
+    const { source: sloveniaSource } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const metadata = JSON.parse(new TextDecoder().decode(
+      captureFixtureBytes("sistat-metadata"),
+    )) as SiStatMetadataFixture;
+    mutate(metadata);
+    const requests: HttpStepRequest<SloveniaSourceId>[] = [];
+
+    const result = await sloveniaSource.capture({
+      runId: "invalid-metadata",
+      sourceId: "si-income-threshold",
+      assessmentDate: ASSESSMENT_DATE,
+      deadlineAt: DEADLINE_AT,
+      signal: new AbortController().signal,
+    }, async (request) => {
+      requests.push(request);
+      return sloveniaArtifact(request, request.role === "sistat-metadata"
+        ? { bytes: jsonBytes(metadata) }
+        : {});
+    });
+
+    expect(result).toMatchObject({ ok: false, kind: "navigation_mismatch" });
+    expect(requests.map(({ role }) => role)).toEqual([
+      "salary-registry",
+      "salary-details",
+      "sistat-metadata",
+    ]);
+  });
+
+  test.each([
+    { name: "request method", overrides: { requestMethod: "POST" as const } },
+    { name: "request URL", overrides: { requestUrl: "https://pisrs.si/api/rezultat/zbirka/id/ZAKO6655" } },
+    { name: "final response URL", overrides: { responseUrl: "https://pisrs.si/api/rezultat/zbirka/id/ZAKO6655" } },
+  ])("rejects valid registry JSON with a mismatched $name", async ({ overrides }) => {
+    const { source: sloveniaSource } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const requests: HttpStepRequest<SloveniaSourceId>[] = [];
+
+    const result = await sloveniaSource.capture({
+      runId: "registry-provenance",
+      sourceId: "si-digital-nomad-route",
+      assessmentDate: ASSESSMENT_DATE,
+      deadlineAt: DEADLINE_AT,
+      signal: new AbortController().signal,
+    }, async (request) => {
+      requests.push(request);
+      return sloveniaArtifact(request, request.role === "ztuj2-registry" ? overrides : {});
+    });
+
+    expect(result).toMatchObject({ ok: false, kind: "navigation_mismatch" });
+    expect(requests.map(({ role }) => role)).toEqual([
+      "gov-route-page",
+      "ztuj2-registry",
+    ]);
   });
 
   test.each([
     { name: "missing", candidates: SLOVENIA_CANDIDATES.filter((candidate) => candidate.candidateId !== "ztuj2") },
     { name: "ambiguous", candidates: [...SLOVENIA_CANDIDATES, { ...SLOVENIA_CANDIDATES[1]!, candidateId: "ztuj2-copy" }] },
     { name: "noncanonical-port", candidates: SLOVENIA_CANDIDATES.map((candidate) => candidate.candidateId === "ztuj2" ? { ...candidate, url: "https://pisrs.si:444/law" } : candidate) },
+    { name: "wrong PISRS path", candidates: SLOVENIA_CANDIDATES.map((candidate) => candidate.candidateId === "ztuj2" ? { ...candidate, url: "https://pisrs.si/law?id=ZAKO5761" } : candidate) },
+    { name: "wrong PISRS identity", candidates: SLOVENIA_CANDIDATES.map((candidate) => candidate.candidateId === "ztuj2" ? { ...candidate, url: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO6655" } : candidate) },
+    { name: "duplicate PISRS identity", candidates: SLOVENIA_CANDIDATES.map((candidate) => candidate.candidateId === "ztuj2" ? { ...candidate, url: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO5761&id=ZAKO5761" } : candidate) },
   ])("does no HTTP work for a $name required candidate slot", async ({ candidates }) => {
     const { source: sloveniaSource } = createSloveniaResearch({ candidates });
     let requests = 0;
@@ -1482,6 +1799,70 @@ describe("Slovenia route validator", () => {
   });
 });
 
+const LEGACY_SISTAT_METADATA = `{
+  "datasetId": "H285S.px",
+  "anchorExcerpt": "H285S.px | dimensions complete | no pagination",
+  "title": "Average monthly earnings",
+  "complete": true,
+  "pagination": { "hasMore": false },
+  "variables": [
+    {
+      "code": "MEASURE",
+      "text": "Measure",
+      "values": ["NET", "GROSS"],
+      "valueTexts": ["Average monthly net salary", "Average monthly gross salary"]
+    },
+    {
+      "code": "TIME",
+      "text": "Period",
+      "time": true,
+      "values": ["2025M12", "2026M01", "2026M09"],
+      "valueTexts": ["2025M12", "2026M01", "2026M09"]
+    }
+  ]
+}`;
+
+const LEGACY_SISTAT_SERIES = `{
+  "version": "2.0",
+  "class": "dataset",
+  "anchorExcerpt": "H285S.px | NET | 2026M01 | 1560.00",
+  "id": ["MEASURE", "TIME"],
+  "size": [2, 3],
+  "dimension": {
+    "MEASURE": {
+      "label": "Measure",
+      "category": {
+        "index": { "NET": 0, "GROSS": 1 },
+        "label": {
+          "NET": "Average monthly net salary",
+          "GROSS": "Average monthly gross salary"
+        }
+      }
+    },
+    "TIME": {
+      "label": "Period",
+      "category": {
+        "index": { "2025M12": 0, "2026M01": 1, "2026M09": 2 },
+        "label": {
+          "2025M12": "2025M12",
+          "2026M01": "2026M01",
+          "2026M09": "2026M09"
+        }
+      }
+    }
+  },
+  "value": [1500.00, 1560.00, 1700.00, 2300.00, 2400.00, 2600.00]
+}`;
+
+function mutateLegacySiStat(
+  name: "sistat-metadata.json" | "sistat-series.json",
+  mutate: (text: string) => string,
+): Uint8Array {
+  return new TextEncoder().encode(mutate(
+    name === "sistat-metadata.json" ? LEGACY_SISTAT_METADATA : LEGACY_SISTAT_SERIES,
+  ));
+}
+
 function incomeEntry(
   salaryBytes?: Uint8Array,
   metadataBytes?: Uint8Array,
@@ -1510,7 +1891,11 @@ function incomeEntry(
       "application/json",
     ),
   ];
-  const overrides = [salaryBytes, metadataBytes, seriesBytes];
+  const overrides = [
+    salaryBytes,
+    metadataBytes ?? new TextEncoder().encode(LEGACY_SISTAT_METADATA),
+    seriesBytes ?? new TextEncoder().encode(LEGACY_SISTAT_SERIES),
+  ];
   return {
     sourceId: "si-income-threshold",
     navigationUrl: publicationUrl,
@@ -1582,7 +1967,7 @@ describe("Slovenia income validator", () => {
   test("derives a changed matching publication and series value instead of remembering salary", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
     const salary = mutateFixture("salary-publication.html", (text) => text.replaceAll("1560.00", "1601.00"));
-    const series = mutateFixture("sistat-series.json", (text) => text.replaceAll("1560.00", "1601.00"));
+    const series = mutateLegacySiStat("sistat-series.json", (text) => text.replaceAll("1560.00", "1601.00"));
 
     const result = await sloveniaPlan.validate(incomeEntry(salary, undefined, series), ASSESSMENT_DATE);
 
@@ -1666,23 +2051,23 @@ describe("Slovenia income validator", () => {
   test.each([
     {
       name: "paginated metadata",
-      metadata: () => mutateFixture("sistat-metadata.json", (text) => text.replace('"hasMore": false', '"hasMore": true')),
+      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replace('"hasMore": false', '"hasMore": true')),
     },
     {
       name: "incomplete metadata",
-      metadata: () => mutateFixture("sistat-metadata.json", (text) => text.replace('"complete": true', '"complete": false')),
+      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replace('"complete": true', '"complete": false')),
     },
     {
       name: "missing series dimension",
-      series: () => mutateFixture("sistat-series.json", (text) => text.replace('"id": ["MEASURE", "TIME"]', '"id": ["TIME"]')),
+      series: () => mutateLegacySiStat("sistat-series.json", (text) => text.replace('"id": ["MEASURE", "TIME"]', '"id": ["TIME"]')),
     },
     {
       name: "dimension object missing an id dimension",
-      series: () => mutateFixture("sistat-series.json", (text) => text.replace(/,\n    "TIME": \{[\s\S]*?\n    \}\n/, "\n")),
+      series: () => mutateLegacySiStat("sistat-series.json", (text) => text.replace(/,\n    "TIME": \{[\s\S]*?\n    \}\n/, "\n")),
     },
     {
       name: "dimension object has a key absent from id",
-      series: () => mutateFixture("sistat-series.json", (text) => text.replace('"dimension": {', '"dimension": {"EXTRA":{"label":"Extra","category":{"index":{"X":0},"label":{"X":"X"}}},')),
+      series: () => mutateLegacySiStat("sistat-series.json", (text) => text.replace('"dimension": {', '"dimension": {"EXTRA":{"label":"Extra","category":{"index":{"X":0},"label":{"X":"X"}}},')),
     },
     {
       name: "time and metric use the same dimension code",
@@ -1706,8 +2091,8 @@ describe("Slovenia income validator", () => {
     },
     {
       name: "unselected additional dimension has multiple coordinates",
-      metadata: () => mutateFixture("sistat-metadata.json", (text) => text.replace('\n  ]\n}', ',{"code":"REGION","text":"Region","values":["SI","AT"],"valueTexts":["Slovenia","Austria"]}\n  ]\n}')),
-      series: () => mutateFixture("sistat-series.json", (text) => text
+      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replace('\n  ]\n}', ',{"code":"REGION","text":"Region","values":["SI","AT"],"valueTexts":["Slovenia","Austria"]}\n  ]\n}')),
+      series: () => mutateLegacySiStat("sistat-series.json", (text) => text
         .replace('"id": ["MEASURE", "TIME"]', '"id": ["MEASURE", "TIME", "REGION"]')
         .replace('"size": [2, 3]', '"size": [2, 3, 2]')
         .replace('\n  },\n  "value":', ',"REGION":{"label":"Region","category":{"index":{"SI":0,"AT":1},"label":{"SI":"Slovenia","AT":"Austria"}}}\n  },\n  "value":')
@@ -1715,12 +2100,12 @@ describe("Slovenia income validator", () => {
     },
     {
       name: "ambiguous net metric",
-      metadata: () => mutateFixture("sistat-metadata.json", (text) => text.replace('"Average monthly gross salary"', '"Average monthly net salary"')),
+      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replace('"Average monthly gross salary"', '"Average monthly net salary"')),
     },
     {
       name: "future-only period",
-      metadata: () => mutateFixture("sistat-metadata.json", (text) => text.replaceAll("2025M12", "2027M11").replaceAll("2026M01", "2027M12")),
-      series: () => mutateFixture("sistat-series.json", (text) => text.replaceAll("2025M12", "2027M11").replaceAll("2026M01", "2027M12")),
+      metadata: () => mutateLegacySiStat("sistat-metadata.json", (text) => text.replaceAll("2025M12", "2027M11").replaceAll("2026M01", "2027M12")),
+      series: () => mutateLegacySiStat("sistat-series.json", (text) => text.replaceAll("2025M12", "2027M11").replaceAll("2026M01", "2027M12")),
     },
     {
       name: "publication disagreement",

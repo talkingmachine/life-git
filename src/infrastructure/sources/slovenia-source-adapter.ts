@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import type {
   CaptureRequest,
   CaptureResult,
@@ -15,12 +13,20 @@ import type {
   SloveniaSourceId,
   SourceCandidate,
 } from "../../research/cold-start-contracts";
+import {
+  decodePisrsRegistry,
+  decodeSiStatMetadata,
+  encodeSiStatAllDimensionsQuery,
+  type PisrsRegistryIdentity,
+  type PisrsSelectedNpb,
+} from "../../research/parsers/slovenia";
 import { createSloveniaPlan } from "../../research/slovenia-plan";
 import { SOURCE_POLICIES } from "../../research/source-policy";
 import { SourceCaptureError } from "./gateway";
 import { captureCbrEur } from "./official-source-adapter";
 
-const SISTAT_ENDPOINT = "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/";
+const PISRS_API_ROOT = "https://pisrs.si/api/rezultat";
+const SISTAT_ENDPOINT = "https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px";
 
 type CountrySourceId = Exclude<SloveniaSourceId, "cbr-eur">;
 
@@ -32,12 +38,6 @@ interface CandidateSlots {
   readonly companionEss?: SourceCandidate;
   readonly companionLaw?: SourceCandidate;
 }
-
-const metadataSchema = z.object({
-  variables: z.array(z.object({
-    code: z.string().trim().min(1),
-  }).passthrough()).min(1),
-}).passthrough();
 
 function candidateMatches(
   candidate: SourceCandidate,
@@ -166,15 +166,71 @@ function unavailable(sourceId: SloveniaSourceId): CaptureResult<SloveniaSourceId
   };
 }
 
-function decodeMetadata(artifact: LiveCapturedArtifact<SloveniaSourceId>): readonly string[] {
+function pisrsIdentityFromCandidate(
+  candidate: SourceCandidate,
+  expected: PisrsRegistryIdentity,
+): PisrsRegistryIdentity | null {
   try {
-    const parsed = metadataSchema.safeParse(JSON.parse(new TextDecoder().decode(artifact.bytes)));
-    if (!parsed.success) return [];
-    const codes = parsed.data.variables.map((variable) => variable.code);
-    return new Set(codes).size === codes.length ? codes : [];
+    const url = new URL(candidate.url);
+    const parameter = expected.kind === "record-id" ? "id" : "sop";
+    const otherParameter = expected.kind === "record-id" ? "sop" : "id";
+    const values = url.searchParams.getAll(parameter);
+    if (
+      !["/Pis.web/pregledPredpisa", "/pregledPredpisa"].includes(url.pathname) ||
+      values.length !== 1 ||
+      values[0] !== expected.value ||
+      url.searchParams.has(otherParameter) ||
+      url.hash !== ""
+    ) return null;
+    return expected;
   } catch {
-    return [];
+    return null;
   }
+}
+
+function salaryIdentityFromCandidate(candidate: SourceCandidate): PisrsRegistryIdentity | null {
+  try {
+    const url = new URL(candidate.url);
+    const values = url.searchParams.getAll("sop");
+    if (
+      !["/Pis.web/pregledPredpisa", "/pregledPredpisa"].includes(url.pathname) ||
+      values.length !== 1 ||
+      !/^\d{4}-\d{2}-\d{4}$/.test(values[0]!) ||
+      url.searchParams.has("id") ||
+      url.hash !== ""
+    ) return null;
+    return { kind: "sop", value: values[0]! };
+  } catch {
+    return null;
+  }
+}
+
+function isSiStatDatasetCandidate(candidate: SourceCandidate): boolean {
+  try {
+    const url = new URL(candidate.url);
+    const terminalPath = url.pathname.split("/").filter(Boolean).at(-1);
+    return terminalPath === "H285S.px" && url.search === "" && url.hash === "";
+  } catch {
+    return false;
+  }
+}
+
+function pisrsRegistryUrl(identity: PisrsRegistryIdentity): string {
+  const pathKind = identity.kind === "record-id" ? "id" : "sop";
+  return `${PISRS_API_ROOT}/zbirka/${pathKind}/${identity.value}`;
+}
+
+function pisrsDetailsUrl(selected: PisrsSelectedNpb): string {
+  return `${PISRS_API_ROOT}/neuradno-precisceno-besedilo/${selected.npbId}/details`;
+}
+
+function navigationMismatch(
+  message: string,
+  partialArtifacts: readonly LiveCapturedArtifact<SloveniaSourceId>[],
+): SourceCaptureError {
+  const error = new SourceCaptureError("navigation_mismatch", message);
+  Object.assign(error, { partialArtifacts });
+  return error;
 }
 
 export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceId> {
@@ -207,7 +263,10 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
       if (request.sourceId === "si-digital-nomad-route") {
         const gov = this.slots.routeGov;
         const law = this.slots.routeLaw;
-        if (gov === undefined || law === undefined) return unavailable(request.sourceId);
+        const identity = law === undefined
+          ? null
+          : pisrsIdentityFromCandidate(law, { kind: "record-id", value: "ZAKO5761" });
+        if (gov === undefined || identity === null) return unavailable(request.sourceId);
         const govArtifact = await runStep(requestStep, getRequest(
           request,
           "gov-route-page",
@@ -215,50 +274,82 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
           "www.gov.si",
           "text/html",
         ), request.signal, []);
-        const lawArtifact = await runStep(requestStep, getRequest(
+        const registryUrl = pisrsRegistryUrl(identity);
+        const registryArtifact = await runStep(requestStep, getRequest(
           request,
-          "ztuj2-consolidated",
-          law.url,
+          "ztuj2-registry",
+          registryUrl,
           "pisrs.si",
-          "text/html",
+          "application/json",
         ), request.signal, [govArtifact]);
-        captured = entry(request.sourceId, gov.url, [govArtifact, lawArtifact]);
+        const selected = decodePisrsRegistry(registryArtifact, identity, registryUrl);
+        if (selected === null) {
+          throw navigationMismatch(
+            "ZTuj-2 registry did not provide one complete current NPB sequence",
+            [govArtifact, registryArtifact],
+          );
+        }
+        const detailsArtifact = await runStep(requestStep, getRequest(
+          request,
+          "ztuj2-details",
+          pisrsDetailsUrl(selected),
+          "pisrs.si",
+          "application/json",
+        ), request.signal, [govArtifact, registryArtifact]);
+        captured = entry(request.sourceId, gov.url, [
+          govArtifact,
+          registryArtifact,
+          detailsArtifact,
+        ]);
       } else if (request.sourceId === "si-income-threshold") {
         const salary = this.slots.salary;
         const sistat = this.slots.sistat;
-        if (salary === undefined || sistat === undefined || sistat.url !== SISTAT_ENDPOINT) {
+        const identity = salary === undefined ? null : salaryIdentityFromCandidate(salary);
+        if (
+          salary === undefined ||
+          identity === null ||
+          sistat === undefined ||
+          !isSiStatDatasetCandidate(sistat)
+        ) {
           return unavailable(request.sourceId);
         }
-        const salaryArtifact = await runStep(requestStep, getRequest(
+        const registryUrl = pisrsRegistryUrl(identity);
+        const registryArtifact = await runStep(requestStep, getRequest(
           request,
-          "salary-publication",
-          salary.url,
+          "salary-registry",
+          registryUrl,
           "pisrs.si",
-          "text/html",
+          "application/json",
         ), request.signal, []);
+        const selected = decodePisrsRegistry(registryArtifact, identity, registryUrl);
+        if (selected === null) {
+          throw navigationMismatch(
+            "Salary registry did not provide one complete publication version sequence",
+            [registryArtifact],
+          );
+        }
+        const detailsArtifact = await runStep(requestStep, getRequest(
+          request,
+          "salary-details",
+          pisrsDetailsUrl(selected),
+          "pisrs.si",
+          "application/json",
+        ), request.signal, [registryArtifact]);
         const metadataArtifact = await runStep(requestStep, getRequest(
           request,
           "sistat-metadata",
           SISTAT_ENDPOINT,
           "pxweb.stat.si",
           "application/json",
-        ), request.signal, [salaryArtifact]);
-        const dimensionCodes = decodeMetadata(metadataArtifact);
-        if (dimensionCodes.length === 0) {
-          const error = new SourceCaptureError(
-            "navigation_mismatch",
-            "SiStat metadata did not provide a complete dimension listing",
+        ), request.signal, [registryArtifact, detailsArtifact]);
+        const metadata = decodeSiStatMetadata(metadataArtifact, SISTAT_ENDPOINT);
+        if (metadata === null) {
+          throw navigationMismatch(
+            "SiStat metadata did not provide one complete dimension listing",
+            [registryArtifact, detailsArtifact, metadataArtifact],
           );
-          Object.assign(error, { partialArtifacts: [salaryArtifact, metadataArtifact] });
-          throw error;
         }
-        const bodyBytes = new TextEncoder().encode(JSON.stringify({
-          query: dimensionCodes.map((code) => ({
-            code,
-            selection: { filter: "all", values: ["*"] },
-          })),
-          response: { format: "json-stat2" },
-        }));
+        const bodyBytes = encodeSiStatAllDimensionsQuery(metadata);
         const seriesArtifact = await runStep(requestStep, {
           runId: request.runId,
           sourceId: request.sourceId,
@@ -270,16 +361,20 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
           bodyBytes,
           allowedHosts: ["pxweb.stat.si"],
           allowedMediaTypes: ["application/json"],
-        }, request.signal, [salaryArtifact, metadataArtifact]);
+        }, request.signal, [registryArtifact, detailsArtifact, metadataArtifact]);
         captured = entry(request.sourceId, salary.url, [
-          salaryArtifact,
+          registryArtifact,
+          detailsArtifact,
           metadataArtifact,
           seriesArtifact,
         ]);
       } else {
         const ess = this.slots.companionEss;
         const law = this.slots.companionLaw;
-        if (ess === undefined || law === undefined) return unavailable(request.sourceId);
+        const identity = law === undefined
+          ? null
+          : pisrsIdentityFromCandidate(law, { kind: "record-id", value: "ZAKO6655" });
+        if (ess === undefined || identity === null) return unavailable(request.sourceId);
         const essArtifact = await runStep(requestStep, getRequest(
           request,
           "ess-companion-page",
@@ -287,14 +382,33 @@ export class SloveniaSourceAdapter implements OfficialSourcePort<SloveniaSourceI
           "www.ess.gov.si",
           "text/html",
         ), request.signal, []);
-        const lawArtifact = await runStep(requestStep, getRequest(
+        const registryUrl = pisrsRegistryUrl(identity);
+        const registryArtifact = await runStep(requestStep, getRequest(
           request,
-          "zzsdt-consolidated",
-          law.url,
+          "zzsdt-registry",
+          registryUrl,
           "pisrs.si",
-          "text/html",
+          "application/json",
         ), request.signal, [essArtifact]);
-        captured = entry(request.sourceId, ess.url, [essArtifact, lawArtifact]);
+        const selected = decodePisrsRegistry(registryArtifact, identity, registryUrl);
+        if (selected === null) {
+          throw navigationMismatch(
+            "ZZSDT registry did not provide one complete current NPB sequence",
+            [essArtifact, registryArtifact],
+          );
+        }
+        const detailsArtifact = await runStep(requestStep, getRequest(
+          request,
+          "zzsdt-details",
+          pisrsDetailsUrl(selected),
+          "pisrs.si",
+          "application/json",
+        ), request.signal, [essArtifact, registryArtifact]);
+        captured = entry(request.sourceId, ess.url, [
+          essArtifact,
+          registryArtifact,
+          detailsArtifact,
+        ]);
       }
       return { ok: true, entry: captured };
     } catch (error) {
