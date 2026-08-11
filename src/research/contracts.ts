@@ -91,6 +91,7 @@ export interface Claim<T, S extends string = SourceId> {
 
 export type EvidenceBlockerKind =
   | CaptureFailureKind
+  | "country_not_installed"
   | "integrity_mismatch"
   | "semantic_mismatch"
   | "stale"

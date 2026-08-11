@@ -49,6 +49,20 @@ const SOURCE_LABELS: Readonly<Record<SloveniaSourceId, string>> = {
   "cbr-eur": "Банк России · курс EUR/RUB",
 };
 
+const UNAVAILABLE_COUNTRY_SOURCE_NAVIGATION: Readonly<Record<SloveniaSourceId, string>> = {
+  "si-digital-nomad-route": "https://www.gov.si",
+  "si-income-threshold": "https://pisrs.si",
+  "si-companion-employment": "https://www.ess.gov.si",
+  "cbr-eur": "https://www.cbr.ru/scripts/XML_daily.asp",
+};
+
+const SLOVENIA_PARSER_VERSIONS: Readonly<Record<SloveniaSourceId, string>> = {
+  "si-digital-nomad-route": "si-route@2",
+  "si-income-threshold": "si-income@2",
+  "si-companion-employment": "si-companion@2",
+  "cbr-eur": "cbr-eur@1",
+};
+
 export interface ColdStartReadModel {
   readonly runId: string;
   readonly country: CountryRef;
@@ -298,49 +312,40 @@ function contextHash(
   return integrity.hash(integrity.canonical({ runId, profileId }));
 }
 
-function countryNotInstalledReadModel(
+function countryNotInstalledEvidence(
   prepared: ColdStartPrepared,
-  profile: RelocationProfileSnapshot,
-): ColdStartReadModel {
-  const unavailableEvidence: EvidenceSnapshot<SloveniaSourceId, ColdStartEvidenceClaim> = {
-    id: `${prepared.runId}:country_not_installed`,
+  expectedContextHash: string,
+  integrity: EvidenceIntegrity,
+): Promise<SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaim>> {
+  const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] =
+    SOURCE_IDS.map((sourceId) => {
+      const navigationUrl = UNAVAILABLE_COUNTRY_SOURCE_NAVIGATION[sourceId];
+      return {
+        sourceId,
+        parserEntry: {
+          sourceId,
+          navigationUrl,
+          resolvedEvidenceUrl: navigationUrl,
+          artifacts: [],
+        },
+        coverage: "unavailable" as const,
+        blocker: {
+          sourceId,
+          kind: "country_not_installed" as const,
+          navigationUrl,
+          artifactIds: [],
+        },
+      };
+    });
+  return sealEvidencePlan({
+    id: `${prepared.runId}:evidence`,
     assessmentDate: prepared.assessmentAt,
-    artifactIds: [],
-    claims: [],
-    blockers: [],
-    coverage: Object.fromEntries(SOURCE_IDS.map((sourceId) => [sourceId, "unavailable"])) as
-      Record<SloveniaSourceId, "unavailable">,
-    parserVersions: {
-      "si-digital-nomad-route": "si-route@2",
-      "si-income-threshold": "si-income@2",
-      "si-companion-employment": "si-companion@2",
-      "cbr-eur": "cbr-eur@1",
-    },
+    entries,
+    sourceIds: SOURCE_IDS,
+    parserVersions: SLOVENIA_PARSER_VERSIONS,
     rulesVersion: "vs2-si-evidence@2",
-    manifestHash: "",
-    hmac: "",
-  };
-  const sourceNavigation = Object.fromEntries(SOURCE_IDS.map((sourceId) => [sourceId, ""])) as
-    Record<SloveniaSourceId, string>;
-  return deepFreeze({
-    runId: prepared.runId,
-    country: prepared.country,
-    checkedAt: prepared.assessmentAt,
-    evidenceSnapshotId: unavailableEvidence.id,
-    assessmentRulesVersion: COLD_START_ASSESSMENT_RULES_VERSION,
-    coverage: {
-      verified: 0,
-      required: 9,
-      claimKinds: [],
-    },
-    comparator: assessColdStart({
-      assessmentAt: prepared.assessmentAt,
-      profile,
-      evidence: unavailableEvidence,
-      sourceNavigation,
-    }),
-    sourceNavigation: [],
-  });
+    contextHash: expectedContextHash,
+  }, integrity);
 }
 
 function eventEmitter(
@@ -515,9 +520,24 @@ export function createColdStartApplication(
       const events = eventEmitter(prepared, emit, ports.clock);
       const indexed = ports.countrySourceIndex.lookup(prepared.country.code);
       if (signal.aborted) abortReason(signal);
+      const expectedContextHash = contextHash(
+        prepared.runId,
+        prepared.profileId,
+        ports.integrity,
+      );
       if (!indexed.ok) {
-        const profile = await ports.profiles.loadRelocationVerified(prepared.profileId);
-        const readModel = countryNotInstalledReadModel(prepared, profile);
+        const preparedEvidence = await countryNotInstalledEvidence(
+          prepared,
+          expectedContextHash,
+          ports.integrity,
+        );
+        verifyPrepared(preparedEvidence, {
+          runId: prepared.runId,
+          assessmentAt: prepared.assessmentAt,
+          contextHash: expectedContextHash,
+        }, ports.integrity);
+        await ports.evidence.seal(preparedEvidence);
+        const readModel = await loadReadModel(prepared.runId, prepared.profileId);
         await events.send({ type: "assessment_completed", payload: { readModel } });
         return readModel;
       }
@@ -540,11 +560,6 @@ export function createColdStartApplication(
         });
       }
 
-      const expectedContextHash = contextHash(
-        prepared.runId,
-        prepared.profileId,
-        ports.integrity,
-      );
       const preparedEvidence = await ports.research.prepare({
         runId: prepared.runId,
         assessmentDate: prepared.assessmentAt,

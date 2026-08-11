@@ -11,6 +11,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { createConfirmedLifeComposition } from "../../src/infrastructure/composition-root";
 import { createColdStartComposition } from "../../src/infrastructure/cold-start-composition";
+import { coldStartEventSchema } from "../../src/experience/cold-start-stream";
 import { SqliteDossierStore } from "../../src/infrastructure/sqlite/dossier-store";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
 import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-store";
@@ -1007,12 +1008,12 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(result).toMatchObject({
       runId: prepared.runId,
       country: prepared.country,
-      evidenceSnapshotId: `${prepared.runId}:country_not_installed`,
+      evidenceSnapshotId: `${prepared.runId}:evidence`,
       coverage: { verified: 0, required: 9, claimKinds: [] },
       comparator: { marker: "yellow", personalFit: "research_incomplete" },
     });
     expect(result.dossier).toBeUndefined();
-    expect(db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(1);
     expect(db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
   });
 
@@ -1213,8 +1214,12 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(result.dossier).toBeUndefined();
     expect(harness.researchInputs).toHaveLength(0);
     expect(events.map(({ type }) => type)).toEqual(["assessment_completed"]);
-    expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(0);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(1);
     expect(harness.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
+    expect(await harness.application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
   });
 
   test("rejects invalid prepared signatures and honors abort on both sides of commit", async () => {
@@ -2288,6 +2293,54 @@ describe("cold-start finite HTTP stream", () => {
     await expect(response.text()).resolves.toBe(
       `${JSON.stringify(sourceDiscovered)}\n${JSON.stringify(completed)}\n`,
     );
+  });
+
+  test("streams and reloads the real sealed yellow result when the country is not installed", async () => {
+    const db = database();
+    const now = new Date();
+    const requestStepCalls: unknown[] = [];
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      countrySourceIndex: {
+        lookup: () => ({
+          ok: false as const,
+          kind: "country_not_installed" as const,
+          candidates: [] as const,
+        }),
+      },
+      requestStep: async (request) => {
+        requestStepCalls.push(request);
+        throw new Error("country-not-installed must not capture");
+      },
+      clock: () => new Date(now),
+      nextRunId: () => "not-installed-stream-run",
+    });
+    const POST = await loadPost(application);
+
+    const response = await POST(validRequest());
+    const lines = (await response.text()).trim().split("\n");
+    expect(lines).toHaveLength(1);
+    const terminal = coldStartEventSchema.parse(JSON.parse(lines[0]!));
+
+    expect(requestStepCalls).toEqual([]);
+    expect(terminal).toMatchObject({
+      type: "assessment_completed",
+      runId: "not-installed-stream-run",
+      payload: {
+        readModel: {
+          evidenceSnapshotId: "not-installed-stream-run:evidence",
+          comparator: { marker: "yellow", personalFit: "research_incomplete" },
+        },
+      },
+    });
+    if (terminal.type !== "assessment_completed") throw new Error("terminal event required");
+    expect(await application.present({
+      runId: terminal.runId,
+      profileId: response.headers.get("x-life-profile-id")!,
+    })).toEqual(terminal.payload.readModel);
+    expect(db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(1);
+    expect(db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(0);
   });
 
   test("errors a normally completed stream without one final terminal event", async () => {
