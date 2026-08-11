@@ -1,7 +1,7 @@
 {
   "data": {
     "besedilo": [
-      { "id": 358811956, "struktura": "clen", "vsebina": "51.a člen", "navezavaNPB": "Datum začetka uporabe: 21.11.2025" },
+      { "id": 358811956, "struktura": "clen", "vsebina": "51.a člen", "navezavaNPB": { "vsebina": "Datum začetka uporabe: 21.11.2025" } },
       { "id": 358811957, "struktura": "clen", "vsebina": "(dovoljenje za začasno prebivanje za digitalnega nomada)", "navezavaNPB": null },
       { "id": 358811958, "struktura": "odstavek", "vsebina": "(1) Tujcu se lahko izda dovoljenje za začasno prebivanje za digitalnega nomada, če:", "navezavaNPB": null },
       { "id": 358811959, "struktura": "alinea_za_odstavkom", "vsebina": "- ni državljan EU ali državljan države članice Evropskega gospodarskega prostora in je zaposlen ali opravlja delo na podlagi sklenjene pogodbe civilnega prava pri poslovnem subjektu s sedežem izven Republike Slovenije ali opravlja delo kot samozaposlena oseba v tujini, pri čemer delo opravlja na daljavo prek komunikacijske tehnologije,", "navezavaNPB": null },

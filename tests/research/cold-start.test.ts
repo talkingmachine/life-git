@@ -1034,6 +1034,8 @@ const SLOVENIA_CANDIDATES: readonly SourceCandidate[] = [
   },
 ];
 
+// Provenance: docs/superpowers/specs/2026-08-11-slovenia-official-source-field-map.md.
+// Each compact role retains its recorded official URL and response-byte SHA-256 below.
 const SLOVENIA_CAPTURE_FIXTURES = {
   "gov-route-page": {
     name: "route-gov.html",
@@ -1562,21 +1564,51 @@ function fixtureArtifact(
   };
 }
 
-function routeEntry(
-  govBytes?: Uint8Array,
-  lawBytes?: Uint8Array,
-): ParserEntry<SloveniaSourceId> {
+interface RouteEntryOptions {
+  readonly govBytes?: Uint8Array;
+  readonly registryBytes?: Uint8Array;
+  readonly detailsBytes?: Uint8Array;
+  readonly detailsUrl?: string;
+}
+
+interface PisrsDetailsFixture {
+  data: {
+    besedilo: {
+      id: number;
+      struktura: string;
+      vsebina: string;
+      navezavaNPB: { vsebina: string } | null;
+    }[];
+    kazalo: {
+      idStrukturniElement: number;
+      idStrukturniElementPostavljeno: number;
+      kazaloIme: string;
+      struktura: string;
+    }[];
+  };
+  error: unknown;
+}
+
+function routeEntry(options: RouteEntryOptions = {}): ParserEntry<SloveniaSourceId> {
   const gov = fixtureArtifact(
     "si-digital-nomad-route",
     "gov-route-page",
     "route-gov.html",
     SLOVENIA_CANDIDATES[0]!.url,
   );
-  const law = fixtureArtifact(
+  const registry = fixtureArtifact(
     "si-digital-nomad-route",
-    "ztuj2-consolidated",
-    "ztuj2.html",
-    SLOVENIA_CANDIDATES[1]!.url,
+    "ztuj2-registry",
+    "ztuj2-registry.json",
+    SLOVENIA_CAPTURE_FIXTURES["ztuj2-registry"].url,
+    "application/json",
+  );
+  const details = fixtureArtifact(
+    "si-digital-nomad-route",
+    "ztuj2-details",
+    "ztuj2-details.json",
+    SLOVENIA_CAPTURE_FIXTURES["ztuj2-details"].url,
+    "application/json",
   );
   const replaceBytes = (
     artifactValue: LiveCapturedArtifact<SloveniaSourceId>,
@@ -1592,7 +1624,20 @@ function routeEntry(
     sourceId: "si-digital-nomad-route",
     navigationUrl: SLOVENIA_CANDIDATES[0]!.url,
     resolvedEvidenceUrl: SLOVENIA_CANDIDATES[1]!.url,
-    artifacts: [replaceBytes(gov, govBytes), replaceBytes(law, lawBytes)],
+    artifacts: [
+      replaceBytes(gov, options.govBytes),
+      replaceBytes(registry, options.registryBytes),
+      {
+        ...replaceBytes(details, options.detailsBytes),
+        ...(options.detailsUrl === undefined
+          ? {}
+          : {
+              url: options.detailsUrl,
+              responseUrl: options.detailsUrl,
+              request: { method: "GET" as const, url: options.detailsUrl },
+            }),
+      },
+    ],
   };
 }
 
@@ -1608,24 +1653,24 @@ function jsonBytes(value: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(value));
 }
 
-function swapFirstTwoSections(text: string): string {
-  const sections = [...text.matchAll(/<section>[\s\S]*?<\/section>/g)].map((match) => match[0]);
-  if (sections.length !== 2) throw new Error("fixture must have exactly two article sections");
-  return text
-    .replace(sections[0]!, "__FIRST_SECTION__")
-    .replace(sections[1]!, sections[0]!)
-    .replace("__FIRST_SECTION__", sections[1]!);
+function mutateJsonFixture<T>(name: string, mutate: (value: T) => void): Uint8Array {
+  const value = JSON.parse(readFileSync(
+    new URL(`../sources/fixtures/slovenia/${name}`, import.meta.url),
+    "utf8",
+  )) as T;
+  mutate(value);
+  return jsonBytes(value);
 }
 
 describe("Slovenia route validator", () => {
-  test("emits all seven route claims in canonical order with current exact bundle evidence", async () => {
+  test("emits seven atomic native-source route claims in canonical order", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
     const result = await sloveniaPlan.validate(routeEntry(), ASSESSMENT_DATE);
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("route fixture must validate");
-    expect(result.claims.map((claim) => "claimKind" in claim ? claim.claimKind : "fx_rate")).toEqual([
+    expect(result.claims.map((claim) => "claimKind" in claim ? claim.claimKind : "fx")).toEqual([
       "route_basis",
       "citizenship_applicability",
       "remote_work_relations",
@@ -1636,7 +1681,7 @@ describe("Slovenia route validator", () => {
     ]);
     expect(result.claims.map((claim) => claim.value)).toEqual([
       { route: "temporary_residence_digital_nomad", legalBasis: "ZTuj-2 Article 51a", effectiveFrom: "2025-11-21" },
-      { eligibleCategory: "third_country_national", explicitNationalityExclusions: ["EU", "EEA", "Switzerland"] },
+      { eligibleCategory: "third_country_national", explicitNationalityExclusions: ["EU", "EEA"] },
       { allowedRelations: ["foreign_employer", "own_foreign_business", "foreign_clients"], slovenianLabourMarketWorkIncluded: false },
       { rule: "not_listed_in_authoritative_requirements" },
       { rule: "immediate_family_reunification_without_waiting_period" },
@@ -1661,139 +1706,137 @@ describe("Slovenia route validator", () => {
       )).toBe(true);
       expect(claim.anchor).toEqual(claim.evidence.at(-1)!.anchor);
     }
-    expect(new Set(result.claims.map((claim) => claim.anchor.excerptSha256)).size).toBe(7);
-    const routeBasis = result.claims.find(
-      (claim) => "claimKind" in claim && claim.claimKind === "route_basis",
-    );
-    expect(routeBasis && "evidence" in routeBasis && routeBasis.evidence.map(({ anchor: value }) => value.locator)).toEqual([
-      "GOV.SI route title and publication date",
-      "ZAKO5761 51.a člen route basis",
-    ]);
-    const qualification = result.claims.find(
-      (claim) => "claimKind" in claim && claim.claimKind === "qualification",
-    );
-    expect(qualification && "evidence" in qualification && qualification.evidence).toEqual([
-      expect.objectContaining({
-        anchor: expect.objectContaining({ locator: "ZAKO5761 51.a člen complete requirements" }),
-      }),
-    ]);
-    const citizenship = result.claims.find(
+    expect(result.claims.find(
       (claim) => "claimKind" in claim && claim.claimKind === "citizenship_applicability",
-    );
-    expect(JSON.stringify(citizenship)).not.toMatch(/Russian|guaranteed_admission|consular_guarantee/i);
-  });
-
-  test("retains candidate navigation separately from the exact redirected final URL", async () => {
-    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
-    const original = routeEntry();
-    const redirectedUrl = "https://www.gov.si/en/news/digital-nomads-current/";
-    const redirected: ParserEntry<SloveniaSourceId> = {
-      ...original,
-      artifacts: original.artifacts.map((artifactValue, index) => index === 0
-        ? {
-            ...artifactValue,
-            url: redirectedUrl,
-            responseUrl: redirectedUrl,
-            request: { method: "GET" as const, url: SLOVENIA_CANDIDATES[0]!.url },
-          }
-        : artifactValue),
-    };
-
-    const result = await sloveniaPlan.validate(redirected, ASSESSMENT_DATE);
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("redirected route fixture must validate");
-    const claim = result.claims[0]!;
-    if (!("evidence" in claim)) throw new Error("route claim must carry evidence");
-    expect(claim.evidence[0]).toMatchObject({
-      navigationUrl: SLOVENIA_CANDIDATES[0]!.url,
-      resolvedEvidenceUrl: redirectedUrl,
+    )?.value).toEqual({
+      eligibleCategory: "third_country_national",
+      explicitNationalityExclusions: ["EU", "EEA"],
     });
   });
 
-  test("anchors every claim to the same exact supporting lines after harmless page insertion", async () => {
+  test("keeps every native locator and excerpt hash stable after unrelated insertions", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
-    const inserted = mutateFixture("route-gov.html", (text) => text.replace(
-      "<p>ELIGIBILITY SCOPE COMPLETE.</p>",
-      "<p>Harmless navigation notice.</p><p>ELIGIBILITY SCOPE COMPLETE.</p>",
+    const govBytes = mutateFixture("route-gov.html", (text) => text.replace(
+      "<h1>Temporary residence permit for digital nomads</h1>",
+      "<h1>Temporary residence permit for digital nomads</h1><p>Unrelated service notice.</p>",
     ));
+    const detailsBytes = mutateJsonFixture<PisrsDetailsFixture>(
+      "ztuj2-details.json",
+      (details) => details.data.besedilo.unshift({
+        id: 358811900,
+        struktura: "opomba",
+        vsebina: "Neodvisna redakcijska opomba.",
+        navezavaNPB: null,
+      }),
+    );
 
     const [baseline, changed] = await Promise.all([
       sloveniaPlan.validate(routeEntry(), ASSESSMENT_DATE),
-      sloveniaPlan.validate(routeEntry(inserted), ASSESSMENT_DATE),
+      sloveniaPlan.validate(routeEntry({ govBytes, detailsBytes }), ASSESSMENT_DATE),
     ]);
 
     expect(baseline.ok).toBe(true);
     expect(changed.ok).toBe(true);
     if (!baseline.ok || !changed.ok) throw new Error("route fixtures must validate");
-    const anchors = (claims: typeof baseline.claims) => claims.map((claim) => {
+    const anchors = (claims: typeof baseline.claims) => claims.flatMap((claim) => {
       if (!("evidence" in claim)) throw new Error("route claim must carry evidence");
       return claim.evidence.map(({ anchor: { locator, excerptSha256 } }) => ({ locator, excerptSha256 }));
     });
     expect(anchors(changed.claims)).toEqual(anchors(baseline.claims));
+    expect(anchors(baseline.claims).map(({ locator }) => locator)).toEqual([
+      "GOV.SI route title and publication date",
+      "PISRS ZAKO5761 NPB 20 > 51.a člen > route basis",
+      "PISRS ZAKO5761 NPB 20 > 51.a člen > citizenship scope",
+      "GOV.SI citizenship scope",
+      "PISRS ZAKO5761 NPB 20 > 51.a člen > remote-work relations",
+      "GOV.SI remote-work relations",
+      "PISRS ZAKO5761 NPB 20 > 51.a člen > complete bounded article",
+      "GOV.SI immediate family entry",
+      "GOV.SI route duration",
+      "PISRS ZAKO5761 NPB 20 > 51.a člen > duration and reapplication",
+      "PISRS ZAKO5761 NPB 20 > 51.a člen > passport, insurance, and refusal prerequisites",
+      "PISRS ZAKO5761 NPB 20 > 55. člen > refusal grounds opening",
+    ]);
   });
 
   test.each([
     {
-      name: "incomplete effective-state listing",
-      law: () => mutateFixture("ztuj2.html", (text) => text.replace("EFFECTIVE STATE LIST: COMPLETE.", "EFFECTIVE STATE LIST: INCOMPLETE.")),
+      name: "missing NPB 1",
+      options: (): RouteEntryOptions => ({
+        registryBytes: mutateJsonFixture<PisrsRegistryFixture>(
+          "ztuj2-registry.json",
+          (registry) => {
+            registry.data.besedilo.npbVerzije = registry.data.besedilo.npbVerzije.filter(
+              ({ naziv }) => naziv !== "NPB 1",
+            );
+          },
+        ),
+      }),
     },
     {
-      name: "duplicate latest applicable state",
-      law: () => mutateFixture("ztuj2.html", (text) => text.replace("STATE FUTURE: 2027-01-01; ID=future-amendment.", "STATE EFFECTIVE: 2025-11-21; ID=ambiguous-copy.")),
+      name: "duplicate NPB 2",
+      options: (): RouteEntryOptions => ({
+        registryBytes: mutateJsonFixture<PisrsRegistryFixture>(
+          "ztuj2-registry.json",
+          (registry) => {
+            registry.data.besedilo.npbVerzije[1]!.naziv = "NPB 2";
+          },
+        ),
+      }),
     },
     {
-      name: "future-only state",
-      law: () => mutateFixture("ztuj2.html", (text) => text.replaceAll("2024-01-01", "2027-01-01").replaceAll("2025-11-21", "2028-01-01")),
+      name: "details URL bound to the wrong selected ID",
+      options: (): RouteEntryOptions => ({
+        detailsUrl: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/270729002/details",
+      }),
     },
     {
-      name: "future state dated before the assessment cutoff",
-      law: () => mutateFixture("ztuj2.html", (text) => text.replace("STATE FUTURE: 2027-01-01;", "STATE FUTURE: 2025-06-01;")),
+      name: "duplicate Article 51.a",
+      options: (): RouteEntryOptions => ({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("ztuj2-details.json", (details) => {
+          details.data.besedilo.splice(1, 0, {
+            id: 358811955,
+            struktura: "clen",
+            vsebina: "51.a člen",
+            navezavaNPB: null,
+          });
+        }),
+      }),
     },
     {
-      name: "changed article anchor",
-      law: () => mutateFixture("ztuj2.html", (text) => text.replaceAll("51.a člen", "51.b člen")),
+      name: "missing Article 51.a",
+      options: (): RouteEntryOptions => ({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("ztuj2-details.json", (details) => {
+          details.data.besedilo = details.data.besedilo.filter(({ vsebina }) => vsebina !== "51.a člen");
+        }),
+      }),
     },
     {
-      name: "incomplete prerequisites",
-      law: () => mutateFixture("ztuj2.html", (text) => text.replace("Article 55 refusal grounds apply.", "Article 55 not captured.")),
+      name: "changed passport requirement",
+      options: (): RouteEntryOptions => ({
+        detailsBytes: mutateFixture("ztuj2-details.json", (text) => text.replace(
+          "katere veljavnost je najmanj tri mesece daljša",
+          "katere veljavnost je najmanj dva meseca daljša",
+        )),
+      }),
     },
     {
-      name: "required text moved outside Article 51a",
-      law: () => mutateFixture("ztuj2.html", (text) => text
-        .replace("<p>Health insurance is required.</p>", "")
-        .replace("<h2>END 51.a člen</h2>", "<h2>END 51.a člen</h2><p>Health insurance is required.</p>")),
+      name: "explicit qualification text inside Article 51.a",
+      options: (): RouteEntryOptions => ({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("ztuj2-details.json", (details) => {
+          details.data.besedilo.splice(8, 0, {
+            id: 358811968,
+            struktura: "odstavek",
+            vsebina: "Qualification required.",
+            navezavaNPB: null,
+          });
+        }),
+      }),
     },
-    {
-      name: "reversed Article 51a boundaries",
-      law: () => mutateFixture("ztuj2.html", (text) => text
-        .replace("BEGIN 51.a člen", "TEMP 51.a člen")
-        .replace("END 51.a člen", "BEGIN 51.a člen")
-        .replace("TEMP 51.a člen", "END 51.a člen")),
-    },
-    {
-      name: "Article 55 globally precedes Article 51a",
-      law: () => mutateFixture("ztuj2.html", swapFirstTwoSections),
-    },
-    {
-      name: "required Article 51a statements are reordered",
-      law: () => mutateFixture("ztuj2.html", (text) => text
-        .replace("<p>Immediate family reunification applies without a waiting period.</p>", "__FAMILY__")
-        .replace("<p>The permit lasts no more than 12 months, cannot be extended, and a new application may be made after 6 months.</p>", "<p>Immediate family reunification applies without a waiting period.</p>")
-        .replace("__FAMILY__", "<p>The permit lasts no more than 12 months, cannot be extended, and a new application may be made after 6 months.</p>")),
-    },
-    {
-      name: "incomplete eligibility scope",
-      gov: () => mutateFixture("route-gov.html", (text) => text.replace("ELIGIBILITY SCOPE COMPLETE.", "ELIGIBILITY SCOPE PARTIAL.")),
-    },
-    {
-      name: "unsupported nationality guarantee",
-      gov: () => mutateFixture("route-gov.html", (text) => text.replace("No nationality-specific or consular admission guarantee is stated.", "Guaranteed admission for Russian citizens.")),
-    },
-  ])("rejects the whole route bundle for $name", async ({ gov, law }) => {
+  ])("rejects the whole route bundle for $name", async ({ options }) => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
-    const result = await sloveniaPlan.validate(routeEntry(gov?.(), law?.()), ASSESSMENT_DATE);
+    const result = await sloveniaPlan.validate(routeEntry(options()), ASSESSMENT_DATE);
 
     expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
   });
@@ -2131,10 +2174,13 @@ describe("Slovenia income validator", () => {
   });
 });
 
-function companionEntry(
-  essBytes?: Uint8Array,
-  lawBytes?: Uint8Array,
-): ParserEntry<SloveniaSourceId> {
+interface CompanionEntryOptions {
+  readonly essBytes?: Uint8Array;
+  readonly registryBytes?: Uint8Array;
+  readonly detailsBytes?: Uint8Array;
+}
+
+function companionEntry(options: CompanionEntryOptions = {}): ParserEntry<SloveniaSourceId> {
   const artifacts = [
     fixtureArtifact(
       "si-companion-employment",
@@ -2144,17 +2190,25 @@ function companionEntry(
     ),
     fixtureArtifact(
       "si-companion-employment",
-      "zzsdt-consolidated",
-      "zzsdt.html",
-      SLOVENIA_CANDIDATES[5]!.url,
+      "zzsdt-registry",
+      "zzsdt-registry.json",
+      SLOVENIA_CAPTURE_FIXTURES["zzsdt-registry"].url,
+      "application/json",
+    ),
+    fixtureArtifact(
+      "si-companion-employment",
+      "zzsdt-details",
+      "zzsdt-details.json",
+      SLOVENIA_CAPTURE_FIXTURES["zzsdt-details"].url,
+      "application/json",
     ),
   ];
   return {
     sourceId: "si-companion-employment",
     navigationUrl: SLOVENIA_CANDIDATES[4]!.url,
-    resolvedEvidenceUrl: SLOVENIA_CANDIDATES[5]!.url,
+    resolvedEvidenceUrl: SLOVENIA_CAPTURE_FIXTURES["zzsdt-details"].url,
     artifacts: artifacts.map((artifactValue, index) => {
-      const bytes = [essBytes, lawBytes][index];
+      const bytes = [options.essBytes, options.registryBytes, options.detailsBytes][index];
       return bytes === undefined
         ? artifactValue
         : {
@@ -2167,7 +2221,7 @@ function companionEntry(
 }
 
 describe("Slovenia companion employment validator", () => {
-  test("emits only narrow conditional local work access with both exact current artifacts", async () => {
+  test("emits one narrow conditional work claim from native ESS and current ZZSDT evidence", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
     const result = await sloveniaPlan.validate(companionEntry(), ASSESSMENT_DATE);
@@ -2180,52 +2234,40 @@ describe("Slovenia companion employment validator", () => {
       claimKind: "companion_local_work_access",
       sourceId: "si-companion-employment",
       value: { access: "conditional", labourMarketCheck: true, informationSheet: true },
-      sourcePeriod: "2026-01-01",
+      sourcePeriod: "ZAKO6655:NPB 8",
       validatorVersion: "si-companion@2",
       status: "verified",
     });
     if (!("evidence" in claim)) throw new Error("companion claim must carry evidence");
-    expect(claim.evidence.map(({ anchor: claimAnchor }) => claimAnchor)).toEqual([
-      {
-        artifactId: expect.stringContaining("ess-companion-page"),
-        locator: "ESS complete conditional local employment scope",
-        excerptSha256: createHash("sha256")
-          .update([
-            "CONDITIONAL LOCAL EMPLOYMENT SCOPE: COMPLETE.",
-            "A family member holding the relevant residence permit may enter local employment conditionally.",
-            "An informativni list (information sheet) is required.",
-            "A kontrola trga dela (labour-market check) is required.",
-            "Automatic labour-market access is not granted.",
-            "No conclusion is made about remote work for a foreign company.",
-          ].join(" "))
-          .digest("hex"),
-      },
-      {
-        artifactId: expect.stringContaining("zzsdt-consolidated"),
-        locator: "ZAKO6655 complete 32. člen + 33. člen",
-        excerptSha256: createHash("sha256")
-          .update([
-            "For conditional employment under a residence permit, an informativni list (information sheet) is required.",
-            "A kontrola trga dela (labour-market check) is required before local employment.",
-            "The provision does not create automatic access.",
-          ].join(" "))
-          .digest("hex"),
-      },
+    expect(claim.evidence).toHaveLength(2);
+    expect(claim.evidence.map(({ anchor: value }) => value.locator)).toEqual([
+      "ESS conditional employment procedure",
+      "PISRS ZAKO6655 NPB 8 > 32.–33. člen > conditional employment procedure",
     ]);
-    expect(claim.anchor).toEqual(claim.evidence[1]!.anchor);
+    expect(claim.evidence.every(({ anchor: value }) => value.excerptSha256.length === 64)).toBe(true);
+    expect(claim.anchor).toEqual(claim.evidence.at(-1)!.anchor);
     expect(JSON.stringify(claim)).not.toMatch(/automatic|foreign_company_remote_work/i);
   });
 
-  test("anchors companion evidence to exact support after harmless article insertion", async () => {
+  test("keeps companion locators and excerpt hashes stable after unrelated insertions", async () => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
-    const inserted = mutateFixture("zzsdt.html", (text) => text.replace(
-      "<p>The provision does not create automatic access.</p>",
-      "<p>Harmless editorial note.</p><p>The provision does not create automatic access.</p>",
+    const essBytes = mutateFixture("companion-ess.html", (text) => text.replace(
+      "<h1>Zaposlitev tujcev z dovoljenjem za prebivanje</h1>",
+      "<h1>Zaposlitev tujcev z dovoljenjem za prebivanje</h1><p>Neodvisno obvestilo.</p>",
     ));
+    const detailsBytes = mutateJsonFixture<PisrsDetailsFixture>(
+      "zzsdt-details.json",
+      (details) => details.data.besedilo.unshift({
+        id: 422791300,
+        struktura: "opomba",
+        vsebina: "Neodvisna redakcijska opomba.",
+        navezavaNPB: null,
+      }),
+    );
 
     const [baseline, changed] = await Promise.all([
       sloveniaPlan.validate(companionEntry(), ASSESSMENT_DATE),
-      sloveniaPlan.validate(companionEntry(undefined, inserted), ASSESSMENT_DATE),
+      sloveniaPlan.validate(companionEntry({ essBytes, detailsBytes }), ASSESSMENT_DATE),
     ]);
 
     expect(baseline.ok).toBe(true);
@@ -2238,61 +2280,61 @@ describe("Slovenia companion employment validator", () => {
     expect(anchors(changed.claims)).toEqual(anchors(baseline.claims));
   });
 
+  test("rejects rather than silently changing evidence when an Article 33 sentence changes", async () => {
+    const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
+    const detailsBytes = mutateFixture("zzsdt-details.json", (text) => text.replace(
+      "zavod v petih delovnih dneh",
+      "zavod v šestih delovnih dneh",
+    ));
+
+    const result = await sloveniaPlan.validate(
+      companionEntry({ detailsBytes }),
+      ASSESSMENT_DATE,
+    );
+
+    expect(result).toEqual({ ok: false, kind: "semantic_mismatch" });
+  });
+
   test.each([
     {
-      name: "incomplete effective-state listing",
-      law: () => mutateFixture("zzsdt.html", (text) => text.replace("EFFECTIVE STATE LIST: COMPLETE.", "EFFECTIVE STATE LIST: INCOMPLETE.")),
+      name: "Article 33 precedes Article 32",
+      options: (): CompanionEntryOptions => ({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("zzsdt-details.json", (details) => {
+          const article33Index = details.data.besedilo.findIndex(
+            ({ struktura, vsebina }) => struktura === "clen" && vsebina === "33. člen",
+          );
+          if (article33Index < 0) throw new Error("fixture must contain Article 33");
+          details.data.besedilo = [
+            ...details.data.besedilo.slice(article33Index),
+            ...details.data.besedilo.slice(0, article33Index),
+          ];
+        }),
+      }),
     },
     {
-      name: "duplicate latest applicable state",
-      law: () => mutateFixture("zzsdt.html", (text) => text.replace("STATE FUTURE: 2027-01-01; ID=future-amendment.", "STATE EFFECTIVE: 2026-01-01; ID=ambiguous-copy.")),
+      name: "information-sheet paragraph is removed",
+      options: (): CompanionEntryOptions => ({
+        detailsBytes: mutateJsonFixture<PisrsDetailsFixture>("zzsdt-details.json", (details) => {
+          details.data.besedilo = details.data.besedilo.filter(
+            ({ id }) => id !== 422791330,
+          );
+        }),
+      }),
     },
     {
-      name: "future-only state",
-      law: () => mutateFixture("zzsdt.html", (text) => text.replaceAll("2024-01-01", "2027-01-01").replaceAll("2026-01-01", "2028-01-01")),
+      name: "ESS says no labour-market check",
+      options: (): CompanionEntryOptions => ({
+        essBytes: mutateFixture("companion-ess.html", (text) => text.replace(
+          "3. Na Zavodu preverimo trg dela.",
+          "3. Na Zavodu ne preverimo trga dela.",
+        )),
+      }),
     },
-    {
-      name: "future state dated before the assessment cutoff",
-      law: () => mutateFixture("zzsdt.html", (text) => text.replace("STATE FUTURE: 2027-01-01;", "STATE FUTURE: 2025-06-01;")),
-    },
-    {
-      name: "changed article anchor",
-      law: () => mutateFixture("zzsdt.html", (text) => text.replaceAll("33. člen", "34. člen")),
-    },
-    {
-      name: "Article 33 globally precedes Article 32",
-      law: () => mutateFixture("zzsdt.html", swapFirstTwoSections),
-    },
-    {
-      name: "required Article 33 statements are reordered",
-      law: () => mutateFixture("zzsdt.html", (text) => text
-        .replace("<p>A kontrola trga dela (labour-market check) is required before local employment.</p>", "__CHECK__")
-        .replace("<p>The provision does not create automatic access.</p>", "<p>A kontrola trga dela (labour-market check) is required before local employment.</p>")
-        .replace("__CHECK__", "<p>The provision does not create automatic access.</p>")),
-    },
-    {
-      name: "missing information sheet",
-      ess: () => mutateFixture("companion-ess.html", (text) => text.replace("An informativni list (information sheet) is required.", "Information sheet not captured.")),
-    },
-    {
-      name: "Article 32 text moved outside its boundaries",
-      law: () => mutateFixture("zzsdt.html", (text) => text
-        .replace("<p>For conditional employment under a residence permit, an informativni list (information sheet) is required.</p>", "")
-        .replace("<h2>END 32. člen</h2>", "<h2>END 32. člen</h2><p>For conditional employment under a residence permit, an informativni list (information sheet) is required.</p>")),
-    },
-    {
-      name: "automatic access inference",
-      ess: () => mutateFixture("companion-ess.html", (text) => text.replace("Automatic labour-market access is not granted.", "Automatic labour-market access is granted.")),
-    },
-    {
-      name: "foreign-company remote work inference",
-      ess: () => mutateFixture("companion-ess.html", (text) => text.replace("No conclusion is made about remote work for a foreign company.", "Remote work for a foreign company is automatically allowed.")),
-    },
-  ])("rejects the whole companion claim for $name", async ({ ess, law }) => {
+  ])("rejects the whole companion claim for $name", async ({ options }) => {
     const { plan: sloveniaPlan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 
     const result = await sloveniaPlan.validate(
-      companionEntry(ess?.(), law?.()),
+      companionEntry(options()),
       ASSESSMENT_DATE,
     );
 

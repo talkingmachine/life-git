@@ -87,7 +87,7 @@ const VALUES: ClaimValueByKind = {
   },
   citizenship_applicability: {
     eligibleCategory: "third_country_national",
-    explicitNationalityExclusions: ["EU", "EEA", "Switzerland"],
+    explicitNationalityExclusions: ["EU", "EEA"],
   },
   remote_work_relations: {
     allowedRelations: ["foreign_employer", "own_foreign_business", "foreign_clients"],
@@ -226,7 +226,7 @@ async function preparedFixture(
         ).digest("hex"),
       };
       const sourcePeriod = kind === "income" ? options.incomePeriod ?? "2026M01" :
-        sourceId === "si-companion-employment" ? "2026-01-01" : "2025-11-21";
+        sourceId === "si-companion-employment" ? "ZAKO6655:NPB 8" : "2025-11-21";
       return {
         claimId: `${sourceId}:${kind}:${validatorFor(sourceId)}`,
         claimKind: kind,
@@ -1089,7 +1089,7 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(result.sourceNavigation.map(({ url }) => url)).toEqual([
       "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
       "https://pisrs.si/pregledPredpisa?sop=2026-01-1950",
-      "https://www.ess.gov.si/conditional-employment/",
+      "https://www.ess.gov.si/delodajalci/zaposlovanje-tujcev-iz-tretjih-drzav/zaposlitev-tujcev-z-dovoljenjem-za-prebivanje/",
       SOURCE_URLS["cbr-eur"],
     ]);
 
@@ -1299,7 +1299,7 @@ describe("immutable country dossier publication", () => {
     const mutableInput = inputClaim.value.explicitNationalityExclusions as string[];
     mutableInput.push("Test-only mutation");
     try {
-      expect(outputClaim.value.explicitNationalityExclusions).toEqual(["EU", "EEA", "Switzerland"]);
+      expect(outputClaim.value.explicitNationalityExclusions).toEqual(["EU", "EEA"]);
     } finally {
       mutableInput.pop();
     }
@@ -1813,6 +1813,57 @@ describe("immutable country dossier publication", () => {
   });
 });
 
+const LEGACY_REPLAY_SISTAT_METADATA = `{
+  "datasetId": "H285S.px",
+  "anchorExcerpt": "H285S.px | dimensions complete | no pagination",
+  "title": "Average monthly earnings",
+  "complete": true,
+  "pagination": { "hasMore": false },
+  "variables": [
+    {
+      "code": "MEASURE",
+      "text": "Measure",
+      "values": ["NET", "GROSS"],
+      "valueTexts": ["Average monthly net salary", "Average monthly gross salary"]
+    },
+    {
+      "code": "TIME",
+      "text": "Period",
+      "time": true,
+      "values": ["2025M12", "2026M01", "2026M09"],
+      "valueTexts": ["2025M12", "2026M01", "2026M09"]
+    }
+  ]
+}`;
+
+const LEGACY_REPLAY_SISTAT_SERIES = `{
+  "version": "2.0",
+  "class": "dataset",
+  "anchorExcerpt": "H285S.px | NET | 2026M01 | 1560.00",
+  "id": ["MEASURE", "TIME"],
+  "size": [2, 3],
+  "dimension": {
+    "MEASURE": {
+      "label": "Measure",
+      "category": {
+        "index": { "NET": 0, "GROSS": 1 },
+        "label": {
+          "NET": "Average monthly net salary",
+          "GROSS": "Average monthly gross salary"
+        }
+      }
+    },
+    "TIME": {
+      "label": "Period",
+      "category": {
+        "index": { "2025M12": 0, "2026M01": 1, "2026M09": 2 },
+        "label": { "2025M12": "2025M12", "2026M01": "2026M01", "2026M09": "2026M09" }
+      }
+    }
+  },
+  "value": [1500.00, 1560.00, 1700.00, 2300.00, 2400.00, 2600.00]
+}`;
+
 function validatorArtifact(
   runId: string,
   sourceId: Exclude<SloveniaSourceId, "cbr-eur">,
@@ -1820,8 +1871,9 @@ function validatorArtifact(
   fixtureName: string,
   url: string,
   mediaType = "text/html",
+  bytesOverride?: Uint8Array,
 ): LiveCapturedArtifact<SloveniaSourceId> {
-  const bytes = new Uint8Array(readFileSync(
+  const bytes = bytesOverride ?? new Uint8Array(readFileSync(
     new URL(`../sources/fixtures/slovenia/${fixtureName}`, import.meta.url),
   ));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -1857,21 +1909,41 @@ async function replayableFixture(options: {
   const runId = options.runId ?? "offline-replay";
   const urls = {
     gov: "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
-    routeLaw: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO5761&print=1",
+    routeRegistry: "https://pisrs.si/api/rezultat/zbirka/id/ZAKO5761",
+    routeDetails: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/298532110/details",
     salary: "https://pisrs.si/pregledPredpisa?sop=2026-01-1950",
     sistat: "https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/H285S.px/",
-    ess: "https://www.ess.gov.si/conditional-employment/",
-    companionLaw: "https://pisrs.si/Pis.web/pregledPredpisa?id=ZAKO6655",
+    ess: "https://www.ess.gov.si/delodajalci/zaposlovanje-tujcev-iz-tretjih-drzav/zaposlitev-tujcev-z-dovoljenjem-za-prebivanje/",
+    companionRegistry: "https://pisrs.si/api/rezultat/zbirka/id/ZAKO6655",
+    companionDetails: "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/270729002/details",
     cbr: SOURCE_URLS["cbr-eur"],
   } as const;
   const countryArtifacts = [
     validatorArtifact(runId, "si-digital-nomad-route", "gov-route-page", "route-gov.html", urls.gov),
-    validatorArtifact(runId, "si-digital-nomad-route", "ztuj2-consolidated", "ztuj2.html", urls.routeLaw),
+    validatorArtifact(runId, "si-digital-nomad-route", "ztuj2-registry", "ztuj2-registry.json", urls.routeRegistry, "application/json"),
+    validatorArtifact(runId, "si-digital-nomad-route", "ztuj2-details", "ztuj2-details.json", urls.routeDetails, "application/json"),
     validatorArtifact(runId, "si-income-threshold", "salary-publication", "salary-publication.html", urls.salary),
-    validatorArtifact(runId, "si-income-threshold", "sistat-metadata", "sistat-metadata.json", urls.sistat, "application/json"),
-    validatorArtifact(runId, "si-income-threshold", "sistat-series", "sistat-series.json", urls.sistat, "application/json"),
+    validatorArtifact(
+      runId,
+      "si-income-threshold",
+      "sistat-metadata",
+      "sistat-metadata.json",
+      urls.sistat,
+      "application/json",
+      new TextEncoder().encode(LEGACY_REPLAY_SISTAT_METADATA),
+    ),
+    validatorArtifact(
+      runId,
+      "si-income-threshold",
+      "sistat-series",
+      "sistat-series.json",
+      urls.sistat,
+      "application/json",
+      new TextEncoder().encode(LEGACY_REPLAY_SISTAT_SERIES),
+    ),
     validatorArtifact(runId, "si-companion-employment", "ess-companion-page", "companion-ess.html", urls.ess),
-    validatorArtifact(runId, "si-companion-employment", "zzsdt-consolidated", "zzsdt.html", urls.companionLaw),
+    validatorArtifact(runId, "si-companion-employment", "zzsdt-registry", "zzsdt-registry.json", urls.companionRegistry, "application/json"),
+    validatorArtifact(runId, "si-companion-employment", "zzsdt-details", "zzsdt-details.json", urls.companionDetails, "application/json"),
   ];
   const cbrBytes = options.cbrRate === undefined
     ? undefined
@@ -1912,7 +1984,7 @@ async function replayableFixture(options: {
     {
       sourceId: "si-digital-nomad-route" as const,
       navigationUrl: urls.gov,
-      resolvedEvidenceUrl: urls.routeLaw,
+      resolvedEvidenceUrl: urls.routeDetails,
       artifacts: artifacts.filter(({ sourceId }) => sourceId === "si-digital-nomad-route"),
     },
     {
@@ -1924,14 +1996,16 @@ async function replayableFixture(options: {
     {
       sourceId: "si-companion-employment" as const,
       navigationUrl: urls.ess,
-      resolvedEvidenceUrl: urls.companionLaw,
+      resolvedEvidenceUrl: urls.companionDetails,
       artifacts: artifacts.filter(({ sourceId }) => sourceId === "si-companion-employment"),
     },
   ];
   const entries: TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] = [];
   for (const parserEntry of parserEntries) {
     const validated = await plan.validate(parserEntry, ASSESSMENT_DATE);
-    if (!validated.ok) throw new Error("validator fixture must be current");
+    if (!validated.ok) {
+      throw new Error(`${parserEntry.sourceId} validator fixture must be current: ${validated.kind}`);
+    }
     entries.push({
       sourceId: parserEntry.sourceId,
       parserEntry,

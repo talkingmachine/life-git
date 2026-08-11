@@ -73,6 +73,39 @@ const pisrsRegistrySchema = z.object({
   error: z.unknown().nullable(),
 }).passthrough();
 
+const pisrsDetailsSchema = z.object({
+  data: z.object({
+    besedilo: z.array(z.object({
+      id: z.number().int().positive(),
+      vsebina: z.string(),
+      struktura: z.string(),
+      navezavaNPB: z.object({ vsebina: z.string() }).passthrough().nullable(),
+    }).passthrough()).min(1),
+    kazalo: z.array(z.object({
+      idStrukturniElement: z.number().int().positive(),
+      idStrukturniElementPostavljeno: z.number().int().positive(),
+      kazaloIme: z.string(),
+      struktura: z.string(),
+    }).passthrough()),
+  }).passthrough(),
+  error: z.unknown().nullable(),
+}).passthrough();
+
+type PisrsDetails = z.infer<typeof pisrsDetailsSchema>;
+type PisrsTextItem = PisrsDetails["data"]["besedilo"][number];
+
+interface PisrsDocument {
+  readonly artifact: ArtifactBytes;
+  readonly selected: PisrsSelectedNpb;
+  readonly items: readonly PisrsTextItem[];
+  readonly contents: PisrsDetails["data"]["kazalo"];
+}
+
+interface PisrsArticle {
+  readonly startIndex: number;
+  readonly items: readonly PisrsTextItem[];
+}
+
 const sistatWireMetadataSchema = z.object({
   title: z.string().min(1),
   variables: z.array(z.object({
@@ -177,21 +210,6 @@ function prefixedLine(lines: readonly string[], prefix: string): string | null {
   return matches.length === 1 ? matches[0]!.slice(prefix.length).trim() : null;
 }
 
-function boundedSection(
-  lines: readonly string[],
-  begin: string,
-  end: string,
-): readonly string[] | null {
-  const beginIndexes = lines.flatMap((line, index) => line === begin ? [index] : []);
-  const endIndexes = lines.flatMap((line, index) => line === end ? [index] : []);
-  if (
-    beginIndexes.length !== 1 ||
-    endIndexes.length !== 1 ||
-    beginIndexes[0]! >= endIndexes[0]!
-  ) return null;
-  return lines.slice(beginIndexes[0]! + 1, endIndexes[0]);
-}
-
 function markersAreStrictlyOrdered(
   lines: readonly string[],
   markers: readonly string[],
@@ -204,25 +222,6 @@ function markersAreStrictlyOrdered(
       matches.length === 1 &&
       (index === 0 || indexes[index - 1]![0]! < matches[0]!),
   );
-}
-
-function containsExact(lines: readonly string[] | null, expected: string): boolean {
-  return lines !== null && lines.filter((line) => line === expected).length === 1;
-}
-
-function selectedEffectiveState(lines: readonly string[], assessmentAt: string): string | null {
-  if (uniqueLine(lines, "EFFECTIVE STATE LIST: COMPLETE.") === null) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(assessmentAt)) return null;
-  const states = lines.flatMap((line) => {
-    const match = /^STATE (EFFECTIVE|FUTURE): (\d{4}-\d{2}-\d{2}); ID=([^.;]+)\.$/.exec(line);
-    return match === null ? [] : [{ kind: match[1]!, date: match[2]!, id: match[3]! }];
-  });
-  if (states.length === 0 || new Set(states.map(({ id }) => id)).size !== states.length) return null;
-  if (states.some(({ kind, date }) => kind === "FUTURE" && date <= assessmentAt)) return null;
-  const applicable = states.filter(({ kind, date }) => kind === "EFFECTIVE" && date <= assessmentAt);
-  if (applicable.length === 0) return null;
-  const latestDate = applicable.map(({ date }) => date).sort().at(-1)!;
-  return applicable.filter(({ date }) => date === latestDate).length === 1 ? latestDate : null;
 }
 
 function evidenceRef(
@@ -415,103 +414,208 @@ export function encodeSiStatAllDimensionsQuery(metadata: SiStatMetadata): Uint8A
   }));
 }
 
+const PISRS_API_ROOT = "https://pisrs.si/api/rezultat";
+
+function pisrsRegistryUrl(identity: string): string {
+  return `${PISRS_API_ROOT}/zbirka/id/${identity}`;
+}
+
+function pisrsDetailsUrl(npbId: number): string {
+  return `${PISRS_API_ROOT}/neuradno-precisceno-besedilo/${npbId}/details`;
+}
+
+function normalizedMarkupText(value: string): string {
+  return normalizedText(load(value).text());
+}
+
+function decodePisrsDocument(
+  entry: ParserEntry<SloveniaSourceId>,
+  identity: PisrsRegistryIdentity & { readonly kind: "record-id" },
+  registryRole: string,
+  detailsRole: string,
+): PisrsDocument | null {
+  const registry = artifactByRole(entry, registryRole);
+  const details = artifactByRole(entry, detailsRole);
+  if (registry === undefined || details === undefined) return null;
+  const selected = decodePisrsRegistry(registry, identity, pisrsRegistryUrl(identity.value));
+  if (selected === null || !hasExpectedLiveProvenance(details, {
+    sourceId: entry.sourceId,
+    role: detailsRole,
+    method: "GET",
+    requestUrl: pisrsDetailsUrl(selected.npbId),
+  })) return null;
+  const parsed = pisrsDetailsSchema.safeParse(jsonValue(details));
+  if (parsed.success === false || parsed.data.error !== null) return null;
+  const itemIds = parsed.data.data.besedilo.map(({ id }) => id);
+  if (new Set(itemIds).size !== itemIds.length) return null;
+  return {
+    artifact: details,
+    selected,
+    items: parsed.data.data.besedilo,
+    contents: parsed.data.data.kazalo,
+  };
+}
+
+function isArticleHeading(value: string): boolean {
+  return /^\d+\.(?:[a-z]\s+|\s+)člen$/u.test(value);
+}
+
+function findPisrsArticle(document: PisrsDocument, heading: string): PisrsArticle | null {
+  const starts = document.items.flatMap((item, index) =>
+    item.struktura === "clen" && normalizedMarkupText(item.vsebina) === heading ? [index] : []
+  );
+  if (starts.length !== 1) return null;
+  const startIndex = starts[0]!;
+  const nextArticleIndex = document.items.findIndex((item, index) =>
+    index > startIndex &&
+    item.struktura === "clen" &&
+    isArticleHeading(normalizedMarkupText(item.vsebina))
+  );
+  const items = document.items.slice(
+    startIndex,
+    nextArticleIndex === -1 ? document.items.length : nextArticleIndex,
+  );
+  const first = items[0];
+  const last = items.at(-1);
+  if (first === undefined || last === undefined) return null;
+  const bindings = document.contents.filter((entry) =>
+    entry.struktura === "clen" &&
+    entry.idStrukturniElement === first.id &&
+    entry.idStrukturniElementPostavljeno === last.id &&
+    (normalizedMarkupText(entry.kazaloIme) === heading ||
+      normalizedMarkupText(entry.kazaloIme).startsWith(`${heading} `))
+  );
+  return bindings.length === 1 ? { startIndex, items } : null;
+}
+
+function uniquePisrsItem(
+  article: PisrsArticle,
+  structure: string,
+  expectedText: string,
+): PisrsTextItem | null {
+  const matches = article.items.filter((item) =>
+    item.struktura === structure && normalizedMarkupText(item.vsebina) === expectedText
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function pisrsItemText(item: PisrsTextItem): string {
+  return normalizedMarkupText(item.vsebina);
+}
+
+function pisrsArticleText(article: PisrsArticle): string {
+  return article.items.map(pisrsItemText).join(" ");
+}
+
+const GOV_ROUTE_LINES = {
+  title: "Temporary residence permit for digital nomads",
+  publishedAt: "21. 11. 2025",
+  workScope: "In Slovenia, a digital nomad is defined as a foreigner who is not a citizen of an EU or EEA country and who is either employed or performs work under a civil-law contract for a business entity based outside Slovenia or works as a self-employed person abroad, with all such work carried out remotely via information and communication technologies. The essential point is that the foreigner is not entering the Slovenian labour market. As a result, labour-market admission requirements do not apply to them (they do not need the permit normally issued by the Employment Service of Slovenia).",
+  application: "Foreign nationals have to apply for a temporary residence permit for digital nomads at any diplomatic representation or consular post of the Republic of Slovenia abroad. Those already legally residing in Slovenia may also submit their application at any administrative unit in Slovenia.",
+  duration: "A temporary residence permit for digital nomads may be issued for up to one year and cannot be extended, reflecting the highly mobile nature of this category of foreigners, who usually stay in a country only for a limited period (for example, during the summer season). A foreigner may reapply for a temporary residence permit for digital nomads six months after the expiry of their previous permit. However, if a digital nomad decides that they wish to continue residing in Slovenia (for example, because they wish to take up employment in the country), they may apply at any time during the validity of their digital-nomad temporary residence permit for another type of temporary residence permit based on a different purpose of stay.",
+  funds: "To meet the requirement for sufficient means of subsistence, the foreigner must have monthly funds amounting to at least twice the average monthly net salary in Slovenia, calculated on the basis of the average monthly gross salary most recently published in the Official Gazette of the Republic of Slovenia. Proof of meeting this requirement may be provided through any lawful sources of income, as is the case for all other categories of foreigners.",
+  family: "A notable feature of the temporary residence permit for digital nomads is the more favourable family-reunification regime. Digital nomads may reunite with their family members immediately, without any restrictions linked to the duration of the foreigner’s residence in Slovenia or the validity of their permit.",
+} as const;
+
+const ZTUJ2_ROUTE_LINES = {
+  opening: "(1) Tujcu se lahko izda dovoljenje za začasno prebivanje za digitalnega nomada, če:",
+  workScope: "- ni državljan EU ali državljan države članice Evropskega gospodarskega prostora in je zaposlen ali opravlja delo na podlagi sklenjene pogodbe civilnega prava pri poslovnem subjektu s sedežem izven Republike Slovenije ali opravlja delo kot samozaposlena oseba v tujini, pri čemer delo opravlja na daljavo prek komunikacijske tehnologije,",
+  passport: "- ima veljavno potno listino, katere veljavnost je najmanj tri mesece daljša od nameravanega prebivanja v Republiki Sloveniji,",
+  insurance: "- ima ustrezno zdravstveno zavarovanje, ki krije vsaj nujne zdravstvene storitve na območju Republike Slovenije,",
+  funds: "- ima zadostna sredstva za preživljanje v času prebivanja v državi, mesečno najmanj v višini dvakratnika povprečne mesečne neto plače v Republiki Sloveniji, nazadnje objavljene v Uradnem listu Republike Slovenije,",
+  refusalGrounds: "- ne obstajajo razlogi za zavrnitev izdaje dovoljenja za prebivanje iz prve, druge, tretje, četrte, pete, šeste, sedme, devete, desete, enajste ali dvanajste alineje prvega odstavka 55. člena tega zakona.",
+  duration: "(4) Dovoljenje za začasno prebivanje za digitalnega nomada se izda za čas trajanja pogodbe o zaposlitvi ali pogodbe civilnega prava, vendar ne dlje kot za eno leto, samozaposlenemu pa za obdobje enega leta oziroma za čas nameravanega prebivanja, če je ta krajši, in v obliki iz 58. člena tega zakona, pri čemer se pri vrsti dovoljenja vpiše »digitalni nomad«.",
+  reapplication: "(5) Dovoljenja za začasno prebivanje za digitalnega nomada ni mogoče podaljšati, lahko pa tujec za dovoljenje za začasno prebivanje za digitalnega nomada ponovno zaprosi po šestih mesecih od poteka veljavnosti dovoljenja za začasno prebivanje za digitalnega nomada.",
+  article55Opening: "(1) Dovoljenje za prebivanje v Republiki Sloveniji se tujcu ne izda, če:",
+} as const;
+
 function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string): SloveniaValidationResult {
   const gov = artifactByRole(entry, "gov-route-page");
-  const law = artifactByRole(entry, "ztuj2-consolidated");
-  if (gov === undefined || law === undefined) return { ok: false, kind: "semantic_mismatch" };
+  const document = decodePisrsDocument(
+    entry,
+    { kind: "record-id", value: "ZAKO5761" },
+    "ztuj2-registry",
+    "ztuj2-details",
+  );
+  if (gov === undefined || document === null) return { ok: false, kind: "semantic_mismatch" };
   const govLines = htmlLines(gov);
-  const lawLines = htmlLines(law);
-  if (govLines === null || lawLines === null) return { ok: false, kind: "semantic_mismatch" };
-  const sourcePeriod = selectedEffectiveState(lawLines, assessmentAt);
-  const article51 = boundedSection(lawLines, "BEGIN 51.a člen", "END 51.a člen");
-  const article55 = boundedSection(lawLines, "BEGIN 55. člen", "END 55. člen");
-  const govExcerpt = prefixedLine(govLines, "ANCHOR EXCERPT:");
-  const lawExcerpt = prefixedLine(lawLines, "ANCHOR EXCERPT:");
-  const eligibility = prefixedLine(govLines, "Explicit nationality exclusions:");
-  const govText = govLines.join(" ");
-  const lawText = article51?.join(" ") ?? "";
-  const routeSemantics = [
-    "Temporary residence permit for digital nomads",
-    "21 November 2025",
-    "ELIGIBILITY SCOPE COMPLETE.",
-    "Eligible category: third-country national.",
-    "No nationality-specific or consular admission guarantee is stated.",
-    "REMOTE WORK RELATIONS COMPLETE: foreign employer; own foreign business; foreign clients.",
-    "Work in the Slovenian labour market is not included.",
-    "Immediate family reunification is allowed without a waiting period.",
-    "Maximum duration is 12 months; not extendable; reapplication is possible after 6 months.",
-  ];
-  const article51Semantics = [
-    "Temporary residence permit for a digital nomad under Article 51a.",
-    "The route applies to a third-country national working for a foreign employer, own foreign business, or foreign clients and excludes Slovenian labour-market work.",
-    "Immediate family reunification applies without a waiting period.",
-    "The permit lasts no more than 12 months, cannot be extended, and a new application may be made after 6 months.",
-    "REQUIREMENTS LIST: COMPLETE.",
-    "Passport validity must exceed the permit by 3 months.",
-    "Health insurance is required.",
-    "Article 55 refusal grounds apply.",
-    "QUALIFICATION RULE: ABSENT FROM COMPLETE REQUIREMENTS.",
-  ];
-  if (
-    sourcePeriod !== "2025-11-21" ||
-    govExcerpt !== "Temporary residence permit for digital nomads | 21 November 2025" ||
-    lawExcerpt !== "ZAKO5761 | 51.a člen | effective 2025-11-21" ||
-    eligibility !== "EU citizens; EEA citizens; Swiss citizens." ||
-    routeSemantics.some((semantic) => uniqueLine(govLines, semantic) === null) ||
-    !markersAreStrictlyOrdered(govLines, routeSemantics) ||
-    uniqueLine(lawLines, "LAW ID: ZAKO5761.") === null ||
-    !markersAreStrictlyOrdered(lawLines, [
-      "BEGIN 51.a člen",
-      "END 51.a člen",
-      "BEGIN 55. člen",
-      "END 55. člen",
-    ]) ||
-    article51Semantics.some((semantic) => !containsExact(article51, semantic)) ||
-    !markersAreStrictlyOrdered(article51 ?? [], article51Semantics) ||
-    !containsExact(
-      article55,
-      "General statutory refusal grounds applicable to temporary residence permits.",
-    ) ||
-    /Guaranteed admission for|consular admission guarantee is available/i.test(govText) ||
-    /diploma|degree required|qualification required/i.test(lawText)
-  ) {
+  const article51 = findPisrsArticle(document, "51.a člen");
+  const article55 = findPisrsArticle(document, "55. člen");
+  if (govLines === null || article51 === null || article55 === null) {
     return { ok: false, kind: "semantic_mismatch" };
   }
-  if (article51 === null || article55 === null) return { ok: false, kind: "semantic_mismatch" };
-  const [
-    govTitle,
-    govPublicationDate,
-    govEligibilityComplete,
-    govEligibleCategory,
-    govNoGuarantee,
-    govRemoteComplete,
-    govNoSlovenianMarket,
-    govFamilyEntry,
-    govDuration,
-  ] = routeSemantics.map((semantic) => uniqueLine(govLines, semantic)!);
-  const govExclusions = uniqueLine(
-    govLines,
-    "Explicit nationality exclusions: EU citizens; EEA citizens; Swiss citizens.",
-  )!;
-  const [
-    lawRouteBasis,
-    lawWorkScope,
-    lawFamilyEntry,
-    lawDuration,
-    lawRequirementsComplete,
-    lawPassport,
-    lawInsurance,
-    lawArticle55Applies,
-    lawQualificationAbsent,
-  ] = article51Semantics.map((semantic) => uniqueLine(article51, semantic)!);
-  const lawArticle55Grounds = uniqueLine(
+  const applicability = article51.items[0]?.navezavaNPB?.vsebina;
+  const applicabilityMatch = applicability === undefined
+    ? null
+    : /^Datum začetka uporabe: (\d{2})\.(\d{2})\.(\d{4})$/.exec(
+        normalizedMarkupText(applicability),
+      );
+  const sourcePeriod = applicabilityMatch === null
+    ? null
+    : `${applicabilityMatch[3]}-${applicabilityMatch[2]}-${applicabilityMatch[1]}`;
+  const orderedGovLines = Object.values(GOV_ROUTE_LINES);
+  const opening = uniquePisrsItem(article51, "odstavek", ZTUJ2_ROUTE_LINES.opening);
+  const workScope = uniquePisrsItem(
+    article51,
+    "alinea_za_odstavkom",
+    ZTUJ2_ROUTE_LINES.workScope,
+  );
+  const passport = uniquePisrsItem(
+    article51,
+    "alinea_za_odstavkom",
+    ZTUJ2_ROUTE_LINES.passport,
+  );
+  const insurance = uniquePisrsItem(
+    article51,
+    "alinea_za_odstavkom",
+    ZTUJ2_ROUTE_LINES.insurance,
+  );
+  const funds = uniquePisrsItem(article51, "alinea_za_odstavkom", ZTUJ2_ROUTE_LINES.funds);
+  const refusalGrounds = uniquePisrsItem(
+    article51,
+    "alinea_za_odstavkom",
+    ZTUJ2_ROUTE_LINES.refusalGrounds,
+  );
+  const duration = uniquePisrsItem(article51, "odstavek", ZTUJ2_ROUTE_LINES.duration);
+  const reapplication = uniquePisrsItem(
+    article51,
+    "odstavek",
+    ZTUJ2_ROUTE_LINES.reapplication,
+  );
+  const article55Opening = uniquePisrsItem(
     article55,
-    "General statutory refusal grounds applicable to temporary residence permits.",
-  )!;
+    "odstavek",
+    ZTUJ2_ROUTE_LINES.article55Opening,
+  );
+  const completeArticle51 = pisrsArticleText(article51);
+  if (
+    sourcePeriod === null ||
+    !isIsoDateAtOrBefore(sourcePeriod, assessmentAt) ||
+    sourcePeriod !== "2025-11-21" ||
+    orderedGovLines.some((line) => uniqueLine(govLines, line) === null) ||
+    !markersAreStrictlyOrdered(govLines, orderedGovLines) ||
+    [opening, workScope, passport, insurance, funds, refusalGrounds, duration, reapplication,
+      article55Opening].some((item) => item === null) ||
+    article51.startIndex >= article55.startIndex ||
+    /\b(?:diploma|degree|qualification)\b|izobraz/iu.test(completeArticle51)
+  ) return { ok: false, kind: "semantic_mismatch" };
+
+  const govTitle = uniqueLine(govLines, GOV_ROUTE_LINES.title)!;
+  const govPublicationDate = uniqueLine(govLines, GOV_ROUTE_LINES.publishedAt)!;
+  const govWorkScope = uniqueLine(govLines, GOV_ROUTE_LINES.workScope)!;
+  const govDuration = uniqueLine(govLines, GOV_ROUTE_LINES.duration)!;
+  const govFamily = uniqueLine(govLines, GOV_ROUTE_LINES.family)!;
+  const version = `${document.selected.identity} ${document.selected.label}`;
   const govRef = (locator: string, lines: readonly string[]) =>
     evidenceRef(entry.sourceId, gov, sourcePeriod, locator, lines.join(" "));
-  const lawRef = (locator: string, lines: readonly string[]) =>
-    evidenceRef(entry.sourceId, law, sourcePeriod, locator, lines.join(" "));
+  const lawRef = (locator: string, items: readonly PisrsTextItem[]) =>
+    evidenceRef(
+      entry.sourceId,
+      document.artifact,
+      sourcePeriod,
+      `PISRS ${version} > ${locator}`,
+      items.map(pisrsItemText).join(" "),
+    );
   const claimInputs: readonly [
     ClaimKind,
     ClaimValueByKind[ClaimKind],
@@ -526,61 +630,43 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
         govTitle,
         govPublicationDate,
       ]),
-      lawRef("ZAKO5761 51.a člen route basis", [lawRouteBasis]),
+      lawRef("51.a člen > route basis", [article51.items[0]!, opening!]),
     ]],
     ["citizenship_applicability", {
       eligibleCategory: "third_country_national",
-      explicitNationalityExclusions: ["EU", "EEA", "Switzerland"],
+      explicitNationalityExclusions: ["EU", "EEA"],
     }, [
-      lawRef("ZAKO5761 51.a člen third-country scope", [lawWorkScope]),
-      govRef("GOV.SI complete national eligibility scope", [
-        govEligibilityComplete,
-        govEligibleCategory,
-        govExclusions,
-        govNoGuarantee,
-      ]),
+      lawRef("51.a člen > citizenship scope", [workScope!]),
+      govRef("GOV.SI citizenship scope", [govWorkScope]),
     ]],
     ["remote_work_relations", {
       allowedRelations: ["foreign_employer", "own_foreign_business", "foreign_clients"],
       slovenianLabourMarketWorkIncluded: false,
     }, [
-      lawRef("ZAKO5761 51.a člen foreign work relations", [lawWorkScope]),
-      govRef("GOV.SI complete remote-work relations", [govRemoteComplete, govNoSlovenianMarket]),
+      lawRef("51.a člen > remote-work relations", [workScope!]),
+      govRef("GOV.SI remote-work relations", [govWorkScope]),
     ]],
     ["qualification", { rule: "not_listed_in_authoritative_requirements" }, [
-      lawRef("ZAKO5761 51.a člen complete requirements", [
-        lawRouteBasis,
-        lawWorkScope,
-        lawFamilyEntry,
-        lawDuration,
-        lawRequirementsComplete,
-        lawPassport,
-        lawInsurance,
-        lawArticle55Applies,
-        lawQualificationAbsent,
-      ]),
+      lawRef("51.a člen > complete bounded article", article51.items),
     ]],
     ["companion_entry", { rule: "immediate_family_reunification_without_waiting_period" }, [
-      govRef("GOV.SI immediate family entry", [govFamilyEntry]),
-      lawRef("ZAKO5761 51.a člen immediate family entry", [lawFamilyEntry]),
+      govRef("GOV.SI immediate family entry", [govFamily]),
     ]],
     ["duration", { maximumMonths: 12, extendable: false, reapplyAfterMonths: 6 }, [
       govRef("GOV.SI route duration", [govDuration]),
-      lawRef("ZAKO5761 51.a člen route duration", [lawDuration]),
+      lawRef("51.a člen > duration and reapplication", [duration!, reapplication!]),
     ]],
     ["general_statutory_prerequisites", {
       passportBeyondPermitMonths: 3,
       healthInsurance: true,
       article55GroundsApply: true,
     }, [
-      lawRef("ZAKO5761 51.a člen complete statutory prerequisites", [
-        lawRequirementsComplete,
-        lawPassport,
-        lawInsurance,
-        lawArticle55Applies,
-        lawQualificationAbsent,
+      lawRef("51.a člen > passport, insurance, and refusal prerequisites", [
+        passport!,
+        insurance!,
+        refusalGrounds!,
       ]),
-      lawRef("ZAKO5761 55. člen applicable refusal grounds", [lawArticle55Grounds]),
+      lawRef("55. člen > refusal grounds opening", [article55Opening!]),
     ]],
   ];
   return {
@@ -810,88 +896,98 @@ function parseIncome(
   };
 }
 
+const ESS_COMPANION_LINES = {
+  title: "Zaposlitev tujcev z dovoljenjem za prebivanje",
+  permitScope: "Tujci z dovoljenjem za začasno prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, pač pa na primer zaradi združitve družine, študija ali drugih razlogov, se lahko zaposlijo na podlagi pridobljenega informativnega lista.",
+  informationSheetBasis: "Informativni list izdamo na območni službi Zavoda v skladu Zakonom o zaposlovanju, samozaposlovanju in delu tujcev (ZZSDT, 33. člen).",
+  procedureHeading: "Kakšen je postopek zaposlitve?",
+  vacancyNotice: "2. Delodajalci pri našem pristojnem uradu za delo razpišete prosto delovno mesto na obrazcu PDM-KTD in označite točko b) nova zaposlitev tujca z dovoljenjem za prebivanje, ki ni izdano zaradi zaposlitve ali dela.",
+  labourMarketCheck: "3. Na Zavodu preverimo trg dela.",
+  writtenNotice: "4. Če v evidenci brezposelnih ni ustreznih kandidatov, v 5 delovnih dneh posredujemo pisno obvestilo in informativni list vam kot delodajalcu, upravni enoti in inšpektoratu. Na informativnem listu so navedeni vsi elementi in pogoji zaposlitve.",
+  cardAccess: "Na podlagi informativnega lista bo upravna enota izdala tujcu novo izkaznico dovoljenja za prebivanje, na kateri bo pripisana pravica do dostopa na trg dela. Hkrati bo tujec prejel še pri upravni enoti potrjen informativni list.",
+  pendingCardAccess: "Do izdaje izkaznice dovoljenja za prebivanje, na kateri je označena pravica do dela, se tujec lahko zaposli in vključi v obvezna socialna zavarovanja na podlagi veljavne izkaznice dovoljenja za prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, in informativnega lista.",
+} as const;
+
+const ZZSDT_COMPANION_LINES = {
+  permitScope: "Tujec z dovoljenjem za začasno prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, in ki mu ni prepovedano zaposlovanje, samozaposlovanje in delo v skladu z 42. členom tega zakona, se lahko zaposli, samozaposli ali dela v skladu z določbami tega poglavja, razen tujcev, ki imajo pravico do prostega dostopa na slovenski trg dela na podlagi tega zakona.",
+  labourMarketCondition: "(1) Tujec z dovoljenjem za začasno prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, se lahko zaposli le na delovnem mestu, za katerega v evidenci brezposelnih oseb ni ustreznih brezposelnih oseb, razen v primeru opravljanja dela zastopnika.",
+  writtenNotice: "(2) V primeru, da v evidenci brezposelnih oseb ni vpisanih ustreznih kandidatov, zavod v petih delovnih dneh od sporočila o prostem delovnem mestu delodajalcu, upravni enoti ter pristojnemu nadzornemu organu o tem posreduje pisno obvestilo ter informativni list, na katerem so navedeni vsi pogoji in elementi zaposlitve, ki jih je delodajalec opredelil v sporočilu. V primeru zaposlitve tujca za opravljanje dela zastopnika in tujca, ki je bil predhodno že zakonito zaposlen pri istem delodajalcu na istem delovnem mestu, se informativni list izda brez preverjanja obstoja ustreznih brezposelnih oseb v evidenci zavoda.",
+  cardAccess: "(4) Tujec z dovoljenjem za začasno prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, je lahko zaposlen le na podlagi veljavne izkaznice dovoljenja za prebivanje, na kateri je označena pravica do dela, kateri upravna enota ob vročitvi priloži tudi informativni list. Do izdaje izkaznice dovoljenja za prebivanje, na kateri je označena pravica do dela, se tujec lahko zaposli in vključi v obvezna socialna zavarovanja na podlagi veljavne izkaznice dovoljenja za prebivanje, ki ni izdano zaradi zaposlitve, samozaposlitve ali dela, in informativnega lista iz drugega odstavka tega člena.",
+} as const;
+
 function parseCompanion(
   entry: ParserEntry<SloveniaSourceId>,
-  assessmentAt: string,
 ): SloveniaValidationResult {
   const ess = artifactByRole(entry, "ess-companion-page");
-  const law = artifactByRole(entry, "zzsdt-consolidated");
-  if (ess === undefined || law === undefined) return { ok: false, kind: "semantic_mismatch" };
+  const document = decodePisrsDocument(
+    entry,
+    { kind: "record-id", value: "ZAKO6655" },
+    "zzsdt-registry",
+    "zzsdt-details",
+  );
+  if (ess === undefined || document === null) return { ok: false, kind: "semantic_mismatch" };
   const essLines = htmlLines(ess);
-  const lawLines = htmlLines(law);
-  if (essLines === null || lawLines === null) return { ok: false, kind: "semantic_mismatch" };
-  const sourcePeriod = selectedEffectiveState(lawLines, assessmentAt);
-  const article32 = boundedSection(lawLines, "BEGIN 32. člen", "END 32. člen");
-  const article33 = boundedSection(lawLines, "BEGIN 33. člen", "END 33. člen");
-  const essExcerpt = prefixedLine(essLines, "ANCHOR EXCERPT:");
-  const lawExcerpt = prefixedLine(lawLines, "ANCHOR EXCERPT:");
-  const essSemantics = [
-    "CONDITIONAL LOCAL EMPLOYMENT SCOPE: COMPLETE.",
-    "A family member holding the relevant residence permit may enter local employment conditionally.",
-    "An informativni list (information sheet) is required.",
-    "A kontrola trga dela (labour-market check) is required.",
-    "Automatic labour-market access is not granted.",
-    "No conclusion is made about remote work for a foreign company.",
-  ];
-  const essText = essLines.join(" ");
-  if (
-    sourcePeriod !== "2026-01-01" ||
-    essExcerpt !== "ESS | conditional local employment | informativni list | kontrola trga dela" ||
-    lawExcerpt !== "ZAKO6655 | 32. člen + 33. člen | effective 2026-01-01" ||
-    essSemantics.some((semantic) => uniqueLine(essLines, semantic) === null) ||
-    !markersAreStrictlyOrdered(essLines, essSemantics) ||
-    uniqueLine(lawLines, "LAW ID: ZAKO6655.") === null ||
-    !markersAreStrictlyOrdered(lawLines, [
-      "BEGIN 32. člen",
-      "END 32. člen",
-      "BEGIN 33. člen",
-      "END 33. člen",
-    ]) ||
-    !containsExact(
-      article32,
-      "For conditional employment under a residence permit, an informativni list (information sheet) is required.",
-    ) ||
-    !containsExact(
-      article33,
-      "A kontrola trga dela (labour-market check) is required before local employment.",
-    ) ||
-    !containsExact(article33, "The provision does not create automatic access.") ||
-    !markersAreStrictlyOrdered(article33 ?? [], [
-      "A kontrola trga dela (labour-market check) is required before local employment.",
-      "The provision does not create automatic access.",
-    ]) ||
-    /Automatic labour-market access is granted/i.test(essText) ||
-    /Remote work for a foreign company is automatically allowed/i.test(essText)
-  ) {
+  const article32 = findPisrsArticle(document, "32. člen");
+  const article33 = findPisrsArticle(document, "33. člen");
+  if (essLines === null || article32 === null || article33 === null) {
     return { ok: false, kind: "semantic_mismatch" };
   }
-  if (article32 === null || article33 === null) return { ok: false, kind: "semantic_mismatch" };
-  const essEvidenceLines = essSemantics.map((semantic) => uniqueLine(essLines, semantic)!);
-  const lawEvidenceLines = [
-    uniqueLine(
-      article32,
-      "For conditional employment under a residence permit, an informativni list (information sheet) is required.",
-    )!,
-    uniqueLine(
-      article33,
-      "A kontrola trga dela (labour-market check) is required before local employment.",
-    )!,
-    uniqueLine(article33, "The provision does not create automatic access.")!,
+  const orderedEssLines = Object.values(ESS_COMPANION_LINES);
+  const permitScope = uniquePisrsItem(
+    article32,
+    "odstavek",
+    ZZSDT_COMPANION_LINES.permitScope,
+  );
+  const labourMarketCondition = uniquePisrsItem(
+    article33,
+    "odstavek",
+    ZZSDT_COMPANION_LINES.labourMarketCondition,
+  );
+  const writtenNotice = uniquePisrsItem(
+    article33,
+    "odstavek",
+    ZZSDT_COMPANION_LINES.writtenNotice,
+  );
+  const cardAccess = uniquePisrsItem(
+    article33,
+    "odstavek",
+    ZZSDT_COMPANION_LINES.cardAccess,
+  );
+  if (
+    orderedEssLines.some((line) => uniqueLine(essLines, line) === null) ||
+    !markersAreStrictlyOrdered(essLines, orderedEssLines) ||
+    [permitScope, labourMarketCondition, writtenNotice, cardAccess].some((item) => item === null) ||
+    article32.startIndex >= article33.startIndex ||
+    article32.items[0]?.navezavaNPB !== null ||
+    article33.items[0]?.navezavaNPB !== null
+  ) return { ok: false, kind: "semantic_mismatch" };
+
+  const sourcePeriod = `${document.selected.identity}:${document.selected.label}`;
+  const essEvidenceLines = [
+    ESS_COMPANION_LINES.permitScope,
+    ESS_COMPANION_LINES.informationSheetBasis,
+    ESS_COMPANION_LINES.labourMarketCheck,
+    ESS_COMPANION_LINES.writtenNotice,
+    ESS_COMPANION_LINES.cardAccess,
+    ESS_COMPANION_LINES.pendingCardAccess,
   ];
+  const version = `${document.selected.identity} ${document.selected.label}`;
   const evidence = [
     evidenceRef(
       entry.sourceId,
       ess,
       sourcePeriod,
-      "ESS complete conditional local employment scope",
+      "ESS conditional employment procedure",
       essEvidenceLines.join(" "),
     ),
     evidenceRef(
       entry.sourceId,
-      law,
+      document.artifact,
       sourcePeriod,
-      "ZAKO6655 complete 32. člen + 33. člen",
-      lawEvidenceLines.join(" "),
+      `PISRS ${version} > 32.–33. člen > conditional employment procedure`,
+      [permitScope!, labourMarketCondition!, writtenNotice!, cardAccess!]
+        .map(pisrsItemText)
+        .join(" "),
     ),
   ] as const;
   return {
@@ -935,6 +1031,6 @@ export function validateSloveniaEntry(
     case "si-income-threshold":
       return parseIncome(entry, assessmentAt);
     case "si-companion-employment":
-      return parseCompanion(entry, assessmentAt);
+      return parseCompanion(entry);
   }
 }
