@@ -10,6 +10,7 @@ import {
 } from "../../src/decision/preference-profile";
 import {
   rankPlaces,
+  reconstructPlaceRanking,
   type PlaceFactorProjection,
   type RankablePlace,
 } from "../../src/decision/place-ranker";
@@ -74,6 +75,55 @@ function place(
 }
 
 describe("preference profile and place ranking", () => {
+  test("reconstructs only exact canonical scoring and genuine required exclusions", () => {
+    const profile = preferences([
+      required("outside_cis", 5),
+      weighted("personal_safety", 3),
+    ]);
+    const ranking = rankPlaces({
+      assessmentAt: "2026-08-12",
+      preferences: profile,
+      places: [place("SI", [
+        known("outside_cis", "1", "matches"),
+        known("personal_safety", "0.5"),
+      ])],
+    });
+
+    expect(reconstructPlaceRanking({
+      assessmentAt: "2026-08-12",
+      preferences: profile,
+      ...ranking,
+      excluded: [{
+        countryCode: "BY",
+        criterionId: "outside_cis",
+        observationId: "observation-outside-cis-BY",
+      }],
+    }).ordered).toEqual(ranking.ordered);
+    expect(() => reconstructPlaceRanking({
+      assessmentAt: "2026-08-12",
+      preferences: profile,
+      ...ranking,
+      ordered: [{ ...ranking.ordered[0]!, relevance: "999" }],
+    })).toThrow("invalid_ranking_semantics");
+    expect(() => reconstructPlaceRanking({
+      assessmentAt: "2026-08-12",
+      preferences: profile,
+      ...ranking,
+      excluded: [{
+        countryCode: "BY",
+        criterionId: "personal_safety",
+        observationId: "observation-personal-safety-BY",
+      }],
+    })).toThrow("invalid_required_mismatch");
+    expect(() => reconstructPlaceRanking({
+      assessmentAt: "2026-08-12",
+      preferences: profile,
+      ordered: [],
+      excluded: [],
+      rulesVersion: "place-ranker@1",
+    })).toThrow("empty_ranking");
+  });
+
   test("confirms and stores only a non-empty unique strict profile in canonical frozen order", async () => {
     const snapshot = confirmPreferenceProfile({
       criteria: [
@@ -188,6 +238,11 @@ describe("preference profile and place ranking", () => {
       preferences: preferences([weighted("europe")]),
       places: [place("SI", [known("europe", "-1.0001")])],
     })).toThrow();
+    expect(() => rankPlaces({
+      assessmentAt: "2026-08-12",
+      preferences: preferences([weighted("europe")]),
+      places: [place("SI", [{ ...unknown("europe"), match: "1" }])],
+    })).toThrow("unknown_factor_fields_forbidden");
   });
 
   test("excludes only an explicit known required mismatch and keeps unknown requirements", () => {

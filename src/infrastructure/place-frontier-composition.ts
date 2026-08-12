@@ -9,7 +9,7 @@ import {
 } from "../application/place-frontier";
 import { rankPlaces, type RankablePlace } from "../decision/place-ranker";
 import {
-  createColdStartCompositionBundle,
+  createColdStartComposition,
   type ColdStartCompositionOptions,
 } from "./cold-start-composition";
 import { createEvidenceIntegrity } from "./integrity";
@@ -35,23 +35,25 @@ function frontierPlaces(): readonly RankablePlace[] {
 }
 
 export function createPlaceFrontierComposition(options: PlaceFrontierCompositionOptions) {
-  const coldStartBundle = createColdStartCompositionBundle(options);
-  const coldStart = coldStartBundle.application;
+  const coldStart = createColdStartComposition(options);
   const profiles = new SqliteProfileStore(options.database);
   const knowledge = new SqliteCountryKnowledgeStore(options.database, options.hmacKey);
   const verifier: CountryVerifierPort = {
     async check({ country, profileId, parentRunId, emitProgress, signal }) {
       if (country.countryCode !== "SI") throw new Error("country_not_installed");
       const runId = countryCheckRunId(parentRunId, country.countryCode);
-      const prepared = await coldStartBundle.childPreparation.prepareChild({
+      const countryCheck = createColdStartComposition({
+        ...options,
+        nextRunId: () => runId,
+      });
+      const prepared = await countryCheck.prepare({
         countryInput: country.label,
         profileId,
-        runId,
       });
       if (prepared.profileId !== profileId || prepared.runId !== runId || prepared.country.code !== "SI") {
         throw new Error("integrity_mismatch");
       }
-      const readModel = await coldStart.run(prepared, async (event) => {
+      const readModel = await countryCheck.run(prepared, async (event) => {
         if (event.type !== "assessment_completed") await emitProgress(event);
       }, signal);
       return {
@@ -121,7 +123,7 @@ export function createPlaceFrontierComposition(options: PlaceFrontierComposition
         })),
       })),
     }),
-    store: new SqlitePlaceFrontierStore(options.database, options.hmacKey),
+    store: new SqlitePlaceFrontierStore(options.database, options.hmacKey, profiles),
     knowledge: { loadVerified: async (id) => knowledge.loadVerified(id) },
     verifier,
     integrity: createEvidenceIntegrity(options.hmacKey),

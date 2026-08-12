@@ -18,11 +18,18 @@ import {
 import type { ColdStartEvent } from "../../src/application/cold-start";
 import type { FormalEvidenceReference, FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
+import { assessFormalResidence } from "../../src/decision/formal-residence-verdict";
 import type { RankedPlace } from "../../src/decision/place-ranker";
-import type { PreferenceProfileDraft } from "../../src/decision/preference-profile";
+import type {
+  PreferenceProfileDraft,
+  PreferenceProfileSnapshot,
+} from "../../src/decision/preference-profile";
 import type { RelocationProfileDraft } from "../../src/decision/relocation-profile";
 import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { createColdStartComposition } from "../../src/infrastructure/cold-start-composition";
+import * as coldStartCompositionExports from
+  "../../src/infrastructure/cold-start-composition";
+import * as coldStartApplicationExports from "../../src/application/cold-start";
 import { createPlaceFrontierComposition } from
   "../../src/infrastructure/place-frontier-composition";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
@@ -112,6 +119,45 @@ function unresolvedVerdict(): FormalResidenceVerdict {
   };
 }
 
+function unknownRouteVerdict(): FormalResidenceVerdict {
+  return assessFormalResidence({
+    profileSnapshotId: "stored-profile",
+    verdictAsOf: DAY,
+    routes: [{
+      routeId: "route-SI",
+      status: "unknown",
+      reasons: [],
+      evidenceSnapshotIds: [],
+      proceduralActions: [],
+      contingentActions: [],
+    }],
+  });
+}
+
+interface MutableRankedRow {
+  relevance: string;
+  coverage: string;
+  factors: Array<{ match: string; criterionId: string }>;
+  contributions: Array<{
+    criterionId: string;
+    effectiveMatch: string;
+    weightedContribution: string;
+  }>;
+}
+
+function firstRankingRow(payload: Record<string, unknown>): MutableRankedRow {
+  return (payload as { ordered: MutableRankedRow[] }).ordered[0]!;
+}
+
+function mutateRanking(
+  ranking: RankingSnapshot,
+  mutate: (payload: Record<string, unknown>) => void,
+): RankingSnapshot {
+  const payload = structuredClone(ranking) as unknown as Record<string, unknown>;
+  mutate(payload);
+  return payload as unknown as RankingSnapshot;
+}
+
 function completeAllImpossibleVerdict(
   countryCode: string,
   profileId: string,
@@ -148,29 +194,34 @@ function completeAllImpossibleVerdict(
   };
 }
 
-function rankedPlace(countryCode: string, rank: number): RankedPlace {
+function rankedPlace(
+  countryCode: string,
+  rank: number,
+  draft: PreferenceProfileDraft = preferenceProfile,
+): RankedPlace {
   return {
     countryCode,
     label: countryCode,
     flag: `flag-${countryCode}`,
     coordinate: { lat: 40 + rank, lng: 10 + rank },
-    factors: [{
-      criterionId: "personal_safety",
+    factors: draft.criteria.map((criterion) => ({
+      criterionId: criterion.id,
       state: "known",
       match: "1",
       observationId: `observation-${countryCode}`,
       evaluatorVersion: "fixture-factor@1",
-    }],
+      ...(criterion.mode === "required" ? { requirementStatus: "matches" as const } : {}),
+    })),
     rank,
     relevance: "1",
     coverage: "1",
-    contributions: [{
-      criterionId: "personal_safety",
+    contributions: draft.criteria.map((criterion) => ({
+      criterionId: criterion.id,
       state: "known",
       effectiveMatch: "1",
-      weightedContribution: "5",
+      weightedContribution: String(criterion.importance),
       observationId: `observation-${countryCode}`,
-    }],
+    })),
   };
 }
 
@@ -185,14 +236,23 @@ interface HarnessOptions {
   readonly publishKnowledgeDuringCheck?: boolean;
   readonly abortDuringCheck?: AbortController;
   readonly failShortlistAppend?: boolean;
+  readonly preferenceProfile?: PreferenceProfileDraft;
 }
 
 function harness(options: HarnessOptions) {
+  const preferenceDraft = options.preferenceProfile ?? preferenceProfile;
   const database = openEvidenceDatabase(":memory:");
   const integrity = createEvidenceIntegrity(HMAC_KEY);
-  const store = new SqlitePlaceFrontierStore(database, HMAC_KEY);
   const profiles = new Map<string, unknown>();
   const preferences = new Map<string, unknown>();
+  const preferenceLoader = {
+    loadPreferenceVerified: async (id: string) => {
+      const snapshot = preferences.get(id);
+      if (snapshot === undefined) throw new Error("profile_not_found");
+      return structuredClone(snapshot) as PreferenceProfileSnapshot;
+    },
+  };
+  const store = new SqlitePlaceFrontierStore(database, HMAC_KEY, preferenceLoader);
   const checks: string[] = [];
   const verifierResults = new Map<string, Awaited<ReturnType<CountryVerifierPort["check"]>>>();
   const knowledgeOwners = new Map<string, string>();
@@ -212,17 +272,14 @@ function harness(options: HarnessOptions) {
         return structuredClone(snapshot) as never;
       },
       appendPreference: async (snapshot) => { preferences.set(snapshot.id, snapshot); },
-      loadPreferenceVerified: async (id) => {
-        const snapshot = preferences.get(id);
-        if (snapshot === undefined) throw new Error("profile_not_found");
-        return structuredClone(snapshot) as never;
-      },
+      loadPreferenceVerified: preferenceLoader.loadPreferenceVerified,
     },
     rankingInputs: {
       freezeCurrent: async () => {
         currentInputCalls += 1;
         return {
-          places: options.rankedCountries.map(rankedPlace),
+          places: options.rankedCountries.map((countryCode, index) =>
+            rankedPlace(countryCode, index + 1, preferenceDraft)),
           knowledgeRevisionIds: options.knowledgeRevisionIds ?? Object.fromEntries(
             options.rankedCountries.map((countryCode) => [countryCode, null]),
           ),
@@ -232,7 +289,8 @@ function harness(options: HarnessOptions) {
     rank: ({ places }) => {
       rankCalls += 1;
       return {
-        ordered: places.map((place, index) => rankedPlace(place.countryCode, index + 1)),
+        ordered: places.map((place, index) =>
+          rankedPlace(place.countryCode, index + 1, preferenceDraft)),
         excluded: options.excluded ?? [],
         rulesVersion: "place-ranker@1",
       };
@@ -331,7 +389,7 @@ function harness(options: HarnessOptions) {
     async prepare() {
       return application.preparePlaceFrontier({
         profile: relocationProfile,
-        preferences: preferenceProfile,
+        preferences: preferenceDraft,
       });
     },
     async run() {
@@ -402,6 +460,7 @@ function nonTerminalProgressEvents(): readonly Exclude<
 async function concurrentStoreWrites(input: {
   readonly path: string;
   readonly method: "appendRanking" | "appendShortlist";
+  readonly preference: PreferenceProfileSnapshot;
   readonly snapshots: readonly [
     RankingSnapshot | ShortlistSnapshot,
     RankingSnapshot | ShortlistSnapshot,
@@ -420,7 +479,17 @@ async function concurrentStoreWrites(input: {
     const state = new Int32Array(workerData.barrier);
     parentPort.postMessage({ type: "ready" });
     Atomics.wait(state, 0, 0);
-    Promise.resolve(new SqlitePlaceFrontierStore(database, workerData.key)[workerData.method](
+    const preferences = {
+      loadPreferenceVerified: async (id) => {
+        if (workerData.preference.id !== id) throw new Error("profile_not_found");
+        return structuredClone(workerData.preference);
+      },
+    };
+    Promise.resolve(new SqlitePlaceFrontierStore(
+      database,
+      workerData.key,
+      preferences,
+    )[workerData.method](
       workerData.snapshot,
     )).then(() => {
       database.close();
@@ -438,6 +507,7 @@ async function concurrentStoreWrites(input: {
       snapshot,
       storePath,
       key: HMAC_KEY,
+      preference: input.preference,
       barrier,
     },
   }));
@@ -491,6 +561,15 @@ async function concurrentStoreWrites(input: {
 }
 
 describe("frozen CountryFrontier", () => {
+  test("does not export a caller-selected child preparation surface", () => {
+    expect(Object.keys(coldStartApplicationExports)).not.toContain(
+      "createColdStartApplicationBundle",
+    );
+    expect(Object.keys(coldStartCompositionExports)).not.toContain(
+      "createColdStartCompositionBundle",
+    );
+  });
+
   test("keeps caller-controlled run IDs out of the public cold-start application", async () => {
     let generatedIds = 0;
     const application = createColdStartComposition({
@@ -545,6 +624,39 @@ describe("frozen CountryFrontier", () => {
     expect(replay).toEqual(result);
     expect(requestStep).toHaveBeenCalledTimes(callsBeforeReplay);
     expect(generatedIds).toBe(1);
+  });
+
+  test("isolates completed event payloads from persisted and returned frontier state", async () => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const prepared = await fixture.prepare();
+    const result = await fixture.application.runPlaceFrontier(
+      prepared,
+      (event) => {
+        try {
+          if (event.type === "country_completed") {
+            (event.payload.marker.country as { label: string }).label = "corrupted country";
+            (event.payload.marker.formalVerdict as { marker: string }).marker = "red";
+          }
+          if (event.type === "frontier_completed") {
+            (event.payload.readModel.rankingSnapshot.ordered[0] as { label: string }).label =
+              "corrupted ranking";
+          }
+        } catch {
+          // A deeply frozen callback view is also an acceptable isolation boundary.
+        }
+      },
+      new AbortController().signal,
+    );
+
+    const stored = await fixture.store.loadShortlistVerified(prepared.runId);
+    const presented = await fixture.application.presentPlaceFrontier(prepared.runId);
+    expect(result.shortlistSnapshot.markers[0]?.country.label).toBe("SI");
+    expect(result.shortlistSnapshot.markers[0]?.formalVerdict.marker).toBe("green");
+    expect(result.rankingSnapshot.ordered[0]?.label).toBe("SI");
+    expect(stored.markers[0]?.country.label).toBe("SI");
+    expect(presented).toEqual(result);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.shortlistSnapshot.markers[0]?.formalVerdict)).toBe(true);
   });
 
   test("forwards every typed child progress payload with frontier sequencing", async () => {
@@ -740,16 +852,23 @@ describe("frozen CountryFrontier", () => {
   });
 
   test("counts repeated required mismatch rows as one Knowledge country", async () => {
+    const requiredPreferences: PreferenceProfileDraft = { criteria: [
+      { id: "outside_cis", mode: "required", importance: 5, target: "required_true" },
+      { id: "europe", mode: "required", importance: 3, target: "required_true" },
+    ] };
     const fixture = harness({
       rankedCountries: ["SI"],
       knowledgeRevisionIds: { SI: null, DE: null },
+      preferenceProfile: requiredPreferences,
       excluded: [
-        { countryCode: "DE", criterionId: "personal_safety", observationId: "observation-de-1" },
-        { countryCode: "DE", criterionId: "infrastructure", observationId: "observation-de-2" },
+        { countryCode: "DE", criterionId: "outside_cis", observationId: "observation-de-1" },
+        { countryCode: "DE", criterionId: "europe", observationId: "observation-de-2" },
       ],
     });
 
-    await expect(fixture.prepare()).resolves.toBeDefined();
+    const prepared = await fixture.prepare();
+    expect((await fixture.store.loadRankingVerified(prepared.rankingSnapshotId)).excluded)
+      .toHaveLength(2);
   });
 
   test.each([
@@ -819,9 +938,87 @@ describe("frozen CountryFrontier", () => {
     await expect(fixture.application.presentPlaceFrontier(prepared.runId))
       .rejects.toThrow("snapshot_not_found");
   });
+
+  test.each([
+    ["reversed", "2026-08-13", "2026-08-11"],
+    ["not yet applicable", "2026-08-13", undefined],
+    ["already expired", undefined, "2026-08-11"],
+  ] as const)("rejects an unknown route with a %s interval before shortlist persistence", async (
+    _name,
+    effectiveFrom,
+    effectiveTo,
+  ) => {
+    const fixture = harness({
+      rankedCountries: ["SI"],
+      mutateCheckResult: (result) => ({
+        ...result,
+        verdict: {
+          ...unknownRouteVerdict(),
+          routeOutcomes: [{
+            ...unknownRouteVerdict().routeOutcomes[0]!,
+            ...(effectiveFrom === undefined ? {} : { ruleEffectiveFrom: effectiveFrom }),
+            ...(effectiveTo === undefined ? {} : { ruleEffectiveTo: effectiveTo }),
+          }],
+        },
+      }),
+    });
+    const prepared = await fixture.prepare();
+
+    await expect(fixture.application.runPlaceFrontier(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(fixture.database.prepare(
+      "SELECT kind FROM place_frontier_snapshots ORDER BY kind",
+    ).all()).toEqual([{ kind: "ranking" }]);
+  });
 });
 
 describe("frontier snapshot integrity", () => {
+  test.each([
+    ["known match", (payload: Record<string, unknown>) => {
+      firstRankingRow(payload).factors[0]!.match = "2";
+    }],
+    ["relevance", (payload: Record<string, unknown>) => {
+      firstRankingRow(payload).relevance = "999";
+    }],
+    ["coverage", (payload: Record<string, unknown>) => {
+      firstRankingRow(payload).coverage = "-7";
+    }],
+    ["factor criterion", (payload: Record<string, unknown>) => {
+      firstRankingRow(payload).factors[0]!.criterionId = "infrastructure";
+    }],
+    ["contribution criterion", (payload: Record<string, unknown>) => {
+      firstRankingRow(payload).contributions[0]!.criterionId = "infrastructure";
+    }],
+    ["effective match", (payload: Record<string, unknown>) => {
+      firstRankingRow(payload).contributions[0]!.effectiveMatch = "42";
+    }],
+    ["weighted contribution", (payload: Record<string, unknown>) => {
+      firstRankingRow(payload).contributions[0]!.weightedContribution = "999";
+    }],
+  ] as const)("rejects a semantically forged ranking %s on append and re-signed load", async (
+    _name,
+    mutate,
+  ) => {
+    const source = harness({ rankedCountries: ["SI"] });
+    const prepared = await source.prepare();
+    const valid = await source.store.loadRankingVerified(prepared.rankingSnapshotId);
+    const forged = mutateRanking(valid, mutate);
+    const emptyDatabase = openEvidenceDatabase(":memory:");
+    const preference = source.preferences.get(valid.preferenceProfileSnapshotId) as
+      PreferenceProfileSnapshot;
+    const emptyStore = new SqlitePlaceFrontierStore(emptyDatabase, HMAC_KEY, {
+      loadPreferenceVerified: async () => structuredClone(preference),
+    });
+
+    await expect(emptyStore.appendRanking(forged)).rejects.toThrow("integrity_mismatch");
+    resignSnapshot(source.database, "ranking", mutate);
+    await expect(source.store.loadRankingVerified(prepared.rankingSnapshotId))
+      .rejects.toThrow("integrity_mismatch");
+  });
+
   test.each([
     "relocation profile",
     "preference profile",
@@ -962,6 +1159,8 @@ describe("frontier snapshot integrity", () => {
       await expect(concurrentStoreWrites({
         path,
         method: "appendRanking",
+        preference: fixture.preferences.get(ranking.preferenceProfileSnapshotId) as
+          PreferenceProfileSnapshot,
         snapshots: [ranking, ranking],
       })).resolves.toEqual(["done", "done"]);
       expect(firstDatabase.prepare(
@@ -989,9 +1188,15 @@ describe("frontier snapshot integrity", () => {
       await expect(concurrentStoreWrites({
         path,
         method: "appendRanking",
+        preference: fixture.preferences.get(ranking.preferenceProfileSnapshotId) as
+          PreferenceProfileSnapshot,
         snapshots: [ranking, conflicting],
       })).resolves.toEqual(["done", "integrity_mismatch"]);
-      const winner = await new SqlitePlaceFrontierStore(database, HMAC_KEY)
+      const preference = fixture.preferences.get(ranking.preferenceProfileSnapshotId) as
+        PreferenceProfileSnapshot;
+      const winner = await new SqlitePlaceFrontierStore(database, HMAC_KEY, {
+        loadPreferenceVerified: async () => structuredClone(preference),
+      })
         .loadRankingVerified(prepared.runId);
       expect([canonicalJson(ranking), canonicalJson(conflicting)])
         .toContain(canonicalJson(winner));
@@ -1017,12 +1222,17 @@ describe("frontier snapshot integrity", () => {
         () => undefined,
         new AbortController().signal,
       );
-      const seedStore = new SqlitePlaceFrontierStore(seedDatabase, HMAC_KEY);
+      const preference = fixture.preferences.get(ranking.preferenceProfileSnapshotId) as
+        PreferenceProfileSnapshot;
+      const seedStore = new SqlitePlaceFrontierStore(seedDatabase, HMAC_KEY, {
+        loadPreferenceVerified: async () => structuredClone(preference),
+      });
       await seedStore.appendRanking(ranking);
 
       await expect(concurrentStoreWrites({
         path,
         method: "appendShortlist",
+        preference,
         snapshots: [result.shortlistSnapshot, result.shortlistSnapshot],
       })).resolves.toEqual(["done", "done"]);
       expect(seedDatabase.prepare(

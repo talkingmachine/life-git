@@ -138,16 +138,25 @@ function isCanonicalDay(value: unknown): value is string {
   return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
+function isApplicableInterval(
+  effectiveFrom: unknown,
+  effectiveTo: unknown,
+  verdictAsOf: string,
+): boolean {
+  return (effectiveFrom === undefined || isCanonicalDay(effectiveFrom)) &&
+    (effectiveTo === undefined || isCanonicalDay(effectiveTo)) &&
+    (effectiveFrom === undefined || effectiveFrom <= verdictAsOf) &&
+    (effectiveTo === undefined || verdictAsOf <= effectiveTo) &&
+    (effectiveFrom === undefined || effectiveTo === undefined || effectiveFrom <= effectiveTo);
+}
+
 function isCurrentInterval(
   effectiveFrom: unknown,
   effectiveTo: unknown,
   verdictAsOf: string,
 ): boolean {
-  return isCanonicalDay(effectiveFrom) &&
-    (effectiveTo === undefined || isCanonicalDay(effectiveTo)) &&
-    effectiveFrom <= verdictAsOf &&
-    (effectiveTo === undefined || verdictAsOf <= effectiveTo) &&
-    (effectiveTo === undefined || effectiveFrom <= effectiveTo);
+  return effectiveFrom !== undefined &&
+    isApplicableInterval(effectiveFrom, effectiveTo, verdictAsOf);
 }
 
 function isHttpUrl(value: unknown): value is string {
@@ -491,7 +500,11 @@ function decodeContingentAction(value: unknown): ResidenceRouteOutcome["continge
   return { kind: value.kind, eligibility: "verified", acquired: false };
 }
 
-function decodeRoute(value: unknown, expectedEvidenceSnapshotId?: string): ResidenceRouteOutcome {
+function decodeRoute(
+  value: unknown,
+  verdictAsOf: string,
+  expectedEvidenceSnapshotId?: string,
+): ResidenceRouteOutcome {
   assertRecordWithKeys(value, [
     "routeId", "status", ...(isRecord(value) && value.ruleEffectiveFrom !== undefined
       ? ["ruleEffectiveFrom"] : []), ...(isRecord(value) && value.ruleEffectiveTo !== undefined
@@ -521,6 +534,9 @@ function decodeRoute(value: unknown, expectedEvidenceSnapshotId?: string): Resid
     if (value.ruleEffectiveTo !== undefined && !isCanonicalDay(value.ruleEffectiveTo)) {
       throw new Error("integrity_mismatch");
     }
+    if (!isApplicableInterval(value.ruleEffectiveFrom, value.ruleEffectiveTo, verdictAsOf)) {
+      throw new Error("integrity_mismatch");
+    }
     return {
       ...common,
       status: "unknown",
@@ -528,10 +544,10 @@ function decodeRoute(value: unknown, expectedEvidenceSnapshotId?: string): Resid
       ...(value.ruleEffectiveTo === undefined ? {} : { ruleEffectiveTo: value.ruleEffectiveTo }),
     };
   }
-  if (!isCanonicalDay(value.ruleEffectiveFrom) || value.evidenceSnapshotIds.length === 0) {
-    throw new Error("integrity_mismatch");
-  }
-  if (value.ruleEffectiveTo !== undefined && !isCanonicalDay(value.ruleEffectiveTo)) {
+  if (!isCanonicalDay(value.ruleEffectiveFrom) ||
+    (value.ruleEffectiveTo !== undefined && !isCanonicalDay(value.ruleEffectiveTo)) ||
+    !isCurrentInterval(value.ruleEffectiveFrom, value.ruleEffectiveTo, verdictAsOf) ||
+    value.evidenceSnapshotIds.length === 0) {
     throw new Error("integrity_mismatch");
   }
   return {
@@ -630,7 +646,7 @@ export function reconstructFormalResidenceVerdict(
     throw new Error("integrity_mismatch");
   }
   const routes = value.routeOutcomes.map((route) =>
-    decodeRoute(route, expected?.evidenceSnapshotId));
+    decodeRoute(route, value.verdictAsOf as string, expected?.evidenceSnapshotId));
   value.reasons.forEach((reason) => decodeReason(reason, expected?.evidenceSnapshotId));
   let completeness: CatalogCompletenessAttestation | undefined;
   if (value.catalogCompleteness.status === "verified") {

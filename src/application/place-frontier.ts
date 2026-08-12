@@ -192,6 +192,18 @@ function abort(signal: AbortSignal): never {
   throw new DOMException("The operation was aborted", "AbortError");
 }
 
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
+
+function immutableCopy<T>(value: T): T {
+  return deepFreeze(structuredClone(value));
+}
+
 export function countryCheckRunId(parentRunId: string, countryCode: string): string {
   return `frontier-country:${sha256Text(canonicalJson({ parentRunId, countryCode }))}`;
 }
@@ -263,13 +275,13 @@ function createEventEmitter(
 ): (draft: FrontierEventDraft) => Promise<void> {
   let sequence = 0;
   return async (draft) => {
-    await emit({
+    await emit(immutableCopy({
       runId,
       sequence: ++sequence,
       occurredAt: clock().toISOString(),
       type: draft.type,
       payload: draft.payload,
-    } as PlaceFrontierEvent);
+    } as PlaceFrontierEvent));
   };
 }
 
@@ -550,12 +562,12 @@ export function createPlaceFrontierApplication(
       ports.clock().toISOString(),
     );
     await ports.store.appendShortlist(shortlist);
-    const readModel = {
+    const readModel = immutableCopy({
       runId: prepared.runId,
       assessmentAt: ranking.assessmentAt,
       rankingSnapshot: ranking,
       shortlistSnapshot: shortlist,
-    };
+    });
     await send({ type: "frontier_completed", payload: { readModel } });
     return readModel;
   }
@@ -567,12 +579,12 @@ export function createPlaceFrontierApplication(
     await loadBoundProfiles(ranking, ports);
     await verifyRankingKnowledge(ranking, ports, true);
     for (const marker of shortlist.markers) await verifyMarkerReplay(marker, ranking, ports);
-    return {
+    return immutableCopy({
       runId,
       assessmentAt: ranking.assessmentAt,
       rankingSnapshot: ranking,
       shortlistSnapshot: shortlist,
-    };
+    });
   }
 
   return Object.freeze({ preparePlaceFrontier, runPlaceFrontier, presentPlaceFrontier });

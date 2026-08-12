@@ -143,7 +143,14 @@ function validateFactor(
   if (criterion.mode === "weighted" && factor.requirementStatus !== undefined) {
     throw new Error("weighted_requirement_status_forbidden");
   }
-  if (factor.state !== "known") return new Decimal(-1);
+  if (factor.state !== "known") {
+    if (
+      factor.match !== undefined ||
+      factor.requirementStatus !== undefined ||
+      factor.observationId !== undefined
+    ) throw new Error("unknown_factor_fields_forbidden");
+    return new Decimal(-1);
+  }
   if (typeof factor.observationId !== "string" || factor.observationId.length === 0) {
     throw new Error("known_observation_missing");
   }
@@ -180,6 +187,20 @@ function clonePlace(place: RankablePlace): RankablePlace {
     coordinate: { ...place.coordinate },
     factors: place.factors.map((factor) => ({ ...factor })),
   };
+}
+
+function assertPlaceIdentity(place: RankablePlace): void {
+  if (
+    place.countryCode.length === 0 ||
+    place.label.length === 0 ||
+    place.flag.length === 0 ||
+    !Number.isFinite(place.coordinate.lat) ||
+    place.coordinate.lat < -90 ||
+    place.coordinate.lat > 90 ||
+    !Number.isFinite(place.coordinate.lng) ||
+    place.coordinate.lng < -180 ||
+    place.coordinate.lng > 180
+  ) throw new Error("invalid_place");
 }
 
 function scorePlace(
@@ -242,8 +263,12 @@ export function rankPlaces(input: {
   );
   const scored: ScoredPlace[] = [];
   const excluded: RequiredMismatch[] = [];
+  const countryCodes = new Set<string>();
 
   for (const place of input.places) {
+    assertPlaceIdentity(place);
+    if (countryCodes.has(place.countryCode)) throw new Error("duplicate_place");
+    countryCodes.add(place.countryCode);
     const result = scorePlace(place, preferences.criteria, totalImportance);
     if (isMismatchResult(result)) excluded.push(...result);
     else scored.push(result);
@@ -269,6 +294,74 @@ export function rankPlaces(input: {
       contributions,
     })),
     excluded,
+    rulesVersion: "place-ranker@1",
+  });
+}
+
+function sameRankingValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function validateExcludedRows(
+  excluded: readonly RequiredMismatch[],
+  preferences: PreferenceProfileSnapshot,
+  orderedCountryCodes: ReadonlySet<string>,
+): void {
+  const requiredCriteria = new Set(preferences.criteria
+    .filter(({ mode }) => mode === "required")
+    .map(({ id }) => id));
+  const criterionOrder = new Map(preferences.criteria.map(({ id }, index) => [id, index]));
+  const rowKeys = new Set<string>();
+  for (const row of excluded) {
+    const key = `${row.countryCode}:${row.criterionId}`;
+    if (
+      !/^[A-Z]{2}$/.test(row.countryCode) ||
+      !requiredCriteria.has(row.criterionId) ||
+      row.observationId.length === 0 ||
+      orderedCountryCodes.has(row.countryCode) ||
+      rowKeys.has(key)
+    ) throw new Error("invalid_required_mismatch");
+    rowKeys.add(key);
+  }
+  const sorted = [...excluded].sort((left, right) =>
+    left.countryCode.localeCompare(right.countryCode) ||
+    criterionOrder.get(left.criterionId)! - criterionOrder.get(right.criterionId)!);
+  if (!sameRankingValue(sorted, excluded)) throw new Error("invalid_required_mismatch_order");
+}
+
+export function reconstructPlaceRanking(input: {
+  readonly assessmentAt: string;
+  readonly preferences: PreferenceProfileSnapshot;
+  readonly ordered: readonly RankedPlace[];
+  readonly excluded: readonly RequiredMismatch[];
+  readonly rulesVersion: PlaceRankingResult["rulesVersion"];
+}): PlaceRankingResult {
+  if (input.rulesVersion !== "place-ranker@1") throw new Error("invalid_ranking_rules");
+  if (input.ordered.length === 0 && input.excluded.length === 0) {
+    throw new Error("empty_ranking");
+  }
+  const reconstructed = rankPlaces({
+    assessmentAt: input.assessmentAt,
+    preferences: input.preferences,
+    places: input.ordered.map(({ countryCode, label, flag, coordinate, factors }) => ({
+      countryCode,
+      label,
+      flag,
+      coordinate,
+      factors,
+    })),
+  });
+  if (!sameRankingValue(reconstructed.ordered, input.ordered)) {
+    throw new Error("invalid_ranking_semantics");
+  }
+  validateExcludedRows(
+    input.excluded,
+    verifiedPreferences(input.preferences),
+    new Set(input.ordered.map(({ countryCode }) => countryCode)),
+  );
+  return deepFreeze({
+    ordered: reconstructed.ordered,
+    excluded: input.excluded.map((row) => ({ ...row })),
     rulesVersion: "place-ranker@1",
   });
 }

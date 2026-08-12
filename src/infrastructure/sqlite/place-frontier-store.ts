@@ -7,6 +7,8 @@ import {
   type ShortlistSnapshot,
 } from "../../application/place-frontier";
 import { reconstructFormalResidenceVerdict } from "../../decision/formal-residence-verdict";
+import { reconstructPlaceRanking } from "../../decision/place-ranker";
+import type { PreferenceProfileSnapshot } from "../../decision/preference-profile";
 import { canonicalJson, hmacSha256, secureHexEqual, sha256Text } from "../integrity";
 
 type SnapshotKind = "ranking" | "shortlist";
@@ -241,6 +243,9 @@ export class SqlitePlaceFrontierStore {
   constructor(
     private readonly database: Database.Database,
     private readonly hmacKey: string,
+    private readonly preferences: {
+      loadPreferenceVerified(id: string): Promise<PreferenceProfileSnapshot>;
+    },
   ) {
     if (hmacKey.length === 0) throw new Error("integrity_key_missing");
   }
@@ -248,6 +253,7 @@ export class SqlitePlaceFrontierStore {
   async appendRanking(snapshotInput: RankingSnapshot): Promise<void> {
     try {
       const snapshot = decodeRanking(snapshotInput);
+      await this.verifyRankingSemantics(snapshot);
       const append = this.database.transaction(() => {
         this.insertOrIgnore("ranking", snapshot);
         const stored = this.loadRanking(snapshot.runId);
@@ -261,8 +267,10 @@ export class SqlitePlaceFrontierStore {
 
   async appendShortlist(snapshotInput: ShortlistSnapshot): Promise<void> {
     try {
+      const verifiedRanking = await this.loadRankingVerified(snapshotInput.runId);
       const append = this.database.transaction(() => {
         const ranking = this.loadRanking(snapshotInput.runId);
+        if (canonicalJson(ranking) !== canonicalJson(verifiedRanking)) integrityMismatch();
         const snapshot = decodeShortlist(snapshotInput, ranking);
         this.insertOrIgnore("shortlist", snapshot);
         const stored = this.loadShortlist(snapshot.runId, ranking);
@@ -276,7 +284,9 @@ export class SqlitePlaceFrontierStore {
 
   async loadRankingVerified(idOrRunId: string): Promise<RankingSnapshot> {
     try {
-      return this.loadRanking(idOrRunId);
+      const ranking = this.loadRanking(idOrRunId);
+      await this.verifyRankingSemantics(ranking);
+      return ranking;
     } catch (error) {
       normalizeStoreFailure(error);
     }
@@ -284,11 +294,25 @@ export class SqlitePlaceFrontierStore {
 
   async loadShortlistVerified(runId: string): Promise<ShortlistSnapshot> {
     try {
-      const ranking = this.loadRanking(runId);
+      const ranking = await this.loadRankingVerified(runId);
       return this.loadShortlist(runId, ranking);
     } catch (error) {
       normalizeStoreFailure(error);
     }
+  }
+
+  private async verifyRankingSemantics(snapshot: RankingSnapshot): Promise<void> {
+    const preferences = await this.preferences.loadPreferenceVerified(
+      snapshot.preferenceProfileSnapshotId,
+    );
+    if (preferences.id !== snapshot.preferenceProfileSnapshotId) integrityMismatch();
+    reconstructPlaceRanking({
+      assessmentAt: snapshot.assessmentAt.slice(0, 10),
+      preferences,
+      ordered: snapshot.ordered,
+      excluded: snapshot.excluded,
+      rulesVersion: snapshot.rulesVersion,
+    });
   }
 
   private insertOrIgnore(

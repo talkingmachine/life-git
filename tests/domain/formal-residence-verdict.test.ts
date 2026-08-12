@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   assessFormalResidence,
+  reconstructFormalResidenceVerdict,
   type CatalogCompletenessAttestation,
   type FormalEvidenceReference,
   type ResidenceRouteOutcome,
@@ -98,6 +99,30 @@ function assess(
 }
 
 describe("formal residence marker semantics", () => {
+  test.each([
+    ["reversed", "2026-08-13", "2026-08-11"],
+    ["future", "2026-08-13", undefined],
+    ["expired", undefined, "2026-08-11"],
+  ] as const)("rejects a reconstructed unknown route with a %s interval", (
+    _name,
+    ruleEffectiveFrom,
+    ruleEffectiveTo,
+  ) => {
+    const verdict = assess([route("dn", "unknown")]);
+    const forged = structuredClone(verdict) as unknown as Record<string, unknown> & {
+      routeOutcomes: Array<Record<string, unknown>>;
+    };
+    forged.routeOutcomes[0] = {
+      ...forged.routeOutcomes[0],
+      ...(ruleEffectiveFrom === undefined ? {} : { ruleEffectiveFrom }),
+      ...(ruleEffectiveTo === undefined ? {} : { ruleEffectiveTo }),
+    };
+
+    expect(() => reconstructFormalResidenceVerdict(forged, {
+      profileSnapshotId: "profile-1",
+    })).toThrow("integrity_mismatch");
+  });
+
   test.each([
     {
       name: "viable route wins over another unknown route",

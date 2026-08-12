@@ -155,19 +155,6 @@ export interface ColdStartApplication {
   present(input: { readonly runId: string; readonly profileId: string }): Promise<ColdStartReadModel>;
 }
 
-export interface ColdStartChildPreparationPort {
-  prepareChild(input: {
-    readonly countryInput: string;
-    readonly profileId: string;
-    readonly runId: string;
-  }): Promise<ColdStartPrepared>;
-}
-
-export interface ColdStartApplicationBundle {
-  readonly application: ColdStartApplication;
-  readonly childPreparation: ColdStartChildPreparationPort;
-}
-
 export interface ColdStartResearchPrepareInput {
   readonly runId: string;
   readonly assessmentDate: string;
@@ -466,12 +453,6 @@ function progressPayload(
 export function createColdStartApplication(
   ports: ColdStartApplicationPorts,
 ): ColdStartApplication {
-  return createColdStartApplicationBundle(ports).application;
-}
-
-export function createColdStartApplicationBundle(
-  ports: ColdStartApplicationPorts,
-): ColdStartApplicationBundle {
   const loadReadModel = async (
     runId: string,
     profileId: string,
@@ -578,7 +559,6 @@ export function createColdStartApplicationBundle(
     input:
       | { readonly countryInput: string; readonly profile: RelocationProfileDraft }
       | { readonly countryInput: string; readonly profileId: string },
-    runId?: string,
   ): Promise<ColdStartPrepared> => {
       const resolved = resolveCountry(input.countryInput);
       if (!resolved.ok) throw new Error(resolved.kind);
@@ -592,7 +572,7 @@ export function createColdStartApplicationBundle(
         profile = await ports.profiles.loadRelocationVerified(input.profileId);
       }
       return deepFreeze({
-        runId: runId ?? ports.nextRunId(),
+        runId: ports.nextRunId(),
         profileId: profile.id,
         country: resolved.country,
         assessmentAt: nowIso.slice(0, 10),
@@ -728,14 +708,5 @@ export function createColdStartApplicationBundle(
       return loadReadModel(input.runId, input.profileId);
     },
   };
-  const childPreparation: ColdStartChildPreparationPort = Object.freeze({
-    prepareChild(input: Parameters<ColdStartChildPreparationPort["prepareChild"]>[0]): Promise<ColdStartPrepared> {
-      if (input.runId.length === 0) integrityMismatch();
-      return prepareCore({
-        countryInput: input.countryInput,
-        profileId: input.profileId,
-      }, input.runId);
-    },
-  });
-  return Object.freeze({ application: Object.freeze(application), childPreparation });
+  return Object.freeze(application);
 }
