@@ -283,8 +283,10 @@ export function projectPlaceFrontierView(state: PlaceFrontierScreenState): Place
       }));
   const markers = countryStates.map(({ country, completed }) =>
     markerCandidate(country, completed));
-  const routes = markers.map((candidate) =>
-    createProductGlobeRoute(RUSSIA_ORIGIN, candidate, state.runId));
+  const routes = markers.map((candidate) => ({
+    ...createProductGlobeRoute(RUSSIA_ORIGIN, candidate, state.runId),
+    markerVisible: true,
+  }));
   const progress = progressItems(liveTimeline);
   const newestProgress = progress.at(-1);
   const cards = terminal?.shortlistSnapshot.markers

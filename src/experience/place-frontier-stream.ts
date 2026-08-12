@@ -224,7 +224,7 @@ function exactHeader(response: Response, name: string): string {
   return value;
 }
 
-export function openPlaceFrontierStreamResponse(
+function validatePlaceFrontierStreamResponse(
   response: Response,
   expected?: {
     readonly profileId: string;
@@ -244,6 +244,26 @@ export function openPlaceFrontierStreamResponse(
   ) throw new Error("changed_place_frontier_identity");
   if (response.body === null) throw new Error("missing_place_frontier_body");
   return Object.freeze({ runId, profileId, preferenceProfileId, stream: response.body });
+}
+
+export async function openPlaceFrontierStreamResponse(
+  response: Response,
+  expected?: {
+    readonly profileId: string;
+    readonly preferenceProfileId: string;
+  },
+): Promise<PlaceFrontierStreamResponse> {
+  try {
+    return validatePlaceFrontierStreamResponse(response, expected);
+  } catch (validationError) {
+    const body = response.body;
+    if (body !== null) {
+      await Promise.resolve()
+        .then(() => body.cancel(validationError))
+        .catch(() => undefined);
+    }
+    throw validationError;
+  }
 }
 
 function freezeCopy<T>(value: T): T {

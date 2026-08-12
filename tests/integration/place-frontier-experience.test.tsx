@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { openPlaceFrontierStreamResponse } from
@@ -185,7 +186,7 @@ afterEach(() => {
 });
 
 describe("place-frontier response boundary", () => {
-  test("opens only an exact successful finite-stream response without reading it", () => {
+  test("opens only an exact successful finite-stream response without reading it", async () => {
     const body = pendingStream();
     const getReader = vi.spyOn(body, "getReader");
     const response = new Response(body, {
@@ -197,7 +198,7 @@ describe("place-frontier response boundary", () => {
       },
     });
 
-    expect(openPlaceFrontierStreamResponse(response)).toEqual({
+    await expect(Promise.resolve(openPlaceFrontierStreamResponse(response))).resolves.toEqual({
       runId: "frontier-run-1",
       profileId: "profile-1",
       preferenceProfileId: "preference-1",
@@ -208,14 +209,6 @@ describe("place-frontier response boundary", () => {
 
   test.each([
     ["failed response", new Response(null, { status: 400 })],
-    ["wrong content type", new Response(pendingStream(), {
-      headers: {
-        "content-type": "application/json",
-        "x-life-run-id": "run-1",
-        "x-life-profile-id": "profile-1",
-        "x-life-preference-profile-id": "preference-1",
-      },
-    })],
     ["missing body", new Response(null, {
       headers: {
         "content-type": "application/x-ndjson; charset=utf-8",
@@ -224,11 +217,31 @@ describe("place-frontier response boundary", () => {
         "x-life-preference-profile-id": "preference-1",
       },
     })],
-  ])("rejects %s", (_label, response) => {
-    expect(() => openPlaceFrontierStreamResponse(response)).toThrow();
+  ])("rejects %s", async (_label, response) => {
+    await expect(Promise.resolve().then(() => openPlaceFrontierStreamResponse(response)))
+      .rejects.toThrow();
   });
 
-  test("rejects an identity that is not exact-trimmed", () => {
+  test("cancels a rejected strict response exactly once and preserves its validation error", async () => {
+    const body = pendingStream();
+    const cancel = vi.spyOn(body, "cancel").mockImplementation(() => {
+      throw new Error("cancel_failed");
+    });
+    const response = new Response(body, {
+      headers: {
+        "content-type": "application/json",
+        "x-life-run-id": "run-1",
+        "x-life-profile-id": "profile-1",
+        "x-life-preference-profile-id": "preference-1",
+      },
+    });
+
+    await expect(Promise.resolve().then(() => openPlaceFrontierStreamResponse(response)))
+      .rejects.toThrow("invalid_place_frontier_content_type");
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  test("rejects an identity that is not exact-trimmed", async () => {
     const body = pendingStream();
     const values = new Map([
       ["content-type", "application/x-ndjson; charset=utf-8"],
@@ -241,11 +254,14 @@ describe("place-frontier response boundary", () => {
       headers: { get: (name: string) => values.get(name) ?? null },
       ok: true,
     } as unknown as Response;
-    expect(() => openPlaceFrontierStreamResponse(response)).toThrow();
+    await expect(Promise.resolve().then(() => openPlaceFrontierStreamResponse(response)))
+      .rejects.toThrow();
   });
 
-  test("requires exact retry identities", () => {
-    const response = new Response(pendingStream(), {
+  test("requires exact retry identities", async () => {
+    const body = pendingStream();
+    const cancel = vi.spyOn(body, "cancel");
+    const response = new Response(body, {
       headers: {
         "content-type": "application/x-ndjson; charset=utf-8",
         "x-life-run-id": "run-2",
@@ -254,10 +270,11 @@ describe("place-frontier response boundary", () => {
       },
     });
 
-    expect(() => openPlaceFrontierStreamResponse(response, {
+    await expect(Promise.resolve().then(() => openPlaceFrontierStreamResponse(response, {
       profileId: "profile-1",
       preferenceProfileId: "preference-1",
-    })).toThrow();
+    }))).rejects.toThrow("changed_place_frontier_identity");
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   test("replaces the URL with only encoded flow and run", () => {
@@ -267,6 +284,25 @@ describe("place-frontier response boundary", () => {
 });
 
 describe("place-frontier setup", () => {
+  test("updates the confirmation summary when a companion is added and removed", () => {
+    render(<PlaceFrontierStart />);
+    const review = screen.getByRole("region", { name: "Проверка перед запуском" });
+    const confirmation = within(review).getByRole("checkbox", { name: /подтверждаю/i });
+    expect(within(review).getByText(/Один человек, Россия/)).toBeTruthy();
+
+    fireEvent.click(confirmation);
+    fireEvent.click(screen.getByRole("button", { name: "Добавить сопровождающего" }));
+    expect((confirmation as HTMLInputElement).checked).toBe(false);
+    expect(within(review).getByText(
+      /Людей в профиле: 2; сопровождающие: Супруг или супруга, Россия/,
+    )).toBeTruthy();
+
+    fireEvent.click(confirmation);
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    expect((confirmation as HTMLInputElement).checked).toBe(false);
+    expect(within(review).getByText(/Один человек, Россия/)).toBeTruthy();
+  });
+
   test("uses five valid defaults, no country input, and invalidates confirmation on every edit", async () => {
     const responseBody = pendingStream();
     const originalGetReader = responseBody.getReader.bind(responseBody);
@@ -354,9 +390,76 @@ describe("place-frontier setup", () => {
     fireEvent.click(submit);
     expect((await screen.findByRole("alert")).textContent).toMatch(/не запущен/i);
   });
+
+  test("cancels a launch body rejected by the strict response boundary", async () => {
+    const body = pendingStream();
+    const cancel = vi.spyOn(body, "cancel");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: {
+        "content-type": "application/json",
+        "x-life-run-id": "frontier-run-1",
+        "x-life-profile-id": PROFILE_ID,
+        "x-life-preference-profile-id": PREFERENCE_ID,
+      },
+    })));
+    render(<PlaceFrontierStart />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю/i }));
+    fireEvent.click(screen.getByRole("button", { name: /запустить/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/не запущен/i);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 });
 
 describe("place-frontier journey lifecycle", () => {
+  test("reaches a terminal result through a one-shot stream under StrictMode replay", async () => {
+    const fixture = terminalFixture();
+
+    render(
+      <StrictMode>
+        <PlaceFrontierJourney mode="live" preferenceProfileId={PREFERENCE_ID}
+          profileId={PROFILE_ID} runId={fixture.readModel.runId}
+          stream={eventStream(fixture.events)} />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByText(`${fixture.readModel.runId}:shortlist`)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("reports a one-shot transport failure with retained history under StrictMode replay", async () => {
+    const fixture = terminalFixture();
+
+    render(
+      <StrictMode>
+        <PlaceFrontierJourney mode="live" preferenceProfileId={PREFERENCE_ID}
+          profileId={PROFILE_ID} runId={fixture.readModel.runId}
+          stream={eventStream(fixture.events.slice(0, 2))} />
+      </StrictMode>,
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/поток проверки прерван/i);
+    expect(screen.getByText(/Country SI/)).toBeTruthy();
+  });
+
+  test("does not cancel for StrictMode replay but cancels the live stream once on true unmount", async () => {
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({ cancel });
+    const journey = render(
+      <StrictMode>
+        <PlaceFrontierJourney mode="live" preferenceProfileId={PREFERENCE_ID}
+          profileId={PROFILE_ID} runId="frontier-run-strict" stream={stream} />
+      </StrictMode>,
+    );
+
+    await Promise.resolve();
+    expect(cancel).not.toHaveBeenCalled();
+
+    journey.unmount();
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  });
+
   test("renders a stored terminal projection without timeline or flight and shows full projected card truth", async () => {
     const fixture = terminalFixture();
     const fetch = vi.fn();
@@ -377,6 +480,8 @@ describe("place-frontier journey lifecycle", () => {
     expect(within(cards).getByText("route-SI")).toBeTruthy();
     expect(within(cards).getByText(/медицинскую страховку.*не выполнено/i)).toBeTruthy();
     expect(within(cards).getByText(/предложение о работе.*ещё не получено/i)).toBeTruthy();
+    expect(within(cards).getByText("Вердикт на дату").nextElementSibling?.textContent)
+      .toBe("2026-08-12");
     expect(within(cards).getByText("evidence-SI")).toBeTruthy();
     expect(within(cards).getByText("knowledge-ranking-SI")).toBeTruthy();
     expect(within(cards).getAllByText("knowledge-current-SI")).toHaveLength(2);
@@ -456,6 +561,62 @@ describe("place-frontier journey lifecycle", () => {
       .toBeTruthy();
   });
 
+  test.each([
+    ["missing identity", {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "x-life-profile-id": PROFILE_ID,
+      "x-life-preference-profile-id": PREFERENCE_ID,
+    }],
+    ["changed identity", {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "x-life-run-id": "frontier-run-new",
+      "x-life-profile-id": "changed-profile",
+      "x-life-preference-profile-id": PREFERENCE_ID,
+    }],
+  ])("cancels a retry body rejected for %s", async (_case, headers) => {
+    const fixture = terminalFixture();
+    const body = pendingStream();
+    const cancel = vi.spyOn(body, "cancel");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { headers })));
+    render(<PlaceFrontierJourney initialReadModel={fixture.readModel} mode="stored"
+      runId={fixture.readModel.runId} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторить проверку" }));
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/предыдущая история сохранена/i);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  test("cancels the current live stream when another retry supersedes it", async () => {
+    const fixture = terminalFixture("frontier-run-old");
+    const firstCancel = vi.fn();
+    const firstBody = new ReadableStream<Uint8Array>({ cancel: firstCancel });
+    const secondBody = pendingStream();
+    const response = (runId: string, body: ReadableStream<Uint8Array>) => new Response(body, {
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "x-life-run-id": runId,
+        "x-life-profile-id": PROFILE_ID,
+        "x-life-preference-profile-id": PREFERENCE_ID,
+      },
+    });
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response("frontier-run-first", firstBody))
+      .mockResolvedValueOnce(response("frontier-run-second", secondBody));
+    vi.stubGlobal("fetch", fetch);
+    render(<PlaceFrontierJourney initialReadModel={fixture.readModel} mode="stored"
+      runId={fixture.readModel.runId} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторить проверку" }));
+    await vi.waitFor(() => expect(window.location.search)
+      .toBe("?flow=place-frontier&run=frontier-run-first"));
+    fireEvent.click(screen.getByRole("button", { name: "Повторить проверку" }));
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(firstCancel).toHaveBeenCalledOnce());
+    expect(window.location.search).toBe("?flow=place-frontier&run=frontier-run-second");
+  });
+
   test("offers interrupted reload only and aborts an in-flight semantic retry on unmount", async () => {
     const interrupted = render(<PlaceFrontierJourney mode="interrupted" runId="missing-run" />);
     expect(screen.getByRole("button", { name: /перезагрузить страницу/i })).toBeTruthy();
@@ -472,7 +633,7 @@ describe("place-frontier journey lifecycle", () => {
       mode="stored" runId={fixture.readModel.runId} />);
     fireEvent.click(screen.getByRole("button", { name: "Повторить проверку" }));
     journey.unmount();
-    expect(retrySignal?.aborted).toBe(true);
+    await vi.waitFor(() => expect(retrySignal?.aborted).toBe(true));
   });
 });
 

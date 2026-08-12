@@ -350,7 +350,9 @@ export function ResearchGlobeCanvas({
   );
   const cityLabelData = useMemo<CityLabelDatum[]>(() => {
     const destinations = routes.flatMap((route) => (
-      route.status !== "pending" || destinationRevealCompleted.current.has(route.key)
+      route.markerVisible === true
+        || route.status !== "pending"
+        || destinationRevealCompleted.current.has(route.key)
         ? [{
           altitude: CITY_LABEL_ALTITUDE,
           flag: route.flag ?? "🌐",

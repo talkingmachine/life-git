@@ -9,7 +9,10 @@ import type {
   PreferenceCriterion,
   PreferenceMode,
 } from "../../decision/preference-profile";
-import { openPlaceFrontierStreamResponse } from "../place-frontier-stream";
+import {
+  openPlaceFrontierStreamResponse,
+  type PlaceFrontierStreamResponse,
+} from "../place-frontier-stream";
 import { replacePlaceFrontierRunUrl } from "../run-url";
 import { PlaceFrontierJourney } from "./PlaceFrontierJourney";
 import { ProductShell } from "./ProductShell";
@@ -44,6 +47,12 @@ function criterionWithMode(criterion: PreferenceCriterion, mode: PreferenceMode)
     : { id: criterion.id, mode, importance: criterion.importance, target: "maximize" };
 }
 
+function partySummary(companions: readonly Companion[]): string {
+  if (companions.length === 0) return "Один человек";
+  const labels = companions.map(({ relationship }) => COMPANION_LABELS[relationship]);
+  return `Людей в профиле: ${companions.length + 1}; сопровождающие: ${labels.join(", ")}`;
+}
+
 export function PlaceFrontierStart() {
   const [monthlyIncome, setMonthlyIncome] = useState("210000");
   const [companions, setCompanions] = useState<readonly Companion[]>([]);
@@ -52,7 +61,7 @@ export function PlaceFrontierStart() {
   const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
-  const [launched, setLaunched] = useState<ReturnType<typeof openPlaceFrontierStreamResponse>>();
+  const [launched, setLaunched] = useState<PlaceFrontierStreamResponse>();
   const edited = () => setConfirmed(false);
 
   const profile: RelocationProfileDraft = {
@@ -82,7 +91,7 @@ export function PlaceFrontierStart() {
         const body = await response.json().catch(() => undefined) as { code?: unknown } | undefined;
         throw new Error(body?.code === "invalid_input" ? "invalid_input" : "request_failed");
       }
-      const opened = openPlaceFrontierStreamResponse(response);
+      const opened = await openPlaceFrontierStreamResponse(response);
       replacePlaceFrontierRunUrl(opened.runId);
       setLaunched(opened);
     } catch (caught) {
@@ -183,7 +192,7 @@ export function PlaceFrontierStart() {
           </fieldset>
           <section aria-labelledby="place-frontier-review-heading" className="scenario-review">
             <h2 id="place-frontier-review-heading">Проверка перед запуском</h2>
-            <p>Один человек, Россия, гражданство РФ; пять структурированных предпочтений.</p>
+            <p>{partySummary(companions)}, Россия, гражданство РФ; пять структурированных предпочтений.</p>
             <label className="profile-card__confirmation">
               <input checked={confirmed} onChange={(event) => setConfirmed(event.currentTarget.checked)} type="checkbox" />
               Подтверждаю профиль и предпочтения

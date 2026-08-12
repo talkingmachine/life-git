@@ -43,6 +43,21 @@ interface ActiveStream {
   readonly stream: ReadableStream<Uint8Array>;
 }
 
+interface StreamConsumer extends ActiveStream {
+  releaseToken?: object;
+  readonly stop: (reason: DOMException) => void;
+}
+
+function releaseConsumerAfterEffectReplay(consumer: StreamConsumer): void {
+  const releaseToken = {};
+  consumer.releaseToken = releaseToken;
+  queueMicrotask(() => {
+    if (consumer.releaseToken === releaseToken) {
+      consumer.stop(new DOMException("Frontier screen stopped consuming", "AbortError"));
+    }
+  });
+}
+
 const TRANSPORT_ERROR = "Поток проверки прерван. Доменный вывод не сформирован.";
 const INTERRUPTED_ERROR = "Запуск был прерван до появления проверенного снимка.";
 const RETRY_ERROR = "Повторная проверка не запущена. Предыдущая история сохранена.";
@@ -133,6 +148,7 @@ function CountryCard({ card }: { readonly card: PlaceFrontierCountryCard }) {
       <dl>
         <div><dt>Релевантность</dt><dd>{card.relevance}</dd></div>
         <div><dt>Покрытие</dt><dd>{card.coverage}</dd></div>
+        <div><dt>Вердикт на дату</dt><dd>{verdict.verdictAsOf}</dd></div>
         <div><dt>Последняя проверка</dt><dd>{card.lastCheckedAt}</dd></div>
         <div><dt>Обновление знаний</dt><dd>{card.knowledgeUpdatedAt ?? "Нет"}</dd></div>
       </dl>
@@ -227,19 +243,41 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
   const [retryError, setRetryError] = useState<string>();
   const generation = useRef(initialGeneration);
   const screenCursor = useRef(screen);
-  const stopConsumer = useRef<() => void>(() => undefined);
+  const streamConsumer = useRef<StreamConsumer | undefined>(undefined);
+  const stopConsumer = useRef<(reason: DOMException) => void>(() => undefined);
   const retryController = useRef<AbortController | undefined>(undefined);
+  const mounted = useRef(false);
   const view = useMemo(() => projectPlaceFrontierView(screen), [screen]);
   const identity = retryIdentity(props);
 
   useEffect(() => {
     if (activeStream === undefined) return;
+    const currentConsumer = streamConsumer.current;
+    if (
+      currentConsumer?.generation === activeStream.generation
+      && currentConsumer.stream === activeStream.stream
+    ) {
+      currentConsumer.releaseToken = undefined;
+      stopConsumer.current = currentConsumer.stop;
+      return () => releaseConsumerAfterEffectReplay(currentConsumer);
+    }
+    currentConsumer?.stop(new DOMException("Frontier stream superseded", "AbortError"));
     const controller = new AbortController();
     const iterator = decodePlaceFrontierStream(activeStream.stream, controller.signal);
-    const stop = () => {
-      controller.abort(new DOMException("Frontier screen stopped consuming", "AbortError"));
+    let stopped = false;
+    const consumer: StreamConsumer = {
+      ...activeStream,
+      stop: (reason) => {
+        if (stopped) return;
+        stopped = true;
+        if (streamConsumer.current === consumer) streamConsumer.current = undefined;
+        if (stopConsumer.current === consumer.stop) stopConsumer.current = () => undefined;
+        controller.abort(reason);
+        void iterator.return(undefined).catch(() => undefined);
+      },
     };
-    stopConsumer.current = stop;
+    streamConsumer.current = consumer;
+    stopConsumer.current = consumer.stop;
     const consume = async () => {
       try {
         for await (const event of iterator) {
@@ -257,17 +295,20 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
       }
     };
     void consume();
-    return () => {
-      stop();
-      if (stopConsumer.current === stop) stopConsumer.current = () => undefined;
-      void iterator.return(undefined).catch(() => undefined);
-    };
+    return () => releaseConsumerAfterEffectReplay(consumer);
   }, [activeStream]);
 
-  useEffect(() => () => {
-    generation.current += 1;
-    stopConsumer.current();
-    retryController.current?.abort(new DOMException("Frontier screen unmounted", "AbortError"));
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      queueMicrotask(() => {
+        if (mounted.current) return;
+        generation.current += 1;
+        stopConsumer.current(new DOMException("Frontier screen unmounted", "AbortError"));
+        retryController.current?.abort(new DOMException("Frontier screen unmounted", "AbortError"));
+      });
+    };
   }, []);
 
   const retry = () => {
@@ -275,7 +316,7 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
     const previousRunId = screen.runId;
     const nextGeneration = generation.current + 1;
     generation.current = nextGeneration;
-    stopConsumer.current();
+    stopConsumer.current(new DOMException("Frontier stream superseded", "AbortError"));
     retryController.current?.abort(new DOMException("Retry superseded", "AbortError"));
     const controller = new AbortController();
     retryController.current = controller;
@@ -290,7 +331,7 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
           method: "POST",
           signal: controller.signal,
         });
-        const opened = openPlaceFrontierStreamResponse(response, identity);
+        const opened = await openPlaceFrontierStreamResponse(response, identity);
         openedStream = opened.stream;
         if (opened.runId === previousRunId) throw new Error("retry_reused_run");
         if (generation.current !== nextGeneration) {

@@ -57,6 +57,7 @@ export interface GlobeRoute {
     readonly label: string;
     readonly url: string;
   }[];
+  readonly markerVisible?: boolean;
   readonly status: CandidateState;
   readonly to: GeoCoordinate;
 }
