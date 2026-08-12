@@ -206,6 +206,30 @@ describe("country resolution policy", () => {
     });
   });
 
+  test("returns a deeply immutable uncertainty basis", () => {
+    const verdict = assessFormalResidence({
+      profileSnapshotId: "profile-1",
+      verdictAsOf: "2026-08-12",
+      routes: [route("unknown", "unknown")],
+    });
+
+    const basis = deriveYellowUncertaintyBasis(verdict);
+
+    expect(Object.isFrozen(basis)).toBe(true);
+    expect(Object.isFrozen(basis.unknownRoutes)).toBe(true);
+    expect(Object.isFrozen(basis.unknownRoutes[0])).toBe(true);
+    expect(Object.isFrozen(basis.unknownRoutes[0]?.reasons)).toBe(true);
+    expect(Object.isFrozen(basis.unknownRoutes[0]?.reasons[0])).toBe(true);
+    expect(Object.isFrozen(basis.unknownRoutes[0]?.reasons[0]?.claimIds)).toBe(true);
+    expect(Object.isFrozen(basis.unknownRoutes[0]?.reasons[0]?.evidence)).toBe(true);
+    expect(Object.isFrozen(basis.unknownRoutes[0]?.reasons[0]?.navigation)).toBe(true);
+    expect(Object.isFrozen(basis.unknownRoutes[0]?.reasons[0]?.navigation[0])).toBe(true);
+    expect(() => {
+      (basis.unknownRoutes as unknown as Array<unknown>).push({});
+    }).toThrow(TypeError);
+    expect(basis.unknownRoutes).toHaveLength(1);
+  });
+
   test("occupies five slots with unresolved yellow and prompts the lowest-ranked country", () => {
     expect(reconstruct([
       marker("AA", 1, "green"),
@@ -363,26 +387,66 @@ describe("country resolution policy", () => {
     for (const invalid of invalidCases) expect(invalid).toThrow("integrity_mismatch");
   });
 
-  test("permits exactly one decision or next-rank marker and no successor after resolution", () => {
-    const predecessorMarkers = [marker("AA", 1, "green"), marker("BB", 2, "yellow"), marker("CC", 3, "green"), marker("DD", 4, "yellow"), marker("EE", 5, "green")];
-    const predecessor = semanticState(predecessorMarkers);
-    const decided = semanticState(predecessorMarkers, [decision("BB", "rejected")]);
-    const replaced = semanticState([...predecessorMarkers, marker("FF", 6, "red")]);
+  test("permits a decision for the first unresolved country while awaiting a decision", () => {
+    const markers = [marker("AA", 1, "green"), marker("BB", 2, "yellow"), marker("CC", 3, "green"), marker("DD", 4, "yellow"), marker("EE", 5, "green")];
+
+    expect(() => assertCountryResolutionTransition({
+      predecessor: semanticState(markers),
+      successor: semanticState(markers, [decision("BB", "rejected")]),
+      orderedCountryCodes: ORDERED_COUNTRY_CODES,
+    })).not.toThrow();
+  });
+
+  test("permits the exact next-rank marker while replacement is required", () => {
+    const markers = [marker("AA", 1, "green"), marker("BB", 2, "yellow"), marker("CC", 3, "green"), marker("DD", 4, "yellow"), marker("EE", 5, "green")];
+    const decisions = [decision("BB", "rejected")];
+
+    expect(() => assertCountryResolutionTransition({
+      predecessor: semanticState(markers, decisions),
+      successor: semanticState([...markers, marker("FF", 6, "red")], decisions),
+      orderedCountryCodes: ORDERED_COUNTRY_CODES,
+    })).not.toThrow();
+  });
+
+  test("rejects a replacement marker while awaiting a decision", () => {
+    const markers = [marker("AA", 1, "green"), marker("BB", 2, "yellow"), marker("CC", 3, "green"), marker("DD", 4, "yellow"), marker("EE", 5, "green")];
+
+    expect(() => assertCountryResolutionTransition({
+      predecessor: semanticState(markers),
+      successor: semanticState([...markers, marker("FF", 6, "red")]),
+      orderedCountryCodes: ORDERED_COUNTRY_CODES,
+    })).toThrow("integrity_mismatch");
+  });
+
+  test("rejects a decision while replacement is required", () => {
+    const markers = [marker("AA", 1, "green"), marker("BB", 2, "yellow"), marker("CC", 3, "green"), marker("DD", 4, "yellow"), marker("EE", 5, "green")];
+    const decisions = [decision("BB", "rejected")];
+
+    expect(() => assertCountryResolutionTransition({
+      predecessor: semanticState(markers, decisions),
+      successor: semanticState(markers, [...decisions, decision("DD", "accepted_at_own_risk")]),
+      orderedCountryCodes: ORDERED_COUNTRY_CODES,
+    })).toThrow("integrity_mismatch");
+  });
+
+  test("rejects a decision for a later unresolved country", () => {
+    const markers = [marker("AA", 1, "green"), marker("BB", 2, "yellow"), marker("CC", 3, "green"), marker("DD", 4, "yellow"), marker("EE", 5, "green")];
+
+    expect(() => assertCountryResolutionTransition({
+      predecessor: semanticState(markers),
+      successor: semanticState(markers, [decision("DD", "accepted_at_own_risk")]),
+      orderedCountryCodes: ORDERED_COUNTRY_CODES,
+    })).toThrow("integrity_mismatch");
+  });
+
+  test("rejects no-op successors and any successor after resolution", () => {
+    const markers = [marker("AA", 1, "green"), marker("BB", 2, "yellow"), marker("CC", 3, "green"), marker("DD", 4, "yellow"), marker("EE", 5, "green")];
+    const predecessor = semanticState(markers);
     const resolved = semanticState([
       marker("AA", 1, "green"), marker("BB", 2, "green"), marker("CC", 3, "green"),
       marker("DD", 4, "green"), marker("EE", 5, "green"),
     ]);
 
-    expect(() => assertCountryResolutionTransition({
-      predecessor,
-      successor: decided,
-      orderedCountryCodes: ORDERED_COUNTRY_CODES,
-    })).not.toThrow();
-    expect(() => assertCountryResolutionTransition({
-      predecessor,
-      successor: replaced,
-      orderedCountryCodes: ORDERED_COUNTRY_CODES,
-    })).not.toThrow();
     expect(() => assertCountryResolutionTransition({
       predecessor,
       successor: predecessor,

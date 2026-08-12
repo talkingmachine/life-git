@@ -160,7 +160,7 @@ export function deriveYellowUncertaintyBasis(
     ? verdict.reasons.find(({ code }) => code === catalogCompleteness.reasonCode)
     : undefined;
 
-  return {
+  return immutableCopy({
     unknownRoutes,
     ...(catalogCompleteness.status === "unproven"
       ? {
@@ -174,7 +174,7 @@ export function deriveYellowUncertaintyBasis(
             : copyUncertaintyReason(catalogReason),
         }
       : {}),
-  };
+  });
 }
 
 export function effectiveCountryStatus(
@@ -408,5 +408,17 @@ export function assertCountryResolutionTransition(input: {
     input.predecessor.markerProjections,
     input.successor.markerProjections,
   ) && hasSameCanonicalValue(input.predecessor.decisions, input.successor.decisions);
-  if (!addedDecision && !addedMarker) integrityMismatch();
+  if (addedDecision) {
+    const appendedDecision = input.successor.decisions[input.predecessor.decisions.length];
+    if (input.predecessor.phase !== "awaiting_decision" ||
+      appendedDecision?.countryCode !== input.predecessor.unresolvedCountryCodes[0]) {
+      integrityMismatch();
+    }
+    return;
+  }
+  if (addedMarker) {
+    if (input.predecessor.phase !== "replacement_required") integrityMismatch();
+    return;
+  }
+  integrityMismatch();
 }
