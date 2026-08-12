@@ -96,6 +96,7 @@ cursor и terminal condition из immutable formal markers и Yellow decisions.
 stop и публикацией Ranking/Automatic Shortlist Snapshots. Он не ранжирует и не интерпретирует
 evidence. `CountryResolution` владеет start от verified automatic snapshot, append Yellow decision,
 replacement continuation и terminal Resolved Country Shortlist Snapshot; он не меняет formal verdict.
+Only explicit replacement continuation may invoke CountryVerifierPort or official network verification. Start, yellow decision, presentation, and reload must perform zero official HTTP/network calls.
 
 ### Infrastructure
 

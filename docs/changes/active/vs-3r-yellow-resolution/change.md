@@ -65,6 +65,7 @@ replay и аудита.
   billing surface.
 - `NFR-YR-04 Bounded recovery` — replacement переиспользует bounded timeout/retry/cancellation и
   finite NDJSON; crawler, worker, polling и background workflow отсутствуют.
+  Only explicit replacement continuation may invoke CountryVerifierPort or official network verification. Start, yellow decision, presentation, and reload must perform zero official HTTP/network calls.
 - `NFR-YR-05 Minimum sufficient complexity` — только узкая resolution snapshot chain, без event
   store, generic workflow engine, queue или универсального decision framework.
 - `NFR-YR-06 Accessibility` — prompt, progress, recoverable failure и terminal result доступны с

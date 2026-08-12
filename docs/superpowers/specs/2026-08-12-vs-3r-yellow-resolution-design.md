@@ -605,7 +605,6 @@ Superseded после approval положения:
 - [x] Пользователь проверил и явно одобрил этот точный письменный baseline 2026-08-12.
 - [x] Направление canonical Product Charter/Glossary/Demo/Spec amendments утверждено этим baseline;
   точные правки входят в первый task implementation plan.
-- [ ] Exact implementation tasks составлены и утверждены.
+- [x] Exact implementation tasks составлены и утверждены implementation plan 2026-08-12.
 
-Production implementation не начинается до письменного approval этого design, canonical amendment
-и отдельного approval implementation plan.
+Written design, canonical amendment, and implementation plan approvals are complete. Production implementation remains pending and may proceed only through approved tasks.
