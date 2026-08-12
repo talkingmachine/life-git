@@ -125,7 +125,7 @@ export interface PlaceFrontierApplicationPorts {
     appendRanking(snapshot: RankingSnapshot): Promise<void>;
     appendShortlist(snapshot: ShortlistSnapshot): Promise<void>;
     loadRankingVerified(id: string): Promise<RankingSnapshot>;
-    loadShortlistVerified(runId: string): Promise<ShortlistSnapshot>;
+    loadShortlistVerified(idOrRunId: string): Promise<ShortlistSnapshot>;
   };
   readonly knowledge: {
     loadVerified(id: string): Promise<{ readonly id: string; readonly countryCode: string }>;
@@ -147,6 +147,10 @@ export interface PlaceFrontierApplication {
     signal: AbortSignal,
   ): Promise<PlaceFrontierReadModel>;
   presentPlaceFrontier(runId: string): Promise<PlaceFrontierReadModel>;
+}
+
+export interface PlaceFrontierShortlistPresentation {
+  presentPlaceFrontierByShortlistId(shortlistSnapshotId: string): Promise<PlaceFrontierReadModel>;
 }
 
 export interface FrontierEventBase<T extends string, P> {
@@ -488,7 +492,7 @@ async function loadBoundProfiles(
 
 export function createPlaceFrontierApplication(
   ports: PlaceFrontierApplicationPorts,
-): PlaceFrontierApplication {
+): PlaceFrontierApplication & PlaceFrontierShortlistPresentation {
   async function preparePlaceFrontier(
     input: Parameters<PlaceFrontierApplication["preparePlaceFrontier"]>[0],
   ): Promise<PlaceFrontierPrepared> {
@@ -624,20 +628,35 @@ export function createPlaceFrontierApplication(
     return readModel;
   }
 
-  async function presentPlaceFrontier(runId: string): Promise<PlaceFrontierReadModel> {
-    const shortlist = await ports.store.loadShortlistVerified(runId);
+  async function presentVerifiedShortlist(shortlistSnapshotIdOrRunId: string): Promise<PlaceFrontierReadModel> {
+    const shortlist = await ports.store.loadShortlistVerified(shortlistSnapshotIdOrRunId);
     const ranking = await ports.store.loadRankingVerified(shortlist.rankingSnapshotId);
-    if (ranking.runId !== runId || shortlist.rankingSnapshotId !== ranking.id) integrityMismatch();
+    if (ranking.runId !== shortlist.runId || shortlist.rankingSnapshotId !== ranking.id) integrityMismatch();
     await loadBoundProfiles(ranking, ports);
     await verifyRankingKnowledge(ranking, ports, true);
     for (const marker of shortlist.markers) await verifyMarkerReplay(marker, ranking, ports);
     return immutableCopy({
-      runId,
+      runId: shortlist.runId,
       assessmentAt: ranking.assessmentAt,
       rankingSnapshot: ranking,
       shortlistSnapshot: shortlist,
     });
   }
 
-  return Object.freeze({ preparePlaceFrontier, runPlaceFrontier, presentPlaceFrontier });
+  async function presentPlaceFrontier(runId: string): Promise<PlaceFrontierReadModel> {
+    return presentVerifiedShortlist(runId);
+  }
+
+  async function presentPlaceFrontierByShortlistId(
+    shortlistSnapshotId: string,
+  ): Promise<PlaceFrontierReadModel> {
+    return presentVerifiedShortlist(shortlistSnapshotId);
+  }
+
+  return Object.freeze({
+    preparePlaceFrontier,
+    runPlaceFrontier,
+    presentPlaceFrontier,
+    presentPlaceFrontierByShortlistId,
+  });
 }

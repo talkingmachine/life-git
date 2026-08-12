@@ -43,6 +43,31 @@ const CURRENT_COUNTRY_KNOWLEDGE_TABLE = normalizeSchemaSql(`
   );
 `);
 
+const CURRENT_COUNTRY_RESOLUTION_TABLE = normalizeSchemaSql(`
+  CREATE TABLE IF NOT EXISTS country_resolution_revisions (
+    id TEXT PRIMARY KEY,
+    resolution_run_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('working', 'resolved')),
+    predecessor_id TEXT REFERENCES country_resolution_revisions(id),
+    automatic_shortlist_snapshot_id TEXT NOT NULL REFERENCES place_frontier_snapshots(id),
+    ranking_snapshot_id TEXT NOT NULL REFERENCES place_frontier_snapshots(id),
+    command_id TEXT NOT NULL,
+    command_kind TEXT NOT NULL CHECK (
+      command_kind IN ('start', 'yellow_decision', 'replacement_completed')
+    ),
+    command_json TEXT NOT NULL,
+    command_hash TEXT NOT NULL CHECK (length(command_hash) = 64),
+    schema_version TEXT NOT NULL CHECK (schema_version = 'country-resolution@1'),
+    rules_version TEXT NOT NULL CHECK (rules_version = 'country-resolution@1'),
+    context_hash TEXT NOT NULL CHECK (length(context_hash) = 64),
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+    hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+    created_at TEXT NOT NULL,
+    CHECK (predecessor_id IS NULL OR predecessor_id <> id)
+  );
+`);
+
 interface SchemaEntry {
   readonly type: string;
   readonly sql: string | null;
@@ -100,12 +125,26 @@ function preflightExistingCountryKnowledge(database: Database.Database): void {
   }
 }
 
+function preflightExistingCountryResolution(database: Database.Database): void {
+  const entry = database.prepare(`
+    SELECT type, sql FROM sqlite_master WHERE name = 'country_resolution_revisions'
+  `).get() as SchemaEntry | undefined;
+  if (entry === undefined) return;
+  if (
+    entry.type !== "table" || entry.sql === null ||
+    normalizeSchemaSql(entry.sql) !== CURRENT_COUNTRY_RESOLUTION_TABLE
+  ) {
+    throw new Error("database_schema_reset_required");
+  }
+}
+
 export function openEvidenceDatabase(path: string): Database.Database {
   const database = new Database(path);
   try {
     database.pragma("foreign_keys = ON");
     preflightExistingRunRevisions(database);
     preflightExistingCountryKnowledge(database);
+    preflightExistingCountryResolution(database);
     database.exec(schema);
     return database;
   } catch (error) {

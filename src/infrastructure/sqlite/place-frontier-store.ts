@@ -299,10 +299,14 @@ export class SqlitePlaceFrontierStore {
     }
   }
 
-  async loadShortlistVerified(runId: string): Promise<ShortlistSnapshot> {
+  async loadShortlistVerified(idOrRunId: string): Promise<ShortlistSnapshot> {
     try {
-      const ranking = await this.loadRankingVerified(runId);
-      return this.loadShortlist(runId, ranking);
+      const shortlistEnvelope = this.loadPayload("shortlist", idOrRunId);
+      const rankingSnapshotId = (shortlistEnvelope as { readonly rankingSnapshotId?: unknown })
+        .rankingSnapshotId;
+      if (typeof rankingSnapshotId !== "string" || rankingSnapshotId.length === 0) integrityMismatch();
+      const ranking = await this.loadRankingVerified(rankingSnapshotId);
+      return decodeShortlist(shortlistEnvelope, ranking);
     } catch (error) {
       normalizeStoreFailure(error);
     }
@@ -349,8 +353,8 @@ export class SqlitePlaceFrontierStore {
     return decodeRanking(this.loadPayload("ranking", idOrRunId));
   }
 
-  private loadShortlist(runId: string, ranking: RankingSnapshot): ShortlistSnapshot {
-    return decodeShortlist(this.loadPayload("shortlist", runId), ranking);
+  private loadShortlist(idOrRunId: string, ranking: RankingSnapshot): ShortlistSnapshot {
+    return decodeShortlist(this.loadPayload("shortlist", idOrRunId), ranking);
   }
 
   private loadPayload(kind: SnapshotKind, idOrRunId: string): unknown {

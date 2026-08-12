@@ -98,6 +98,44 @@ CREATE TABLE IF NOT EXISTS place_frontier_snapshots (
   UNIQUE (run_id, kind)
 );
 
+CREATE TABLE IF NOT EXISTS country_resolution_revisions (
+  id TEXT PRIMARY KEY,
+  resolution_run_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('working', 'resolved')),
+  predecessor_id TEXT REFERENCES country_resolution_revisions(id),
+  automatic_shortlist_snapshot_id TEXT NOT NULL REFERENCES place_frontier_snapshots(id),
+  ranking_snapshot_id TEXT NOT NULL REFERENCES place_frontier_snapshots(id),
+  command_id TEXT NOT NULL,
+  command_kind TEXT NOT NULL CHECK (
+    command_kind IN ('start', 'yellow_decision', 'replacement_completed')
+  ),
+  command_json TEXT NOT NULL,
+  command_hash TEXT NOT NULL CHECK (length(command_hash) = 64),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'country-resolution@1'),
+  rules_version TEXT NOT NULL CHECK (rules_version = 'country-resolution@1'),
+  context_hash TEXT NOT NULL CHECK (length(context_hash) = 64),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  created_at TEXT NOT NULL,
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS country_resolution_one_root
+ON country_resolution_revisions (resolution_run_id)
+WHERE predecessor_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS country_resolution_one_successor
+ON country_resolution_revisions (predecessor_id)
+WHERE predecessor_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS country_resolution_one_command
+ON country_resolution_revisions (resolution_run_id, command_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS country_resolution_one_terminal
+ON country_resolution_revisions (resolution_run_id)
+WHERE kind = 'resolved';
+
 CREATE TABLE IF NOT EXISTS run_revisions (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -228,6 +266,18 @@ CREATE TRIGGER IF NOT EXISTS place_frontier_snapshots_no_delete
 BEFORE DELETE ON place_frontier_snapshots
 BEGIN
   SELECT RAISE(ABORT, 'place_frontier_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS country_resolution_revisions_no_update
+BEFORE UPDATE ON country_resolution_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'country_resolution_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS country_resolution_revisions_no_delete
+BEFORE DELETE ON country_resolution_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'country_resolution_revision_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS run_revisions_no_update

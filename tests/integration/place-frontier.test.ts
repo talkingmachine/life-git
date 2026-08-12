@@ -662,6 +662,15 @@ describe("frozen CountryFrontier", () => {
     expect(generatedIds).toBe(1);
   });
 
+  test("presents the same fully replayed frontier by exact shortlist ID or run ID", async () => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const { prepared, result } = await fixture.run();
+
+    await expect(fixture.application.presentPlaceFrontierByShortlistId(
+      result.shortlistSnapshot.id,
+    )).resolves.toEqual(await fixture.application.presentPlaceFrontier(prepared.runId));
+  });
+
   test("isolates completed event payloads from persisted and returned frontier state", async () => {
     const fixture = harness({ rankedCountries: ["SI"] });
     const prepared = await fixture.prepare();

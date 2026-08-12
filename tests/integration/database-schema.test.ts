@@ -164,6 +164,7 @@ describe("database schema preflight", () => {
       { name: "artifacts" },
       { name: "branch_commits" },
       { name: "country_knowledge_revisions" },
+      { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
       { name: "evidence_snapshots" },
       { name: "place_frontier_snapshots" },
@@ -217,5 +218,41 @@ describe("database schema preflight", () => {
       "hmac",
       "created_at",
     ]);
+
+    const resolutionColumns = reopened.prepare(
+      "PRAGMA table_info(country_resolution_revisions)",
+    ).all() as { readonly name: string }[];
+    expect(resolutionColumns.map(({ name }) => name)).toEqual([
+      "id", "resolution_run_id", "kind", "predecessor_id",
+      "automatic_shortlist_snapshot_id", "ranking_snapshot_id", "command_id", "command_kind",
+      "command_json", "command_hash", "schema_version", "rules_version", "context_hash",
+      "payload_json", "payload_hash", "hmac", "created_at",
+    ]);
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE name LIKE 'country_resolution_%' AND type IN ('index', 'trigger')
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "index", name: "country_resolution_one_command" },
+      { type: "index", name: "country_resolution_one_root" },
+      { type: "index", name: "country_resolution_one_successor" },
+      { type: "index", name: "country_resolution_one_terminal" },
+      { type: "trigger", name: "country_resolution_revisions_no_delete" },
+      { type: "trigger", name: "country_resolution_revisions_no_update" },
+    ]);
+  });
+
+  test("rejects an incompatible existing country-resolution table without changing it", () => {
+    const path = temporaryDatabasePath();
+    const incompatible = track(new Database(path));
+    incompatible.exec("CREATE TABLE country_resolution_revisions (id TEXT PRIMARY KEY)");
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(verification.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'country_resolution_revisions'",
+    ).get()).toEqual({ sql: "CREATE TABLE country_resolution_revisions (id TEXT PRIMARY KEY)" });
   });
 });
