@@ -278,22 +278,20 @@ export class SqliteCountryKnowledgeStore implements CountryKnowledgeStore {
   private resolveVerifiedEvidence(
     evidence: VerifiedCountryEvidenceInput,
   ): CountryKnowledgePublication {
-    const baselineId = evidence.snapshot.knowledgeBaselineRevisionId;
-    let baseline: InstalledCountryKnowledgeRevision | undefined;
-    if (baselineId !== undefined) {
-      baseline = this.loadVerified(baselineId);
-      if (baseline.countryCode !== "SI") integrityMismatch();
-    }
     const triggeredRows = this.database.prepare(`
       SELECT id FROM country_knowledge_revisions
       WHERE country_code = 'SI' AND trigger_evidence_snapshot_id = ?
     `).all(evidence.snapshot.id) as { readonly id: string }[];
     if (triggeredRows.length > 1) integrityMismatch();
-    if (triggeredRows.length === 0) {
-      return baseline === undefined ? {} : { currentRevision: baseline };
+    if (triggeredRows.length === 1) {
+      const publishedRevision = this.loadVerified(triggeredRows[0]!.id);
+      return { publishedRevision, currentRevision: publishedRevision };
     }
-    const publishedRevision = this.loadVerified(triggeredRows[0]!.id);
-    return { publishedRevision, currentRevision: publishedRevision };
+    const baselineId = evidence.snapshot.knowledgeBaselineRevisionId;
+    if (baselineId === undefined) return {};
+    const baseline = this.loadVerified(baselineId);
+    if (baseline.countryCode !== "SI") integrityMismatch();
+    return { currentRevision: baseline };
   }
 
   private insertVerified(

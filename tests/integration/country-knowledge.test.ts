@@ -578,6 +578,25 @@ describe("append-only country knowledge", () => {
     expect(store.resolveForEvidence(legacyFixture.sealed.snapshot.id)).toEqual({});
   });
 
+  test("resolves a verified trigger before an irrelevant missing signed baseline", async () => {
+    const database = memoryDatabase();
+    const fixture = await evidenceFixture({
+      runId: "trigger-before-baseline",
+      route: { kind: "verified", claimKinds: ROUTE_KINDS },
+      income: { kind: "verified", claimKinds: ["income"] },
+      companion: { kind: "verified", claimKinds: ["companion_local_work_access"] },
+      knowledgeBaselineRevisionId: "country-knowledge:SI:missing:evidence",
+    });
+    await persistFixture(database, fixture);
+    const store = new SqliteCountryKnowledgeStore(database, KEY);
+    const triggered = store.publish(build(fixture)!);
+
+    expect(store.resolveForEvidence(fixture.sealed.snapshot.id)).toEqual({
+      publishedRevision: triggered,
+      currentRevision: triggered,
+    });
+  });
+
   test.each([
     ["payload", "payload_json", "null"],
     ["hash", "payload_hash", "0000000000000000000000000000000000000000000000000000000000000000"],
