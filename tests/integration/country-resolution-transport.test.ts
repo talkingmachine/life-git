@@ -165,25 +165,27 @@ function protocolFixture() {
     decidedAt: NOW,
     commandId: "reject-AA",
   };
-  const working = {
+  const revisionBase = {
     schemaVersion: "country-resolution@1" as const,
     rulesVersion: "country-resolution@1" as const,
-    id: "revision-1",
     resolutionRunId: "resolution-run-1",
     ...source,
     decisions: [decision],
+    unresolvedCountryCodes: [],
+    createdAt: NOW,
+  };
+  const working = {
+    ...revisionBase,
+    id: "revision-1",
     replacementMarkers: [],
     nextUncheckedRank: 6,
-    unresolvedCountryCodes: [],
     slotCountryCodes: ["BB", "CC", "DD", "EE"],
     contextHash: "2".repeat(64),
-    createdAt: NOW,
     kind: "working" as const,
     phase: "replacement_required" as const,
   };
-  const { phase: _phase, ...workingBase } = working;
   const resolved = {
-    ...workingBase,
+    ...revisionBase,
     id: "revision-2",
     predecessorRevisionId: working.id,
     replacementMarkers: [replacement],
@@ -1044,7 +1046,7 @@ describe("country-resolution continuation route", () => {
   });
 
   test.each([
-    ["missing terminal", async (_emit: (event: CountryResolutionContinuationEvent) => unknown) =>
+    ["missing terminal", async () =>
       readModel()],
     ["callback return mismatch", async (emit: (event: CountryResolutionContinuationEvent) => unknown) => {
       await emit(completed(readModel("revision-1")));
