@@ -118,6 +118,10 @@ function isNonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function hasExactKeys(value: object, expected: readonly string[]): boolean {
   const actual = Object.keys(value).sort();
   const sortedExpected = [...expected].sort();
@@ -415,4 +419,240 @@ export function assessFormalResidence(input: FormalResidenceInput): FormalReside
       ? { status: "verified", attestation: copyCompleteness(input.completeness) }
       : { status: "unproven", reasonCode: "catalog_completeness_unprovable" },
   });
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalValue(item)]));
+  }
+  return value;
+}
+
+function sameCanonicalValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalValue(left)) === JSON.stringify(canonicalValue(right));
+}
+
+function assertRecordWithKeys(value: unknown, keys: readonly string[]): asserts value is Record<string, unknown> {
+  if (!isRecord(value) || !hasExactKeys(value, keys)) throw new Error("integrity_mismatch");
+}
+
+function assertStringArray(value: unknown, allowEmpty = true): asserts value is string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0) ||
+    !value.every(isNonEmpty)) throw new Error("integrity_mismatch");
+}
+
+function decodeEvidenceReference(value: unknown, expectedEvidenceSnapshotId?: string): FormalEvidenceReference {
+  assertRecordWithKeys(value, [
+    "evidenceSnapshotId", "artifactId", "sourceId", "navigationUrl", "resolvedEvidenceUrl",
+    "sourcePeriod", "locator", "excerptSha256", "validatorVersion",
+  ]);
+  if (!isSealedEvidenceReference(value as unknown as FormalEvidenceReference, expectedEvidenceSnapshotId)) {
+    throw new Error("integrity_mismatch");
+  }
+  return structuredClone(value) as unknown as FormalEvidenceReference;
+}
+
+function decodeReason(value: unknown, expectedEvidenceSnapshotId?: string): FormalReason {
+  assertRecordWithKeys(value, ["code", "summary", "claimIds", "evidence", "navigation"]);
+  assertStringArray(value.claimIds);
+  if (!isNonEmpty(value.code) || !isNonEmpty(value.summary) || !Array.isArray(value.evidence) ||
+    !Array.isArray(value.navigation)) throw new Error("integrity_mismatch");
+  const evidence = value.evidence.map((item) =>
+    decodeEvidenceReference(item, expectedEvidenceSnapshotId));
+  const navigation = value.navigation.map((item) => {
+    assertRecordWithKeys(item, ["sourceId", "url", "label"]);
+    if (!isNonEmpty(item.sourceId) || !isHttpUrl(item.url) || !isNonEmpty(item.label)) {
+      throw new Error("integrity_mismatch");
+    }
+    return structuredClone(item) as FormalReason["navigation"][number];
+  });
+  return { code: value.code, summary: value.summary, claimIds: [...value.claimIds], evidence, navigation };
+}
+
+function decodeProceduralAction(value: unknown): ResidenceRouteOutcome["proceduralActions"][number] {
+  assertRecordWithKeys(value, ["kind", "completed"]);
+  if ((value.kind !== "insurance" && value.kind !== "registration" &&
+    value.kind !== "document_submission") || value.completed !== false) {
+    throw new Error("integrity_mismatch");
+  }
+  return { kind: value.kind, completed: false };
+}
+
+function decodeContingentAction(value: unknown): ResidenceRouteOutcome["contingentActions"][number] {
+  assertRecordWithKeys(value, ["kind", "eligibility", "acquired"]);
+  if ((value.kind !== "job_offer" && value.kind !== "admission") ||
+    value.eligibility !== "verified" || value.acquired !== false) {
+    throw new Error("integrity_mismatch");
+  }
+  return { kind: value.kind, eligibility: "verified", acquired: false };
+}
+
+function decodeRoute(value: unknown, expectedEvidenceSnapshotId?: string): ResidenceRouteOutcome {
+  assertRecordWithKeys(value, [
+    "routeId", "status", ...(isRecord(value) && value.ruleEffectiveFrom !== undefined
+      ? ["ruleEffectiveFrom"] : []), ...(isRecord(value) && value.ruleEffectiveTo !== undefined
+      ? ["ruleEffectiveTo"] : []), "reasons", "evidenceSnapshotIds", "proceduralActions",
+    "contingentActions",
+  ]);
+  if (!isNonEmpty(value.routeId) ||
+    (value.status !== "viable" && value.status !== "impossible" && value.status !== "unknown") ||
+    !Array.isArray(value.reasons) || !Array.isArray(value.proceduralActions) ||
+    !Array.isArray(value.contingentActions)) throw new Error("integrity_mismatch");
+  assertStringArray(value.evidenceSnapshotIds);
+  if (expectedEvidenceSnapshotId !== undefined &&
+    value.evidenceSnapshotIds.some((id) => id !== expectedEvidenceSnapshotId)) {
+    throw new Error("integrity_mismatch");
+  }
+  const common = {
+    routeId: value.routeId,
+    reasons: value.reasons.map((reason) => decodeReason(reason, expectedEvidenceSnapshotId)),
+    evidenceSnapshotIds: [...value.evidenceSnapshotIds],
+    proceduralActions: value.proceduralActions.map(decodeProceduralAction),
+    contingentActions: value.contingentActions.map(decodeContingentAction),
+  };
+  if (value.status === "unknown") {
+    if (value.ruleEffectiveFrom !== undefined && !isCanonicalDay(value.ruleEffectiveFrom)) {
+      throw new Error("integrity_mismatch");
+    }
+    if (value.ruleEffectiveTo !== undefined && !isCanonicalDay(value.ruleEffectiveTo)) {
+      throw new Error("integrity_mismatch");
+    }
+    return {
+      ...common,
+      status: "unknown",
+      ...(value.ruleEffectiveFrom === undefined ? {} : { ruleEffectiveFrom: value.ruleEffectiveFrom }),
+      ...(value.ruleEffectiveTo === undefined ? {} : { ruleEffectiveTo: value.ruleEffectiveTo }),
+    };
+  }
+  if (!isCanonicalDay(value.ruleEffectiveFrom) || value.evidenceSnapshotIds.length === 0) {
+    throw new Error("integrity_mismatch");
+  }
+  if (value.ruleEffectiveTo !== undefined && !isCanonicalDay(value.ruleEffectiveTo)) {
+    throw new Error("integrity_mismatch");
+  }
+  return {
+    ...common,
+    status: value.status,
+    ruleEffectiveFrom: value.ruleEffectiveFrom,
+    ...(value.ruleEffectiveTo === undefined ? {} : { ruleEffectiveTo: value.ruleEffectiveTo }),
+    evidenceSnapshotIds: common.evidenceSnapshotIds as [string, ...string[]],
+  };
+}
+
+function decodeCatalogCoverage(value: unknown, evidenceSnapshotId: string): CatalogRouteCoverage {
+  if (!isRecord(value)) throw new Error("integrity_mismatch");
+  const keys = value.applicability === "applicable"
+    ? ["routeId", "applicability", "evidence"]
+    : ["routeId", "applicability", "exclusionCode", "claimIds", "evidence"];
+  assertRecordWithKeys(value, keys);
+  if (!isNonEmpty(value.routeId) || !Array.isArray(value.evidence) || value.evidence.length === 0) {
+    throw new Error("integrity_mismatch");
+  }
+  const evidence = value.evidence.map((item) => decodeEvidenceReference(item, evidenceSnapshotId)) as
+    [FormalEvidenceReference, ...FormalEvidenceReference[]];
+  if (value.applicability === "applicable") return { routeId: value.routeId, applicability: "applicable", evidence };
+  assertStringArray(value.claimIds, false);
+  if (value.applicability !== "excluded" || !isNonEmpty(value.exclusionCode)) {
+    throw new Error("integrity_mismatch");
+  }
+  return {
+    routeId: value.routeId,
+    applicability: "excluded",
+    exclusionCode: value.exclusionCode,
+    claimIds: value.claimIds as [string, ...string[]],
+    evidence,
+  };
+}
+
+function decodeCompleteness(
+  value: unknown,
+  expectedProfileSnapshotId?: string,
+  expectedEvidenceSnapshotId?: string,
+): CatalogCompletenessAttestation {
+  if (!isRecord(value)) throw new Error("integrity_mismatch");
+  assertRecordWithKeys(value, [
+    "catalogRevisionId", "jurisdiction", "authority", "scopeKind", "profileSnapshotId",
+    "catalogRoutes", "validatorVersion", "effectiveFrom",
+    ...(value.effectiveTo === undefined ? [] : ["effectiveTo"]), "evidenceSnapshotId",
+    "catalogEvidence",
+  ]);
+  if (!isNonEmpty(value.catalogRevisionId) || !isNonEmpty(value.jurisdiction) ||
+    !isNonEmpty(value.authority) || value.scopeKind !== "all_long_term_residence_routes_for_profile" ||
+    !isNonEmpty(value.profileSnapshotId) || !isNonEmpty(value.validatorVersion) ||
+    !isCanonicalDay(value.effectiveFrom) ||
+    (value.effectiveTo !== undefined && !isCanonicalDay(value.effectiveTo)) ||
+    !isNonEmpty(value.evidenceSnapshotId) || !Array.isArray(value.catalogRoutes) ||
+    value.catalogRoutes.length === 0 || !Array.isArray(value.catalogEvidence) ||
+    value.catalogEvidence.length === 0 ||
+    (expectedProfileSnapshotId !== undefined && value.profileSnapshotId !== expectedProfileSnapshotId) ||
+    (expectedEvidenceSnapshotId !== undefined && value.evidenceSnapshotId !== expectedEvidenceSnapshotId)) {
+    throw new Error("integrity_mismatch");
+  }
+  const evidenceSnapshotId = value.evidenceSnapshotId;
+  return {
+    catalogRevisionId: value.catalogRevisionId,
+    jurisdiction: value.jurisdiction,
+    authority: value.authority,
+    scopeKind: value.scopeKind,
+    profileSnapshotId: value.profileSnapshotId,
+    catalogRoutes: value.catalogRoutes.map((coverage) =>
+      decodeCatalogCoverage(coverage, evidenceSnapshotId)) as
+      [CatalogRouteCoverage, ...CatalogRouteCoverage[]],
+    validatorVersion: value.validatorVersion,
+    effectiveFrom: value.effectiveFrom,
+    ...(value.effectiveTo === undefined ? {} : { effectiveTo: value.effectiveTo }),
+    evidenceSnapshotId,
+    catalogEvidence: value.catalogEvidence.map((reference) =>
+      decodeEvidenceReference(reference, evidenceSnapshotId)) as
+      [FormalEvidenceReference, ...FormalEvidenceReference[]],
+  };
+}
+
+export function reconstructFormalResidenceVerdict(
+  value: unknown,
+  expected?: {
+    readonly profileSnapshotId?: string;
+    readonly evidenceSnapshotId?: string;
+  },
+): FormalResidenceVerdict {
+  assertRecordWithKeys(value, [
+    "rulesVersion", "marker", "verdictAsOf", "routeOutcomes", "reasons",
+    "catalogCompleteness",
+  ]);
+  if (value.rulesVersion !== RULES_VERSION ||
+    (value.marker !== "green" && value.marker !== "yellow" && value.marker !== "red") ||
+    !isCanonicalDay(value.verdictAsOf) || !Array.isArray(value.routeOutcomes) ||
+    !Array.isArray(value.reasons) || !isRecord(value.catalogCompleteness)) {
+    throw new Error("integrity_mismatch");
+  }
+  const routes = value.routeOutcomes.map((route) =>
+    decodeRoute(route, expected?.evidenceSnapshotId));
+  value.reasons.forEach((reason) => decodeReason(reason, expected?.evidenceSnapshotId));
+  let completeness: CatalogCompletenessAttestation | undefined;
+  if (value.catalogCompleteness.status === "verified") {
+    assertRecordWithKeys(value.catalogCompleteness, ["status", "attestation"]);
+    completeness = decodeCompleteness(
+      value.catalogCompleteness.attestation,
+      expected?.profileSnapshotId,
+      expected?.evidenceSnapshotId,
+    );
+  } else {
+    assertRecordWithKeys(value.catalogCompleteness, ["status", "reasonCode"]);
+    if (value.catalogCompleteness.status !== "unproven" ||
+      value.catalogCompleteness.reasonCode !== "catalog_completeness_unprovable") {
+      throw new Error("integrity_mismatch");
+    }
+  }
+  const reconstructed = assessFormalResidence({
+    profileSnapshotId: expected?.profileSnapshotId ?? completeness?.profileSnapshotId ?? "stored-profile",
+    verdictAsOf: value.verdictAsOf,
+    routes,
+    ...(completeness === undefined ? {} : { completeness }),
+  });
+  if (!sameCanonicalValue(reconstructed, value)) throw new Error("integrity_mismatch");
+  return reconstructed;
 }

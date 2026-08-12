@@ -1,5 +1,9 @@
 import Database from "better-sqlite3";
-import { describe, expect, test } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Worker } from "node:worker_threads";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   countryCheckRunId,
@@ -8,13 +12,19 @@ import {
   type CountryVerifierPort,
   type FrontierMarker,
   type PlaceFrontierApplicationPorts,
+  type RankingSnapshot,
+  type ShortlistSnapshot,
 } from "../../src/application/place-frontier";
+import type { ColdStartEvent } from "../../src/application/cold-start";
 import type { FormalEvidenceReference, FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
 import type { RankedPlace } from "../../src/decision/place-ranker";
 import type { PreferenceProfileDraft } from "../../src/decision/preference-profile";
 import type { RelocationProfileDraft } from "../../src/decision/relocation-profile";
-import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
+import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
+import { createColdStartComposition } from "../../src/infrastructure/cold-start-composition";
+import { createPlaceFrontierComposition } from
+  "../../src/infrastructure/place-frontier-composition";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqlitePlaceFrontierStore } from
   "../../src/infrastructure/sqlite/place-frontier-store";
@@ -169,6 +179,12 @@ interface HarnessOptions {
   readonly markerByCountry?: Readonly<Record<string, "green" | "yellow" | "red">>;
   readonly knowledgeRevisionIds?: Readonly<Record<string, string | null>>;
   readonly failCheckFor?: string;
+  readonly excluded?: RankingSnapshot["excluded"];
+  readonly progressEvents?: readonly Exclude<ColdStartEvent, { readonly type: "assessment_completed" }>[];
+  readonly mutateCheckResult?: (result: Awaited<ReturnType<CountryVerifierPort["check"]>>) => unknown;
+  readonly publishKnowledgeDuringCheck?: boolean;
+  readonly abortDuringCheck?: AbortController;
+  readonly failShortlistAppend?: boolean;
 }
 
 function harness(options: HarnessOptions) {
@@ -179,8 +195,13 @@ function harness(options: HarnessOptions) {
   const preferences = new Map<string, unknown>();
   const checks: string[] = [];
   const verifierResults = new Map<string, Awaited<ReturnType<CountryVerifierPort["check"]>>>();
+  const knowledgeOwners = new Map<string, string>();
+  for (const id of Object.values(options.knowledgeRevisionIds ?? {})) {
+    if (id !== null) knowledgeOwners.set(id, id.split(":").at(-1)!);
+  }
   let rankCalls = 0;
   let currentInputCalls = 0;
+  let presentCalls = 0;
 
   const ports: PlaceFrontierApplicationPorts = {
     profiles: {
@@ -212,21 +233,26 @@ function harness(options: HarnessOptions) {
       rankCalls += 1;
       return {
         ordered: places.map((place, index) => rankedPlace(place.countryCode, index + 1)),
-        excluded: [],
+        excluded: options.excluded ?? [],
         rulesVersion: "place-ranker@1",
       };
     },
-    store,
+    store: options.failShortlistAppend
+      ? {
+          appendRanking: (snapshot) => store.appendRanking(snapshot),
+          appendShortlist: async () => { throw new Error("storage_failed"); },
+          loadRankingVerified: (id) => store.loadRankingVerified(id),
+          loadShortlistVerified: (runId) => store.loadShortlistVerified(runId),
+        }
+      : store,
     knowledge: {
-      loadVerified: async (id) => ({
-        id,
-        countryCode: id.split(":").at(-1)!,
-      }),
+      loadVerified: async (id) => ({ id, countryCode: knowledgeOwners.get(id) ?? id.split(":").at(-1)! }),
     },
     verifier: {
-      check: async ({ country, profileId, parentRunId }) => {
+      check: async ({ country, profileId, parentRunId, emitProgress }) => {
         checks.push(country.countryCode);
         if (options.failCheckFor === country.countryCode) throw new Error("verification_failed");
+        for (const progress of options.progressEvents ?? []) await emitProgress(progress);
         const evidenceSnapshotId = `evidence-${country.countryCode}`;
         const marker = options.markerByCountry?.[country.countryCode] ?? "green";
         const verdict = marker === "green"
@@ -234,17 +260,32 @@ function harness(options: HarnessOptions) {
           : marker === "red"
             ? completeAllImpossibleVerdict(country.countryCode, profileId, evidenceSnapshotId)
             : unresolvedVerdict();
+        const publishedKnowledgeId = `knowledge-published:${country.countryCode}`;
+        if (options.publishKnowledgeDuringCheck) {
+          knowledgeOwners.set(publishedKnowledgeId, country.countryCode);
+        }
         const result = {
           countryCheckRunId: countryCheckRunId(parentRunId, country.countryCode),
           sourceAssessmentRulesVersion: "cold-start-assessment@1" as const,
           verdict,
           evidenceSnapshotId,
+          ...(options.publishKnowledgeDuringCheck
+            ? {
+                currentKnowledgeRevisionId: publishedKnowledgeId,
+                updatedKnowledgeRevisionId: publishedKnowledgeId,
+                knowledgeUpdatedAt: NOW,
+              }
+            : {}),
           lastCheckedAt: DAY,
         };
-        verifierResults.set(country.countryCode, result);
-        return result;
+        options.abortDuringCheck?.abort(new DOMException("aborted", "AbortError"));
+        const checked = (options.mutateCheckResult?.(result) ?? result) as
+          Awaited<ReturnType<CountryVerifierPort["check"]>>;
+        verifierResults.set(country.countryCode, checked);
+        return checked;
       },
       present: async ({ parentRunId, countryCode, countryCheckRunId: childRunId }) => {
+        presentCalls += 1;
         if (childRunId !== countryCheckRunId(parentRunId, countryCode)) {
           throw new Error("integrity_mismatch");
         }
@@ -254,6 +295,15 @@ function harness(options: HarnessOptions) {
           sourceAssessmentRulesVersion: result.sourceAssessmentRulesVersion,
           verdict: result.verdict,
           evidenceSnapshotId: result.evidenceSnapshotId,
+          ...(result.currentKnowledgeRevisionId === undefined ? {} : {
+            currentKnowledgeRevisionId: result.currentKnowledgeRevisionId,
+          }),
+          ...(result.updatedKnowledgeRevisionId === undefined ? {} : {
+            updatedKnowledgeRevisionId: result.updatedKnowledgeRevisionId,
+          }),
+          ...(result.knowledgeUpdatedAt === undefined ? {} : {
+            knowledgeUpdatedAt: result.knowledgeUpdatedAt,
+          }),
           lastCheckedAt: result.lastCheckedAt,
         };
       },
@@ -270,9 +320,13 @@ function harness(options: HarnessOptions) {
     store,
     checks,
     verifierResults,
+    profiles,
+    preferences,
+    knowledgeOwners,
     counts: {
       rank: () => rankCalls,
       currentInput: () => currentInputCalls,
+      present: () => presentCalls,
     },
     async prepare() {
       return application.preparePlaceFrontier({
@@ -293,14 +347,15 @@ function harness(options: HarnessOptions) {
   };
 }
 
-function resignShortlist(
+function resignSnapshot(
   database: Database.Database,
+  kind: "ranking" | "shortlist",
   mutate: (payload: Record<string, unknown>) => void,
 ): void {
   database.exec("DROP TRIGGER place_frontier_snapshots_no_update");
   const row = database.prepare(`
-    SELECT id, payload_json FROM place_frontier_snapshots WHERE kind = 'shortlist'
-  `).get() as { readonly id: string; readonly payload_json: string };
+    SELECT id, payload_json FROM place_frontier_snapshots WHERE kind = ?
+  `).get(kind) as { readonly id: string; readonly payload_json: string };
   const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
   mutate(payload);
   const integrity = createEvidenceIntegrity(HMAC_KEY);
@@ -312,7 +367,244 @@ function resignShortlist(
   `).run(payloadJson, integrity.hash(payloadJson), integrity.sign(payloadJson), row.id);
 }
 
+function resignShortlist(
+  database: Database.Database,
+  mutate: (payload: Record<string, unknown>) => void,
+): void {
+  resignSnapshot(database, "shortlist", mutate);
+}
+
+function nonTerminalProgressEvents(): readonly Exclude<
+  ColdStartEvent,
+  { readonly type: "assessment_completed" }
+>[] {
+  const base = {
+    runId: "child-run",
+    sequence: 1,
+    occurredAt: NOW,
+    country: {
+      code: "SI" as const,
+      englishName: "Slovenia" as const,
+      displayName: "Словения" as const,
+      flag: "🇸🇮" as const,
+      coordinate: { lat: 46.1512 as const, lng: 14.9955 as const },
+    },
+  };
+  return [
+    { ...base, type: "source_discovered", payload: { candidateId: "candidate-1", url: "https://gov.test/source", claimKinds: ["income"] } },
+    { ...base, sequence: 2, type: "authority_verified", payload: { candidateId: "candidate-1", authorityRoot: "https://gov.test" } },
+    { ...base, sequence: 3, type: "artifact_captured", payload: { sourceId: "si-income-threshold", role: "official rule", resolvedUrl: "https://gov.test/rule.pdf", sha256: "b".repeat(64) } },
+    { ...base, sequence: 4, type: "claim_verified", payload: { claimId: "claim-1", claimKind: "income", sourceIds: ["si-income-threshold"] } },
+    { ...base, sequence: 5, type: "dossier_published", payload: { dossierVersionId: "dossier-1", label: "Slovenia dossier", created: true } },
+  ];
+}
+
+async function concurrentStoreWrites(input: {
+  readonly path: string;
+  readonly method: "appendRanking" | "appendShortlist";
+  readonly snapshots: readonly [
+    RankingSnapshot | ShortlistSnapshot,
+    RankingSnapshot | ShortlistSnapshot,
+  ];
+}): Promise<readonly string[]> {
+  const barrier = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+  const state = new Int32Array(barrier);
+  const storePath = join(process.cwd(), "src/infrastructure/sqlite/place-frontier-store.ts");
+  const workerSource = `
+    const { parentPort, workerData } = require("node:worker_threads");
+    require("tsx/cjs");
+    const Database = require("better-sqlite3");
+    const { SqlitePlaceFrontierStore } = require(workerData.storePath);
+    const database = new Database(workerData.path);
+    database.pragma("foreign_keys = ON");
+    const state = new Int32Array(workerData.barrier);
+    parentPort.postMessage({ type: "ready" });
+    Atomics.wait(state, 0, 0);
+    Promise.resolve(new SqlitePlaceFrontierStore(database, workerData.key)[workerData.method](
+      workerData.snapshot,
+    )).then(() => {
+      database.close();
+      parentPort.postMessage({ type: "done" });
+    }, (error) => {
+      database.close();
+      parentPort.postMessage({ type: "error", message: error.message });
+    });
+  `;
+  const workers = input.snapshots.map((snapshot) => new Worker(workerSource, {
+    eval: true,
+    workerData: {
+      path: input.path,
+      method: input.method,
+      snapshot,
+      storePath,
+      key: HMAC_KEY,
+      barrier,
+    },
+  }));
+  let ready = 0;
+  const outcomes: string[] = [];
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        settled = true;
+        reject(new Error("concurrent_store_write_timeout"));
+      }, 10_000);
+      const finish = (error?: Error) => {
+        if (settled) return;
+        if (error !== undefined) {
+          settled = true;
+          clearTimeout(timeout);
+          reject(error);
+          return;
+        }
+        if (outcomes.length === workers.length) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+      for (const worker of workers) {
+        worker.on("error", (error) => finish(error));
+        worker.on("message", (message: { readonly type: string; readonly message?: string }) => {
+          if (message.type === "ready") {
+            ready += 1;
+            if (ready === workers.length) {
+              Atomics.store(state, 0, 1);
+              Atomics.notify(state, 0, workers.length);
+            }
+            return;
+          }
+          if (message.type === "error") {
+            outcomes.push(message.message ?? "unknown_worker_error");
+          } else {
+            outcomes.push("done");
+          }
+          finish();
+        });
+      }
+    });
+  } finally {
+    await Promise.all(workers.map((worker) => worker.terminate()));
+  }
+  return outcomes.sort();
+}
+
 describe("frozen CountryFrontier", () => {
+  test("keeps caller-controlled run IDs out of the public cold-start application", async () => {
+    let generatedIds = 0;
+    const application = createColdStartComposition({
+      database: openEvidenceDatabase(":memory:"),
+      hmacKey: HMAC_KEY,
+      nextRunId: () => `cold-run-${++generatedIds}`,
+    });
+
+    expect("prepareColdStartWithRunId" in application).toBe(false);
+    await expect(application.prepare({
+      countryInput: "SI",
+      profile: relocationProfile,
+    })).resolves.toEqual(expect.objectContaining({ runId: "cold-run-1" }));
+    expect(generatedIds).toBe(1);
+  });
+
+  test("production frontier is SI-only, consumes no child ID and replays with zero network", async () => {
+    const database = openEvidenceDatabase(":memory:");
+    const requestStep = vi.fn(async () => {
+      throw new Error("network_must_not_run");
+    });
+    let generatedIds = 0;
+    const application = createPlaceFrontierComposition({
+      database,
+      hmacKey: HMAC_KEY,
+      countrySourceIndex: {
+        lookup: () => ({
+          ok: false as const,
+          kind: "country_not_installed" as const,
+          candidates: [] as const,
+        }),
+      },
+      requestStep,
+      clock: () => new Date(NOW),
+      nextRunId: () => `frontier-run-${++generatedIds}`,
+    });
+    const prepared = await application.preparePlaceFrontier({
+      profile: relocationProfile,
+      preferences: preferenceProfile,
+    });
+
+    const result = await application.runPlaceFrontier(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+    const callsBeforeReplay = requestStep.mock.calls.length;
+    const replay = await application.presentPlaceFrontier(prepared.runId);
+
+    expect(result.rankingSnapshot.ordered.map(({ countryCode }) => countryCode)).toEqual(["SI"]);
+    expect(result.shortlistSnapshot.markers.map(({ country }) => country.countryCode)).toEqual(["SI"]);
+    expect(replay).toEqual(result);
+    expect(requestStep).toHaveBeenCalledTimes(callsBeforeReplay);
+    expect(generatedIds).toBe(1);
+  });
+
+  test("forwards every typed child progress payload with frontier sequencing", async () => {
+    const fixture = harness({
+      rankedCountries: ["SI"],
+      progressEvents: nonTerminalProgressEvents(),
+    });
+
+    const { events } = await fixture.run();
+    expect(events.filter((event) => (event as { type: string }).type === "country_progress"))
+      .toEqual([
+        expect.objectContaining({
+          sequence: 3,
+          payload: {
+            countryCode: "SI",
+            stage: "source_discovered",
+            label: "candidate-1",
+            sourceUrl: "https://gov.test/source",
+          },
+        }),
+        expect.objectContaining({
+          sequence: 4,
+          payload: {
+            countryCode: "SI",
+            stage: "authority_verified",
+            label: "candidate-1",
+            detail: "https://gov.test",
+          },
+        }),
+        expect.objectContaining({
+          sequence: 5,
+          payload: {
+            countryCode: "SI",
+            stage: "artifact_captured",
+            label: "official rule",
+            detail: "sha256:" + "b".repeat(64),
+            sourceUrl: "https://gov.test/rule.pdf",
+          },
+        }),
+        expect.objectContaining({
+          sequence: 6,
+          payload: {
+            countryCode: "SI",
+            stage: "claim_verified",
+            label: "claim-1",
+            detail: "income · si-income-threshold",
+          },
+        }),
+        expect.objectContaining({
+          sequence: 7,
+          payload: {
+            countryCode: "SI",
+            stage: "dossier_published",
+            label: "Slovenia dossier",
+            detail: "dossier-1 · created",
+          },
+        }),
+      ]);
+  });
+
   test("activates five, preserves every marker and replaces only red until five are non-red", async () => {
     const fixture = harness({
       rankedCountries: ["DE", "ES", "FR", "IT", "PT", "SI"],
@@ -411,6 +703,107 @@ describe("frozen CountryFrontier", () => {
     expect(fixture.counts.rank()).toBe(1);
   });
 
+  test("keeps the frozen ranking when a child publishes a genuinely new Knowledge revision", async () => {
+    const fixture = harness({
+      rankedCountries: ["DE", "SI"],
+      knowledgeRevisionIds: { DE: null, SI: "knowledge-before:SI" },
+      publishKnowledgeDuringCheck: true,
+    });
+    const prepared = await fixture.prepare();
+    const frozen = await fixture.store.loadRankingVerified(prepared.rankingSnapshotId);
+
+    const result = await fixture.application.runPlaceFrontier(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    expect(result.rankingSnapshot).toEqual(frozen);
+    expect(result.rankingSnapshot.knowledgeRevisionIds.SI).toBe("knowledge-before:SI");
+    expect(result.shortlistSnapshot.markers.find(({ country }) => country.countryCode === "SI"))
+      .toEqual(expect.objectContaining({
+        currentKnowledgeRevisionId: "knowledge-published:SI",
+        updatedKnowledgeRevisionId: "knowledge-published:SI",
+      }));
+  });
+
+  test("binds prepared assessmentAt before invoking any verifier", async () => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const prepared = await fixture.prepare();
+
+    await expect(fixture.application.runPlaceFrontier(
+      { ...prepared, assessmentAt: "2026-08-13T08:00:00.000Z" },
+      () => undefined,
+      new AbortController().signal,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(fixture.checks).toEqual([]);
+  });
+
+  test("counts repeated required mismatch rows as one Knowledge country", async () => {
+    const fixture = harness({
+      rankedCountries: ["SI"],
+      knowledgeRevisionIds: { SI: null, DE: null },
+      excluded: [
+        { countryCode: "DE", criterionId: "personal_safety", observationId: "observation-de-1" },
+        { countryCode: "DE", criterionId: "infrastructure", observationId: "observation-de-2" },
+      ],
+    });
+
+    await expect(fixture.prepare()).resolves.toBeDefined();
+  });
+
+  test.each([
+    ["invalid date", (result: Awaited<ReturnType<CountryVerifierPort["check"]>>) => ({
+      ...result,
+      lastCheckedAt: "2026-02-30",
+    })],
+    ["partial verdict", (result: Awaited<ReturnType<CountryVerifierPort["check"]>>) => ({
+      ...result,
+      verdict: { rulesVersion: "formal-residence@1", marker: "green" },
+    })],
+    ["unknown marker field", (result: Awaited<ReturnType<CountryVerifierPort["check"]>>) => ({
+      ...result,
+      unexpected: true,
+    })],
+  ] as const)("rejects malformed verifier output (%s) before shortlist persistence", async (
+    _name,
+    mutateCheckResult,
+  ) => {
+    const fixture = harness({ rankedCountries: ["SI"], mutateCheckResult });
+    const prepared = await fixture.prepare();
+
+    await expect(fixture.application.runPlaceFrontier(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(fixture.database.prepare(
+      "SELECT kind FROM place_frontier_snapshots ORDER BY kind",
+    ).all()).toEqual([{ kind: "ranking" }]);
+  });
+
+  test.each([
+    ["post-check abort", { abort: true, storage: false }, "aborted"],
+    ["shortlist storage failure", { abort: false, storage: true }, "storage_failed"],
+  ] as const)("does not publish a shortlist after %s", async (_name, mode, message) => {
+    const abortController = new AbortController();
+    const fixture = harness({
+      rankedCountries: ["SI"],
+      ...(mode.abort ? { abortDuringCheck: abortController } : {}),
+      failShortlistAppend: mode.storage,
+    });
+    const prepared = await fixture.prepare();
+
+    await expect(fixture.application.runPlaceFrontier(
+      prepared,
+      () => undefined,
+      abortController.signal,
+    )).rejects.toThrow(message);
+    expect(fixture.database.prepare(
+      "SELECT kind FROM place_frontier_snapshots ORDER BY kind",
+    ).all()).toEqual([{ kind: "ranking" }]);
+  });
+
   test("does not publish a shortlist after verifier failure", async () => {
     const fixture = harness({ rankedCountries: ["DE", "ES"], failCheckFor: "ES" });
     const prepared = await fixture.prepare();
@@ -429,6 +822,232 @@ describe("frozen CountryFrontier", () => {
 });
 
 describe("frontier snapshot integrity", () => {
+  test.each([
+    "relocation profile",
+    "preference profile",
+    "ranking Knowledge revision",
+    "marker Evidence snapshot",
+    "current Knowledge revision",
+    "updated Knowledge revision",
+    "child cold-start run",
+    "completeness Evidence reference",
+    "formal verdict rules version",
+    "source assessment rules version",
+  ] as const)("rejects an invalid referenced graph at %s without rechecking a country", async (family) => {
+    const fixture = harness({
+      rankedCountries: ["SI"],
+      ...(family === "completeness Evidence reference"
+        ? { markerByCountry: { SI: "red" as const } }
+        : {}),
+      ...(family === "current Knowledge revision" || family === "updated Knowledge revision"
+        ? { publishKnowledgeDuringCheck: true }
+        : {}),
+    });
+    const { prepared } = await fixture.run();
+    const checksBeforePresentation = [...fixture.checks];
+
+    if (family === "relocation profile") {
+      const profile = fixture.profiles.get(prepared.profileId) as Record<string, unknown>;
+      fixture.profiles.set(prepared.profileId, { ...profile, id: "0".repeat(64) });
+    } else if (family === "preference profile") {
+      const preferences = fixture.preferences.get(prepared.preferenceProfileId) as
+        Record<string, unknown>;
+      fixture.preferences.set(prepared.preferenceProfileId, {
+        ...preferences,
+        id: "0".repeat(64),
+      });
+    } else if (family === "ranking Knowledge revision") {
+      resignSnapshot(fixture.database, "ranking", (payload) => {
+        payload.knowledgeRevisionIds = { SI: "knowledge:DE" };
+      });
+    } else {
+      resignSnapshot(fixture.database, "shortlist", (payload) => {
+        const marker = (payload.markers as Record<string, unknown>[])[0]!;
+        if (family === "marker Evidence snapshot") {
+          marker.evidenceSnapshotId = "other-evidence";
+        } else if (family === "current Knowledge revision") {
+          marker.currentKnowledgeRevisionId = "knowledge-other:SI";
+        } else if (family === "updated Knowledge revision") {
+          marker.updatedKnowledgeRevisionId = "knowledge-other:SI";
+        } else if (family === "child cold-start run") {
+          marker.countryCheckRunId = `frontier-country:${"0".repeat(64)}`;
+        } else if (family === "formal verdict rules version") {
+          (marker.formalVerdict as Record<string, unknown>).rulesVersion = "formal-residence@2";
+        } else if (family === "source assessment rules version") {
+          marker.sourceAssessmentRulesVersion = "cold-start-assessment@2";
+        } else {
+          const verdict = marker.formalVerdict as {
+            catalogCompleteness: {
+              attestation: { catalogEvidence: Record<string, unknown>[] };
+            };
+          };
+          verdict.catalogCompleteness.attestation.catalogEvidence[0]!.evidenceSnapshotId =
+            "other-evidence";
+        }
+      });
+    }
+
+    await expect(fixture.application.presentPlaceFrontier(prepared.runId))
+      .rejects.toThrow("integrity_mismatch");
+    expect(fixture.checks).toEqual(checksBeforePresentation);
+    expect(fixture.counts.present()).toBe(
+      family === "current Knowledge revision" || family === "updated Knowledge revision" ? 1 : 0,
+    );
+  });
+
+  test.each([
+    ["extra ranking field", "ranking", (payload: Record<string, unknown>) => {
+      payload.unexpected = true;
+    }],
+    ["invalid assessment instant", "ranking", (payload: Record<string, unknown>) => {
+      payload.assessmentAt = "2026-08-12";
+    }],
+    ["contextHash not recomputed", "ranking", (payload: Record<string, unknown>) => {
+      payload.contextHash = "f".repeat(64);
+    }],
+    ["extra shortlist field", "shortlist", (payload: Record<string, unknown>) => {
+      payload.unexpected = true;
+    }],
+  ] as const)("rejects re-signed closed-schema violation: %s", async (_name, kind, mutate) => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const { prepared } = await fixture.run();
+    resignSnapshot(fixture.database, kind, mutate);
+
+    const load = kind === "ranking"
+      ? fixture.store.loadRankingVerified(prepared.rankingSnapshotId)
+      : fixture.store.loadShortlistVerified(prepared.runId);
+    await expect(load).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("converges identical append retries and rejects conflicting retries", async () => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const prepared = await fixture.prepare();
+    const ranking = await fixture.store.loadRankingVerified(prepared.rankingSnapshotId);
+
+    await expect(fixture.store.appendRanking(ranking)).resolves.toBeUndefined();
+    await expect(fixture.store.appendRanking({
+      ...ranking,
+      contextHash: "f".repeat(64),
+    })).rejects.toThrow("integrity_mismatch");
+    expect(fixture.database.prepare(
+      "SELECT COUNT(*) AS count FROM place_frontier_snapshots WHERE kind = 'ranking'",
+    ).get()).toEqual({ count: 1 });
+  });
+
+  test("converges identical shortlist retries and rejects conflicting retries", async () => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const { prepared, result } = await fixture.run();
+
+    await expect(fixture.store.appendShortlist(result.shortlistSnapshot)).resolves.toBeUndefined();
+    await expect(fixture.store.appendShortlist({
+      ...result.shortlistSnapshot,
+      createdAt: "2026-08-12T09:00:00.000Z",
+    })).rejects.toThrow("integrity_mismatch");
+    expect(fixture.database.prepare(
+      "SELECT COUNT(*) AS count FROM place_frontier_snapshots WHERE kind = 'shortlist'",
+    ).get()).toEqual({ count: 1 });
+    expect(await fixture.store.loadShortlistVerified(prepared.runId))
+      .toEqual(result.shortlistSnapshot);
+  });
+
+  test("converges identical writes through two real SQLite connections", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "place-frontier-race-"));
+    const path = join(directory, "frontier.sqlite");
+    try {
+      const firstDatabase = openEvidenceDatabase(path);
+      const fixture = harness({ rankedCountries: ["SI"] });
+      const prepared = await fixture.prepare();
+      const ranking = await fixture.store.loadRankingVerified(prepared.rankingSnapshotId);
+
+      await expect(concurrentStoreWrites({
+        path,
+        method: "appendRanking",
+        snapshots: [ranking, ranking],
+      })).resolves.toEqual(["done", "done"]);
+      expect(firstDatabase.prepare(
+        "SELECT COUNT(*) AS count FROM place_frontier_snapshots",
+      ).get()).toEqual({ count: 1 });
+      firstDatabase.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("keeps one verified winner for conflicting concurrent ranking writes", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "place-frontier-conflict-race-"));
+    const path = join(directory, "frontier.sqlite");
+    try {
+      const database = openEvidenceDatabase(path);
+      const fixture = harness({ rankedCountries: ["SI"] });
+      const prepared = await fixture.prepare();
+      const ranking = await fixture.store.loadRankingVerified(prepared.rankingSnapshotId);
+      const conflicting = {
+        ...ranking,
+        ordered: ranking.ordered.map((place) => ({ ...place, label: "conflicting-label" })),
+      };
+
+      await expect(concurrentStoreWrites({
+        path,
+        method: "appendRanking",
+        snapshots: [ranking, conflicting],
+      })).resolves.toEqual(["done", "integrity_mismatch"]);
+      const winner = await new SqlitePlaceFrontierStore(database, HMAC_KEY)
+        .loadRankingVerified(prepared.runId);
+      expect([canonicalJson(ranking), canonicalJson(conflicting)])
+        .toContain(canonicalJson(winner));
+      expect(database.prepare(
+        "SELECT COUNT(*) AS count FROM place_frontier_snapshots",
+      ).get()).toEqual({ count: 1 });
+      database.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("converges identical shortlist writes through two real SQLite connections", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "place-frontier-shortlist-race-"));
+    const path = join(directory, "frontier.sqlite");
+    try {
+      const seedDatabase = openEvidenceDatabase(path);
+      const fixture = harness({ rankedCountries: ["SI"] });
+      const prepared = await fixture.prepare();
+      const ranking = await fixture.store.loadRankingVerified(prepared.rankingSnapshotId);
+      const result = await fixture.application.runPlaceFrontier(
+        prepared,
+        () => undefined,
+        new AbortController().signal,
+      );
+      const seedStore = new SqlitePlaceFrontierStore(seedDatabase, HMAC_KEY);
+      await seedStore.appendRanking(ranking);
+
+      await expect(concurrentStoreWrites({
+        path,
+        method: "appendShortlist",
+        snapshots: [result.shortlistSnapshot, result.shortlistSnapshot],
+      })).resolves.toEqual(["done", "done"]);
+      expect(seedDatabase.prepare(
+        "SELECT COUNT(*) AS count FROM place_frontier_snapshots WHERE kind = 'shortlist'",
+      ).get()).toEqual({ count: 1 });
+      seedDatabase.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ["malformed JSON", "{not-json"],
+    ["invalid closed payload", "{}"],
+  ] as const)("normalizes %s while loading a snapshot", async (_name, payloadJson) => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const prepared = await fixture.prepare();
+    fixture.database.exec("DROP TRIGGER place_frontier_snapshots_no_update");
+    fixture.database.prepare(`
+      UPDATE place_frontier_snapshots SET payload_json = ? WHERE id = ?
+    `).run(payloadJson, prepared.rankingSnapshotId);
+
+    await expect(fixture.store.loadRankingVerified(prepared.rankingSnapshotId))
+      .rejects.toThrow("integrity_mismatch");
+  });
   test.each([
     ["marker order", (markers: FrontierMarker[]) => markers.reverse()],
     ["rank", (markers: FrontierMarker[]) => { markers[0] = { ...markers[0]!, rank: 99 }; }],

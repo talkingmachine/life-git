@@ -147,17 +147,25 @@ export interface ColdStartApplication {
     | { readonly countryInput: string; readonly profile: RelocationProfileDraft }
     | { readonly countryInput: string; readonly profileId: string }
   ): Promise<ColdStartPrepared>;
-  prepareColdStartWithRunId?(input: {
-    readonly countryInput: string;
-    readonly profileId: string;
-    readonly runId: string;
-  }): Promise<ColdStartPrepared>;
   run(
     prepared: ColdStartPrepared,
     emit: (event: ColdStartEvent) => void | Promise<void>,
     signal: AbortSignal,
   ): Promise<ColdStartReadModel>;
   present(input: { readonly runId: string; readonly profileId: string }): Promise<ColdStartReadModel>;
+}
+
+export interface ColdStartChildPreparationPort {
+  prepareChild(input: {
+    readonly countryInput: string;
+    readonly profileId: string;
+    readonly runId: string;
+  }): Promise<ColdStartPrepared>;
+}
+
+export interface ColdStartApplicationBundle {
+  readonly application: ColdStartApplication;
+  readonly childPreparation: ColdStartChildPreparationPort;
 }
 
 export interface ColdStartResearchPrepareInput {
@@ -458,6 +466,12 @@ function progressPayload(
 export function createColdStartApplication(
   ports: ColdStartApplicationPorts,
 ): ColdStartApplication {
+  return createColdStartApplicationBundle(ports).application;
+}
+
+export function createColdStartApplicationBundle(
+  ports: ColdStartApplicationPorts,
+): ColdStartApplicationBundle {
   const loadReadModel = async (
     runId: string,
     profileId: string,
@@ -560,8 +574,12 @@ export function createColdStartApplication(
     });
   };
 
-  const application: ColdStartApplication = {
-    async prepare(input): Promise<ColdStartPrepared> {
+  const prepareCore = async (
+    input:
+      | { readonly countryInput: string; readonly profile: RelocationProfileDraft }
+      | { readonly countryInput: string; readonly profileId: string },
+    runId?: string,
+  ): Promise<ColdStartPrepared> => {
       const resolved = resolveCountry(input.countryInput);
       if (!resolved.ok) throw new Error(resolved.kind);
       const now = ports.clock();
@@ -574,21 +592,17 @@ export function createColdStartApplication(
         profile = await ports.profiles.loadRelocationVerified(input.profileId);
       }
       return deepFreeze({
-        runId: ports.nextRunId(),
+        runId: runId ?? ports.nextRunId(),
         profileId: profile.id,
         country: resolved.country,
         assessmentAt: nowIso.slice(0, 10),
         deadlineAt: new Date(now.valueOf() + 60_000).toISOString(),
       });
-    },
+  };
 
-    async prepareColdStartWithRunId(input): Promise<ColdStartPrepared> {
-      const prepared = await application.prepare({
-        countryInput: input.countryInput,
-        profileId: input.profileId,
-      });
-      if (input.runId.length === 0) integrityMismatch();
-      return deepFreeze({ ...prepared, runId: input.runId });
+  const application: ColdStartApplication = {
+    prepare(input): Promise<ColdStartPrepared> {
+      return prepareCore(input);
     },
 
     async run(prepared, emit, signal): Promise<ColdStartReadModel> {
@@ -714,5 +728,14 @@ export function createColdStartApplication(
       return loadReadModel(input.runId, input.profileId);
     },
   };
-  return Object.freeze(application);
+  const childPreparation: ColdStartChildPreparationPort = Object.freeze({
+    prepareChild(input: Parameters<ColdStartChildPreparationPort["prepareChild"]>[0]): Promise<ColdStartPrepared> {
+      if (input.runId.length === 0) integrityMismatch();
+      return prepareCore({
+        countryInput: input.countryInput,
+        profileId: input.profileId,
+      }, input.runId);
+    },
+  });
+  return Object.freeze({ application: Object.freeze(application), childPreparation });
 }

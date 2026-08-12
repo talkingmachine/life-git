@@ -8,7 +8,10 @@ import {
   type CountryVerifierPort,
 } from "../application/place-frontier";
 import { rankPlaces, type RankablePlace } from "../decision/place-ranker";
-import { createColdStartComposition, type ColdStartCompositionOptions } from "./cold-start-composition";
+import {
+  createColdStartCompositionBundle,
+  type ColdStartCompositionOptions,
+} from "./cold-start-composition";
 import { createEvidenceIntegrity } from "./integrity";
 import { createInstalledPlacePackages } from "./sources/installed-place-packages";
 import { SqliteCountryKnowledgeStore } from "./sqlite/country-knowledge-store";
@@ -32,16 +35,15 @@ function frontierPlaces(): readonly RankablePlace[] {
 }
 
 export function createPlaceFrontierComposition(options: PlaceFrontierCompositionOptions) {
-  const coldStart = createColdStartComposition(options);
+  const coldStartBundle = createColdStartCompositionBundle(options);
+  const coldStart = coldStartBundle.application;
   const profiles = new SqliteProfileStore(options.database);
   const knowledge = new SqliteCountryKnowledgeStore(options.database, options.hmacKey);
   const verifier: CountryVerifierPort = {
     async check({ country, profileId, parentRunId, emitProgress, signal }) {
       if (country.countryCode !== "SI") throw new Error("country_not_installed");
       const runId = countryCheckRunId(parentRunId, country.countryCode);
-      const prepareWithRunId = coldStart.prepareColdStartWithRunId;
-      if (prepareWithRunId === undefined) throw new Error("integrity_mismatch");
-      const prepared = await prepareWithRunId({
+      const prepared = await coldStartBundle.childPreparation.prepareChild({
         countryInput: country.label,
         profileId,
         runId,
@@ -50,7 +52,7 @@ export function createPlaceFrontierComposition(options: PlaceFrontierComposition
         throw new Error("integrity_mismatch");
       }
       const readModel = await coldStart.run(prepared, async (event) => {
-        if (event.type !== "assessment_completed") await emitProgress(event as never);
+        if (event.type !== "assessment_completed") await emitProgress(event);
       }, signal);
       return {
         countryCheckRunId: runId,

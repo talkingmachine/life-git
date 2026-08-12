@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 
 import {
-  createColdStartApplication,
+  createColdStartApplicationBundle,
   type ColdStartApplication,
+  type ColdStartApplicationBundle,
 } from "../application/cold-start";
 import { replayEvidenceByRules } from "../application/replay-evidence";
 import type {
@@ -35,6 +36,12 @@ export interface ColdStartCompositionOptions {
 export function createColdStartComposition(
   options: ColdStartCompositionOptions,
 ): ColdStartApplication {
+  return createColdStartCompositionBundle(options).application;
+}
+
+export function createColdStartCompositionBundle(
+  options: ColdStartCompositionOptions,
+): ColdStartApplicationBundle {
   const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(
     options.database,
   );
@@ -45,7 +52,7 @@ export function createColdStartComposition(
   const requestStep = options.requestStep ?? captureHttpOnce;
   const countrySourceIndex = options.countrySourceIndex ?? createInstalledCountrySourceIndex();
 
-  return createColdStartApplication({
+  return createColdStartApplicationBundle({
     profiles: profileStore,
     countrySourceIndex,
     research: {
