@@ -114,7 +114,7 @@ function replacementMarker(countryCode = "EE", rank = 5): FrontierMarker {
       coordinate: { lat: 46, lng: 14 },
     },
     rank,
-    countryCheckRunId: countryCheckRunId(runId, countryCode),
+    countryCheckRunId: countryCheckRunId(runId, countryCode, integrity),
     sourceAssessmentRulesVersion: "cold-start-assessment@1",
     lastCheckedAt: "2026-08-12",
     evidenceSnapshotId: `evidence-${countryCode}`,
@@ -272,6 +272,15 @@ async function concurrentAppends(input: {
 }
 
 describe("country resolution revision store", () => {
+  test("binds the deterministic run ID to the resolution rules version", () => {
+    expect(countryResolutionRunId(source.automaticShortlistSnapshotId, integrity)).toBe(
+      `country-resolution:${sha256Text(canonicalJson({
+        automaticShortlistSnapshotId: source.automaticShortlistSnapshotId,
+        rulesVersion: "country-resolution@1",
+      }))}`,
+    );
+  });
+
   test("persists a verified root and converges an identical start after the head advances", () => {
     const database = openEvidenceDatabase(":memory:");
     insertSourceGraph(database);

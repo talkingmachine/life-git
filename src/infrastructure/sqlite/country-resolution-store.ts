@@ -16,7 +16,10 @@ import {
   countryResolutionStartCommandId,
   reconstructFrontierMarker,
 } from "../../application/country-resolution-contracts";
-import { countryCheckRunId, type FrontierMarker } from "../../application/place-frontier";
+import {
+  countryCheckRunId,
+  type FrontierMarker,
+} from "../../application/country-verifier";
 import {
   assertCountryResolutionTransition,
   reconstructCountryResolution,
@@ -481,7 +484,11 @@ export class SqliteCountryResolutionStore implements CountryResolutionStorePort 
     const marker = revision.replacementMarkers.at(-1);
     if (marker === undefined || marker.country.countryCode !== operation.countryCode ||
       marker.countryCheckRunId !== operation.countryCheckRunId || operation.commandId !== operation.countryCheckRunId ||
-      marker.countryCheckRunId !== countryCheckRunId(revision.resolutionRunId, marker.country.countryCode)) {
+      marker.countryCheckRunId !== countryCheckRunId(
+        revision.resolutionRunId,
+        marker.country.countryCode,
+        { canonical: canonicalJson, hash: sha256Text },
+      )) {
       integrityMismatch();
     }
   }

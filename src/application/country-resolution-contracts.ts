@@ -1,6 +1,9 @@
-import type { FrontierMarker } from "./place-frontier";
+import type { FrontierMarker } from "./country-verifier";
 import { reconstructFormalResidenceVerdict } from "../decision/formal-residence-verdict";
-import { deriveYellowUncertaintyBasis } from "../decision/country-resolution-policy";
+import {
+  COUNTRY_RESOLUTION_RULES_VERSION,
+  deriveYellowUncertaintyBasis,
+} from "../decision/country-resolution-policy";
 import type {
   ResolutionMarkerProjection,
   ResolutionStopCondition,
@@ -209,7 +212,10 @@ export function countryResolutionRunId(
   automaticShortlistSnapshotId: string,
   integrity: ResolutionIntegrity,
 ): string {
-  return `country-resolution:${integrity.hash(integrity.canonical({ automaticShortlistSnapshotId }))}`;
+  return `country-resolution:${integrity.hash(integrity.canonical({
+    automaticShortlistSnapshotId,
+    rulesVersion: COUNTRY_RESOLUTION_RULES_VERSION,
+  }))}`;
 }
 
 export function countryResolutionContextHash(input: {

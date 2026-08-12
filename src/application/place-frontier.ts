@@ -8,10 +8,6 @@ import {
   type RelocationProfileDraft,
   type RelocationProfileSnapshot,
 } from "../decision/relocation-profile";
-import {
-  reconstructFormalResidenceVerdict,
-  type FormalResidenceVerdict,
-} from "../decision/formal-residence-verdict";
 export { projectTerminalSummary } from "../decision/place-frontier-summary";
 import {
   rankPlaces,
@@ -19,9 +15,24 @@ import {
   type RankablePlace,
   type RequiredMismatch,
 } from "../decision/place-ranker";
-import { canonicalJson, sha256Text } from "../infrastructure/integrity";
 import type { EvidenceIntegrity } from "../research/research-plan";
-import type { ColdStartEvent } from "./cold-start";
+import {
+  countryCheckRunId,
+  countryVerificationReplayExpectation,
+  materializeFrontierMarker,
+  type CountryVerificationProgress,
+  type CountryVerifierPort,
+  type FrontierCountry,
+  type FrontierMarker,
+} from "./country-verifier";
+
+export { countryCheckRunId } from "./country-verifier";
+export type {
+  CountryVerificationProgress,
+  CountryVerifierPort,
+  FrontierCountry,
+  FrontierMarker,
+} from "./country-verifier";
 
 export interface PlaceFrontierPrepared {
   readonly runId: string;
@@ -30,26 +41,6 @@ export interface PlaceFrontierPrepared {
   readonly assessmentAt: string;
   readonly rankingSnapshotId: string;
   readonly contextHash: string;
-}
-
-export interface FrontierCountry {
-  readonly countryCode: string;
-  readonly label: string;
-  readonly flag: string;
-  readonly coordinate: { readonly lat: number; readonly lng: number };
-}
-
-export interface FrontierMarker {
-  readonly country: FrontierCountry;
-  readonly rank: number;
-  readonly countryCheckRunId: string;
-  readonly sourceAssessmentRulesVersion: string;
-  readonly lastCheckedAt: string;
-  readonly evidenceSnapshotId: string;
-  readonly currentKnowledgeRevisionId?: string;
-  readonly updatedKnowledgeRevisionId?: string;
-  readonly knowledgeUpdatedAt?: string;
-  readonly formalVerdict: FormalResidenceVerdict;
 }
 
 export interface RankingSnapshot {
@@ -83,28 +74,6 @@ export interface PlaceFrontierReadModel {
   readonly assessmentAt: string;
   readonly rankingSnapshot: RankingSnapshot;
   readonly shortlistSnapshot: ShortlistSnapshot;
-}
-
-type CountryProgress = Exclude<ColdStartEvent, { readonly type: "assessment_completed" }>;
-
-export interface CountryVerifierPort {
-  check(input: {
-    readonly country: RankablePlace;
-    readonly profileId: string;
-    readonly parentRunId: string;
-    readonly emitProgress: (progress: CountryProgress) => void | Promise<void>;
-    readonly signal: AbortSignal;
-  }): Promise<Omit<FrontierMarker, "country" | "rank" | "formalVerdict"> & {
-    readonly verdict: FormalResidenceVerdict;
-  }>;
-  present(input: {
-    readonly parentRunId: string;
-    readonly countryCode: string;
-    readonly countryCheckRunId: string;
-    readonly profileId: string;
-  }): Promise<Omit<FrontierMarker, "country" | "rank" | "countryCheckRunId" | "formalVerdict"> & {
-    readonly verdict: FormalResidenceVerdict;
-  }>;
 }
 
 export interface PlaceFrontierApplicationPorts {
@@ -213,26 +182,6 @@ function immutableCopy<T>(value: T): T {
   return deepFreeze(structuredClone(value));
 }
 
-function isCanonicalDay(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function isCanonicalInstant(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const parsed = new Date(value);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
-}
-
-function isOptionalNonEmptyString(value: unknown): value is string | undefined {
-  return value === undefined || (typeof value === "string" && value.length > 0);
-}
-
-export function countryCheckRunId(parentRunId: string, countryCode: string): string {
-  return `frontier-country:${sha256Text(canonicalJson({ parentRunId, countryCode }))}`;
-}
-
 function frontierCountry(place: RankedPlace): FrontierCountry {
   return {
     countryCode: place.countryCode,
@@ -310,116 +259,14 @@ function createEventEmitter(
   };
 }
 
-function progressDraft(countryCode: string, progress: CountryProgress): FrontierEventDraft {
-  switch (progress.type) {
-    case "source_discovered":
-      return {
-        type: "country_progress",
-        payload: {
-          countryCode,
-          stage: progress.type,
-          label: progress.payload.candidateId,
-          sourceUrl: progress.payload.url,
-        },
-      };
-    case "authority_verified":
-      return {
-        type: "country_progress",
-        payload: {
-          countryCode,
-          stage: progress.type,
-          label: progress.payload.candidateId,
-          detail: progress.payload.authorityRoot,
-        },
-      };
-    case "artifact_captured":
-      return {
-        type: "country_progress",
-        payload: {
-          countryCode,
-          stage: progress.type,
-          label: progress.payload.role,
-          detail: `sha256:${progress.payload.sha256}`,
-          sourceUrl: progress.payload.resolvedUrl,
-        },
-      };
-    case "claim_verified":
-      return {
-        type: "country_progress",
-        payload: {
-          countryCode,
-          stage: progress.type,
-          label: progress.payload.claimId,
-          detail: `${progress.payload.claimKind} · ${progress.payload.sourceIds.join(", ")}`,
-        },
-      };
-    case "dossier_published":
-      return {
-        type: "country_progress",
-        payload: {
-          countryCode,
-          stage: progress.type,
-          label: progress.payload.label,
-          detail: `${progress.payload.dossierVersionId} · ${progress.payload.created ? "created" : "reused"}`,
-        },
-      };
-  }
-}
-
-function checkedMarker(
-  place: RankedPlace,
-  checked: Awaited<ReturnType<CountryVerifierPort["check"]>>,
-  parentRunId: string,
-  profileId: string,
-): FrontierMarker {
-  const optionalKeys = [
-    ...(checked.currentKnowledgeRevisionId === undefined ? [] : ["currentKnowledgeRevisionId"]),
-    ...(checked.updatedKnowledgeRevisionId === undefined ? [] : ["updatedKnowledgeRevisionId"]),
-    ...(checked.knowledgeUpdatedAt === undefined ? [] : ["knowledgeUpdatedAt"]),
-  ];
-  const expectedKeys = [
-    "countryCheckRunId",
-    "sourceAssessmentRulesVersion",
-    "verdict",
-    "evidenceSnapshotId",
-    "lastCheckedAt",
-    ...optionalKeys,
-  ].sort();
-  if (
-    Object.keys(checked).sort().some((key, index) => key !== expectedKeys[index]) ||
-    Object.keys(checked).length !== expectedKeys.length ||
-    checked.sourceAssessmentRulesVersion !== "cold-start-assessment@1" ||
-    typeof checked.evidenceSnapshotId !== "string" ||
-    checked.evidenceSnapshotId.length === 0 ||
-    !isCanonicalDay(checked.lastCheckedAt) ||
-    !isOptionalNonEmptyString(checked.currentKnowledgeRevisionId) ||
-    !isOptionalNonEmptyString(checked.updatedKnowledgeRevisionId) ||
-    (checked.knowledgeUpdatedAt !== undefined &&
-      !isCanonicalInstant(checked.knowledgeUpdatedAt)) ||
-    (checked.currentKnowledgeRevisionId === undefined) !==
-      (checked.knowledgeUpdatedAt === undefined) ||
-    (checked.updatedKnowledgeRevisionId !== undefined &&
-      checked.updatedKnowledgeRevisionId !== checked.currentKnowledgeRevisionId)
-  ) integrityMismatch();
-  const { verdict, ...metadata } = checked;
-  if (metadata.countryCheckRunId !== countryCheckRunId(parentRunId, place.countryCode)) {
-    integrityMismatch();
-  }
-  let formalVerdict: FormalResidenceVerdict;
-  try {
-    formalVerdict = reconstructFormalResidenceVerdict(verdict, {
-      profileSnapshotId: profileId,
-      evidenceSnapshotId: checked.evidenceSnapshotId,
-    });
-  } catch {
-    integrityMismatch();
-  }
-  return immutableCopy({
-    ...metadata,
-    country: frontierCountry(place),
-    rank: place.rank,
-    formalVerdict,
-  });
+function progressDraft(
+  countryCode: string,
+  progress: CountryVerificationProgress,
+): FrontierEventDraft {
+  return {
+    type: "country_progress",
+    payload: { countryCode, ...progress },
+  };
 }
 
 function nonRedCount(markers: readonly FrontierMarker[]): number {
@@ -443,24 +290,6 @@ function shortlistSnapshot(
   };
 }
 
-function replayExpectation(marker: FrontierMarker) {
-  return {
-    sourceAssessmentRulesVersion: marker.sourceAssessmentRulesVersion,
-    verdict: marker.formalVerdict,
-    evidenceSnapshotId: marker.evidenceSnapshotId,
-    ...(marker.currentKnowledgeRevisionId === undefined ? {} : {
-      currentKnowledgeRevisionId: marker.currentKnowledgeRevisionId,
-    }),
-    ...(marker.updatedKnowledgeRevisionId === undefined ? {} : {
-      updatedKnowledgeRevisionId: marker.updatedKnowledgeRevisionId,
-    }),
-    ...(marker.knowledgeUpdatedAt === undefined ? {} : {
-      knowledgeUpdatedAt: marker.knowledgeUpdatedAt,
-    }),
-    lastCheckedAt: marker.lastCheckedAt,
-  };
-}
-
 async function verifyMarkerReplay(
   marker: FrontierMarker,
   ranking: RankingSnapshot,
@@ -472,8 +301,9 @@ async function verifyMarkerReplay(
     countryCheckRunId: marker.countryCheckRunId,
     profileId: ranking.profileSnapshotId,
   });
-  if (ports.integrity.canonical(replay) !==
-    ports.integrity.canonical(replayExpectation(marker))) integrityMismatch();
+  if (ports.integrity.canonical(replay) !== ports.integrity.canonical(
+    countryVerificationReplayExpectation(marker),
+  )) integrityMismatch();
 }
 
 async function loadBoundProfiles(
@@ -594,7 +424,13 @@ export function createPlaceFrontierApplication(
         emitProgress: async (progress) => send(progressDraft(place.countryCode, progress)),
         signal,
       });
-      const marker = checkedMarker(place, checked, prepared.runId, prepared.profileId);
+      const marker = materializeFrontierMarker({
+        place,
+        checked,
+        parentRunId: prepared.runId,
+        profileId: prepared.profileId,
+        integrity: ports.integrity,
+      });
       markers.push(marker);
       await send({ type: "country_completed", payload: { marker } });
       if (marker.formalVerdict.marker === "red" && nextIndex < ranking.ordered.length) {
