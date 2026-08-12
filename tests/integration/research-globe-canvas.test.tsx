@@ -402,3 +402,84 @@ it("returns focus to a cloned marker when a new overview clears its details", as
   const marker = screen.getByRole("button", { name: "Открыть страну Словения" });
   await waitFor(() => expect(document.activeElement).toBe(marker));
 });
+
+it("makes only red and yellow frontier markers interactive and closes a selected route that becomes green", async () => {
+  lifecycle.startJourney.mockImplementation((options: { onDestinationReveal: () => void }) => {
+    options.onDestinationReveal();
+    return lifecycle.stopJourney;
+  });
+  const countryOrigin = {
+    coordinate: origin.coordinate,
+    country: "Россия",
+    flag: "🇷🇺",
+    kind: "country" as const,
+    label: "Россия",
+  };
+  const frontierRoute = (
+    key: string,
+    label: string,
+    status: GlobeRoute["status"],
+    latitude: number,
+  ): GlobeRoute => ({
+    country: label,
+    description: `Проверка: ${label}`,
+    flag: "🌐",
+    from: countryOrigin.coordinate,
+    key,
+    kind: "country",
+    label,
+    routeLabel: `Россия → ${label}`,
+    status,
+    to: { lat: latitude, lng: 15 },
+  });
+  const pending = frontierRoute("run-1:pending", "Ожидание", "pending", 44);
+  const green = frontierRoute("run-1:green", "Доступно", "green", 45);
+  const yellow = {
+    ...frontierRoute("run-1:yellow", "Уточнить", "yellow", 46),
+    rejectionReason: "Нужна ручная проверка",
+    officialUrl: "https://evidence.test/one",
+    officialUrls: ["https://evidence.test/one", "https://evidence.test/two"],
+    manualCheckLinks: [{ label: "Навигация", url: "https://manual.test/one" }],
+  };
+  const red = frontierRoute("run-1:red", "Недоступно", "red", 47);
+  const props = {
+    activeFlight: pending,
+    onFlightComplete: () => undefined,
+    onReady: () => undefined,
+    onUnavailable: () => undefined,
+    origin: countryOrigin,
+    overview: {
+      coordinates: [countryOrigin.coordinate, pending.to, green.to, yellow.to, red.to],
+      key: 20,
+    },
+  };
+  const globe = render(
+    <ResearchGlobeCanvas {...props} routes={[pending, green, yellow, red]} />,
+  );
+
+  expect(await screen.findByRole("button", { name: "Открыть страну Уточнить" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Открыть страну Недоступно" })).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: /Открыть страну/ })).toHaveLength(2);
+  expect(screen.getByRole("note", { name: /Ожидание.*провер/i })).toBeTruthy();
+  expect(screen.getByRole("note", { name: /Доступно.*формально доступно/i })).toBeTruthy();
+
+  const yellowMarker = screen.getByRole("button", { name: "Открыть страну Уточнить" });
+  fireEvent.keyDown(yellowMarker, { key: "Enter" });
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Evidence" })).toBeTruthy();
+  expect(screen.getAllByRole("link", { name: /официальный источник/i })).toHaveLength(2);
+  expect(screen.getByRole("heading", { name: "Проверьте вручную" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Навигация" })).toBeTruthy();
+
+  globe.rerender(
+    <ResearchGlobeCanvas
+      {...props}
+      routes={[pending, green, { ...yellow, status: "green" }, red]}
+    />,
+  );
+  await nextRendererFrame();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Открыть страну Недоступно" }),
+  ));
+});

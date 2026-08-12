@@ -1385,7 +1385,7 @@ PlaceFrontierStart does not ask for a country. It confirms the canonical relocat
 ~~~ts
 [
   { id: "outside_cis", mode: "required", importance: 5, target: "required_true" },
-  { id: "europe", mode: "weighted", importance: 4, target: "required_true" },
+  { id: "europe", mode: "weighted", importance: 4, target: "maximize" },
   { id: "personal_safety", mode: "weighted", importance: 5, target: "maximize" },
   { id: "infrastructure", mode: "weighted", importance: 5, target: "maximize" },
   { id: "peace_and_stability", mode: "weighted", importance: 5, target: "maximize" },

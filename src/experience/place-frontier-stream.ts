@@ -209,6 +209,43 @@ export interface PlaceFrontierEventState {
   readonly terminal?: PlaceFrontierReadModel;
 }
 
+export interface PlaceFrontierStreamResponse {
+  readonly runId: string;
+  readonly profileId: string;
+  readonly preferenceProfileId: string;
+  readonly stream: ReadableStream<Uint8Array>;
+}
+
+function exactHeader(response: Response, name: string): string {
+  const value = response.headers.get(name);
+  if (value === null || value.length === 0 || value.trim() !== value) {
+    throw new Error(`invalid_${name}`);
+  }
+  return value;
+}
+
+export function openPlaceFrontierStreamResponse(
+  response: Response,
+  expected?: {
+    readonly profileId: string;
+    readonly preferenceProfileId: string;
+  },
+): PlaceFrontierStreamResponse {
+  if (!response.ok) throw new Error("place_frontier_request_failed");
+  if (response.headers.get("content-type") !== "application/x-ndjson; charset=utf-8") {
+    throw new Error("invalid_place_frontier_content_type");
+  }
+  const runId = exactHeader(response, "x-life-run-id");
+  const profileId = exactHeader(response, "x-life-profile-id");
+  const preferenceProfileId = exactHeader(response, "x-life-preference-profile-id");
+  if (
+    expected !== undefined &&
+    (profileId !== expected.profileId || preferenceProfileId !== expected.preferenceProfileId)
+  ) throw new Error("changed_place_frontier_identity");
+  if (response.body === null) throw new Error("missing_place_frontier_body");
+  return Object.freeze({ runId, profileId, preferenceProfileId, stream: response.body });
+}
+
 function freezeCopy<T>(value: T): T {
   const copy = structuredClone(value);
   const freeze = (item: unknown): void => {

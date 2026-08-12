@@ -58,6 +58,7 @@ export interface PlaceFrontierView {
   readonly liveTimeline: readonly PlaceFrontierEvent[];
   readonly cards: readonly PlaceFrontierCountryCard[];
   readonly summary?: ReturnType<typeof projectTerminalSummary>;
+  readonly snapshotId?: string;
   readonly announcement?: string;
   readonly transportError?: string;
 }
@@ -92,9 +93,25 @@ function markerCandidate(
   completed?: FrontierMarker,
 ): ResearchCandidate {
   const status = completed?.formalVerdict.marker ?? "pending";
-  const firstReason = completed?.formalVerdict.reasons[0];
-  const officialUrl = firstReason?.navigation[0]?.url ??
-    firstReason?.evidence[0]?.navigationUrl;
+  const reasons = completed?.formalVerdict.reasons ?? [];
+  const uniqueBy = <T,>(values: readonly T[], key: (value: T) => string): readonly T[] => {
+    const seen = new Set<string>();
+    return values.filter((value) => {
+      const identity = key(value);
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    });
+  };
+  const officialUrls = uniqueBy(
+    reasons.flatMap((reason) => reason.evidence.map(({ navigationUrl }) => navigationUrl)),
+    (url) => url,
+  );
+  const manualCheckLinks = uniqueBy(
+    reasons.flatMap((reason) => reason.navigation),
+    ({ label, url }) => `${label}\u0000${url}`,
+  );
+  const summaries = uniqueBy(reasons.map(({ summary }) => summary), (summary) => summary);
   return {
     id: country.countryCode,
     label: country.label,
@@ -104,10 +121,12 @@ function markerCandidate(
     coordinate: country.coordinate,
     description: "Проверяем формальную доступность долгосрочного проживания.",
     status,
-    ...(firstReason === undefined ? {} : {
+    ...(reasons.length === 0 ? {} : {
       reason: {
-        summary: firstReason.summary,
-        ...(officialUrl === undefined ? {} : { officialUrl }),
+        summary: summaries.join(" · "),
+        ...(officialUrls[0] === undefined ? {} : { officialUrl: officialUrls[0] }),
+        ...(officialUrls.length === 0 ? {} : { officialUrls }),
+        ...(manualCheckLinks.length === 0 ? {} : { manualCheckLinks }),
       },
     }),
   };
@@ -290,6 +309,9 @@ export function projectPlaceFrontierView(state: PlaceFrontierScreenState): Place
     liveTimeline,
     cards,
     ...(terminal === undefined ? {} : { summary: projectTerminalSummary(terminal) }),
+    ...((terminal?.shortlistSnapshot.id ?? state.stream.ranking?.rankingSnapshotId) === undefined
+      ? {}
+      : { snapshotId: terminal?.shortlistSnapshot.id ?? state.stream.ranking?.rankingSnapshotId }),
     ...(newestProgress === undefined ? {} : {
       announcement: newestProgress.detail === undefined
         ? newestProgress.label

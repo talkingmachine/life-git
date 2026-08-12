@@ -154,4 +154,31 @@ describe("responsive product shell", () => {
     expect(workspace?.querySelectorAll(".workspace-globe")).toHaveLength(1);
     expect(workspace?.querySelector("main")?.textContent).toContain("Sources content");
   });
+
+  it("keeps the same globe instance when a frontier changes from full to collapsed", () => {
+    const context = {
+      route: "Россия → страны",
+      branch: "Проверка стран",
+      snapshot: "ranking-1",
+      status: "pending" as const,
+    };
+    const shell = render(
+      <ProductShell activeDestination="research" context={context} globeMode="full"
+        onDestinationChange={() => undefined}>
+        <p>Frontier</p>
+      </ProductShell>,
+    );
+    const globe = shell.container.querySelector(".workspace-globe");
+    expect(globe?.getAttribute("data-mode")).toBe("full");
+
+    shell.rerender(
+      <ProductShell activeDestination="research" context={{ ...context, status: "yellow" }}
+        globeMode="collapsed" onDestinationChange={() => undefined}>
+        <p>Frontier cards</p>
+      </ProductShell>,
+    );
+
+    expect(shell.container.querySelector(".workspace-globe")).toBe(globe);
+    expect(globe?.getAttribute("data-mode")).toBe("collapsed");
+  });
 });

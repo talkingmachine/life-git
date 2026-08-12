@@ -141,10 +141,14 @@
 
 .cityBalloonPending {
   color: #77817f;
+  cursor: default;
+  pointer-events: none;
 }
 
 .cityBalloonGreen {
   color: #17221f;
+  cursor: default;
+  pointer-events: none;
 }
 
 .cityBalloonOrigin {

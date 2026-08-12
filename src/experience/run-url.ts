@@ -13,3 +13,11 @@ export function replaceColdStartRunUrl(runId: string, profileId: string): void {
     `?flow=cold-start&run=${encodeURIComponent(runId)}&profile=${encodeURIComponent(profileId)}`,
   );
 }
+
+export function replacePlaceFrontierRunUrl(runId: string): void {
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `?flow=place-frontier&run=${encodeURIComponent(runId)}`,
+  );
+}
