@@ -8,7 +8,10 @@ import {
   type RelocationProfileDraft,
   type RelocationProfileSnapshot,
 } from "../decision/relocation-profile";
-import type { FormalResidenceVerdict } from "../decision/formal-residence-verdict";
+import {
+  reconstructFormalResidenceVerdict,
+  type FormalResidenceVerdict,
+} from "../decision/formal-residence-verdict";
 import {
   rankPlaces,
   type RankedPlace,
@@ -58,6 +61,7 @@ export interface RankingSnapshot {
   readonly contextHash: string;
   readonly knowledgeRevisionIds: Readonly<Record<string, string | null>>;
   readonly ordered: readonly RankedPlace[];
+  readonly excludedPlaces: readonly RankablePlace[];
   readonly excluded: readonly RequiredMismatch[];
   readonly rulesVersion: "place-ranker@1";
   readonly createdAt: string;
@@ -204,6 +208,22 @@ function immutableCopy<T>(value: T): T {
   return deepFreeze(structuredClone(value));
 }
 
+function isCanonicalDay(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function isCanonicalInstant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
+}
+
+function isOptionalNonEmptyString(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === "string" && value.length > 0);
+}
+
 export function countryCheckRunId(parentRunId: string, countryCode: string): string {
   return `frontier-country:${sha256Text(canonicalJson({ parentRunId, countryCode }))}`;
 }
@@ -345,17 +365,56 @@ function checkedMarker(
   place: RankedPlace,
   checked: Awaited<ReturnType<CountryVerifierPort["check"]>>,
   parentRunId: string,
+  profileId: string,
 ): FrontierMarker {
+  const optionalKeys = [
+    ...(checked.currentKnowledgeRevisionId === undefined ? [] : ["currentKnowledgeRevisionId"]),
+    ...(checked.updatedKnowledgeRevisionId === undefined ? [] : ["updatedKnowledgeRevisionId"]),
+    ...(checked.knowledgeUpdatedAt === undefined ? [] : ["knowledgeUpdatedAt"]),
+  ];
+  const expectedKeys = [
+    "countryCheckRunId",
+    "sourceAssessmentRulesVersion",
+    "verdict",
+    "evidenceSnapshotId",
+    "lastCheckedAt",
+    ...optionalKeys,
+  ].sort();
+  if (
+    Object.keys(checked).sort().some((key, index) => key !== expectedKeys[index]) ||
+    Object.keys(checked).length !== expectedKeys.length ||
+    checked.sourceAssessmentRulesVersion !== "cold-start-assessment@1" ||
+    typeof checked.evidenceSnapshotId !== "string" ||
+    checked.evidenceSnapshotId.length === 0 ||
+    !isCanonicalDay(checked.lastCheckedAt) ||
+    !isOptionalNonEmptyString(checked.currentKnowledgeRevisionId) ||
+    !isOptionalNonEmptyString(checked.updatedKnowledgeRevisionId) ||
+    (checked.knowledgeUpdatedAt !== undefined &&
+      !isCanonicalInstant(checked.knowledgeUpdatedAt)) ||
+    (checked.currentKnowledgeRevisionId === undefined) !==
+      (checked.knowledgeUpdatedAt === undefined) ||
+    (checked.updatedKnowledgeRevisionId !== undefined &&
+      checked.currentKnowledgeRevisionId === undefined)
+  ) integrityMismatch();
   const { verdict, ...metadata } = checked;
   if (metadata.countryCheckRunId !== countryCheckRunId(parentRunId, place.countryCode)) {
     integrityMismatch();
   }
-  return {
+  let formalVerdict: FormalResidenceVerdict;
+  try {
+    formalVerdict = reconstructFormalResidenceVerdict(verdict, {
+      profileSnapshotId: profileId,
+      evidenceSnapshotId: checked.evidenceSnapshotId,
+    });
+  } catch {
+    integrityMismatch();
+  }
+  return immutableCopy({
     ...metadata,
     country: frontierCountry(place),
     rank: place.rank,
-    formalVerdict: verdict,
-  };
+    formalVerdict,
+  });
 }
 
 function nonRedCount(markers: readonly FrontierMarker[]): number {
@@ -474,6 +533,11 @@ export function createPlaceFrontierApplication(
       preferences,
       places: rankingInputs.places,
     });
+    const excludedCountryCodes = new Set(result.excluded.map(({ countryCode }) => countryCode));
+    const excludedPlaces = rankingInputs.places
+      .filter(({ countryCode }) => excludedCountryCodes.has(countryCode))
+      .map((place) => structuredClone(place))
+      .sort((left, right) => left.countryCode.localeCompare(right.countryCode));
     const snapshot: RankingSnapshot = {
       schemaVersion: "place-ranking@1",
       id: rankingSnapshotId,
@@ -484,6 +548,7 @@ export function createPlaceFrontierApplication(
       contextHash,
       knowledgeRevisionIds: rankingInputs.knowledgeRevisionIds,
       ordered: result.ordered,
+      excludedPlaces,
       excluded: result.excluded,
       rulesVersion: result.rulesVersion,
       createdAt: assessmentAt,
@@ -538,7 +603,7 @@ export function createPlaceFrontierApplication(
         emitProgress: async (progress) => send(progressDraft(place.countryCode, progress)),
         signal,
       });
-      const marker = checkedMarker(place, checked, prepared.runId);
+      const marker = checkedMarker(place, checked, prepared.runId, prepared.profileId);
       markers.push(marker);
       await send({ type: "country_completed", payload: { marker } });
       if (marker.formalVerdict.marker === "red" && nextIndex < ranking.ordered.length) {

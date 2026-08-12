@@ -80,46 +80,45 @@ describe("preference profile and place ranking", () => {
       required("outside_cis", 5),
       weighted("personal_safety", 3),
     ]);
+    const included = place("SI", [
+      known("outside_cis", "1", "matches"),
+      known("personal_safety", "0.5"),
+    ]);
+    const excluded = place("BY", [
+      known("outside_cis", "-1", "does_not_match"),
+      known("personal_safety", "0.5"),
+    ]);
     const ranking = rankPlaces({
       assessmentAt: "2026-08-12",
       preferences: profile,
-      places: [place("SI", [
-        known("outside_cis", "1", "matches"),
-        known("personal_safety", "0.5"),
-      ])],
+      places: [included, excluded],
     });
 
     expect(reconstructPlaceRanking({
       assessmentAt: "2026-08-12",
       preferences: profile,
       ...ranking,
-      excluded: [{
-        countryCode: "BY",
-        criterionId: "outside_cis",
-        observationId: "observation-outside-cis-BY",
-      }],
-    }).ordered).toEqual(ranking.ordered);
+      excludedPlaces: [excluded],
+    }).excluded).toEqual(ranking.excluded);
     expect(() => reconstructPlaceRanking({
       assessmentAt: "2026-08-12",
       preferences: profile,
       ...ranking,
+      excludedPlaces: [excluded],
       ordered: [{ ...ranking.ordered[0]!, relevance: "999" }],
     })).toThrow("invalid_ranking_semantics");
     expect(() => reconstructPlaceRanking({
       assessmentAt: "2026-08-12",
       preferences: profile,
       ...ranking,
-      excluded: [{
-        countryCode: "BY",
-        criterionId: "personal_safety",
-        observationId: "observation-personal-safety-BY",
-      }],
-    })).toThrow("invalid_required_mismatch");
+      excludedPlaces: [{ ...excluded, countryCode: "ZZ" }],
+    })).toThrow("invalid_ranking_semantics");
     expect(() => reconstructPlaceRanking({
       assessmentAt: "2026-08-12",
       preferences: profile,
       ordered: [],
       excluded: [],
+      excludedPlaces: [],
       rulesVersion: "place-ranker@1",
     })).toThrow("empty_ranking");
   });

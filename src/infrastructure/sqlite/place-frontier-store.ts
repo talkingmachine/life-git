@@ -99,6 +99,13 @@ const rankingSchema = z.object({
   contextHash: sha256Schema,
   knowledgeRevisionIds: z.record(countryCodeSchema, nonEmptyStringSchema.nullable()),
   ordered: z.array(rankedPlaceSchema),
+  excludedPlaces: z.array(z.object({
+    countryCode: countryCodeSchema,
+    label: nonEmptyStringSchema,
+    flag: nonEmptyStringSchema,
+    coordinate: coordinateSchema,
+    factors: z.array(factorSchema),
+  }).strict()),
   excluded: z.array(requiredMismatchSchema),
   rulesVersion: z.literal("place-ranker@1"),
   createdAt: instantSchema,
@@ -310,6 +317,7 @@ export class SqlitePlaceFrontierStore {
       assessmentAt: snapshot.assessmentAt.slice(0, 10),
       preferences,
       ordered: snapshot.ordered,
+      excludedPlaces: snapshot.excludedPlaces,
       excluded: snapshot.excluded,
       rulesVersion: snapshot.rulesVersion,
     });

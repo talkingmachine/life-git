@@ -19,7 +19,8 @@ import type { ColdStartEvent } from "../../src/application/cold-start";
 import type { FormalEvidenceReference, FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
 import { assessFormalResidence } from "../../src/decision/formal-residence-verdict";
-import type { RankedPlace } from "../../src/decision/place-ranker";
+import { rankPlaces, type RankablePlace, type RankedPlace } from
+  "../../src/decision/place-ranker";
 import type {
   PreferenceProfileDraft,
   PreferenceProfileSnapshot,
@@ -230,13 +231,14 @@ interface HarnessOptions {
   readonly markerByCountry?: Readonly<Record<string, "green" | "yellow" | "red">>;
   readonly knowledgeRevisionIds?: Readonly<Record<string, string | null>>;
   readonly failCheckFor?: string;
-  readonly excluded?: RankingSnapshot["excluded"];
   readonly progressEvents?: readonly Exclude<ColdStartEvent, { readonly type: "assessment_completed" }>[];
   readonly mutateCheckResult?: (result: Awaited<ReturnType<CountryVerifierPort["check"]>>) => unknown;
   readonly publishKnowledgeDuringCheck?: boolean;
   readonly abortDuringCheck?: AbortController;
   readonly failShortlistAppend?: boolean;
   readonly preferenceProfile?: PreferenceProfileDraft;
+  readonly rankingPlaces?: readonly RankablePlace[];
+  readonly useCanonicalRanking?: boolean;
 }
 
 function harness(options: HarnessOptions) {
@@ -278,7 +280,7 @@ function harness(options: HarnessOptions) {
       freezeCurrent: async () => {
         currentInputCalls += 1;
         return {
-          places: options.rankedCountries.map((countryCode, index) =>
+          places: options.rankingPlaces ?? options.rankedCountries.map((countryCode, index) =>
             rankedPlace(countryCode, index + 1, preferenceDraft)),
           knowledgeRevisionIds: options.knowledgeRevisionIds ?? Object.fromEntries(
             options.rankedCountries.map((countryCode) => [countryCode, null]),
@@ -286,12 +288,13 @@ function harness(options: HarnessOptions) {
         };
       },
     },
-    rank: ({ places }) => {
+    rank: (input) => {
       rankCalls += 1;
+      if (options.useCanonicalRanking) return rankPlaces(input);
       return {
-        ordered: places.map((place, index) =>
+        ordered: input.places.map((place, index) =>
           rankedPlace(place.countryCode, index + 1, preferenceDraft)),
-        excluded: options.excluded ?? [],
+        excluded: [],
         rulesVersion: "place-ranker@1",
       };
     },
@@ -403,6 +406,39 @@ function harness(options: HarnessOptions) {
       return { prepared, result, events };
     },
   };
+}
+
+function requiredPlace(
+  countryCode: string,
+  requirementStatus: "matches" | "does_not_match",
+): RankablePlace {
+  return {
+    countryCode,
+    label: countryCode,
+    flag: `flag-${countryCode}`,
+    coordinate: { lat: 46, lng: 14 },
+    factors: (["outside_cis", "europe"] as const).map((criterionId) => ({
+      criterionId,
+      state: "known" as const,
+      match: requirementStatus === "matches" ? "1" : "-1",
+      requirementStatus,
+      observationId: `observation-${countryCode}-${criterionId}`,
+      evaluatorVersion: "fixture-factor@1",
+    })),
+  };
+}
+
+function genuineExcludedHarness() {
+  return harness({
+    rankedCountries: ["SI", "DE"],
+    rankingPlaces: [requiredPlace("SI", "matches"), requiredPlace("DE", "does_not_match")],
+    knowledgeRevisionIds: { SI: null, DE: null },
+    preferenceProfile: { criteria: [
+      { id: "outside_cis", mode: "required", importance: 5, target: "required_true" },
+      { id: "europe", mode: "required", importance: 3, target: "required_true" },
+    ] },
+    useCanonicalRanking: true,
+  });
 }
 
 function resignSnapshot(
@@ -852,23 +888,18 @@ describe("frozen CountryFrontier", () => {
   });
 
   test("counts repeated required mismatch rows as one Knowledge country", async () => {
-    const requiredPreferences: PreferenceProfileDraft = { criteria: [
-      { id: "outside_cis", mode: "required", importance: 5, target: "required_true" },
-      { id: "europe", mode: "required", importance: 3, target: "required_true" },
-    ] };
-    const fixture = harness({
-      rankedCountries: ["SI"],
-      knowledgeRevisionIds: { SI: null, DE: null },
-      preferenceProfile: requiredPreferences,
-      excluded: [
-        { countryCode: "DE", criterionId: "outside_cis", observationId: "observation-de-1" },
-        { countryCode: "DE", criterionId: "europe", observationId: "observation-de-2" },
-      ],
-    });
+    const fixture = genuineExcludedHarness();
 
     const prepared = await fixture.prepare();
-    expect((await fixture.store.loadRankingVerified(prepared.rankingSnapshotId)).excluded)
-      .toHaveLength(2);
+    const ranking = await fixture.store.loadRankingVerified(prepared.rankingSnapshotId);
+    expect(ranking.excluded).toHaveLength(2);
+    expect(ranking.excludedPlaces).toEqual([requiredPlace("DE", "does_not_match")]);
+    const result = await fixture.application.runPlaceFrontier(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+    expect(await fixture.application.presentPlaceFrontier(prepared.runId)).toEqual(result);
   });
 
   test.each([
@@ -884,18 +915,24 @@ describe("frozen CountryFrontier", () => {
       ...result,
       unexpected: true,
     })],
+    ["binary marker field", (result: Awaited<ReturnType<CountryVerifierPort["check"]>>) => ({
+      ...result,
+      unexpected: new Uint8Array([1]),
+    })],
   ] as const)("rejects malformed verifier output (%s) before shortlist persistence", async (
     _name,
     mutateCheckResult,
   ) => {
     const fixture = harness({ rankedCountries: ["SI"], mutateCheckResult });
     const prepared = await fixture.prepare();
+    const events: Array<{ readonly type: string }> = [];
 
     await expect(fixture.application.runPlaceFrontier(
       prepared,
-      () => undefined,
+      (event) => { events.push(event); },
       new AbortController().signal,
     )).rejects.toThrow("integrity_mismatch");
+    expect(events.some(({ type }) => type === "country_completed")).toBe(false);
     expect(fixture.database.prepare(
       "SELECT kind FROM place_frontier_snapshots ORDER BY kind",
     ).all()).toEqual([{ kind: "ranking" }]);
@@ -976,6 +1013,63 @@ describe("frozen CountryFrontier", () => {
 });
 
 describe("frontier snapshot integrity", () => {
+  test("rejects a fabricated excluded country on append and re-signed load", async () => {
+    const source = genuineExcludedHarness();
+    const prepared = await source.prepare();
+    const valid = await source.store.loadRankingVerified(prepared.rankingSnapshotId);
+    const fabricateCountry = (payload: Record<string, unknown>) => {
+      const ranking = payload as unknown as {
+        excluded: Array<{ countryCode: string }>;
+        knowledgeRevisionIds: Record<string, string | null>;
+      };
+      ranking.excluded.forEach((row) => { row.countryCode = "ZZ"; });
+      delete ranking.knowledgeRevisionIds.DE;
+      ranking.knowledgeRevisionIds.ZZ = null;
+    };
+    const forged = mutateRanking(valid, fabricateCountry);
+    const preference = source.preferences.get(valid.preferenceProfileSnapshotId) as
+      PreferenceProfileSnapshot;
+    const emptyStore = new SqlitePlaceFrontierStore(openEvidenceDatabase(":memory:"), HMAC_KEY, {
+      loadPreferenceVerified: async () => structuredClone(preference),
+    });
+
+    await expect(emptyStore.appendRanking(forged)).rejects.toThrow("integrity_mismatch");
+    resignSnapshot(source.database, "ranking", fabricateCountry);
+    await expect(source.store.loadRankingVerified(prepared.rankingSnapshotId))
+      .rejects.toThrow("integrity_mismatch");
+  });
+
+  test.each([
+    ["missing", (payload: Record<string, unknown>) => { delete payload.excludedPlaces; }],
+    ["extra", (payload: Record<string, unknown>) => {
+      (payload.excludedPlaces as RankablePlace[]).push(requiredPlace("ZZ", "does_not_match"));
+    }],
+    ["duplicate", (payload: Record<string, unknown>) => {
+      (payload.excludedPlaces as RankablePlace[]).push(requiredPlace("DE", "does_not_match"));
+    }],
+    ["overlap", (payload: Record<string, unknown>) => {
+      (payload.excludedPlaces as RankablePlace[])[0] = requiredPlace("SI", "does_not_match");
+    }],
+    ["altered input", (payload: Record<string, unknown>) => {
+      const place = (payload.excludedPlaces as RankablePlace[])[0]!;
+      (place.factors[0] as { requirementStatus: string }).requirementStatus = "matches";
+    }],
+    ["altered output", (payload: Record<string, unknown>) => {
+      const ranking = payload as unknown as { excluded: Array<{ observationId: string }> };
+      ranking.excluded[0]!.observationId = "fabricated-observation";
+    }],
+  ] as const)("rejects a re-signed ranking with %s excluded input integrity", async (
+    _name,
+    mutate,
+  ) => {
+    const fixture = genuineExcludedHarness();
+    const prepared = await fixture.prepare();
+    resignSnapshot(fixture.database, "ranking", mutate);
+
+    await expect(fixture.store.loadRankingVerified(prepared.rankingSnapshotId))
+      .rejects.toThrow("integrity_mismatch");
+  });
+
   test.each([
     ["known match", (payload: Record<string, unknown>) => {
       firstRankingRow(payload).factors[0]!.match = "2";

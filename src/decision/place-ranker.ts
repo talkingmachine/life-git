@@ -302,37 +302,11 @@ function sameRankingValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function validateExcludedRows(
-  excluded: readonly RequiredMismatch[],
-  preferences: PreferenceProfileSnapshot,
-  orderedCountryCodes: ReadonlySet<string>,
-): void {
-  const requiredCriteria = new Set(preferences.criteria
-    .filter(({ mode }) => mode === "required")
-    .map(({ id }) => id));
-  const criterionOrder = new Map(preferences.criteria.map(({ id }, index) => [id, index]));
-  const rowKeys = new Set<string>();
-  for (const row of excluded) {
-    const key = `${row.countryCode}:${row.criterionId}`;
-    if (
-      !/^[A-Z]{2}$/.test(row.countryCode) ||
-      !requiredCriteria.has(row.criterionId) ||
-      row.observationId.length === 0 ||
-      orderedCountryCodes.has(row.countryCode) ||
-      rowKeys.has(key)
-    ) throw new Error("invalid_required_mismatch");
-    rowKeys.add(key);
-  }
-  const sorted = [...excluded].sort((left, right) =>
-    left.countryCode.localeCompare(right.countryCode) ||
-    criterionOrder.get(left.criterionId)! - criterionOrder.get(right.criterionId)!);
-  if (!sameRankingValue(sorted, excluded)) throw new Error("invalid_required_mismatch_order");
-}
-
 export function reconstructPlaceRanking(input: {
   readonly assessmentAt: string;
   readonly preferences: PreferenceProfileSnapshot;
   readonly ordered: readonly RankedPlace[];
+  readonly excludedPlaces: readonly RankablePlace[];
   readonly excluded: readonly RequiredMismatch[];
   readonly rulesVersion: PlaceRankingResult["rulesVersion"];
 }): PlaceRankingResult {
@@ -340,25 +314,30 @@ export function reconstructPlaceRanking(input: {
   if (input.ordered.length === 0 && input.excluded.length === 0) {
     throw new Error("empty_ranking");
   }
+  const orderedPlaces = input.ordered.map(({
+    countryCode,
+    label,
+    flag,
+    coordinate,
+    factors,
+  }) => ({ countryCode, label, flag, coordinate, factors }));
   const reconstructed = rankPlaces({
     assessmentAt: input.assessmentAt,
     preferences: input.preferences,
-    places: input.ordered.map(({ countryCode, label, flag, coordinate, factors }) => ({
-      countryCode,
-      label,
-      flag,
-      coordinate,
-      factors,
-    })),
+    places: [...orderedPlaces, ...input.excludedPlaces],
   });
-  if (!sameRankingValue(reconstructed.ordered, input.ordered)) {
+  if (
+    !sameRankingValue(reconstructed.ordered, input.ordered) ||
+    !sameRankingValue(reconstructed.excluded, input.excluded)
+  ) {
     throw new Error("invalid_ranking_semantics");
   }
-  validateExcludedRows(
-    input.excluded,
-    verifiedPreferences(input.preferences),
-    new Set(input.ordered.map(({ countryCode }) => countryCode)),
-  );
+  const excludedCountryCodes = [...new Set(input.excluded.map(({ countryCode }) => countryCode))]
+    .sort();
+  if (!sameRankingValue(
+    input.excludedPlaces.map(({ countryCode }) => countryCode),
+    excludedCountryCodes,
+  )) throw new Error("invalid_excluded_places");
   return deepFreeze({
     ordered: reconstructed.ordered,
     excluded: input.excluded.map((row) => ({ ...row })),
