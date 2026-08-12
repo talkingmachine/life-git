@@ -4,8 +4,12 @@ import type {
   ColdStartEvent,
   ColdStartReadModel,
 } from "../application/cold-start";
+import {
+  FINITE_NDJSON_MAX_LINE_BYTES,
+  readFiniteNdjson,
+} from "./finite-ndjson";
 
-export const COLD_START_MAX_LINE_BYTES = 256 * 1024;
+export const COLD_START_MAX_LINE_BYTES = FINITE_NDJSON_MAX_LINE_BYTES;
 
 export interface ColdStartStreamResponse {
   readonly profileId: string;
@@ -363,73 +367,16 @@ export async function* decodeColdStartStream(
   stream: ReadableStream<Uint8Array>,
   signal?: AbortSignal,
 ): AsyncGenerator<ColdStartEvent> {
-  const reader = stream.getReader();
-  let decoder = new TextDecoder("utf-8", { fatal: true });
-  let line = "";
-  let lineBytes = 0;
   let state = initialColdStartEventState();
   let pendingTerminal: ColdStartEvent | undefined;
-  let reachedEof = false;
-  let abortRequested = false;
-  const cancellationReason = () => signal?.reason
-    ?? new DOMException("The operation was aborted", "AbortError");
-  const cancelForAbort = () => {
-    abortRequested = true;
-    void reader.cancel(cancellationReason()).catch(() => undefined);
-  };
-  if (signal?.aborted === true) cancelForAbort();
-  else signal?.addEventListener("abort", cancelForAbort, { once: true });
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (abortRequested) throw cancellationReason();
-      if (done) {
-        reachedEof = true;
-        break;
-      }
-      let segmentStart = 0;
-      for (let index = 0; index < value.length; index += 1) {
-        if (value[index] !== 0x0a) continue;
-        const segment = value.subarray(segmentStart, index);
-        lineBytes += segment.byteLength;
-        if (lineBytes > COLD_START_MAX_LINE_BYTES) throw new Error("line_too_large");
-        line += decoder.decode(segment, { stream: true });
-        line += decoder.decode();
-        const event = coldStartEventSchema.parse(JSON.parse(line)) as ColdStartEvent;
-        state = reduceColdStartEvent(state, event);
-        if (event.type === "assessment_completed") pendingTerminal = event;
-        else yield event;
-        decoder = new TextDecoder("utf-8", { fatal: true });
-        line = "";
-        lineBytes = 0;
-        segmentStart = index + 1;
-      }
-      const remainder = value.subarray(segmentStart);
-      lineBytes += remainder.byteLength;
-      if (lineBytes > COLD_START_MAX_LINE_BYTES) throw new Error("line_too_large");
-      line += decoder.decode(remainder, { stream: true });
-    }
-
-    line += decoder.decode();
-    if (lineBytes > 0 || line.length > 0) throw new Error("trailing_partial_line");
-    if (state.terminal === undefined || pendingTerminal === undefined) {
-      throw new Error("missing_terminal_event");
-    }
-    yield pendingTerminal;
-  } finally {
-    signal?.removeEventListener("abort", cancelForAbort);
-    if (!reachedEof && !abortRequested) {
-      try {
-        await reader.cancel("cold_start_decoder_stopped");
-      } catch {
-        // Preserve the original stream or consumer error.
-      }
-    }
-    try {
-      reader.releaseLock();
-    } catch {
-      // Releasing an already invalidated reader must not mask the original error.
-    }
+  for await (const value of readFiniteNdjson(stream, signal)) {
+    const event = coldStartEventSchema.parse(value) as ColdStartEvent;
+    state = reduceColdStartEvent(state, event);
+    if (event.type === "assessment_completed") pendingTerminal = event;
+    else yield event;
   }
+  if (state.terminal === undefined || pendingTerminal === undefined) {
+    throw new Error("missing_terminal_event");
+  }
+  yield pendingTerminal;
 }

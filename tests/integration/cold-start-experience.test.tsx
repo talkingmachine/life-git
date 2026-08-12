@@ -384,6 +384,11 @@ describe("finite cold-start decoder and reducer", () => {
     );
   });
 
+  test("retains fatal UTF-8 and empty-line rejection after framing extraction", async () => {
+    await expect(collect(streamOf(new Uint8Array([0xc3, 0x28, 0x0a])))).rejects.toThrow();
+    await expect(collect(streamOf(new Uint8Array([0x0a])))).rejects.toThrow();
+  });
+
   test("bounds both pending and complete lines to 256 KiB of UTF-8 bytes excluding LF", async () => {
     const oversizedPending = new Uint8Array(COLD_START_MAX_LINE_BYTES + 1).fill(0x20);
     await expect(collect(streamOf(oversizedPending))).rejects.toThrow("line_too_large");

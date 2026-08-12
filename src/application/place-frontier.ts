@@ -394,7 +394,7 @@ function checkedMarker(
     (checked.currentKnowledgeRevisionId === undefined) !==
       (checked.knowledgeUpdatedAt === undefined) ||
     (checked.updatedKnowledgeRevisionId !== undefined &&
-      checked.currentKnowledgeRevisionId === undefined)
+      checked.updatedKnowledgeRevisionId !== checked.currentKnowledgeRevisionId)
   ) integrityMismatch();
   const { verdict, ...metadata } = checked;
   if (metadata.countryCheckRunId !== countryCheckRunId(parentRunId, place.countryCode)) {
@@ -582,7 +582,9 @@ export function createPlaceFrontierApplication(
       payload: {
         rankingSnapshotId: ranking.id,
         orderedCountryCodes: ranking.ordered.map(({ countryCode }) => countryCode),
-        excludedCountryCodes: ranking.excluded.map(({ countryCode }) => countryCode),
+        excludedCountryCodes: [...new Set(
+          ranking.excluded.map(({ countryCode }) => countryCode),
+        )].sort(),
       },
     });
     const activated = [...ranking.ordered.slice(0, 5)];

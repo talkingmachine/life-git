@@ -894,11 +894,16 @@ describe("frozen CountryFrontier", () => {
     const ranking = await fixture.store.loadRankingVerified(prepared.rankingSnapshotId);
     expect(ranking.excluded).toHaveLength(2);
     expect(ranking.excludedPlaces).toEqual([requiredPlace("DE", "does_not_match")]);
+    const events: Array<{ readonly type: string; readonly payload: unknown }> = [];
     const result = await fixture.application.runPlaceFrontier(
       prepared,
-      () => undefined,
+      (event) => { events.push(event); },
       new AbortController().signal,
     );
+    expect(events[0]).toEqual(expect.objectContaining({
+      type: "ranking_sealed",
+      payload: expect.objectContaining({ excludedCountryCodes: ["DE"] }),
+    }));
     expect(await fixture.application.presentPlaceFrontier(prepared.runId)).toEqual(result);
   });
 
@@ -918,6 +923,14 @@ describe("frozen CountryFrontier", () => {
     ["binary marker field", (result: Awaited<ReturnType<CountryVerifierPort["check"]>>) => ({
       ...result,
       unexpected: new Uint8Array([1]),
+    })],
+    ["mismatched updated Knowledge head", (
+      result: Awaited<ReturnType<CountryVerifierPort["check"]>>,
+    ) => ({
+      ...result,
+      currentKnowledgeRevisionId: "knowledge-current:SI",
+      updatedKnowledgeRevisionId: "knowledge-updated:SI",
+      knowledgeUpdatedAt: NOW,
     })],
   ] as const)("rejects malformed verifier output (%s) before shortlist persistence", async (
     _name,
@@ -1181,9 +1194,7 @@ describe("frontier snapshot integrity", () => {
     await expect(fixture.application.presentPlaceFrontier(prepared.runId))
       .rejects.toThrow("integrity_mismatch");
     expect(fixture.checks).toEqual(checksBeforePresentation);
-    expect(fixture.counts.present()).toBe(
-      family === "current Knowledge revision" || family === "updated Knowledge revision" ? 1 : 0,
-    );
+    expect(fixture.counts.present()).toBe(0);
   });
 
   test.each([
@@ -1239,6 +1250,34 @@ describe("frontier snapshot integrity", () => {
     ).get()).toEqual({ count: 1 });
     expect(await fixture.store.loadShortlistVerified(prepared.runId))
       .toEqual(result.shortlistSnapshot);
+  });
+
+  test("rejects mismatched updated and current Knowledge IDs on shortlist append and load", async () => {
+    const fixture = harness({ rankedCountries: ["SI"], publishKnowledgeDuringCheck: true });
+    const { prepared, result } = await fixture.run();
+    const mismatched = structuredClone(result.shortlistSnapshot);
+    (mismatched.markers[0] as { updatedKnowledgeRevisionId: string })
+      .updatedKnowledgeRevisionId = "knowledge-other:SI";
+    const emptyStore = new SqlitePlaceFrontierStore(
+      openEvidenceDatabase(":memory:"),
+      HMAC_KEY,
+      {
+        loadPreferenceVerified: async () => structuredClone(
+          fixture.preferences.get(result.rankingSnapshot.preferenceProfileSnapshotId) as
+            PreferenceProfileSnapshot,
+        ),
+      },
+    );
+    await emptyStore.appendRanking(result.rankingSnapshot);
+
+    await expect(emptyStore.appendShortlist(mismatched)).rejects.toThrow("integrity_mismatch");
+
+    resignShortlist(fixture.database, (payload) => {
+      (payload.markers as Array<{ updatedKnowledgeRevisionId: string }>)[0]!
+        .updatedKnowledgeRevisionId = "knowledge-other:SI";
+    });
+    await expect(fixture.store.loadShortlistVerified(prepared.runId))
+      .rejects.toThrow("integrity_mismatch");
   });
 
   test("converges identical writes through two real SQLite connections", async () => {

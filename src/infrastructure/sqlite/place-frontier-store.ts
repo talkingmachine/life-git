@@ -217,7 +217,7 @@ function decodeMarker(
     (marker.currentKnowledgeRevisionId === undefined) !==
       (marker.knowledgeUpdatedAt === undefined) ||
     (marker.updatedKnowledgeRevisionId !== undefined &&
-      marker.currentKnowledgeRevisionId === undefined)
+      marker.updatedKnowledgeRevisionId !== marker.currentKnowledgeRevisionId)
   ) integrityMismatch();
   const formalVerdict = reconstructFormalResidenceVerdict(marker.formalVerdict, {
     profileSnapshotId: ranking.profileSnapshotId,
