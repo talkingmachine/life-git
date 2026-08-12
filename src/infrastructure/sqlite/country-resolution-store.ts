@@ -9,12 +9,14 @@ import type {
   ResolutionSourceBinding,
 } from "../../application/country-resolution-contracts";
 import {
+  countryResolutionMarkerProjection,
   countryResolutionContextHash,
   countryResolutionRevisionId,
   countryResolutionRunId,
   countryResolutionStartCommandId,
+  reconstructFrontierMarker,
 } from "../../application/country-resolution-contracts";
-import type { FrontierMarker } from "../../application/place-frontier";
+import { countryCheckRunId, type FrontierMarker } from "../../application/place-frontier";
 import {
   assertCountryResolutionTransition,
   reconstructCountryResolution,
@@ -151,7 +153,9 @@ function decodeRevision(value: unknown): CountryResolutionRevision {
       (value.stopCondition !== "five_effective_green" && value.stopCondition !== "ranking_exhausted"))) {
     integrityMismatch();
   }
-  return structuredClone(value) as unknown as CountryResolutionRevision;
+  const replacementMarkers = value.replacementMarkers.map((marker) =>
+    reconstructFrontierMarker(marker, { profileSnapshotId: value.profileSnapshotId as string }));
+  return structuredClone({ ...value, replacementMarkers }) as unknown as CountryResolutionRevision;
 }
 
 function sourceOf(revision: CountryResolutionRevision): ResolutionSourceBinding {
@@ -224,6 +228,23 @@ function semanticState(
 
 function storedReplacementMarkers(revision: CountryResolutionRevision): readonly FrontierMarker[] {
   return revision.replacementMarkers;
+}
+
+function assertReplacementProjectionBinding(
+  revision: CountryResolutionRevision,
+  context: CountryResolutionSemanticContext,
+  sourceMarkerCount: number,
+): void {
+  const expected = context.markerProjections.slice(
+    sourceMarkerCount,
+    sourceMarkerCount + revision.replacementMarkers.length,
+  );
+  const actual = revision.replacementMarkers.map((marker) =>
+    countryResolutionMarkerProjection(marker, {
+      canonical: canonicalJson,
+      hash: sha256Text,
+    }, { profileSnapshotId: revision.profileSnapshotId }));
+  if (!sameCanonical(actual, expected)) integrityMismatch();
 }
 
 export class SqliteCountryResolutionStore implements CountryResolutionStorePort {
@@ -419,11 +440,11 @@ export class SqliteCountryResolutionStore implements CountryResolutionStorePort 
       }, { canonical: canonicalJson, hash: sha256Text })) integrityMismatch();
     this.verifySourceRows(revision);
     const successorState = semanticState(revision, context.orderedCountryCodes, context.markerProjections);
+    const sourceMarkerCount = context.markerProjections.length - revision.replacementMarkers.length;
+    if (sourceMarkerCount < 0) integrityMismatch();
+    assertReplacementProjectionBinding(revision, context, sourceMarkerCount);
     if (predecessor !== undefined) {
-      const currentReplacementCount = storedReplacementMarkers(revision).length;
       const predecessorReplacementCount = storedReplacementMarkers(predecessor).length;
-      const sourceMarkerCount = context.markerProjections.length - currentReplacementCount;
-      if (sourceMarkerCount < 0) integrityMismatch();
       const predecessorMarkers = context.markerProjections.slice(
         0,
         sourceMarkerCount + predecessorReplacementCount,
@@ -459,7 +480,8 @@ export class SqliteCountryResolutionStore implements CountryResolutionStorePort 
     }
     const marker = revision.replacementMarkers.at(-1);
     if (marker === undefined || marker.country.countryCode !== operation.countryCode ||
-      marker.countryCheckRunId !== operation.countryCheckRunId || operation.commandId !== operation.countryCheckRunId) {
+      marker.countryCheckRunId !== operation.countryCheckRunId || operation.commandId !== operation.countryCheckRunId ||
+      marker.countryCheckRunId !== countryCheckRunId(revision.resolutionRunId, marker.country.countryCode)) {
       integrityMismatch();
     }
   }
@@ -497,6 +519,7 @@ export class SqliteCountryResolutionStore implements CountryResolutionStorePort 
         0,
         sourceMarkerCount + record.revision.replacementMarkers.length,
       );
+      assertReplacementProjectionBinding(record.revision, context, sourceMarkerCount);
       semanticState(record.revision, context.orderedCountryCodes, revisionMarkers);
       if (index > 0) {
         const predecessor = chain[index - 1]!.revision;

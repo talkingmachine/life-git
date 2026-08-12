@@ -6,6 +6,7 @@ import { Worker } from "node:worker_threads";
 import { describe, expect, test } from "vitest";
 
 import {
+  countryResolutionMarkerProjection,
   countryResolutionContextHash,
   countryResolutionRevisionId,
   countryResolutionRunId,
@@ -14,6 +15,8 @@ import {
   type CountryResolutionRevision,
   type CountryResolutionSemanticContext,
 } from "../../src/application/country-resolution-contracts";
+import type { FrontierMarker } from "../../src/application/place-frontier";
+import { countryCheckRunId } from "../../src/application/place-frontier";
 import { SqliteCountryResolutionStore } from
   "../../src/infrastructure/sqlite/country-resolution-store";
 import { canonicalJson, hmacSha256, sha256Text } from "../../src/infrastructure/integrity";
@@ -99,6 +102,84 @@ function rootRevision(operation: CountryResolutionOperation = rootOperation()): 
     }, integrity),
     createdAt: "2026-08-12T00:00:00.000Z",
   };
+}
+
+function replacementMarker(countryCode = "EE", rank = 5): FrontierMarker {
+  const runId = countryResolutionRunId(source.automaticShortlistSnapshotId, integrity);
+  return {
+    country: {
+      countryCode,
+      label: countryCode,
+      flag: `flag-${countryCode}`,
+      coordinate: { lat: 46, lng: 14 },
+    },
+    rank,
+    countryCheckRunId: countryCheckRunId(runId, countryCode),
+    sourceAssessmentRulesVersion: "cold-start-assessment@1",
+    lastCheckedAt: "2026-08-12",
+    evidenceSnapshotId: `evidence-${countryCode}`,
+    formalVerdict: {
+      rulesVersion: "formal-residence@1",
+      marker: "yellow",
+      verdictAsOf: "2026-08-12",
+      routeOutcomes: [],
+      reasons: [],
+      catalogCompleteness: {
+        status: "unproven",
+        reasonCode: "catalog_completeness_unprovable",
+      },
+    },
+  };
+}
+
+function replacementSuccessor(input: {
+  readonly initial: CountryResolutionRevision;
+  readonly marker?: FrontierMarker;
+}): {
+  readonly operation: CountryResolutionOperation;
+  readonly revision: CountryResolutionRevision;
+  readonly semanticContext: CountryResolutionSemanticContext;
+} {
+  const marker = input.marker ?? replacementMarker();
+  const operation: CountryResolutionOperation = {
+    commandId: marker.countryCheckRunId,
+    kind: "replacement_completed",
+    expectedHeadRevisionId: input.initial.id,
+    countryCode: marker.country.countryCode,
+    countryCheckRunId: marker.countryCheckRunId,
+  };
+  const projection = countryResolutionMarkerProjection(marker, integrity);
+  const semanticContext = {
+    ...context(["green", "green", "green", "green"]),
+    markerProjections: [
+      ...context(["green", "green", "green", "green"]).markerProjections,
+      projection,
+    ],
+  };
+  const revision: CountryResolutionRevision = {
+    ...source,
+    schemaVersion: "country-resolution@1",
+    rulesVersion: "country-resolution@1",
+    id: countryResolutionRevisionId(input.initial.resolutionRunId, operation, integrity),
+    resolutionRunId: input.initial.resolutionRunId,
+    predecessorRevisionId: input.initial.id,
+    kind: "working",
+    decisions: [],
+    replacementMarkers: [marker],
+    nextUncheckedRank: 6,
+    unresolvedCountryCodes: [marker.country.countryCode],
+    slotCountryCodes: ["AA", "BB", "CC", "DD", marker.country.countryCode],
+    phase: "awaiting_decision",
+    contextHash: countryResolutionContextHash({
+      resolutionRunId: input.initial.resolutionRunId,
+      source,
+      predecessorRevisionId: input.initial.id,
+      operation,
+      rulesVersion: "country-resolution@1",
+    }, integrity),
+    createdAt: "2026-08-12T02:00:00.000Z",
+  };
+  return { operation, revision, semanticContext };
 }
 
 function resignResolution(
@@ -476,5 +557,77 @@ describe("country resolution revision store", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test.each([
+    ["rank", (marker: Record<string, unknown>) => { marker.rank = 99; }],
+    ["unknown nested key", (marker: Record<string, unknown>) => {
+      (marker.country as Record<string, unknown>).unexpected = true;
+    }],
+    ["formal verdict", (marker: Record<string, unknown>) => {
+      (marker.formalVerdict as Record<string, unknown>).verdictAsOf = "2026-08-11";
+    }],
+  ] as const)("rejects a re-signed persisted replacement marker with changed %s", (_name, mutate) => {
+    const database = openEvidenceDatabase(":memory:");
+    insertSourceGraph(database);
+    const store = new SqliteCountryResolutionStore(database, HMAC_KEY);
+    const initial: CountryResolutionRevision = {
+      ...(rootRevision() as Extract<CountryResolutionRevision, { readonly kind: "working" }>),
+      nextUncheckedRank: 5,
+      unresolvedCountryCodes: [],
+      slotCountryCodes: ["AA", "BB", "CC", "DD"],
+      phase: "replacement_required",
+    };
+    store.append({
+      revision: initial,
+      operation: rootOperation(),
+      context: context(["green", "green", "green", "green"]),
+    });
+    const replacement = replacementSuccessor({ initial });
+    store.append({
+      revision: replacement.revision,
+      operation: replacement.operation,
+      context: replacement.semanticContext,
+    });
+
+    resignResolution(database, replacement.revision.id, (revision) => {
+      mutate((revision.replacementMarkers as Record<string, unknown>[])[0]!);
+    });
+
+    expect(() => store.loadHeadVerified(initial.resolutionRunId, replacement.semanticContext))
+      .toThrow("integrity_mismatch");
+    expect(() => store.loadChainVerified(initial.resolutionRunId, replacement.semanticContext))
+      .toThrow("integrity_mismatch");
+  });
+
+  test("rejects malformed nested replacement markers as integrity failures", () => {
+    const database = openEvidenceDatabase(":memory:");
+    insertSourceGraph(database);
+    const store = new SqliteCountryResolutionStore(database, HMAC_KEY);
+    const initial: CountryResolutionRevision = {
+      ...(rootRevision() as Extract<CountryResolutionRevision, { readonly kind: "working" }>),
+      nextUncheckedRank: 5,
+      unresolvedCountryCodes: [],
+      slotCountryCodes: ["AA", "BB", "CC", "DD"],
+      phase: "replacement_required",
+    };
+    store.append({
+      revision: initial,
+      operation: rootOperation(),
+      context: context(["green", "green", "green", "green"]),
+    });
+    const replacement = replacementSuccessor({ initial });
+    store.append({
+      revision: replacement.revision,
+      operation: replacement.operation,
+      context: replacement.semanticContext,
+    });
+
+    resignResolution(database, replacement.revision.id, (revision) => {
+      (revision.replacementMarkers as Record<string, unknown>[])[0]!.country = null;
+    });
+
+    expect(() => store.loadRevisionVerified(replacement.revision.id, replacement.semanticContext))
+      .toThrow("integrity_mismatch");
   });
 });

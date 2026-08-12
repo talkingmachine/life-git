@@ -1,10 +1,120 @@
 import type { FrontierMarker } from "./place-frontier";
+import { reconstructFormalResidenceVerdict } from "../decision/formal-residence-verdict";
+import { deriveYellowUncertaintyBasis } from "../decision/country-resolution-policy";
 import type {
   ResolutionMarkerProjection,
   ResolutionStopCondition,
   YellowDecision,
   YellowDecisionKind,
 } from "../decision/country-resolution-policy";
+
+function integrityMismatch(): never {
+  throw new Error("integrity_mismatch");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: object, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index]);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isCountryCode(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Z]{2}$/.test(value);
+}
+
+function isCanonicalDay(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function isCanonicalInstant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
+}
+
+function reconstructFrontierCountry(value: unknown): FrontierMarker["country"] {
+  if (!isRecord(value) || !hasExactKeys(value, ["countryCode", "label", "flag", "coordinate"]) ||
+    !isCountryCode(value.countryCode) || !isNonEmptyString(value.label) ||
+    !isNonEmptyString(value.flag) || !isRecord(value.coordinate) ||
+    !hasExactKeys(value.coordinate, ["lat", "lng"]) ||
+    typeof value.coordinate.lat !== "number" || !Number.isFinite(value.coordinate.lat) ||
+    value.coordinate.lat < -90 || value.coordinate.lat > 90 ||
+    typeof value.coordinate.lng !== "number" || !Number.isFinite(value.coordinate.lng) ||
+    value.coordinate.lng < -180 || value.coordinate.lng > 180) integrityMismatch();
+  return structuredClone(value) as unknown as FrontierMarker["country"];
+}
+
+export function reconstructFrontierMarker(
+  value: unknown,
+  expected?: {
+    readonly profileSnapshotId?: string;
+    readonly evidenceSnapshotId?: string;
+  },
+): FrontierMarker {
+  if (!isRecord(value) || !hasExactKeys(value, [
+    "country", "rank", "countryCheckRunId", "sourceAssessmentRulesVersion", "lastCheckedAt",
+    "evidenceSnapshotId", ...(value.currentKnowledgeRevisionId === undefined
+      ? []
+      : ["currentKnowledgeRevisionId"]), ...(value.updatedKnowledgeRevisionId === undefined
+      ? []
+      : ["updatedKnowledgeRevisionId"]), ...(value.knowledgeUpdatedAt === undefined
+      ? []
+      : ["knowledgeUpdatedAt"]), "formalVerdict",
+  ]) || !Number.isInteger(value.rank) || (value.rank as number) < 1 ||
+    !isNonEmptyString(value.countryCheckRunId) ||
+    value.sourceAssessmentRulesVersion !== "cold-start-assessment@1" ||
+    !isCanonicalDay(value.lastCheckedAt) || !isNonEmptyString(value.evidenceSnapshotId) ||
+    (value.currentKnowledgeRevisionId !== undefined &&
+      !isNonEmptyString(value.currentKnowledgeRevisionId)) ||
+    (value.updatedKnowledgeRevisionId !== undefined &&
+      !isNonEmptyString(value.updatedKnowledgeRevisionId)) ||
+    (value.knowledgeUpdatedAt !== undefined && !isCanonicalInstant(value.knowledgeUpdatedAt)) ||
+    (value.currentKnowledgeRevisionId === undefined) !== (value.knowledgeUpdatedAt === undefined) ||
+    (value.updatedKnowledgeRevisionId !== undefined &&
+      value.updatedKnowledgeRevisionId !== value.currentKnowledgeRevisionId) ||
+    (expected?.evidenceSnapshotId !== undefined &&
+      expected.evidenceSnapshotId !== value.evidenceSnapshotId)) integrityMismatch();
+  const formalVerdict = reconstructFormalResidenceVerdict(value.formalVerdict, {
+    ...expected,
+    evidenceSnapshotId: value.evidenceSnapshotId,
+  });
+  return structuredClone({
+    ...value,
+    country: reconstructFrontierCountry(value.country),
+    formalVerdict,
+  }) as FrontierMarker;
+}
+
+export function countryResolutionMarkerProjection(
+  markerInput: FrontierMarker,
+  integrity: ResolutionIntegrity,
+  expected?: {
+    readonly profileSnapshotId?: string;
+    readonly evidenceSnapshotId?: string;
+  },
+): ResolutionMarkerProjection {
+  const marker = reconstructFrontierMarker(markerInput, expected);
+  return {
+    countryCode: marker.country.countryCode,
+    rank: marker.rank,
+    formalStatus: marker.formalVerdict.marker,
+    formalMarkerDigest: integrity.hash(integrity.canonical(marker)),
+    ...(marker.formalVerdict.marker === "yellow"
+      ? { expectedUncertaintyBasis: deriveYellowUncertaintyBasis(marker.formalVerdict) }
+      : {}),
+  };
+}
 
 export interface ResolutionSourceBinding {
   readonly automaticShortlistSnapshotId: string;

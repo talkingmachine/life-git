@@ -6,7 +6,7 @@ import {
   type RankingSnapshot,
   type ShortlistSnapshot,
 } from "../../application/place-frontier";
-import { reconstructFormalResidenceVerdict } from "../../decision/formal-residence-verdict";
+import { reconstructFrontierMarker } from "../../application/country-resolution-contracts";
 import { reconstructPlaceRanking } from "../../decision/place-ranker";
 import type { PreferenceProfileSnapshot } from "../../decision/preference-profile";
 import { canonicalJson, hmacSha256, secureHexEqual, sha256Text } from "../integrity";
@@ -30,11 +30,6 @@ const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const instantSchema = z.string().refine((value) => {
   const parsed = new Date(value);
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
-});
-const daySchema = z.string().refine((value) => {
-  if (!/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 });
 const decimalSchema = z.string().refine((value) => {
   if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return false;
@@ -111,32 +106,12 @@ const rankingSchema = z.object({
   createdAt: instantSchema,
 }).strict();
 
-const frontierCountrySchema = z.object({
-  countryCode: countryCodeSchema,
-  label: nonEmptyStringSchema,
-  flag: nonEmptyStringSchema,
-  coordinate: coordinateSchema,
-}).strict();
-
-const markerEnvelopeSchema = z.object({
-  country: frontierCountrySchema,
-  rank: z.number().int().positive(),
-  countryCheckRunId: nonEmptyStringSchema,
-  sourceAssessmentRulesVersion: z.literal("cold-start-assessment@1"),
-  lastCheckedAt: daySchema,
-  evidenceSnapshotId: nonEmptyStringSchema,
-  currentKnowledgeRevisionId: nonEmptyStringSchema.optional(),
-  updatedKnowledgeRevisionId: nonEmptyStringSchema.optional(),
-  knowledgeUpdatedAt: instantSchema.optional(),
-  formalVerdict: z.unknown(),
-}).strict();
-
 const shortlistEnvelopeSchema = z.object({
   schemaVersion: z.literal("place-shortlist@1"),
   id: nonEmptyStringSchema,
   runId: nonEmptyStringSchema,
   rankingSnapshotId: nonEmptyStringSchema,
-  markers: z.array(markerEnvelopeSchema),
+  markers: z.array(z.unknown()),
   rulesVersion: z.literal("country-frontier@1"),
   createdAt: instantSchema,
 }).strict();
@@ -202,7 +177,9 @@ function decodeMarker(
   runId: string,
   index: number,
 ): FrontierMarker {
-  const marker = markerEnvelopeSchema.parse(value);
+  const marker = reconstructFrontierMarker(value, {
+    profileSnapshotId: ranking.profileSnapshotId,
+  });
   const ranked = ranking.ordered[index];
   if (
     ranked === undefined ||
@@ -219,11 +196,7 @@ function decodeMarker(
     (marker.updatedKnowledgeRevisionId !== undefined &&
       marker.updatedKnowledgeRevisionId !== marker.currentKnowledgeRevisionId)
   ) integrityMismatch();
-  const formalVerdict = reconstructFormalResidenceVerdict(marker.formalVerdict, {
-    profileSnapshotId: ranking.profileSnapshotId,
-    evidenceSnapshotId: marker.evidenceSnapshotId,
-  });
-  return structuredClone({ ...marker, formalVerdict }) as FrontierMarker;
+  return marker;
 }
 
 function decodeShortlist(value: unknown, ranking: RankingSnapshot): ShortlistSnapshot {
