@@ -316,7 +316,12 @@ describe("strict finite country-resolution protocol", () => {
 
     expect(received).toEqual(fixture.events);
     let state = initialCountryResolutionEventState(fixture.initial);
-    fixture.events.forEach((event) => { state = reduceCountryResolutionEvent(state, event); });
+    fixture.events.forEach((event) => {
+      state = reduceCountryResolutionEvent(state, event, {
+        country: fixture.replacement.country,
+        rank: fixture.replacement.rank,
+      });
+    });
     expect(state).toEqual({
       resolutionRunId: fixture.initial.resolutionRunId,
       expectedRevisionId: "revision-2",
@@ -476,6 +481,44 @@ describe("strict finite country-resolution protocol", () => {
 
     await expect(collectResolutionEvents(eventStream([event]), fixture.initial))
       .resolves.toEqual([event]);
+  });
+
+  test("rejects replacement activation when the persisted ranking cursor is exhausted", async () => {
+    const fixture = protocolFixture();
+    const ordered = fixture.initial.automaticFrontier.rankingSnapshot.ordered.slice(0, 5);
+    const exhausted: CountryResolutionReadModel = {
+      ...fixture.initial,
+      automaticFrontier: {
+        ...fixture.initial.automaticFrontier,
+        rankingSnapshot: {
+          ...fixture.initial.automaticFrontier.rankingSnapshot,
+          ordered,
+          knowledgeRevisionIds: Object.fromEntries(
+            ordered.map(({ countryCode }) => [countryCode, null]),
+          ),
+        },
+      },
+    };
+    const forgedActivation: CountryResolutionContinuationEvent = {
+      resolutionRunId: exhausted.resolutionRunId,
+      sequence: 1,
+      occurredAt: NOW,
+      type: "replacement_country_activated",
+      payload: {
+        country: exhausted.automaticFrontier.shortlistSnapshot.markers[4]!.country,
+        rank: 5,
+      },
+    };
+    const received: CountryResolutionContinuationEvent[] = [];
+    const consume = async () => {
+      for await (const event of decodeCountryResolutionStream(
+        eventStream([forgedActivation]),
+        exhausted,
+      )) received.push(event);
+    };
+
+    await expect(consume()).rejects.toThrow("invalid_replacement_activation");
+    expect(received).toEqual([]);
   });
 
   test("cancels every rejected response body without masking the primary error", () => {

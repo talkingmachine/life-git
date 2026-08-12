@@ -299,9 +299,9 @@ export function reduceCountryResolutionEvent(
   let terminal: CountryResolutionReadModel | undefined;
 
   if (event.type === "replacement_country_activated") {
-    if (activeReplacement !== undefined || expectedActivation !== undefined &&
-      (event.payload.rank !== expectedActivation.rank ||
-        !sameValue(event.payload.country, expectedActivation.country))) {
+    if (activeReplacement !== undefined || expectedActivation === undefined ||
+      event.payload.rank !== expectedActivation.rank ||
+      !sameValue(event.payload.country, expectedActivation.country)) {
       throw new Error("invalid_replacement_activation");
     }
     activeReplacement = freezeCopy(event.payload);
