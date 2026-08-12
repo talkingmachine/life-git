@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-12 |
 | Область ответственности | аудитория, обещание, ключевая семантика, границы и цели MVP |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12 |
 
 `Life Branches` — рабочее название, а не утверждённый бренд.
 
@@ -87,9 +87,11 @@ Country Source Index, а поясняющий текст является дет
 
 ## 7. Основной пользовательский цикл
 
-Пользователь подтверждает профиль, наблюдает проверку стран на карте, выбирает страну и город,
-собирает одну ветвь из работы и жилья, изучает её визуально с Evidence Passport, затем меняет
-решение и сравнивает fork. Точная последовательность зафиксирована в [`demo-story.md`](demo-story.md).
+Пользователь подтверждает профиль, наблюдает automatic country frontier на карте, обязательно
+разрешает каждую formal yellow-страну, получает Resolved Country Shortlist Snapshot и только затем
+в будущем выбирает страну для city research. После выбора города он собирает одну ветвь из работы
+и жилья, изучает её визуально с Evidence Passport, затем меняет решение и сравнивает fork. Точная
+последовательность зафиксирована в [`demo-story.md`](demo-story.md).
 
 ## 8. Поиск стран и городов
 
@@ -105,25 +107,32 @@ rankable Country Knowledge package и `ResidenceRouteCatalogRevision`. Новы�
 
 ### Семантика top-5
 
-`Top-5` означает пять разных стран из установленного `Automated Frontier Coverage`, упорядоченных
-по персональной релевантности места в неизменяемом `Ranking Snapshot`. Это не доказанный мировой
-оптимум. Количество способов легализации не влияет на place score.
+`Top-5` означает до пяти разных effective green стран из установленного `Automated Frontier
+Coverage`, упорядоченных по персональной релевантности места в неизменяемом `Ranking Snapshot`.
+Это не доказанный мировой оптимум. Количество способов легализации не влияет на place score.
 
 До sealing ranking verified mismatch критерия `required` исключает страну из ranking universe,
 но не создаёт legal red. Missing, stale или несопоставимый fit-факт получает явно показанную
 conservative unknown boundary.
 
-Система проверяет страны в зафиксированном порядке. Красная страна остаётся на карте и заменяется
-следующей по ranking. Поиск завершается при пяти разных green/yellow странах либо после исчерпания
-установленного frontier. Любой yellow делает результат предварительным; при исчерпании coverage
-допустим честный результат меньше пяти, который не называется top-5. Обновления Country Knowledge
-текущего run влияют только на следующий Ranking Snapshot.
+Automatic Country Frontier проверяет страны в зафиксированном порядке. Красная страна остаётся на
+карте и заменяется следующей по ranking. Его stop — пять разных formal non-red стран либо
+исчерпание установленного frontier; Automatic Shortlist Snapshot остаётся preliminary.
+
+После automatic frontier начинается обязательная Yellow Resolution. Каждая unresolved formal yellow
+требует `accepted_at_own_risk` или `rejected`: accepted получает ordinary effective green, а rejected
+получает ordinary effective red без утверждения formal impossibility и запускает replacement из того
+же frozen ranking. Только Resolved Country Shortlist Snapshot без unresolved formal yellow содержит
+до пяти effective green стран; при exhaustion допустим честный результат 0–4. Обновления Country
+Knowledge текущего run влияют только на следующий Ranking Snapshot.
 
 ### Города
 
-Country shortlist формируется до city research и не зависит от подтверждения города. После
-завершения country frontier пользователь выбирает green/yellow страну, для которой отдельный
-city frontier предлагает от одного до трёх наиболее подходящих городов.
+Country shortlist формируется до city research и не зависит от подтверждения города. В будущем
+City Frontier принимает только non-empty Resolved Country Shortlist Snapshot; automatic shortlist,
+working resolution revision и empty terminal result не открывают city research. Для выбранной
+effective green страны отдельный city frontier предлагает от одного до трёх наиболее подходящих
+городов.
 
 City fit не меняет формальный цвет страны. Провал одного города исключает только этот город;
 поиск другого города продолжает сохранённый city frontier и переиспользует применимое country
@@ -135,14 +144,17 @@ evidence. Полный сценарий работы, жилья и жизни �
 | --- | --- | --- |
 | Серый | формальная проверка страны ещё выполняется; verdict отсутствует | наблюдать фактический прогресс |
 | Зелёный | подтверждён хотя бы один формально доступный маршрут долгосрочного проживания | перейти к country cards после поиска |
-| Жёлтый | green не найден, но пробел, конфликт, неоднозначность или неполный catalog не позволяют доказать невозможность | открыть неизвестность, источники и manual-check guidance |
+| Жёлтый | green не найден, но пробел, конфликт, неоднозначность или неполный catalog не позволяют доказать невозможность | обязательно принять риск или отклонить страну в Yellow Resolution |
 | Красный | полный применимый route catalog проверен, и каждый маршрут доказанно невозможен для profile | открыть route outcomes, blockers и official sources |
 
-Цвет marker отвечает только на вопрос формальной возможности долгосрочного проживания, а не на
-безопасность, стоимость, предпочтения или качество города. Один провалившийся маршрут не даёт red;
-verified preference mismatch и неудача города также не дают red. Red marker не удаляется из run.
-Green не гарантирует решение органа, application readiness или соответствие места предпочтениям;
-маршрут с contingent action явно показывает, что нужный outcome ещё не получен.
+Formal status marker отвечает только на вопрос формальной возможности долгосрочного проживания, а
+не на безопасность, стоимость, предпочтения или качество города. Один провалившийся маршрут не
+даёт red; verified preference mismatch и неудача города также не дают red. Red marker не удаляется
+из run. Effective status после Yellow Resolution является отдельной пользовательской projection:
+accepted formal yellow выглядит и действует как ordinary green, rejected formal yellow — как
+ordinary red, но его formal yellow не переписывается. Green не гарантирует решение органа,
+application readiness или соответствие места предпочтениям; маршрут с contingent action явно
+показывает, что нужный outcome ещё не получен.
 
 ## 10. Карточки и жизненная ветвь
 
@@ -194,8 +206,9 @@ MVP охватывает один канонический end-to-end journey:
 - профиль и необязательных сопровождающих;
 - глобальный screening, десять starter dossiers и один cold start;
 - progressive verification и карту состояний;
-- до пяти разных green/yellow стран либо честный меньший preliminary result;
-- отдельный city frontier с одним–тремя городами после выбора страны;
+- automatic frontier с до пятью formal non-red странами либо честным preliminary result;
+- обязательную Yellow Resolution и до пяти effective green стран в Resolved Country Shortlist Snapshot;
+- будущий отдельный city frontier с одним–тремя городами только после resolved country input;
 - выбор города, работы и жилья;
 - одну визуальную жизненную ветвь;
 - Evidence Passport;

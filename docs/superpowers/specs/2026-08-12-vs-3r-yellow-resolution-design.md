@@ -2,12 +2,13 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `draft` — разговорный дизайн одобрен, точный письменный baseline ожидает ревью пользователя |
+| Статус | `approved` — разговорный дизайн и точный письменный baseline одобрены пользователем |
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-12 |
 | Область | разрешение yellow-стран после автоматического Country Frontier и до City Frontier |
 | Зависимости | утверждённый и реализованный `VS-3 Place Frontier`, Product Charter, Spec of Specs |
 | Approval evidence | пользователь последовательно одобрил подход A и все шесть разделов разговорного дизайна 2026-08-12 |
+| Written approval | пользователь явно одобрил точный письменный baseline 2026-08-12 |
 | Canonical effect after written approval | automatic shortlist становится предварительным; unresolved yellow блокирует итоговый country shortlist и City Frontier; решение пользователя задаёт отдельный effective status, не меняя formal verdict |
 
 Этот документ описывает самостоятельный промежуточный vertical slice между завершённым `VS-3`
@@ -601,8 +602,9 @@ Superseded после approval положения:
 - [x] Пользователь одобрил formal/effective split и обычное green/red поведение после решения.
 - [x] Пользователь одобрил post-frontier resolution lifecycle, replacement semantics и exhaustion.
 - [x] Пользователь одобрил architecture/storage boundary, protocol/recovery и acceptance scope.
-- [ ] Пользователь проверил и явно одобрил этот точный письменный baseline.
-- [ ] Canonical Product Charter/Glossary/Demo/Spec amendments утверждены.
+- [x] Пользователь проверил и явно одобрил этот точный письменный baseline 2026-08-12.
+- [x] Направление canonical Product Charter/Glossary/Demo/Spec amendments утверждено этим baseline;
+  точные правки входят в первый task implementation plan.
 - [ ] Exact implementation tasks составлены и утверждены.
 
 Production implementation не начинается до письменного approval этого design, canonical amendment

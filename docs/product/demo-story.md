@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-12 |
 | Область ответственности | конкурсная драматургия и наблюдаемый end-to-end результат |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12 |
 
 ## 1. Цель демо
 
@@ -75,19 +75,31 @@ sources. При наличии yellow открываются exact unknown и ma
 Что должен понять зритель: цвет отвечает только на формальную возможность долгосрочного проживания.
 Preference mismatch и неудача города не создают red; отсутствие evidence не маскируется под verdict.
 
-### 1:30–2:15 — «Вот найденные варианты — и что ещё неизвестно»
+### 1:30–2:15 — «Разрешаем формальную неопределённость»
 
-При пяти разных non-red странах либо exhaustion карта сворачивается, сохраняя все markers.
-Интерфейс показывает `N формально доступны / M требуют проверки`. Любой yellow делает результат
-preliminary; при исчерпании installed coverage допустимо меньше пяти.
+При пяти разных formal non-red странах либо exhaustion automatic frontier останавливается, а карта
+сохраняет все markers. Его Automatic Shortlist Snapshot preliminary: unresolved formal yellow
+обязательна к разрешению до country choice и будущего City Frontier.
+
+Интерфейс по frozen rank показывает exact unknown facts, official/manual links и решение
+`accepted_at_own_risk` или `rejected`. После commit accepted yellow становится ordinary effective
+green marker/card без special badge. Rejected yellow становится persistent ordinary effective red
+marker; detail правдиво объясняет пользовательский отказ, не утверждая formal impossibility, и
+запускает replacement из того же frozen ranking. Formal red replacements также остаются на планете;
+replacement yellow вновь требует решения.
+
+После всех решений интерфейс публикует Resolved Country Shortlist Snapshot из до пяти effective
+green стран без unresolved yellow. При exhaustion допустим честный результат 0–4; empty terminal
+не предлагает City Frontier.
 
 Country cards показывают fit относительно текущей жизни отдельно от formal color и различают
 Knowledge revision, использованную для ranking, от verified updates текущего run. Evidence зелёных
 кандидатов доступно здесь, а не в popover карты.
 
-Пользователь выбирает страну. Только после этого отдельный city frontier предлагает один–три
-подходящих города; green страны не означает, что конкретный город подходит. При желании
-пользователь может продолжить city frontier или ввести другой город для той же проверки.
+Пользователь выбирает effective green страну только из non-empty Resolved Country Shortlist
+Snapshot. Только после этого будущий отдельный city frontier предлагает один–три подходящих города;
+effective green не означает, что конкретный город подходит. При желании пользователь может
+продолжить city frontier или ввести другой город для той же проверки.
 
 ### 2:15–3:20 — «Собираем жизнь»
 
@@ -137,9 +149,9 @@ Life Git создаёт fork и показывает visual diff.
 | Часть | Что показывается в демо |
 | --- | --- |
 | Input | профиль, сопровождающие, цель, ограничения, предпочтения и unknown |
-| Process | frozen place ranking, current-run official verification, persistent marker history, red replacement, Country Knowledge write-back и отдельный city frontier |
+| Process | frozen place ranking, current-run official verification, mandatory Yellow Resolution, derived effective status, persistent marker history, replacement, Country Knowledge write-back и future city frontier |
 | Evals | отдельный eval artifact с результатами provenance, constraint, fail-closed и reproducibility checks |
-| Output | formal non-red shortlist с green/yellow composition, визуальная ветвь, Evidence Passport и Life Git diff |
+| Output | Resolved Country Shortlist Snapshot с effective green composition, визуальная ветвь, Evidence Passport и Life Git diff |
 
 ## 5. Demo readiness gate
 
