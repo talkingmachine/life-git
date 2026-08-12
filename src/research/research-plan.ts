@@ -86,6 +86,7 @@ export interface SealEvidenceInput<
   readonly parserVersions: Readonly<Record<S, string>>;
   readonly rulesVersion: string;
   readonly contextHash?: string;
+  readonly knowledgeBaselineRevisionId?: string;
 }
 
 export interface EvidenceIntegrity {
@@ -146,6 +147,7 @@ export interface EvidencePlanInput {
   readonly deadlineAt: string;
   readonly signal?: AbortSignal;
   readonly contextHash?: string;
+  readonly knowledgeBaselineRevisionId?: string;
 }
 
 interface PrepareEvidencePorts<S extends string, C extends Claim<unknown, S>> {
@@ -237,7 +239,11 @@ export function assertSealedEvidenceStructure<
     !manifest.entries.every((entry) => isRecord(entry) && Array.isArray(entry.artifactIds)) ||
     !Array.isArray(manifest.artifacts) || !manifest.artifacts.every(isRecord) ||
     !snapshot.claims.every((claim) => isRecord(claim) && isRecord(claim.anchor)) ||
-    !snapshot.blockers.every((blocker) => isRecord(blocker) && Array.isArray(blocker.artifactIds))
+    !snapshot.blockers.every((blocker) => isRecord(blocker) && Array.isArray(blocker.artifactIds)) ||
+    (snapshot.knowledgeBaselineRevisionId !== undefined &&
+      typeof snapshot.knowledgeBaselineRevisionId !== "string") ||
+    (manifest.snapshot.knowledgeBaselineRevisionId !== undefined &&
+      typeof manifest.snapshot.knowledgeBaselineRevisionId !== "string")
   ) fail();
   if (
     sourceIds.length === 0 || new Set(sourceIds).size !== sourceIds.length ||
@@ -252,6 +258,7 @@ export function assertSealedEvidenceStructure<
     manifest.snapshot.assessmentDate !== snapshot.assessmentDate ||
     manifest.snapshot.rulesVersion !== snapshot.rulesVersion ||
     manifest.snapshot.contextHash !== snapshot.contextHash ||
+    manifest.snapshot.knowledgeBaselineRevisionId !== snapshot.knowledgeBaselineRevisionId ||
     !sameOrderedStrings(manifest.snapshot.artifactIds, snapshot.artifactIds) ||
     !exactRecordKeys(manifest.snapshot.coverage, sourceIds) ||
     !exactRecordKeys(manifest.snapshot.parserVersions, sourceIds) ||
@@ -361,6 +368,9 @@ export async function sealEvidencePlan<S extends string, C extends Claim<unknown
     parserVersions: input.parserVersions,
     rulesVersion: input.rulesVersion,
     ...(input.contextHash === undefined ? {} : { contextHash: input.contextHash }),
+    ...(input.knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
   };
   const manifest: EvidenceManifest<S, C> = {
     snapshot: snapshotPayload,
@@ -763,6 +773,9 @@ export async function prepareEvidencePlan<S extends string, C extends Claim<unkn
       parserVersions: plan.parserVersions,
       rulesVersion: plan.rulesVersion,
       ...(input.contextHash === undefined ? {} : { contextHash: input.contextHash }),
+      ...(input.knowledgeBaselineRevisionId === undefined
+        ? {}
+        : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
     }, ports.integrity);
   } finally {
     input.signal?.removeEventListener("abort", externalAbort);

@@ -154,6 +154,9 @@ function snapshotPayload<S extends string, C extends Claim<unknown, S>>(
     parserVersions: snapshot.parserVersions,
     rulesVersion: snapshot.rulesVersion,
     ...(snapshot.contextHash === undefined ? {} : { contextHash: snapshot.contextHash }),
+    ...(snapshot.knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId: snapshot.knowledgeBaselineRevisionId }),
   };
 }
 

@@ -5,6 +5,7 @@ import {
   type InstalledCountryKnowledgeRevision,
   type KnowledgeStatusObservation,
   type SloveniaCountryKnowledgeRevision,
+  type VerifiedCountryEvidenceInput,
 } from "../../research/country-knowledge";
 import type { ClaimKind, SloveniaSourceId } from "../../research/cold-start-contracts";
 import { canonicalJson, hmacSha256, secureHexEqual, sha256Text } from "../integrity";
@@ -14,6 +15,13 @@ export interface CountryKnowledgeStore {
   publish(revision: InstalledCountryKnowledgeRevision): InstalledCountryKnowledgeRevision;
   latest(countryCode: string): InstalledCountryKnowledgeRevision | undefined;
   loadVerified(id: string): InstalledCountryKnowledgeRevision;
+  resolveForEvidence(evidenceSnapshotId: string): CountryKnowledgePublication;
+  publishCurrentFromEvidence(evidenceSnapshotId: string): CountryKnowledgePublication;
+}
+
+export interface CountryKnowledgePublication {
+  readonly publishedRevision?: InstalledCountryKnowledgeRevision;
+  readonly currentRevision?: InstalledCountryKnowledgeRevision;
 }
 
 interface KnowledgeRow {
@@ -176,25 +184,7 @@ export class SqliteCountryKnowledgeStore implements CountryKnowledgeStore {
 
       const predecessor = this.latest(revision.countryCode);
       if (revision.predecessorId !== predecessor?.id) integrityMismatch();
-      this.verifyExpectedRevision(revision, predecessor);
-      const payloadJson = canonicalJson(revision);
-      this.database.prepare(`
-        INSERT INTO country_knowledge_revisions (
-          id, country_code, predecessor_id, trigger_evidence_snapshot_id,
-          schema_version, payload_json, payload_hash, hmac, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        revision.id,
-        revision.countryCode,
-        revision.predecessorId ?? null,
-        revision.triggerEvidenceSnapshotId,
-        revision.schemaVersion,
-        payloadJson,
-        sha256Text(payloadJson),
-        hmacSha256(payloadJson, this.hmacKey),
-        revision.createdAt,
-      );
-      return this.loadVerified(revision.id);
+      return this.insertVerified(revision, predecessor);
     });
     try {
       return publish.immediate();
@@ -238,6 +228,97 @@ export class SqliteCountryKnowledgeStore implements CountryKnowledgeStore {
     } catch (error) {
       normalizeFailure(error);
     }
+  }
+
+  resolveForEvidence(evidenceSnapshotId: string): CountryKnowledgePublication {
+    try {
+      const evidence = loadVerifiedCountryEvidence(
+        this.database,
+        evidenceSnapshotId,
+        this.hmacKey,
+      );
+      return this.resolveVerifiedEvidence(evidence);
+    } catch {
+      integrityMismatch();
+    }
+  }
+
+  publishCurrentFromEvidence(evidenceSnapshotId: string): CountryKnowledgePublication {
+    const publish = this.database.transaction((): CountryKnowledgePublication => {
+      const evidence = loadVerifiedCountryEvidence(
+        this.database,
+        evidenceSnapshotId,
+        this.hmacKey,
+      );
+      const bound = this.resolveVerifiedEvidence(evidence);
+      if (bound.publishedRevision !== undefined) return bound;
+      const createdAt = evidence.artifacts
+        .filter(({ sourceId }) => sourceId !== "cbr-eur")
+        .map(({ capturedAt }) => capturedAt)
+        .sort()
+        .at(-1);
+      if (createdAt === undefined) return bound;
+      const predecessor = this.latest("SI");
+      const revision = buildSloveniaKnowledgeRevision({
+        evidence,
+        ...(predecessor === undefined ? {} : { predecessor }),
+        createdAt,
+      });
+      if (revision === undefined) return bound;
+      const publishedRevision = this.insertVerified(revision, predecessor);
+      return { publishedRevision, currentRevision: publishedRevision };
+    });
+    try {
+      return publish.immediate();
+    } catch {
+      integrityMismatch();
+    }
+  }
+
+  private resolveVerifiedEvidence(
+    evidence: VerifiedCountryEvidenceInput,
+  ): CountryKnowledgePublication {
+    const baselineId = evidence.snapshot.knowledgeBaselineRevisionId;
+    let baseline: InstalledCountryKnowledgeRevision | undefined;
+    if (baselineId !== undefined) {
+      baseline = this.loadVerified(baselineId);
+      if (baseline.countryCode !== "SI") integrityMismatch();
+    }
+    const triggeredRows = this.database.prepare(`
+      SELECT id FROM country_knowledge_revisions
+      WHERE country_code = 'SI' AND trigger_evidence_snapshot_id = ?
+    `).all(evidence.snapshot.id) as { readonly id: string }[];
+    if (triggeredRows.length > 1) integrityMismatch();
+    if (triggeredRows.length === 0) {
+      return baseline === undefined ? {} : { currentRevision: baseline };
+    }
+    const publishedRevision = this.loadVerified(triggeredRows[0]!.id);
+    return { publishedRevision, currentRevision: publishedRevision };
+  }
+
+  private insertVerified(
+    revision: SloveniaCountryKnowledgeRevision,
+    predecessor: SloveniaCountryKnowledgeRevision | undefined,
+  ): InstalledCountryKnowledgeRevision {
+    this.verifyExpectedRevision(revision, predecessor);
+    const payloadJson = canonicalJson(revision);
+    this.database.prepare(`
+      INSERT INTO country_knowledge_revisions (
+        id, country_code, predecessor_id, trigger_evidence_snapshot_id,
+        schema_version, payload_json, payload_hash, hmac, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      revision.id,
+      revision.countryCode,
+      revision.predecessorId ?? null,
+      revision.triggerEvidenceSnapshotId,
+      revision.schemaVersion,
+      payloadJson,
+      sha256Text(payloadJson),
+      hmacSha256(payloadJson, this.hmacKey),
+      revision.createdAt,
+    );
+    return this.loadVerified(revision.id);
   }
 
   private loadChain(

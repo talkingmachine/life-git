@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { Worker } from "node:worker_threads";
+import { join } from "node:path";
 
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+import {
+  sqlitePublicationWorker,
+  type SqlitePublicationWorkerHandle,
+} from "../support/sqlite-publication-worker";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { createConfirmedLifeComposition } from "../../src/infrastructure/composition-root";
@@ -437,86 +440,24 @@ const MALFORMED_STORED_SHAPES: readonly [string, StoredShapeMutation][] = [
   }],
 ];
 
-interface PublishWorkerHandle {
-  readonly ready: Promise<void>;
-  readonly result: Promise<DossierPublishResult>;
-}
-
 function publishWorker(input: {
   readonly path: string;
   readonly preparedEvidence: SloveniaPrepared;
   readonly publishedAt: string;
   readonly start: SharedArrayBuffer;
-}): PublishWorkerHandle {
-  const source = String.raw`
-    const { parentPort, workerData } = require("node:worker_threads");
-    (async () => {
-      let database;
-      try {
-        const { tsImport } = await import("tsx/esm/api");
-        const { SqliteDossierStore } = await tsImport(
-          workerData.storeModule,
-          workerData.parentModule,
-        );
-        const Database = (await import("better-sqlite3")).default;
-        database = new Database(workerData.path);
-        database.pragma("foreign_keys = ON");
-        database.pragma("busy_timeout = 3000");
-        parentPort.postMessage({ type: "ready" });
-        const start = new Int32Array(workerData.start);
-        Atomics.wait(start, 0, 0);
-        const value = new SqliteDossierStore(database, workerData.key).publishWithEvidence({
-          preparedEvidence: workerData.preparedEvidence,
-          publishedAt: workerData.publishedAt,
-        });
-        database.close();
-        database = undefined;
-        parentPort.postMessage({ type: "result", value });
-      } catch (error) {
-        parentPort.postMessage({
-          type: "error",
-          message: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        if (database?.open) database.close();
-      }
-    })();
-  `;
-  const worker = new Worker(source, {
-    eval: true,
-    workerData: {
-      ...input,
-      key: KEY,
-      storeModule: pathToFileURL(resolve("src/infrastructure/sqlite/dossier-store.ts")).href,
-      parentModule: pathToFileURL(resolve("tests/integration/cold-start.test.ts")).href,
-    },
+}): SqlitePublicationWorkerHandle<DossierPublishResult> {
+  return sqlitePublicationWorker({
+    path: input.path,
+    key: KEY,
+    start: input.start,
+    storeModulePath: "src/infrastructure/sqlite/dossier-store.ts",
+    storeExportName: "SqliteDossierStore",
+    methodName: "publishWithEvidence",
+    args: [{
+      preparedEvidence: input.preparedEvidence,
+      publishedAt: input.publishedAt,
+    }],
   });
-  let readyResolve!: () => void;
-  let resultResolve!: (value: DossierPublishResult) => void;
-  let resultReject!: (error: Error) => void;
-  const ready = new Promise<void>((resolveReady) => {
-    readyResolve = resolveReady;
-  });
-  const result = new Promise<DossierPublishResult>((resolveResult, rejectResult) => {
-    resultResolve = resolveResult;
-    resultReject = rejectResult;
-  });
-  void result.catch(() => undefined);
-  const reject = (error: Error): void => {
-    readyResolve();
-    resultReject(error);
-  };
-  worker.on("message", (message: {
-    readonly type: "ready" | "result" | "error";
-    readonly value?: DossierPublishResult;
-    readonly message?: string;
-  }) => {
-    if (message.type === "ready") readyResolve();
-    if (message.type === "result") resultResolve(message.value!);
-    if (message.type === "error") reject(new Error(message.message ?? "worker_failed"));
-  });
-  worker.on("error", (error) => reject(error));
-  return { ready, result };
 }
 
 const RELOCATION_DRAFT: RelocationProfileDraft = {
@@ -960,7 +901,11 @@ const installedIndexResult = createInstalledCountrySourceIndex().lookup("SI");
 if (!installedIndexResult.ok) throw new Error("Slovenia test index must be installed");
 const INSTALLED_CANDIDATES = installedIndexResult.candidates;
 
-async function blockedRunFixture(runId: string, contextHash: string) {
+async function blockedRunFixture(
+  runId: string,
+  contextHash: string,
+  knowledgeBaselineRevisionId?: string,
+) {
   const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] =
     SOURCE_IDS.map((sourceId) => ({
       sourceId,
@@ -986,6 +931,7 @@ async function blockedRunFixture(runId: string, contextHash: string) {
     parserVersions: PARSER_VERSIONS,
     rulesVersion: "vs2-si-evidence@2",
     contextHash,
+    ...(knowledgeBaselineRevisionId === undefined ? {} : { knowledgeBaselineRevisionId }),
   }, createEvidenceIntegrity(KEY));
 }
 
@@ -1024,13 +970,26 @@ function coldStartHarness(options: {
           assessmentDate: input.assessmentDate,
           deadlineAt: input.deadlineAt,
           contextHash: input.contextHash,
+          ...(input.knowledgeBaselineRevisionId === undefined
+            ? {}
+            : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
           candidates: structuredClone(input.candidates),
         });
         const fixture = options.countryInstalled === false
-          ? { prepared: await blockedRunFixture(input.runId, input.contextHash), artifacts: [] }
+          ? {
+              prepared: await blockedRunFixture(
+                input.runId,
+                input.contextHash,
+                input.knowledgeBaselineRevisionId,
+              ),
+              artifacts: [],
+            }
           : await replayableFixture({
               runId: input.runId,
               contextHash: input.contextHash,
+              ...(input.knowledgeBaselineRevisionId === undefined
+                ? {}
+                : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
               cbrRate: "90",
               cbrEffectiveDate: "2026-08-10",
             });
@@ -1082,19 +1041,11 @@ function coldStartHarness(options: {
         if (evidence.snapshot.assessmentDate !== lastCheckedAt) {
           throw new Error("integrity_mismatch");
         }
-        const currentRevision = knowledgeStore.latest("SI");
-        const createdAt = evidence.artifacts.map(({ capturedAt }) => capturedAt).sort().at(-1);
-        if (createdAt === undefined) return { currentRevision };
-        const revision = buildSloveniaKnowledgeRevision({
-          evidence,
-          ...(currentRevision === undefined ? {} : { predecessor: currentRevision }),
-          createdAt,
-        });
-        if (revision === undefined) return { currentRevision };
-        const publishedRevision = knowledgeStore.publish(revision);
-        return { publishedRevision, currentRevision: publishedRevision };
+        return knowledgeStore.publishCurrentFromEvidence(evidenceSnapshotId);
       },
       latest: async (countryCode) => knowledgeStore.latest(countryCode),
+      resolveForEvidence: async (evidenceSnapshotId) =>
+        knowledgeStore.resolveForEvidence(evidenceSnapshotId),
     },
     integrity: (() => {
       const integrity = createEvidenceIntegrity(KEY);
@@ -1408,6 +1359,10 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(harness.db.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get())
       .toBe(2);
     expect(harness.db.prepare("SELECT COUNT(*) FROM profile_snapshots").pluck().get()).toBe(1);
+    expect(canonicalJson(await harness.application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    }))).toBe(canonicalJson(result));
 
     const other = await harness.application.prepare({
       countryInput: "SI",
@@ -1547,6 +1502,41 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       runId: prepared.runId,
       profileId: prepared.profileId,
     })).toEqual(result);
+
+    const sealedFailedEvidence = db.prepare(`
+      SELECT snapshot_json AS snapshotJson, manifest_json AS manifestJson
+      FROM evidence_snapshots WHERE id = ?
+    `).get(`${prepared.runId}:evidence`) as {
+      readonly snapshotJson: string;
+      readonly manifestJson: string;
+    };
+    expect(JSON.parse(sealedFailedEvidence.snapshotJson)).toMatchObject({
+      knowledgeBaselineRevisionId: existingRevision.id,
+    });
+    expect(JSON.parse(sealedFailedEvidence.manifestJson)).toMatchObject({
+      snapshot: { knowledgeBaselineRevisionId: existingRevision.id },
+    });
+
+    const later = await replayableFixture({ runId: "knowledge-later-run" });
+    for (const sourceArtifact of later.artifacts) {
+      await evidenceStore.appendArtifact(sourceArtifact);
+    }
+    await evidenceStore.seal(later.prepared);
+    const laterEvidence = await evidenceStore.loadVerifiedCountryEvidence(
+      later.prepared.snapshot.id,
+      KEY,
+    );
+    const laterRevision = buildSloveniaKnowledgeRevision({
+      evidence: laterEvidence,
+      predecessor: existingRevision,
+      createdAt: "2026-08-13T10:00:00.000Z",
+    })!;
+    new SqliteCountryKnowledgeStore(db, KEY).publish(laterRevision);
+
+    expect(canonicalJson(await application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    }))).toBe(canonicalJson(result));
   });
 
   test.each([
@@ -2533,6 +2523,7 @@ async function replayableFixture(options: {
   readonly parserVersions?: Readonly<Record<SloveniaSourceId, string>>;
   readonly runId?: string;
   readonly contextHash?: string;
+  readonly knowledgeBaselineRevisionId?: string;
   readonly cbrRate?: string;
   readonly cbrEffectiveDate?: string;
   readonly mutateClaim?: (claim: VerifiedCountryClaim) => VerifiedCountryClaim;
@@ -2680,6 +2671,9 @@ async function replayableFixture(options: {
     parserVersions: options.parserVersions ?? PARSER_VERSIONS,
     rulesVersion: options.rulesVersion ?? "vs2-si-evidence@2",
     contextHash: options.contextHash ?? "b".repeat(64),
+    ...(options.knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId: options.knowledgeBaselineRevisionId }),
   }, createEvidenceIntegrity(KEY));
   return { prepared, artifacts };
 }

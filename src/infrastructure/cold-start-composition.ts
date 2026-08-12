@@ -13,7 +13,6 @@ import type {
   SloveniaSourceId,
 } from "../research/cold-start-contracts";
 import type { RequestStep } from "../research/contracts";
-import { buildSloveniaKnowledgeRevision } from "../research/country-knowledge";
 import { prepareEvidencePlan } from "../research/research-plan";
 import { createEvidenceIntegrity } from "./integrity";
 import { createInstalledCountrySourceIndex } from "./sources/country-source-index";
@@ -58,6 +57,9 @@ export function createColdStartComposition(
           deadlineAt: input.deadlineAt,
           signal: input.signal,
           contextHash: input.contextHash,
+          ...(input.knowledgeBaselineRevisionId === undefined
+            ? {}
+            : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
         }, research.plan, {
           source: research.source,
           requestStep,
@@ -85,26 +87,11 @@ export function createColdStartComposition(
         if (evidence.snapshot.assessmentDate !== lastCheckedAt) {
           throw new Error("integrity_mismatch");
         }
-        const currentRevision = knowledgeStore.latest("SI");
-        if (currentRevision?.triggerEvidenceSnapshotId === evidenceSnapshotId) {
-          return { currentRevision };
-        }
-        const createdAt = evidence.artifacts
-          .filter(({ sourceId }) => sourceId !== "cbr-eur")
-          .map(({ capturedAt }) => capturedAt)
-          .sort()
-          .at(-1);
-        if (createdAt === undefined) return { currentRevision };
-        const revision = buildSloveniaKnowledgeRevision({
-          evidence,
-          ...(currentRevision === undefined ? {} : { predecessor: currentRevision }),
-          createdAt,
-        });
-        if (revision === undefined) return { currentRevision };
-        const publishedRevision = knowledgeStore.publish(revision);
-        return { publishedRevision, currentRevision: publishedRevision };
+        return knowledgeStore.publishCurrentFromEvidence(evidenceSnapshotId);
       },
       latest: async (countryCode) => knowledgeStore.latest(countryCode),
+      resolveForEvidence: async (evidenceSnapshotId) =>
+        knowledgeStore.resolveForEvidence(evidenceSnapshotId),
     },
     integrity,
     clock: options.clock ?? (() => new Date()),

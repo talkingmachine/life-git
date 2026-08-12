@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { Worker } from "node:worker_threads";
+import { join } from "node:path";
 
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
+
+import {
+  sqlitePublicationWorker,
+  type SqlitePublicationWorkerHandle,
+} from "../support/sqlite-publication-worker";
 
 import {
   buildSloveniaKnowledgeRevision,
@@ -196,6 +199,7 @@ async function evidenceFixture(input: {
   readonly income: SourceState;
   readonly companion: SourceState;
   readonly incomeThreshold?: string;
+  readonly knowledgeBaselineRevisionId?: string;
 }): Promise<KnowledgeFixture> {
   const states: Readonly<Record<CountrySourceId, SourceState>> = {
     "si-digital-nomad-route": input.route,
@@ -264,6 +268,9 @@ async function evidenceFixture(input: {
     sourceIds: SOURCE_IDS,
     parserVersions: PARSER_VERSIONS,
     rulesVersion: "vs2-si-evidence@2",
+    ...(input.knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
   }, createEvidenceIntegrity(KEY));
   return {
     sealed,
@@ -537,6 +544,40 @@ describe("append-only country knowledge", () => {
     expect(database.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get()).toBe(2);
   });
 
+  test("resolves only a verified signed baseline and keeps legacy omission unbound", async () => {
+    const database = memoryDatabase();
+    const rootFixture = await fullEvidence("bound-root");
+    await persistFixture(database, rootFixture);
+    const store = new SqliteCountryKnowledgeStore(database, KEY);
+    const root = store.publish(build(rootFixture)!);
+    const boundFixture = await evidenceFixture({
+      runId: "bound-attempt",
+      route: { kind: "verified", claimKinds: ROUTE_KINDS },
+      income: { kind: "verified", claimKinds: ["income"] },
+      companion: { kind: "verified", claimKinds: ["companion_local_work_access"] },
+      knowledgeBaselineRevisionId: root.id,
+    });
+    const missingFixture = await evidenceFixture({
+      runId: "missing-bound-attempt",
+      route: { kind: "verified", claimKinds: ROUTE_KINDS },
+      income: { kind: "verified", claimKinds: ["income"] },
+      companion: { kind: "verified", claimKinds: ["companion_local_work_access"] },
+      knowledgeBaselineRevisionId: "country-knowledge:SI:missing:evidence",
+    });
+    const legacyFixture = await fullEvidence("legacy-unbound-attempt");
+    await persistFixture(database, boundFixture);
+    await persistFixture(database, missingFixture);
+    await persistFixture(database, legacyFixture);
+
+    expect(store.resolveForEvidence(boundFixture.sealed.snapshot.id)).toEqual({
+      currentRevision: root,
+    });
+    expect(() => store.resolveForEvidence(missingFixture.sealed.snapshot.id)).toThrow(
+      "integrity_mismatch",
+    );
+    expect(store.resolveForEvidence(legacyFixture.sealed.snapshot.id)).toEqual({});
+  });
+
   test.each([
     ["payload", "payload_json", "null"],
     ["hash", "payload_hash", "0000000000000000000000000000000000000000000000000000000000000000"],
@@ -668,86 +709,80 @@ describe("append-only country knowledge", () => {
     expect(new SqliteCountryKnowledgeStore(database, KEY).latest("SI")).toEqual(revision);
     expect(database.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get()).toBe(1);
   });
+
+  test("rebases distinct Evidence publications inside one immediate transaction", async () => {
+    const { database, path } = fileDatabase();
+    const firstFixture = await fullEvidence("concurrent-distinct-first");
+    const secondFixture = await fullEvidence("concurrent-distinct-second");
+    await persistFixture(database, firstFixture);
+    await persistFixture(database, secondFixture);
+    const start = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+    const workers = [firstFixture, secondFixture].map((fixture) => publishWorker({
+      path,
+      evidenceSnapshotId: fixture.sealed.snapshot.id,
+      start,
+    }));
+    await Promise.all(workers.map(({ ready }) => ready));
+    const startSignal = new Int32Array(start);
+    Atomics.store(startSignal, 0, 1);
+    Atomics.notify(startSignal, 0, workers.length);
+
+    const results = await Promise.all(workers.map(({ result }) => result));
+
+    expect(results.map(({ publishedRevision }) => publishedRevision?.id).sort()).toEqual([
+      "country-knowledge:SI:concurrent-distinct-first:evidence",
+      "country-knowledge:SI:concurrent-distinct-second:evidence",
+    ]);
+    expect(results.every(({ publishedRevision, currentRevision }) =>
+      publishedRevision?.id === currentRevision?.id
+    )).toBe(true);
+    const rows = database.prepare(`
+      SELECT id, predecessor_id AS predecessorId
+      FROM country_knowledge_revisions ORDER BY predecessor_id IS NOT NULL, id
+    `).all() as { readonly id: string; readonly predecessorId: string | null }[];
+    expect(rows).toHaveLength(2);
+    expect(rows.filter(({ predecessorId }) => predecessorId === null)).toHaveLength(1);
+    expect(rows.filter(({ predecessorId }) => predecessorId !== null)).toHaveLength(1);
+    const store = new SqliteCountryKnowledgeStore(database, KEY);
+    const head = store.latest("SI")!;
+    expect(head.predecessorId).toBe(rows.find(({ predecessorId }) => predecessorId === null)!.id);
+    expect(results.map(({ publishedRevision }) =>
+      store.loadVerified(publishedRevision!.id).id
+    ).sort()).toEqual(results.map(({ publishedRevision }) => publishedRevision!.id).sort());
+  });
 });
 
-interface PublishWorkerHandle {
-  readonly ready: Promise<void>;
-  readonly result: Promise<SloveniaCountryKnowledgeRevision>;
+interface EvidencePublicationResult {
+  readonly publishedRevision?: SloveniaCountryKnowledgeRevision;
+  readonly currentRevision?: SloveniaCountryKnowledgeRevision;
 }
 
 function publishWorker(input: {
   readonly path: string;
   readonly revision: SloveniaCountryKnowledgeRevision;
   readonly start: SharedArrayBuffer;
-}): PublishWorkerHandle {
-  const source = String.raw`
-    const { parentPort, workerData } = require("node:worker_threads");
-    (async () => {
-      let database;
-      try {
-        const { tsImport } = await import("tsx/esm/api");
-        const { SqliteCountryKnowledgeStore } = await tsImport(
-          workerData.storeModule,
-          workerData.parentModule,
-        );
-        const Database = (await import("better-sqlite3")).default;
-        database = new Database(workerData.path);
-        database.pragma("foreign_keys = ON");
-        database.pragma("busy_timeout = 3000");
-        parentPort.postMessage({ type: "ready" });
-        const start = new Int32Array(workerData.start);
-        Atomics.wait(start, 0, 0);
-        const value = new SqliteCountryKnowledgeStore(database, workerData.key).publish(
-          workerData.revision,
-        );
-        database.close();
-        database = undefined;
-        parentPort.postMessage({ type: "result", value });
-      } catch (error) {
-        parentPort.postMessage({
-          type: "error",
-          message: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        if (database?.open) database.close();
-      }
-    })();
-  `;
-  const worker = new Worker(source, {
-    eval: true,
-    workerData: {
-      ...input,
-      key: KEY,
-      storeModule: pathToFileURL(resolve(
-        "src/infrastructure/sqlite/country-knowledge-store.ts",
-      )).href,
-      parentModule: pathToFileURL(resolve(
-        "tests/integration/country-knowledge.test.ts",
-      )).href,
-    },
+}): SqlitePublicationWorkerHandle<SloveniaCountryKnowledgeRevision>;
+function publishWorker(input: {
+  readonly path: string;
+  readonly evidenceSnapshotId: string;
+  readonly start: SharedArrayBuffer;
+}): SqlitePublicationWorkerHandle<EvidencePublicationResult>;
+function publishWorker(input: {
+  readonly path: string;
+  readonly revision?: SloveniaCountryKnowledgeRevision;
+  readonly evidenceSnapshotId?: string;
+  readonly start: SharedArrayBuffer;
+}): SqlitePublicationWorkerHandle<
+  SloveniaCountryKnowledgeRevision | EvidencePublicationResult
+> {
+  const publishesEvidence = input.evidenceSnapshotId !== undefined;
+  return sqlitePublicationWorker({
+    path: input.path,
+    key: KEY,
+    start: input.start,
+    storeModulePath: "src/infrastructure/sqlite/country-knowledge-store.ts",
+    storeExportName: "SqliteCountryKnowledgeStore",
+    methodName: publishesEvidence ? "publishCurrentFromEvidence" : "publish",
+    args: [publishesEvidence ? input.evidenceSnapshotId : input.revision],
   });
-  let readyResolve!: () => void;
-  let resultResolve!: (value: SloveniaCountryKnowledgeRevision) => void;
-  let resultReject!: (error: Error) => void;
-  const ready = new Promise<void>((resolveReady) => { readyResolve = resolveReady; });
-  const result = new Promise<SloveniaCountryKnowledgeRevision>((resolveResult, rejectResult) => {
-    resultResolve = resolveResult;
-    resultReject = rejectResult;
-  });
-  void result.catch(() => undefined);
-  const reject = (error: Error): void => {
-    readyResolve();
-    resultReject(error);
-  };
-  worker.on("message", (message: {
-    readonly type: "ready" | "result" | "error";
-    readonly value?: SloveniaCountryKnowledgeRevision;
-    readonly message?: string;
-  }) => {
-    if (message.type === "ready") readyResolve();
-    if (message.type === "result") resultResolve(message.value!);
-    if (message.type === "error") reject(new Error(message.message ?? "worker_failed"));
-  });
-  worker.on("error", reject);
-  return { ready, result };
 }

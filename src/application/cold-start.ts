@@ -161,6 +161,7 @@ export interface ColdStartResearchPrepareInput {
   readonly deadlineAt: string;
   readonly signal: AbortSignal;
   readonly contextHash: string;
+  readonly knowledgeBaselineRevisionId?: string;
   readonly candidates: readonly SourceCandidate[];
   readonly onProgress: (
     progress: EvidenceProgress<SloveniaSourceId, ColdStartEvidenceClaim>,
@@ -208,6 +209,10 @@ export interface ColdStartApplicationPorts {
       readonly currentRevision?: InstalledCountryKnowledgeRevision;
     }>;
     latest(countryCode: string): Promise<InstalledCountryKnowledgeRevision | undefined>;
+    resolveForEvidence(evidenceSnapshotId: string): Promise<{
+      readonly publishedRevision?: InstalledCountryKnowledgeRevision;
+      readonly currentRevision?: InstalledCountryKnowledgeRevision;
+    }>;
   };
   readonly integrity: EvidenceIntegrity;
   readonly clock: () => Date;
@@ -250,6 +255,9 @@ function snapshotPayload(
     parserVersions: snapshot.parserVersions,
     rulesVersion: snapshot.rulesVersion,
     ...(snapshot.contextHash === undefined ? {} : { contextHash: snapshot.contextHash }),
+    ...(snapshot.knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId: snapshot.knowledgeBaselineRevisionId }),
   };
 }
 
@@ -259,6 +267,7 @@ function verifyPrepared(
     readonly runId: string;
     readonly assessmentAt: string;
     readonly contextHash: string;
+    readonly knowledgeBaselineRevisionId: string | undefined;
   },
   integrity: EvidenceIntegrity,
 ): void {
@@ -268,6 +277,7 @@ function verifyPrepared(
     prepared.snapshot.id !== `${expected.runId}:evidence` ||
     prepared.snapshot.assessmentDate !== expected.assessmentAt ||
     prepared.snapshot.contextHash !== expected.contextHash ||
+    prepared.snapshot.knowledgeBaselineRevisionId !== expected.knowledgeBaselineRevisionId ||
     prepared.snapshot.rulesVersion !== "vs2-si-evidence@2" ||
     prepared.canonicalManifest !== canonicalManifest ||
     integrity.canonical(prepared.manifest.snapshot) !==
@@ -344,6 +354,7 @@ function contextHash(
 function countryNotInstalledEvidence(
   prepared: ColdStartPrepared,
   expectedContextHash: string,
+  knowledgeBaselineRevisionId: string | undefined,
   integrity: EvidenceIntegrity,
 ): Promise<SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaim>> {
   const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] =
@@ -374,6 +385,7 @@ function countryNotInstalledEvidence(
     parserVersions: SLOVENIA_PARSER_VERSIONS,
     rulesVersion: "vs2-si-evidence@2",
     contextHash: expectedContextHash,
+    ...(knowledgeBaselineRevisionId === undefined ? {} : { knowledgeBaselineRevisionId }),
   }, integrity);
 }
 
@@ -463,6 +475,9 @@ export function createColdStartApplication(
       parserVersions: replayed.parserVersions,
       rulesVersion: replayed.rulesVersion,
       contextHash: expectedContextHash,
+      ...(replayed.knowledgeBaselineRevisionId === undefined
+        ? {}
+        : { knowledgeBaselineRevisionId: replayed.knowledgeBaselineRevisionId }),
     }, ports.integrity);
     if (ports.integrity.canonical(rebuilt.snapshot) !== ports.integrity.canonical(replayed)) {
       integrityMismatch();
@@ -490,15 +505,20 @@ export function createColdStartApplication(
     const claimKinds = REQUIRED_CLAIM_KINDS.filter((kind) =>
       replayed.claims.some((claim) => "claimKind" in claim && claim.claimKind === kind)
     );
-    const currentKnowledge = await ports.knowledge.latest("SI");
+    const knowledgePublication = await ports.knowledge.resolveForEvidence(replayed.id);
+    const currentKnowledge = knowledgePublication.currentRevision;
+    const updatedKnowledge = knowledgePublication.publishedRevision;
+    if (
+      updatedKnowledge !== undefined &&
+      (updatedKnowledge.triggerEvidenceSnapshotId !== replayed.id ||
+        currentKnowledge?.id !== updatedKnowledge.id)
+    ) integrityMismatch();
     const knowledge = {
       ...(currentKnowledge === undefined
         ? {}
         : {
             currentRevisionId: currentKnowledge.id,
-            ...(currentKnowledge.triggerEvidenceSnapshotId === replayed.id
-              ? { updatedRevisionId: currentKnowledge.id }
-              : {}),
+            ...(updatedKnowledge === undefined ? {} : { updatedRevisionId: updatedKnowledge.id }),
             knowledgeUpdatedAt: currentKnowledge.createdAt,
           }),
       lastCheckedAt: replayed.assessmentDate,
@@ -564,6 +584,12 @@ export function createColdStartApplication(
         !resolved.ok ||
         ports.integrity.canonical(resolved.country) !== ports.integrity.canonical(prepared.country)
       ) integrityMismatch();
+      await ports.profiles.loadRelocationVerified(prepared.profileId);
+      const knowledgeBaseline = await ports.knowledge.latest("SI");
+      if (knowledgeBaseline !== undefined && knowledgeBaseline.countryCode !== "SI") {
+        integrityMismatch();
+      }
+      const knowledgeBaselineRevisionId = knowledgeBaseline?.id;
       const events = eventEmitter(prepared, emit, ports.clock);
       const indexed = ports.countrySourceIndex.lookup(prepared.country.code);
       if (signal.aborted) abortReason(signal);
@@ -576,12 +602,14 @@ export function createColdStartApplication(
         const preparedEvidence = await countryNotInstalledEvidence(
           prepared,
           expectedContextHash,
+          knowledgeBaselineRevisionId,
           ports.integrity,
         );
         verifyPrepared(preparedEvidence, {
           runId: prepared.runId,
           assessmentAt: prepared.assessmentAt,
           contextHash: expectedContextHash,
+          knowledgeBaselineRevisionId,
         }, ports.integrity);
         if (signal.aborted) abortReason(signal);
         await ports.evidence.seal(preparedEvidence);
@@ -618,6 +646,7 @@ export function createColdStartApplication(
         deadlineAt: prepared.deadlineAt,
         signal,
         contextHash: expectedContextHash,
+        ...(knowledgeBaselineRevisionId === undefined ? {} : { knowledgeBaselineRevisionId }),
         candidates,
         onProgress: async (progress) => {
           await events.send(progressPayload(progress));
@@ -628,6 +657,7 @@ export function createColdStartApplication(
         runId: prepared.runId,
         assessmentAt: prepared.assessmentAt,
         contextHash: expectedContextHash,
+        knowledgeBaselineRevisionId,
       }, ports.integrity);
 
       const canPublish = publicationAllowed(preparedEvidence);

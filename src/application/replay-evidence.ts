@@ -128,6 +128,9 @@ export async function replayEvidencePlan<S extends string, C extends Claim<unkno
     ...(bundle.snapshot.contextHash === undefined
       ? {}
       : { contextHash: bundle.snapshot.contextHash }),
+    ...(bundle.snapshot.knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId: bundle.snapshot.knowledgeBaselineRevisionId }),
   }, createEvidenceIntegrity(input.hmacKey));
   if (canonicalJson(replayed.snapshot) !== canonicalJson(bundle.snapshot)) {
     throw new Error("integrity_mismatch");
