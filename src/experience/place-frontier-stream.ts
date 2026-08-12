@@ -1,14 +1,14 @@
 import { z } from "zod";
 
-import {
-  projectTerminalSummary,
-  type FrontierCountry,
-  type FrontierMarker,
-  type PlaceFrontierEvent,
-  type PlaceFrontierReadModel,
+import type {
+  FrontierCountry,
+  FrontierMarker,
+  PlaceFrontierEvent,
+  PlaceFrontierReadModel,
 } from "../application/place-frontier";
 import { reconstructFormalResidenceVerdict } from
   "../decision/formal-residence-verdict";
+import { projectTerminalSummary } from "../decision/place-frontier-summary";
 import { readFiniteNdjson } from "./finite-ndjson";
 
 const countryCodeSchema = z.string().regex(/^[A-Z]{2}$/);

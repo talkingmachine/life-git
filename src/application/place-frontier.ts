@@ -12,6 +12,7 @@ import {
   reconstructFormalResidenceVerdict,
   type FormalResidenceVerdict,
 } from "../decision/formal-residence-verdict";
+export { projectTerminalSummary } from "../decision/place-frontier-summary";
 import {
   rankPlaces,
   type RankedPlace,
@@ -483,22 +484,6 @@ async function loadBoundProfiles(
     profile.id !== ranking.profileSnapshotId ||
     preferences.id !== ranking.preferenceProfileSnapshotId
   ) integrityMismatch();
-}
-
-export function projectTerminalSummary(readModel: PlaceFrontierReadModel) {
-  const nonRed = readModel.shortlistSnapshot.markers.filter(
-    ({ formalVerdict }) => formalVerdict.marker !== "red",
-  );
-  const green = nonRed.filter(({ formalVerdict }) => formalVerdict.marker === "green").length;
-  const yellow = nonRed.length - green;
-  return {
-    countries: nonRed.map(({ country }) => country.countryCode),
-    composition: { green, yellow },
-    stopCondition: nonRed.length === 5
-      ? "five_non_red" as const
-      : "installed_coverage_exhausted" as const,
-    preliminary: yellow > 0 || nonRed.length < 5,
-  };
 }
 
 export function createPlaceFrontierApplication(

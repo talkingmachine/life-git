@@ -1,11 +1,11 @@
-import {
-  projectTerminalSummary,
-  type FrontierCountry,
-  type FrontierMarker,
-  type PlaceFrontierEvent,
-  type PlaceFrontierReadModel,
+import type {
+  FrontierCountry,
+  FrontierMarker,
+  PlaceFrontierEvent,
+  PlaceFrontierReadModel,
 } from "../application/place-frontier";
 import type { FormalResidenceVerdict } from "../decision/formal-residence-verdict";
+import { projectTerminalSummary } from "../decision/place-frontier-summary";
 import type { RankedPlace } from "../decision/place-ranker";
 import type {
   ResearchCandidate,

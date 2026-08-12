@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 import type {
   FrontierCountry,
@@ -32,6 +37,7 @@ const NOW = "2026-08-12T08:00:00.000Z";
 const DAY = "2026-08-12";
 const PROFILE_ID = "c".repeat(64);
 const PREFERENCE_PROFILE_ID = "d".repeat(64);
+const TEST_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
 function streamOf(...chunks: readonly Uint8Array[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -602,6 +608,49 @@ describe("strict finite frontier protocol", () => {
   });
 });
 
+describe("place-frontier browser boundary", () => {
+  test("Experience entry modules have no runtime import from outer or Node layers", () => {
+    const entryFiles = [
+      "../../src/experience/place-frontier-stream.ts",
+      "../../src/experience/place-frontier-view-model.ts",
+    ];
+    const forbiddenRuntimeImports: string[] = [];
+    for (const relativePath of entryFiles) {
+      const path = resolve(TEST_DIRECTORY, relativePath);
+      const source = ts.createSourceFile(
+        path,
+        readFileSync(path, "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+          continue;
+        }
+        const specifier = statement.moduleSpecifier.text;
+        const isForbidden = specifier.startsWith("../application") ||
+          specifier.startsWith("../infrastructure") || specifier.startsWith("node:");
+        const clause = statement.importClause;
+        if (!isForbidden || clause?.isTypeOnly) continue;
+        const hasRuntimeBinding = clause === undefined || clause.name !== undefined ||
+          clause.namedBindings === undefined || ts.isNamespaceImport(clause.namedBindings) ||
+          clause.namedBindings.elements.some((element) => !element.isTypeOnly);
+        if (hasRuntimeBinding) forbiddenRuntimeImports.push(`${relativePath}: ${specifier}`);
+      }
+    }
+
+    expect(forbiddenRuntimeImports).toEqual([]);
+  });
+
+  test("bundles both Experience entry points for a real web target", () => {
+    expect(() => execFileSync(
+      process.execPath,
+      [resolve(TEST_DIRECTORY, "../fixtures/place-frontier-client/bundle-smoke.cjs")],
+      { encoding: "utf8", stdio: "pipe" },
+    )).not.toThrow();
+  });
+});
+
 describe("pure place-frontier projection", () => {
   test("starts empty and derives markers, progress and latest flight only from events", () => {
     const fixture = sixCountryFixture();
@@ -872,6 +921,37 @@ describe("place-frontier HTTP adapter", () => {
 
     expect(response.status).toBe(500);
     expect((await response.json()).code).toBe("internal_error");
+    expect(application.runPlaceFrontier).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["control character", "bad\nvalue"],
+    ["whitespace only", "   "],
+  ] as const)("rejects a prepared profile ID with %s before starting the stream", async (
+    _name,
+    invalidProfileId,
+  ) => {
+    const application: PlaceFrontierApplication = {
+      preparePlaceFrontier: vi.fn(async () => ({
+        ...prepared,
+        profileId: invalidProfileId,
+      })),
+      runPlaceFrontier: vi.fn(),
+      presentPlaceFrontier: vi.fn(),
+    };
+    const POST = await loadPost(application);
+    const response = await POST(validRequest());
+    const headers = JSON.stringify(Object.fromEntries(response.headers.entries()));
+    const body = await response.text();
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(body)).toEqual({
+      code: "internal_error",
+      status: 500,
+      title: "Не удалось запустить проверку",
+    });
+    expect(headers).not.toContain(invalidProfileId);
+    expect(body).not.toContain(invalidProfileId);
     expect(application.runPlaceFrontier).not.toHaveBeenCalled();
   });
 

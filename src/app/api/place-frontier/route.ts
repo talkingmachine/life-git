@@ -56,13 +56,26 @@ function abortError(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
 }
 
-function assertPrepared(prepared: PlaceFrontierPrepared): void {
+function isHeaderSafeIdentifier(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.trim() === value &&
+    !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function responseHeaders(prepared: PlaceFrontierPrepared): Headers {
   if (
-    prepared.runId.length === 0 ||
-    prepared.profileId.length === 0 ||
-    prepared.preferenceProfileId.length === 0 ||
+    !isHeaderSafeIdentifier(prepared.runId) ||
+    !isHeaderSafeIdentifier(prepared.profileId) ||
+    !isHeaderSafeIdentifier(prepared.preferenceProfileId) ||
     prepared.rankingSnapshotId !== `${prepared.runId}:ranking`
   ) throw new Error("invalid_prepared_frontier");
+  return new Headers({
+    "cache-control": "no-store, no-transform",
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "x-content-type-options": "nosniff",
+    "x-life-run-id": prepared.runId,
+    "x-life-profile-id": prepared.profileId,
+    "x-life-preference-profile-id": prepared.preferenceProfileId,
+  });
 }
 
 async function parseInput(request: Request): Promise<PrepareInput | Response> {
@@ -142,10 +155,11 @@ export async function POST(request: Request): Promise<Response> {
 
   let frontier: PlaceFrontierApplication;
   let prepared: PlaceFrontierPrepared;
+  let headers: Headers;
   try {
     frontier = await application();
     prepared = await frontier.preparePlaceFrontier(input);
-    assertPrepared(prepared);
+    headers = responseHeaders(prepared);
   } catch (error) {
     return isExpectedPrepareError(error)
       ? problem(400, "invalid_input", "Запрос не прошёл проверку")
@@ -153,13 +167,6 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return new Response(placeFrontierStream(request, frontier, prepared), {
-    headers: {
-      "cache-control": "no-store, no-transform",
-      "content-type": "application/x-ndjson; charset=utf-8",
-      "x-content-type-options": "nosniff",
-      "x-life-run-id": prepared.runId,
-      "x-life-profile-id": prepared.profileId,
-      "x-life-preference-profile-id": prepared.preferenceProfileId,
-    },
+    headers,
   });
 }
