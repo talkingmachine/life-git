@@ -216,6 +216,11 @@ export interface PlaceFrontierStreamResponse {
   readonly stream: ReadableStream<Uint8Array>;
 }
 
+export interface PlaceFrontierStreamHandoff {
+  readonly adopt: () => ReadableStream<Uint8Array> | undefined;
+  readonly cancel: (reason: unknown) => void;
+}
+
 function exactHeader(response: Response, name: string): string {
   const value = response.headers.get(name);
   if (value === null || value.length === 0 || value.trim() !== value) {
@@ -246,22 +251,47 @@ function validatePlaceFrontierStreamResponse(
   return Object.freeze({ runId, profileId, preferenceProfileId, stream: response.body });
 }
 
-export async function openPlaceFrontierStreamResponse(
+function cancelStreamWithoutMasking(
+  stream: ReadableStream<Uint8Array>,
+  reason: unknown,
+): void {
+  try {
+    void stream.cancel(reason).catch(() => undefined);
+  } catch {
+    // Cancellation failure must not replace the caller's existing lifecycle outcome.
+  }
+}
+
+export function createPlaceFrontierStreamHandoff(
+  stream: ReadableStream<Uint8Array>,
+): PlaceFrontierStreamHandoff {
+  let owned = true;
+  return Object.freeze({
+    adopt: () => {
+      if (!owned) return undefined;
+      owned = false;
+      return stream;
+    },
+    cancel: (reason: unknown) => {
+      if (!owned) return;
+      owned = false;
+      cancelStreamWithoutMasking(stream, reason);
+    },
+  });
+}
+
+export function openPlaceFrontierStreamResponse(
   response: Response,
   expected?: {
     readonly profileId: string;
     readonly preferenceProfileId: string;
   },
-): Promise<PlaceFrontierStreamResponse> {
+): PlaceFrontierStreamResponse {
   try {
     return validatePlaceFrontierStreamResponse(response, expected);
   } catch (validationError) {
     const body = response.body;
-    if (body !== null) {
-      await Promise.resolve()
-        .then(() => body.cancel(validationError))
-        .catch(() => undefined);
-    }
+    if (body !== null) cancelStreamWithoutMasking(body, validationError);
     throw validationError;
   }
 }

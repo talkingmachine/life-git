@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 
 import type { RelocationProfileDraft } from "../../decision/relocation-profile";
 import type {
@@ -10,7 +10,9 @@ import type {
   PreferenceMode,
 } from "../../decision/preference-profile";
 import {
+  createPlaceFrontierStreamHandoff,
   openPlaceFrontierStreamResponse,
+  type PlaceFrontierStreamHandoff,
   type PlaceFrontierStreamResponse,
 } from "../place-frontier-stream";
 import { replacePlaceFrontierRunUrl } from "../run-url";
@@ -18,6 +20,9 @@ import { PlaceFrontierJourney } from "./PlaceFrontierJourney";
 import { ProductShell } from "./ProductShell";
 
 type Companion = RelocationProfileDraft["companions"][number];
+type LaunchedPlaceFrontier = PlaceFrontierStreamResponse & {
+  readonly streamHandoff: PlaceFrontierStreamHandoff;
+};
 
 const COMPANION_LABELS: Readonly<Record<Companion["relationship"], string>> = {
   spouse: "Супруг или супруга",
@@ -61,8 +66,20 @@ export function PlaceFrontierStart() {
   const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
-  const [launched, setLaunched] = useState<PlaceFrontierStreamResponse>();
+  const [launched, setLaunched] = useState<LaunchedPlaceFrontier>();
+  const launchedStreamHandoff = useRef<PlaceFrontierStreamHandoff | undefined>(undefined);
+  const mounted = useRef(false);
   const edited = () => setConfirmed(false);
+
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      launchedStreamHandoff.current?.cancel(
+        new DOMException("Frontier launch unmounted", "AbortError"),
+      );
+    };
+  }, []);
 
   const profile: RelocationProfileDraft = {
     currentCountryCode: "RU",
@@ -81,6 +98,7 @@ export function PlaceFrontierStart() {
     if (!confirmed || pending) return;
     setPending(true);
     setError(undefined);
+    let openedHandoff: PlaceFrontierStreamHandoff | undefined;
     try {
       const response = await fetch("/api/place-frontier", {
         body: JSON.stringify({ profile, preferences: { criteria } }),
@@ -91,10 +109,30 @@ export function PlaceFrontierStart() {
         const body = await response.json().catch(() => undefined) as { code?: unknown } | undefined;
         throw new Error(body?.code === "invalid_input" ? "invalid_input" : "request_failed");
       }
-      const opened = await openPlaceFrontierStreamResponse(response);
+      const opened = openPlaceFrontierStreamResponse(response);
+      const streamHandoff = createPlaceFrontierStreamHandoff(opened.stream);
+      openedHandoff = streamHandoff;
+      launchedStreamHandoff.current = streamHandoff;
+      if (!mounted.current) {
+        streamHandoff.cancel(new DOMException("Frontier launch unmounted", "AbortError"));
+        launchedStreamHandoff.current = undefined;
+        openedHandoff = undefined;
+        return;
+      }
       replacePlaceFrontierRunUrl(opened.runId);
-      setLaunched(opened);
+      if (!mounted.current) {
+        streamHandoff.cancel(new DOMException("Frontier launch unmounted", "AbortError"));
+        launchedStreamHandoff.current = undefined;
+        openedHandoff = undefined;
+        return;
+      }
+      setLaunched({ ...opened, streamHandoff });
+      openedHandoff = undefined;
     } catch (caught) {
+      openedHandoff?.cancel(new DOMException("Frontier launch rejected", "AbortError"));
+      if (launchedStreamHandoff.current === openedHandoff) {
+        launchedStreamHandoff.current = undefined;
+      }
       setError(caught instanceof Error && caught.message === "invalid_input"
         ? "Профиль и предпочтения не прошли проверку. Проверьте введённые значения."
         : "Поиск стран не запущен. Попробуйте ещё раз.");

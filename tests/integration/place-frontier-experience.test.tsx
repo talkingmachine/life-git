@@ -24,6 +24,11 @@ import type { FormalResidenceVerdict } from
 import { PlaceFrontierJourney } from
   "../../src/experience/components/PlaceFrontierJourney";
 
+type OpenedStreamResponse = ReturnType<typeof openPlaceFrontierStreamResponse>;
+const OPENER_RETURNS_SYNCHRONOUSLY:
+  OpenedStreamResponse extends Promise<unknown> ? false : true = true;
+void OPENER_RETURNS_SYNCHRONOUSLY;
+
 function pendingStream(): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>();
 }
@@ -186,7 +191,7 @@ afterEach(() => {
 });
 
 describe("place-frontier response boundary", () => {
-  test("opens only an exact successful finite-stream response without reading it", async () => {
+  test("opens only an exact successful finite-stream response synchronously without reading it", () => {
     const body = pendingStream();
     const getReader = vi.spyOn(body, "getReader");
     const response = new Response(body, {
@@ -198,7 +203,7 @@ describe("place-frontier response boundary", () => {
       },
     });
 
-    await expect(Promise.resolve(openPlaceFrontierStreamResponse(response))).resolves.toEqual({
+    expect(openPlaceFrontierStreamResponse(response)).toEqual({
       runId: "frontier-run-1",
       profileId: "profile-1",
       preferenceProfileId: "preference-1",
@@ -217,16 +222,13 @@ describe("place-frontier response boundary", () => {
         "x-life-preference-profile-id": "preference-1",
       },
     })],
-  ])("rejects %s", async (_label, response) => {
-    await expect(Promise.resolve().then(() => openPlaceFrontierStreamResponse(response)))
-      .rejects.toThrow();
+  ])("rejects %s synchronously", (_label, response) => {
+    expect(() => openPlaceFrontierStreamResponse(response)).toThrow();
   });
 
-  test("cancels a rejected strict response exactly once and preserves its validation error", async () => {
+  test("throws its primary validation error before a never-settling cancellation", () => {
     const body = pendingStream();
-    const cancel = vi.spyOn(body, "cancel").mockImplementation(() => {
-      throw new Error("cancel_failed");
-    });
+    const cancel = vi.spyOn(body, "cancel").mockReturnValue(new Promise(() => undefined));
     const response = new Response(body, {
       headers: {
         "content-type": "application/json",
@@ -236,12 +238,29 @@ describe("place-frontier response boundary", () => {
       },
     });
 
-    await expect(Promise.resolve().then(() => openPlaceFrontierStreamResponse(response)))
-      .rejects.toThrow("invalid_place_frontier_content_type");
+    expect(() => openPlaceFrontierStreamResponse(response))
+      .toThrow("invalid_place_frontier_content_type");
     expect(cancel).toHaveBeenCalledOnce();
   });
 
-  test("rejects an identity that is not exact-trimmed", async () => {
+  test("keeps cancellation failures secondary to the synchronous validation error", async () => {
+    const failures = [
+      () => { throw new Error("cancel_failed_sync"); },
+      () => Promise.reject(new Error("cancel_failed_async")),
+    ];
+    for (const failCancellation of failures) {
+      const body = pendingStream();
+      const cancel = vi.spyOn(body, "cancel").mockImplementation(failCancellation);
+      const response = new Response(body, { headers: { "content-type": "application/json" } });
+
+      expect(() => openPlaceFrontierStreamResponse(response))
+        .toThrow("invalid_place_frontier_content_type");
+      expect(cancel).toHaveBeenCalledOnce();
+      await Promise.resolve();
+    }
+  });
+
+  test("rejects an identity that is not exact-trimmed", () => {
     const body = pendingStream();
     const values = new Map([
       ["content-type", "application/x-ndjson; charset=utf-8"],
@@ -254,11 +273,10 @@ describe("place-frontier response boundary", () => {
       headers: { get: (name: string) => values.get(name) ?? null },
       ok: true,
     } as unknown as Response;
-    await expect(Promise.resolve().then(() => openPlaceFrontierStreamResponse(response)))
-      .rejects.toThrow();
+    expect(() => openPlaceFrontierStreamResponse(response)).toThrow();
   });
 
-  test("requires exact retry identities", async () => {
+  test("requires exact retry identities", () => {
     const body = pendingStream();
     const cancel = vi.spyOn(body, "cancel");
     const response = new Response(body, {
@@ -270,10 +288,10 @@ describe("place-frontier response boundary", () => {
       },
     });
 
-    await expect(Promise.resolve().then(() => openPlaceFrontierStreamResponse(response, {
+    expect(() => openPlaceFrontierStreamResponse(response, {
       profileId: "profile-1",
       preferenceProfileId: "preference-1",
-    }))).rejects.toThrow("changed_place_frontier_identity");
+    })).toThrow("changed_place_frontier_identity");
     expect(cancel).toHaveBeenCalledOnce();
   });
 
@@ -304,7 +322,8 @@ describe("place-frontier setup", () => {
   });
 
   test("uses five valid defaults, no country input, and invalidates confirmation on every edit", async () => {
-    const responseBody = pendingStream();
+    const sourceCancel = vi.fn();
+    const responseBody = new ReadableStream<Uint8Array>({ cancel: sourceCancel });
     const originalGetReader = responseBody.getReader.bind(responseBody);
     let searchWhenRead: string | undefined;
     vi.spyOn(responseBody, "getReader").mockImplementation(() => {
@@ -320,7 +339,7 @@ describe("place-frontier setup", () => {
       },
     }));
     vi.stubGlobal("fetch", fetch);
-    render(<PlaceFrontierStart />);
+    const start = render(<PlaceFrontierStart />);
 
     expect(screen.queryByRole("textbox", { name: /страна/i })).toBeNull();
     expect(screen.getByText(/установленн/i)).toBeTruthy();
@@ -370,6 +389,8 @@ describe("place-frontier setup", () => {
       }),
       method: "POST",
     }));
+    start.unmount();
+    await vi.waitFor(() => expect(sourceCancel).toHaveBeenCalledOnce());
   });
 
   test("shows a specific invalid-profile error and a generic launch error", async () => {
@@ -409,6 +430,81 @@ describe("place-frontier setup", () => {
 
     expect((await screen.findByRole("alert")).textContent).toMatch(/не запущен/i);
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  test("cancels an accepted launch body when unmounted after URL installation before adoption", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const getReader = vi.spyOn(body, "getReader");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "x-life-run-id": "frontier-run-owned-launch",
+        "x-life-profile-id": PROFILE_ID,
+        "x-life-preference-profile-id": PREFERENCE_ID,
+      },
+    })));
+    const nativeReplaceState = window.history.replaceState.bind(window.history);
+    vi.spyOn(window.history, "replaceState").mockImplementation((data, unused, url) => {
+      nativeReplaceState(data, unused, url);
+      if (String(url).includes("frontier-run-owned-launch")) start.unmount();
+    });
+    const start = render(<PlaceFrontierStart />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю/i }));
+    fireEvent.click(screen.getByRole("button", { name: /запустить/i }));
+
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    expect(getReader).not.toHaveBeenCalled();
+  });
+
+  test("cancels a launch response accepted after the Start component already unmounted", async () => {
+    let resolveFetch: ((response: Response) => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    })));
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const getReader = vi.spyOn(body, "getReader");
+    const start = render(<PlaceFrontierStart />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю/i }));
+    fireEvent.click(screen.getByRole("button", { name: /запустить/i }));
+    start.unmount();
+    resolveFetch?.(new Response(body, { headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "x-life-run-id": "frontier-run-late-launch",
+      "x-life-profile-id": PROFILE_ID,
+      "x-life-preference-profile-id": PREFERENCE_ID,
+    } }));
+
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    expect(getReader).not.toHaveBeenCalled();
+  });
+
+  test("cancels an accepted launch body when URL installation fails", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const getReader = vi.spyOn(body, "getReader");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "x-life-run-id": "frontier-run-url-failure",
+        "x-life-profile-id": PROFILE_ID,
+        "x-life-preference-profile-id": PREFERENCE_ID,
+      },
+    })));
+    vi.spyOn(window.history, "replaceState").mockImplementation(() => {
+      throw new Error("history_unavailable");
+    });
+    render(<PlaceFrontierStart />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /подтверждаю/i }));
+    fireEvent.click(screen.getByRole("button", { name: /запустить/i }));
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/не запущен/i);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(getReader).not.toHaveBeenCalled();
   });
 });
 
@@ -540,6 +636,33 @@ describe("place-frontier journey lifecycle", () => {
       .toBe("?flow=place-frontier&run=frontier-run-new"));
     await screen.findByText("frontier-run-new:shortlist");
     expect(searchWhenRead).toBe("?flow=place-frontier&run=frontier-run-new");
+  });
+
+  test("cancels an accepted retry body when unmounted after URL installation before adoption", async () => {
+    const previous = terminalFixture("frontier-run-old");
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const getReader = vi.spyOn(body, "getReader");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "x-life-run-id": "frontier-run-owned-retry",
+        "x-life-profile-id": PROFILE_ID,
+        "x-life-preference-profile-id": PREFERENCE_ID,
+      },
+    })));
+    const nativeReplaceState = window.history.replaceState.bind(window.history);
+    vi.spyOn(window.history, "replaceState").mockImplementation((data, unused, url) => {
+      nativeReplaceState(data, unused, url);
+      if (String(url).includes("frontier-run-owned-retry")) journey.unmount();
+    });
+    const journey = render(<PlaceFrontierJourney initialReadModel={previous.readModel} mode="stored"
+      runId={previous.readModel.runId} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторить проверку" }));
+
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    expect(getReader).not.toHaveBeenCalled();
   });
 
   test("rejects a reused retry run while preserving terminal UI", async () => {

@@ -5,8 +5,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PlaceFrontierReadModel } from "../../application/place-frontier";
 import type { PlaceFrontierCountryCard } from "../place-frontier-view-model";
 import {
+  createPlaceFrontierStreamHandoff,
   decodePlaceFrontierStream,
   openPlaceFrontierStreamResponse,
+  type PlaceFrontierStreamHandoff,
 } from "../place-frontier-stream";
 import {
   createPlaceFrontierRunningState,
@@ -27,6 +29,7 @@ export type PlaceFrontierJourneyProps =
       readonly profileId: string;
       readonly preferenceProfileId: string;
       readonly stream: ReadableStream<Uint8Array>;
+      readonly streamHandoff?: PlaceFrontierStreamHandoff;
     }
   | {
       readonly mode: "stored";
@@ -40,6 +43,7 @@ export type PlaceFrontierJourneyProps =
 
 interface ActiveStream {
   readonly generation: number;
+  readonly handoff: PlaceFrontierStreamHandoff;
   readonly stream: ReadableStream<Uint8Array>;
 }
 
@@ -238,13 +242,20 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
   const initialGeneration = props.mode === "live" ? 1 : 0;
   const [screen, setScreen] = useState<PlaceFrontierScreenState>(() => initialScreen(props));
   const [activeStream, setActiveStream] = useState<ActiveStream | undefined>(() =>
-    props.mode === "live" ? { generation: initialGeneration, stream: props.stream } : undefined);
+    props.mode === "live" ? {
+      generation: initialGeneration,
+      handoff: props.streamHandoff ?? createPlaceFrontierStreamHandoff(props.stream),
+      stream: props.stream,
+    } : undefined);
   const [retryPending, setRetryPending] = useState(false);
   const [retryError, setRetryError] = useState<string>();
   const generation = useRef(initialGeneration);
   const screenCursor = useRef(screen);
   const streamConsumer = useRef<StreamConsumer | undefined>(undefined);
-  const stopConsumer = useRef<(reason: DOMException) => void>(() => undefined);
+  const pendingHandoff = useRef(activeStream?.handoff);
+  const stopConsumer = useRef<(reason: DOMException) => void>(
+    (reason) => pendingHandoff.current?.cancel(reason),
+  );
   const retryController = useRef<AbortController | undefined>(undefined);
   const mounted = useRef(false);
   const view = useMemo(() => projectPlaceFrontierView(screen), [screen]);
@@ -262,8 +273,11 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
       return () => releaseConsumerAfterEffectReplay(currentConsumer);
     }
     currentConsumer?.stop(new DOMException("Frontier stream superseded", "AbortError"));
+    const adoptedStream = activeStream.handoff.adopt();
+    if (adoptedStream === undefined) return;
+    if (pendingHandoff.current === activeStream.handoff) pendingHandoff.current = undefined;
     const controller = new AbortController();
-    const iterator = decodePlaceFrontierStream(activeStream.stream, controller.signal);
+    const iterator = decodePlaceFrontierStream(adoptedStream, controller.signal);
     let stopped = false;
     const consumer: StreamConsumer = {
       ...activeStream,
@@ -323,7 +337,7 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
     setRetryPending(true);
     setRetryError(undefined);
     void (async () => {
-      let openedStream: ReadableStream<Uint8Array> | undefined;
+      let openedHandoff: PlaceFrontierStreamHandoff | undefined;
       try {
         const response = await fetch("/api/place-frontier", {
           body: JSON.stringify(identity),
@@ -331,23 +345,28 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
           method: "POST",
           signal: controller.signal,
         });
-        const opened = await openPlaceFrontierStreamResponse(response, identity);
-        openedStream = opened.stream;
+        const opened = openPlaceFrontierStreamResponse(response, identity);
+        openedHandoff = createPlaceFrontierStreamHandoff(opened.stream);
+        pendingHandoff.current = openedHandoff;
+        stopConsumer.current = openedHandoff.cancel;
         if (opened.runId === previousRunId) throw new Error("retry_reused_run");
         if (generation.current !== nextGeneration) {
-          await opened.stream.cancel(new DOMException("Retry superseded", "AbortError"));
-          openedStream = undefined;
+          openedHandoff.cancel(new DOMException("Retry superseded", "AbortError"));
+          openedHandoff = undefined;
           return;
         }
         replacePlaceFrontierRunUrl(opened.runId);
         const running = createPlaceFrontierRunningState(opened.runId);
         screenCursor.current = running;
         setScreen(running);
-        setActiveStream({ generation: nextGeneration, stream: opened.stream });
-        openedStream = undefined;
+        setActiveStream({
+          generation: nextGeneration,
+          handoff: openedHandoff,
+          stream: opened.stream,
+        });
+        openedHandoff = undefined;
       } catch {
-        await openedStream?.cancel(new DOMException("Retry response rejected", "AbortError"))
-          .catch(() => undefined);
+        openedHandoff?.cancel(new DOMException("Retry response rejected", "AbortError"));
         if (generation.current === nextGeneration && !controller.signal.aborted) {
           setRetryError(RETRY_ERROR);
         }
