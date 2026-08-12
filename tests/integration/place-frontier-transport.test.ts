@@ -613,6 +613,8 @@ describe("place-frontier browser boundary", () => {
     const entryFiles = [
       "../../src/experience/place-frontier-stream.ts",
       "../../src/experience/place-frontier-view-model.ts",
+      "../../src/experience/country-resolution-stream.ts",
+      "../../src/experience/country-resolution-view-model.ts",
     ];
     const forbiddenRuntimeImports: string[] = [];
     for (const relativePath of entryFiles) {

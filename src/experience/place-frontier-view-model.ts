@@ -148,7 +148,7 @@ function progressItems(events: readonly PlaceFrontierEvent[]): readonly Research
   }));
 }
 
-function countryCard(
+export function projectPlaceFrontierCountryCard(
   readModel: PlaceFrontierReadModel,
   marker: FrontierMarker,
 ): PlaceFrontierCountryCard {
@@ -291,7 +291,7 @@ export function projectPlaceFrontierView(state: PlaceFrontierScreenState): Place
   const newestProgress = progress.at(-1);
   const cards = terminal?.shortlistSnapshot.markers
     .filter(({ formalVerdict }) => formalVerdict.marker !== "red")
-    .map((marker) => countryCard(terminal, marker)) ?? [];
+    .map((marker) => projectPlaceFrontierCountryCard(terminal, marker)) ?? [];
   return freezeCopy({
     globe: {
       ...(terminal !== undefined || state.stream.countries.length === 0 ? {} : {

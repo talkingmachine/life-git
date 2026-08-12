@@ -9,7 +9,12 @@ import type {
 import { reconstructFormalResidenceVerdict } from
   "../decision/formal-residence-verdict";
 import { projectTerminalSummary } from "../decision/place-frontier-summary";
-import { readFiniteNdjson } from "./finite-ndjson";
+import {
+  cancelStreamWithoutMasking,
+  createFiniteStreamHandoff,
+  readFiniteNdjson,
+  type FiniteStreamHandoff,
+} from "./finite-ndjson";
 
 const countryCodeSchema = z.string().regex(/^[A-Z]{2}$/);
 const nonEmptyStringSchema = z.string().min(1);
@@ -216,10 +221,7 @@ export interface PlaceFrontierStreamResponse {
   readonly stream: ReadableStream<Uint8Array>;
 }
 
-export interface PlaceFrontierStreamHandoff {
-  readonly adopt: () => ReadableStream<Uint8Array> | undefined;
-  readonly cancel: (reason: unknown) => void;
-}
+export type PlaceFrontierStreamHandoff = FiniteStreamHandoff;
 
 function exactHeader(response: Response, name: string): string {
   const value = response.headers.get(name);
@@ -251,33 +253,10 @@ function validatePlaceFrontierStreamResponse(
   return Object.freeze({ runId, profileId, preferenceProfileId, stream: response.body });
 }
 
-function cancelStreamWithoutMasking(
-  stream: ReadableStream<Uint8Array>,
-  reason: unknown,
-): void {
-  try {
-    void stream.cancel(reason).catch(() => undefined);
-  } catch {
-    // Cancellation failure must not replace the caller's existing lifecycle outcome.
-  }
-}
-
 export function createPlaceFrontierStreamHandoff(
   stream: ReadableStream<Uint8Array>,
 ): PlaceFrontierStreamHandoff {
-  let owned = true;
-  return Object.freeze({
-    adopt: () => {
-      if (!owned) return undefined;
-      owned = false;
-      return stream;
-    },
-    cancel: (reason: unknown) => {
-      if (!owned) return;
-      owned = false;
-      cancelStreamWithoutMasking(stream, reason);
-    },
-  });
+  return createFiniteStreamHandoff(stream);
 }
 
 export function openPlaceFrontierStreamResponse(
@@ -334,7 +313,10 @@ function unique(values: readonly string[]): boolean {
   return new Set(values).size === values.length;
 }
 
-function parseMarker(value: unknown, profileSnapshotId?: string): FrontierMarker {
+export function normalizeFrontierMarker(
+  value: unknown,
+  profileSnapshotId?: string,
+): FrontierMarker {
   const envelope = markerSchema.parse(value);
   const formalVerdict = reconstructFormalResidenceVerdict(envelope.formalVerdict, {
     ...(profileSnapshotId === undefined ? {} : { profileSnapshotId }),
@@ -348,31 +330,23 @@ function parseEvent(value: unknown): PlaceFrontierEvent {
   if (event.type === "country_completed") {
     return freezeCopy({
       ...event,
-      payload: { marker: parseMarker(event.payload.marker) },
+      payload: { marker: normalizeFrontierMarker(event.payload.marker) },
     }) as PlaceFrontierEvent;
   }
   return freezeCopy(event) as PlaceFrontierEvent;
 }
 
-function assertRankingEnvelope(
-  readModel: PlaceFrontierReadModel,
-  state: PlaceFrontierEventState,
-): void {
+function assertReadModelEnvelope(readModel: PlaceFrontierReadModel): void {
   const ranking = readModel.rankingSnapshot;
-  const sealed = state.ranking!;
   const orderedCodes = ranking.ordered.map(({ countryCode }) => countryCode);
   const excludedCodes = [...new Set(ranking.excluded.map(({ countryCode }) => countryCode))].sort();
   const excludedPlaceCodes = ranking.excludedPlaces.map(({ countryCode }) => countryCode).sort();
   const allCodes = [...orderedCodes, ...excludedCodes].sort();
   if (
-    readModel.runId !== state.runId ||
+    readModel.runId !== ranking.runId ||
     readModel.assessmentAt !== ranking.assessmentAt ||
-    ranking.runId !== state.runId ||
-    ranking.id !== sealed.rankingSnapshotId ||
-    ranking.id !== `${state.runId}:ranking` ||
+    ranking.id !== `${readModel.runId}:ranking` ||
     ranking.createdAt !== ranking.assessmentAt ||
-    !sameStrings(orderedCodes, sealed.orderedCountryCodes) ||
-    !sameStrings(excludedCodes, sealed.excludedCountryCodes) ||
     !sameStrings(excludedPlaceCodes, excludedCodes) ||
     !unique(orderedCodes) ||
     orderedCodes.some((code) => excludedCodes.includes(code)) ||
@@ -381,16 +355,64 @@ function assertRankingEnvelope(
   ) throw new Error("terminal_ranking_mismatch");
 }
 
+export function normalizePlaceFrontierReadModel(value: unknown): PlaceFrontierReadModel {
+  const parsed = readModelSchema.parse(value) as PlaceFrontierReadModel;
+  assertReadModelEnvelope(parsed);
+  const shortlist = parsed.shortlistSnapshot;
+  const markers = shortlist.markers.map((marker) =>
+    normalizeFrontierMarker(marker, parsed.rankingSnapshot.profileSnapshotId));
+  if (
+    shortlist.id !== `${parsed.runId}:shortlist` ||
+    shortlist.runId !== parsed.runId ||
+    shortlist.rankingSnapshotId !== parsed.rankingSnapshot.id ||
+    shortlist.createdAt !== parsed.assessmentAt ||
+    !unique(markers.map(({ country }) => country.countryCode)) ||
+    markers.some((marker, index) => {
+      const ranked = parsed.rankingSnapshot.ordered[marker.rank - 1];
+      return marker.rank !== index + 1 || ranked === undefined ||
+        ranked.countryCode !== marker.country.countryCode ||
+        ranked.label !== marker.country.label || ranked.flag !== marker.country.flag ||
+        ranked.coordinate.lat !== marker.country.coordinate.lat ||
+        ranked.coordinate.lng !== marker.country.coordinate.lng;
+    })
+  ) throw new Error("terminal_shortlist_mismatch");
+  const normalized = freezeCopy({
+    ...parsed,
+    shortlistSnapshot: { ...shortlist, markers },
+  });
+  const summary = projectTerminalSummary(normalized);
+  const isExhausted = markers.length === parsed.rankingSnapshot.ordered.length;
+  if (!(summary.stopCondition === "five_non_red" && summary.countries.length === 5 ||
+    summary.stopCondition === "installed_coverage_exhausted" && isExhausted)) {
+    throw new Error("premature_terminal_event");
+  }
+  return normalized;
+}
+
+function assertRankingEnvelope(
+  readModel: PlaceFrontierReadModel,
+  state: PlaceFrontierEventState,
+): void {
+  assertReadModelEnvelope(readModel);
+  const ranking = readModel.rankingSnapshot;
+  const sealed = state.ranking!;
+  const orderedCodes = ranking.ordered.map(({ countryCode }) => countryCode);
+  const excludedCodes = [...new Set(ranking.excluded.map(({ countryCode }) => countryCode))].sort();
+  if (!sameStrings(orderedCodes, sealed.orderedCountryCodes) ||
+    !sameStrings(excludedCodes, sealed.excludedCountryCodes) ||
+    ranking.id !== sealed.rankingSnapshotId) throw new Error("terminal_ranking_mismatch");
+}
+
 function assertTerminal(
   state: PlaceFrontierEventState,
   rawReadModel: PlaceFrontierReadModel,
 ): PlaceFrontierReadModel {
-  const readModel = readModelSchema.parse(rawReadModel) as PlaceFrontierReadModel;
+  const readModel = normalizePlaceFrontierReadModel(rawReadModel);
   assertRankingEnvelope(readModel, state);
   const shortlist = readModel.shortlistSnapshot;
   const completed = state.countries.flatMap(({ completed }) => completed === undefined ? [] : [completed]);
   const terminalMarkers = shortlist.markers.map((marker) =>
-    parseMarker(marker, readModel.rankingSnapshot.profileSnapshotId));
+    normalizeFrontierMarker(marker, readModel.rankingSnapshot.profileSnapshotId));
   if (
     shortlist.id !== `${state.runId}:shortlist` ||
     shortlist.runId !== state.runId ||

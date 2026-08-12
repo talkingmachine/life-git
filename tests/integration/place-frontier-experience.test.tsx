@@ -6,6 +6,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { openPlaceFrontierStreamResponse } from
   "../../src/experience/place-frontier-stream";
+import { openCountryResolutionStreamResponse } from
+  "../../src/experience/country-resolution-stream";
 import { PlaceFrontierStart } from
   "../../src/experience/components/PlaceFrontierStart";
 import { replacePlaceFrontierRunUrl } from "../../src/experience/run-url";
@@ -298,6 +300,26 @@ describe("place-frontier response boundary", () => {
   test("replaces the URL with only encoded flow and run", () => {
     replacePlaceFrontierRunUrl("run / one");
     expect(window.location.search).toBe("?flow=place-frontier&run=run%20%2F%20one");
+  });
+});
+
+describe("shared finite response cancellation", () => {
+  test("keeps country-resolution validation primary for hanging, sync and rejected cancellation", async () => {
+    const cancellations = [
+      () => new Promise<never>(() => undefined),
+      () => { throw new Error("cancel_failed_sync"); },
+      () => Promise.reject(new Error("cancel_failed_async")),
+    ];
+    for (const cancelResponse of cancellations) {
+      const body = pendingStream();
+      const cancel = vi.spyOn(body, "cancel").mockImplementation(cancelResponse);
+      const response = new Response(body, { headers: { "content-type": "application/json" } });
+
+      expect(() => openCountryResolutionStreamResponse(response))
+        .toThrow("invalid_country_resolution_content_type");
+      expect(cancel).toHaveBeenCalledOnce();
+      await Promise.resolve();
+    }
   });
 });
 
