@@ -147,6 +147,11 @@ export interface ColdStartApplication {
     | { readonly countryInput: string; readonly profile: RelocationProfileDraft }
     | { readonly countryInput: string; readonly profileId: string }
   ): Promise<ColdStartPrepared>;
+  prepareColdStartWithRunId?(input: {
+    readonly countryInput: string;
+    readonly profileId: string;
+    readonly runId: string;
+  }): Promise<ColdStartPrepared>;
   run(
     prepared: ColdStartPrepared,
     emit: (event: ColdStartEvent) => void | Promise<void>,
@@ -575,6 +580,15 @@ export function createColdStartApplication(
         assessmentAt: nowIso.slice(0, 10),
         deadlineAt: new Date(now.valueOf() + 60_000).toISOString(),
       });
+    },
+
+    async prepareColdStartWithRunId(input): Promise<ColdStartPrepared> {
+      const prepared = await application.prepare({
+        countryInput: input.countryInput,
+        profileId: input.profileId,
+      });
+      if (input.runId.length === 0) integrityMismatch();
+      return deepFreeze({ ...prepared, runId: input.runId });
     },
 
     async run(prepared, emit, signal): Promise<ColdStartReadModel> {

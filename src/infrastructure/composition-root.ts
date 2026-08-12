@@ -22,6 +22,7 @@ import {
 } from "../research/run";
 import { createEvidenceIntegrity } from "./integrity";
 import { createColdStartComposition } from "./cold-start-composition";
+import { createPlaceFrontierComposition } from "./place-frontier-composition";
 import { captureHttpOnce } from "./sources/gateway";
 import { OfficialSourceAdapter } from "./sources/official-source-adapter";
 import { openEvidenceDatabase } from "./sqlite/db";
@@ -92,6 +93,12 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
   });
+  const placeFrontier = createPlaceFrontierComposition({
+    database: options.database,
+    hmacKey: options.hmacKey,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    nextRunId: () => nextId("run"),
+  });
   const housingBranch = createHousingBranchApplication({
     profileStore,
     runStore,
@@ -132,6 +139,9 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     ...housingBranch,
     ...replay,
     ...journey,
+    preparePlaceFrontier: placeFrontier.preparePlaceFrontier,
+    runPlaceFrontier: placeFrontier.runPlaceFrontier,
+    presentPlaceFrontier: placeFrontier.presentPlaceFrontier,
   });
 }
 

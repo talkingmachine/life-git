@@ -166,6 +166,7 @@ describe("database schema preflight", () => {
       { name: "country_knowledge_revisions" },
       { name: "dossier_versions" },
       { name: "evidence_snapshots" },
+      { name: "place_frontier_snapshots" },
       { name: "profile_snapshots" },
       { name: "run_revisions" },
     ]);
@@ -191,6 +192,30 @@ describe("database schema preflight", () => {
       { type: "index", name: "dossier_versions_one_successor" },
       { type: "trigger", name: "dossier_versions_no_delete" },
       { type: "trigger", name: "dossier_versions_no_update" },
+    ]);
+
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE name LIKE 'place_frontier_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "table", name: "place_frontier_snapshots" },
+      { type: "trigger", name: "place_frontier_snapshots_no_delete" },
+      { type: "trigger", name: "place_frontier_snapshots_no_update" },
+    ]);
+
+    const frontierColumns = reopened.prepare(
+      "PRAGMA table_info(place_frontier_snapshots)",
+    ).all() as { readonly name: string }[];
+    expect(frontierColumns.map(({ name }) => name)).toEqual([
+      "id",
+      "run_id",
+      "kind",
+      "schema_version",
+      "payload_json",
+      "payload_hash",
+      "hmac",
+      "created_at",
     ]);
   });
 });

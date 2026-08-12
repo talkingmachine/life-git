@@ -84,6 +84,20 @@ CREATE TABLE IF NOT EXISTS profile_snapshots (
   snapshot_hash TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS place_frontier_snapshots (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('ranking', 'shortlist')),
+  schema_version TEXT NOT NULL CHECK (
+    schema_version IN ('place-ranking@1', 'place-shortlist@1')
+  ),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  created_at TEXT NOT NULL,
+  UNIQUE (run_id, kind)
+);
+
 CREATE TABLE IF NOT EXISTS run_revisions (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -202,6 +216,18 @@ CREATE TRIGGER IF NOT EXISTS profile_snapshots_no_delete
 BEFORE DELETE ON profile_snapshots
 BEGIN
   SELECT RAISE(ABORT, 'profile_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS place_frontier_snapshots_no_update
+BEFORE UPDATE ON place_frontier_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'place_frontier_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS place_frontier_snapshots_no_delete
+BEFORE DELETE ON place_frontier_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'place_frontier_snapshot_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS run_revisions_no_update
