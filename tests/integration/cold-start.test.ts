@@ -13,6 +13,7 @@ import { createConfirmedLifeComposition } from "../../src/infrastructure/composi
 import { createColdStartComposition } from "../../src/infrastructure/cold-start-composition";
 import { coldStartEventSchema } from "../../src/experience/cold-start-stream";
 import { SqliteDossierStore } from "../../src/infrastructure/sqlite/dossier-store";
+import { SqliteCountryKnowledgeStore } from "../../src/infrastructure/sqlite/country-knowledge-store";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
 import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-store";
 import {
@@ -36,6 +37,7 @@ import {
   type RelocationProfileDraft,
 } from "../../src/decision/relocation-profile";
 import { REQUIRED_CLAIM_KINDS } from "../../src/research/country-registry";
+import { buildSloveniaKnowledgeRevision } from "../../src/research/country-knowledge";
 import type {
   ClaimKind,
   ClaimValueByKind,
@@ -149,6 +151,7 @@ const databases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const database of databases.splice(0)) database.close();
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { force: true, recursive: true });
@@ -998,6 +1001,7 @@ function coldStartHarness(options: {
   const profiles = new SqliteProfileStore(db);
   const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
   const dossierStore = new SqliteDossierStore(db, KEY);
+  const knowledgeStore = new SqliteCountryKnowledgeStore(db, KEY);
   const sourceIndexInputs: string[] = [];
   const researchInputs: unknown[] = [];
   let runCounter = 0;
@@ -1071,6 +1075,26 @@ function coldStartHarness(options: {
       },
       findByPayload: (countryCode, schemaVersion, payloadHash) =>
         dossierStore.findByPayload(countryCode, schemaVersion, payloadHash),
+    },
+    knowledge: {
+      publishCurrent: async ({ evidenceSnapshotId, lastCheckedAt }) => {
+        const evidence = await evidenceStore.loadVerifiedCountryEvidence(evidenceSnapshotId, KEY);
+        if (evidence.snapshot.assessmentDate !== lastCheckedAt) {
+          throw new Error("integrity_mismatch");
+        }
+        const currentRevision = knowledgeStore.latest("SI");
+        const createdAt = evidence.artifacts.map(({ capturedAt }) => capturedAt).sort().at(-1);
+        if (createdAt === undefined) return { currentRevision };
+        const revision = buildSloveniaKnowledgeRevision({
+          evidence,
+          ...(currentRevision === undefined ? {} : { predecessor: currentRevision }),
+          createdAt,
+        });
+        if (revision === undefined) return { currentRevision };
+        const publishedRevision = knowledgeStore.publish(revision);
+        return { publishedRevision, currentRevision: publishedRevision };
+      },
+      latest: async (countryCode) => knowledgeStore.latest(countryCode),
     },
     integrity: (() => {
       const integrity = createEvidenceIntegrity(KEY);
@@ -1320,6 +1344,12 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       required: 9,
       claimKinds: REQUIRED_CLAIM_KINDS,
     });
+    expect(result.knowledge).toEqual({
+      currentRevisionId: `country-knowledge:SI:${prepared.runId}:evidence`,
+      updatedRevisionId: `country-knowledge:SI:${prepared.runId}:evidence`,
+      lastCheckedAt: prepared.assessmentAt,
+      knowledgeUpdatedAt: "2026-08-11T10:00:00.000Z",
+    });
     expect(result.sourceNavigation.map(({ url }) => url)).toEqual([
       "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
       "https://pisrs.si/pregledPredpisa?sop=2026-01-1950",
@@ -1375,6 +1405,8 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     await harness.application.run(retry, () => undefined, new AbortController().signal);
     expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(2);
     expect(harness.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(1);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get())
+      .toBe(2);
     expect(harness.db.prepare("SELECT COUNT(*) FROM profile_snapshots").pluck().get()).toBe(1);
 
     const other = await harness.application.prepare({
@@ -1414,6 +1446,107 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       kind: "insurance",
       completed: false,
     });
+  });
+
+  test("publishes Knowledge only after the real composition seals verified Evidence", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T10:00:00.000Z"));
+    const db = database();
+    const runId = "knowledge-composition-run";
+    const fixture = await replayableFixture({ runId });
+    const requestStep = async (request: HttpStepRequest<SloveniaSourceId>) => {
+      const captured = fixture.artifacts.find((candidate) =>
+        candidate.sourceId === request.sourceId && candidate.role === request.role
+      );
+      if (captured === undefined) throw new Error(`missing fixture for ${request.role}`);
+      return captured;
+    };
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      requestStep,
+      clock: () => new Date("2026-08-11T10:00:00.000Z"),
+      nextRunId: () => runId,
+    });
+    const prepared = await application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+
+    const result = await application.run(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    expect(result.knowledge).toEqual({
+      currentRevisionId: `country-knowledge:SI:${runId}:evidence`,
+      updatedRevisionId: `country-knowledge:SI:${runId}:evidence`,
+      lastCheckedAt: "2026-08-11",
+      knowledgeUpdatedAt: "2026-08-11T10:00:00.000Z",
+    });
+    expect("rankingRevisionId" in result.knowledge).toBe(false);
+    expect(db.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get()).toBe(1);
+    expect(await application.present({
+      runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
+  });
+
+  test("retains the latest Knowledge head after an artifactless failed check", async () => {
+    const db = database();
+    const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
+    const original = await replayableFixture({ runId: "knowledge-existing-run" });
+    for (const sourceArtifact of original.artifacts) {
+      await evidenceStore.appendArtifact(sourceArtifact);
+    }
+    await evidenceStore.seal(original.prepared);
+    const evidence = await evidenceStore.loadVerifiedCountryEvidence(
+      original.prepared.snapshot.id,
+      KEY,
+    );
+    const existingRevision = buildSloveniaKnowledgeRevision({
+      evidence,
+      createdAt: "2026-08-11T10:00:00.000Z",
+    })!;
+    new SqliteCountryKnowledgeStore(db, KEY).publish(existingRevision);
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      countrySourceIndex: {
+        lookup: () => ({
+          ok: false as const,
+          kind: "country_not_installed" as const,
+          candidates: [] as const,
+        }),
+      },
+      requestStep: async () => {
+        throw new Error("artifactless failed check must not capture");
+      },
+      clock: () => new Date("2026-08-12T09:00:00.000Z"),
+      nextRunId: () => "knowledge-failed-run",
+    });
+    const prepared = await application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+
+    const result = await application.run(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    expect(result.knowledge).toEqual({
+      currentRevisionId: existingRevision.id,
+      lastCheckedAt: "2026-08-12",
+      knowledgeUpdatedAt: existingRevision.createdAt,
+    });
+    expect(db.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get()).toBe(1);
+    expect(await application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
   });
 
   test.each([
@@ -2627,6 +2760,7 @@ describe("cold-start finite HTTP stream", () => {
     checkedAt: prepared.assessmentAt,
     evidenceSnapshotId: `${prepared.runId}:evidence`,
     assessmentRulesVersion: "cold-start-assessment@1",
+    knowledge: { lastCheckedAt: prepared.assessmentAt },
     coverage: { verified: 0, required: 9, claimKinds: [] },
     comparator: {
       marker: "yellow",

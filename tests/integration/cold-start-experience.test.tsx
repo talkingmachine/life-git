@@ -75,6 +75,7 @@ const terminalEvent = {
       checkedAt: "2026-08-11",
       evidenceSnapshotId: "cold-run-1:evidence",
       assessmentRulesVersion: "cold-start-assessment@1",
+      knowledge: { lastCheckedAt: "2026-08-11" },
       coverage: { verified: 0, required: 9, claimKinds: [] },
       comparator: {
         marker: "yellow",

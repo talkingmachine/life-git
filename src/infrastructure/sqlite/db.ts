@@ -23,6 +23,26 @@ const CURRENT_RUN_REVISIONS_STAGE_CHECK = normalizeSchemaSql(`
   )
 `);
 
+const CURRENT_COUNTRY_KNOWLEDGE_TABLE = normalizeSchemaSql(`
+  CREATE TABLE IF NOT EXISTS country_knowledge_revisions (
+    id TEXT PRIMARY KEY,
+    country_code TEXT NOT NULL CHECK (
+      length(country_code) = 2
+      AND country_code = upper(country_code)
+      AND country_code GLOB '[A-Z][A-Z]'
+    ),
+    predecessor_id TEXT REFERENCES country_knowledge_revisions(id),
+    trigger_evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+    schema_version TEXT NOT NULL CHECK (schema_version = 'country-knowledge@1'),
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+    hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+    created_at TEXT NOT NULL,
+    CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+    UNIQUE (country_code, trigger_evidence_snapshot_id)
+  );
+`);
+
 interface SchemaEntry {
   readonly type: string;
   readonly sql: string | null;
@@ -40,7 +60,7 @@ interface ForeignKeyEntry {
 }
 
 function normalizeSchemaSql(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, "");
+  return value.toLowerCase().replace(/\s+/g, "").replace("ifnotexists", "").replace(/;$/, "");
 }
 
 function hasCurrentBranchCommitForeignKey(database: Database.Database): boolean {
@@ -67,11 +87,25 @@ function preflightExistingRunRevisions(database: Database.Database): void {
   }
 }
 
+function preflightExistingCountryKnowledge(database: Database.Database): void {
+  const entry = database.prepare(`
+    SELECT type, sql FROM sqlite_master WHERE name = 'country_knowledge_revisions'
+  `).get() as SchemaEntry | undefined;
+  if (entry === undefined) return;
+  if (
+    entry.type !== "table" || entry.sql === null ||
+    normalizeSchemaSql(entry.sql) !== CURRENT_COUNTRY_KNOWLEDGE_TABLE
+  ) {
+    throw new Error("database_schema_reset_required");
+  }
+}
+
 export function openEvidenceDatabase(path: string): Database.Database {
   const database = new Database(path);
   try {
     database.pragma("foreign_keys = ON");
     preflightExistingRunRevisions(database);
+    preflightExistingCountryKnowledge(database);
     database.exec(schema);
     return database;
   } catch (error) {

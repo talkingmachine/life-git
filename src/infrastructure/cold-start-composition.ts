@@ -13,12 +13,14 @@ import type {
   SloveniaSourceId,
 } from "../research/cold-start-contracts";
 import type { RequestStep } from "../research/contracts";
+import { buildSloveniaKnowledgeRevision } from "../research/country-knowledge";
 import { prepareEvidencePlan } from "../research/research-plan";
 import { createEvidenceIntegrity } from "./integrity";
 import { createInstalledCountrySourceIndex } from "./sources/country-source-index";
 import { captureHttpOnce } from "./sources/gateway";
 import { createSloveniaResearch } from "./sources/slovenia-source-adapter";
 import { SqliteDossierStore } from "./sqlite/dossier-store";
+import { SqliteCountryKnowledgeStore } from "./sqlite/country-knowledge-store";
 import { SqliteEvidenceStore } from "./sqlite/evidence-store";
 import { SqliteProfileStore } from "./sqlite/profile-store";
 
@@ -38,6 +40,7 @@ export function createColdStartComposition(
     options.database,
   );
   const dossierStore = new SqliteDossierStore(options.database, options.hmacKey);
+  const knowledgeStore = new SqliteCountryKnowledgeStore(options.database, options.hmacKey);
   const profileStore = new SqliteProfileStore(options.database);
   const integrity = createEvidenceIntegrity(options.hmacKey);
   const requestStep = options.requestStep ?? captureHttpOnce;
@@ -73,6 +76,36 @@ export function createColdStartComposition(
       ),
     },
     dossiers: dossierStore,
+    knowledge: {
+      publishCurrent: async ({ evidenceSnapshotId, lastCheckedAt }) => {
+        const evidence = await evidenceStore.loadVerifiedCountryEvidence(
+          evidenceSnapshotId,
+          options.hmacKey,
+        );
+        if (evidence.snapshot.assessmentDate !== lastCheckedAt) {
+          throw new Error("integrity_mismatch");
+        }
+        const currentRevision = knowledgeStore.latest("SI");
+        if (currentRevision?.triggerEvidenceSnapshotId === evidenceSnapshotId) {
+          return { currentRevision };
+        }
+        const createdAt = evidence.artifacts
+          .filter(({ sourceId }) => sourceId !== "cbr-eur")
+          .map(({ capturedAt }) => capturedAt)
+          .sort()
+          .at(-1);
+        if (createdAt === undefined) return { currentRevision };
+        const revision = buildSloveniaKnowledgeRevision({
+          evidence,
+          ...(currentRevision === undefined ? {} : { predecessor: currentRevision }),
+          createdAt,
+        });
+        if (revision === undefined) return { currentRevision };
+        const publishedRevision = knowledgeStore.publish(revision);
+        return { publishedRevision, currentRevision: publishedRevision };
+      },
+      latest: async (countryCode) => knowledgeStore.latest(countryCode),
+    },
     integrity,
     clock: options.clock ?? (() => new Date()),
     nextRunId: options.nextRunId ?? (() => `cold-run-${randomUUID()}`),

@@ -10,6 +10,14 @@ import type {
   ParserEntry,
   SourceId,
 } from "../../research/contracts";
+import type {
+  ColdStartEvidenceClaim,
+  SloveniaSourceId,
+} from "../../research/cold-start-contracts";
+import type {
+  KnowledgeEvidenceEntry,
+  VerifiedCountryEvidenceInput,
+} from "../../research/country-knowledge";
 import {
   assertSealedEvidenceStructure,
   evidenceArtifactProvenance,
@@ -261,6 +269,53 @@ export function loadVerifiedEvidence<S extends string, C extends Claim<unknown, 
   return snapshot;
 }
 
+const SLOVENIA_PARSER_VERSIONS: Readonly<Record<SloveniaSourceId, string>> = {
+  "si-digital-nomad-route": "si-route@2",
+  "si-income-threshold": "si-income@2",
+  "si-companion-employment": "si-companion@2",
+  "cbr-eur": "cbr-eur@1",
+};
+
+/** @internal Verified, byte-free Knowledge projection for transactional consumers. */
+export function loadVerifiedCountryEvidence(
+  database: Database.Database,
+  id: string,
+  key: string,
+): VerifiedCountryEvidenceInput {
+  const snapshot = loadVerifiedEvidence<SloveniaSourceId, ColdStartEvidenceClaim>(
+    database,
+    id,
+    key,
+    { parserVersions: SLOVENIA_PARSER_VERSIONS, rulesVersion: "vs2-si-evidence@2" },
+  );
+  const row = database.prepare(
+    "SELECT manifest_json FROM evidence_snapshots WHERE id = ?",
+  ).get(id) as { readonly manifest_json: string } | undefined;
+  if (row === undefined) integrityMismatch();
+  let manifest: EvidenceManifest<SloveniaSourceId, ColdStartEvidenceClaim>;
+  try {
+    manifest = JSON.parse(row.manifest_json) as EvidenceManifest<
+      SloveniaSourceId,
+      ColdStartEvidenceClaim
+    >;
+  } catch {
+    integrityMismatch();
+  }
+  const entries: readonly KnowledgeEvidenceEntry[] = manifest.entries.map((entry) => ({
+    sourceId: entry.sourceId,
+    navigationUrl: entry.navigationUrl,
+    ...(entry.indexedSourceUrl === undefined ? {} : { indexedSourceUrl: entry.indexedSourceUrl }),
+    resolvedEvidenceUrl: entry.resolvedEvidenceUrl,
+    artifactIds: [...entry.artifactIds],
+    ...(entry.versionHint === undefined ? {} : { versionHint: entry.versionHint }),
+  }));
+  return {
+    snapshot,
+    entries,
+    artifacts: manifest.artifacts.map((artifact) => ({ ...artifact })),
+  };
+}
+
 export class SqliteEvidenceStore<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
@@ -369,5 +424,12 @@ export class SqliteEvidenceStore<
       ...(entry.versionHint === undefined ? {} : { versionHint: entry.versionHint }),
     }));
     return { snapshot, entries };
+  }
+
+  async loadVerifiedCountryEvidence(
+    id: string,
+    key: string,
+  ): Promise<VerifiedCountryEvidenceInput> {
+    return loadVerifiedCountryEvidence(this.database, id, key);
   }
 }

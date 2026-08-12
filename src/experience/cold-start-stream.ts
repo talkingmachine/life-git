@@ -205,6 +205,23 @@ const readModelSchema = z.object({
   checkedAt: z.iso.date(),
   evidenceSnapshotId: z.string().min(1),
   assessmentRulesVersion: z.literal("cold-start-assessment@1"),
+  knowledge: z.object({
+    rankingRevisionId: z.string().min(1).optional(),
+    currentRevisionId: z.string().min(1).optional(),
+    updatedRevisionId: z.string().min(1).optional(),
+    lastCheckedAt: z.iso.date(),
+    knowledgeUpdatedAt: z.iso.datetime().optional(),
+  }).strict().superRefine((knowledge, context) => {
+    if ((knowledge.currentRevisionId === undefined) !== (knowledge.knowledgeUpdatedAt === undefined)) {
+      context.addIssue({ code: "custom", message: "knowledge_head_metadata_mismatch" });
+    }
+    if (
+      knowledge.updatedRevisionId !== undefined &&
+      knowledge.updatedRevisionId !== knowledge.currentRevisionId
+    ) {
+      context.addIssue({ code: "custom", message: "knowledge_updated_revision_mismatch" });
+    }
+  }),
   dossier: z.object({
     id: z.string().min(1),
     label: z.string().min(1),
@@ -220,7 +237,15 @@ const readModelSchema = z.object({
     label: z.string().min(1),
     url: z.string().url(),
   }).strict()),
-}).strict();
+}).strict().superRefine((readModel, context) => {
+  if (readModel.knowledge.lastCheckedAt !== readModel.checkedAt) {
+    context.addIssue({
+      code: "custom",
+      message: "knowledge_last_checked_mismatch",
+      path: ["knowledge", "lastCheckedAt"],
+    });
+  }
+});
 
 const eventBase = {
   runId: z.string().min(1),
