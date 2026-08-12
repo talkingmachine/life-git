@@ -231,8 +231,21 @@ async function fixture(input: {
       if (input.failPresentFor === countryCode) throw new Error("replay_failed");
       const result = results.get(childRunId);
       if (result === undefined) throw new Error("evidence_not_found");
-      const { countryCheckRunId: _countryCheckRunId, ...presented } = result;
-      return presented;
+      return {
+        sourceAssessmentRulesVersion: result.sourceAssessmentRulesVersion,
+        verdict: result.verdict,
+        evidenceSnapshotId: result.evidenceSnapshotId,
+        ...(result.currentKnowledgeRevisionId === undefined ? {} : {
+          currentKnowledgeRevisionId: result.currentKnowledgeRevisionId,
+        }),
+        ...(result.updatedKnowledgeRevisionId === undefined ? {} : {
+          updatedKnowledgeRevisionId: result.updatedKnowledgeRevisionId,
+        }),
+        ...(result.knowledgeUpdatedAt === undefined ? {} : {
+          knowledgeUpdatedAt: result.knowledgeUpdatedAt,
+        }),
+        lastCheckedAt: result.lastCheckedAt,
+      };
     },
   };
   const places = input.ordered.map(rankedPlace);
@@ -525,6 +538,31 @@ describe("country resolution application", () => {
     await expect(tamperedSource.resolution.requireResolvedCountryShortlistForCity(
       tampered.revision.id,
     )).rejects.toThrow("resolved_country_shortlist_required");
+  });
+
+  test("rejects a stale working revision ID after its run resolves", async () => {
+    const source = await fixture({
+      ordered: ["AA", "BB", "CC", "DD", "EE"],
+      statuses: { BB: "yellow" },
+    });
+    const working = await source.resolution.startCountryResolution({
+      automaticShortlistSnapshotId: source.automatic.shortlistSnapshot.id,
+    });
+    const resolved = await source.resolution.decideYellow({
+      resolutionRunId: working.resolutionRunId,
+      expectedRevisionId: working.revision.id,
+      countryCode: "BB",
+      decision: "accepted_at_own_risk",
+      warningCopyVersion: "yellow-risk@1",
+      commandId: "accept-BB-for-city",
+    });
+
+    await expect(source.resolution.requireResolvedCountryShortlistForCity(
+      working.revision.id,
+    )).rejects.toThrow("resolved_country_shortlist_required");
+    await expect(source.resolution.requireResolvedCountryShortlistForCity(
+      resolved.revision.id,
+    )).resolves.toEqual(resolved.revision);
   });
 
   test("presents the same resolved chain twice without network", async () => {

@@ -484,7 +484,8 @@ export function createCountryResolutionApplication(
     try {
       if (!isNonEmptyString(revisionId)) throw new Error("resolution_not_found");
       const revision = (await presentVerified({ revisionId })).readModel.revision;
-      if (revision.kind !== "resolved" || revision.resolvedEntries.length === 0) {
+      if (revision.id !== revisionId || revision.kind !== "resolved" ||
+        revision.resolvedEntries.length === 0) {
         throw new Error("resolved_country_shortlist_required");
       }
       return immutableCopy(revision);
