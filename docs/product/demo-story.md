@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-12 |
 | Область ответственности | конкурсная драматургия и наблюдаемый end-to-end результат |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13 |
 
 ## 1. Цель демо
 
@@ -97,9 +97,18 @@ Knowledge revision, использованную для ranking, от verified u
 кандидатов доступно здесь, а не в popover карты.
 
 Пользователь выбирает effective green страну только из non-empty Resolved Country Shortlist
-Snapshot. Только после этого будущий отдельный city frontier предлагает один–три подходящих города;
-effective green не означает, что конкретный город подходит. При желании пользователь может
-продолжить city frontier или ввести другой город для той же проверки.
+Snapshot. Только после этого отдельный City Frontier показывает полный installed `City Catalog
+Revision`: comparable official population `>= 20 000`, national/explicitly typed regional capitals
+и largest comparable top-ten fill. Он показывает frozen `rank/score на момент старта`, а explicit
+Continue проверяет следующий city и закрывает fresh four facts: безопасность, долгосрочную аренду,
+городской транспорт и fixed broadband.
+
+Только fresh comparable verified required mismatch даёт red `Исключён` и replacement. Unknown не
+закрывает слот: такой город остаётся green `Доступен для выбора` с amber warning ring, explicit
+warning list и fresh `coverage после проверки`. После `three_selectable` городов либо честного
+`catalog_exhausted` интерфейс seal-ит terminal City Shortlist Snapshot. При `1..3` entries выбор
+города атомарно публикует City Selection Snapshot и City Branch Commit; выбор другого города того
+же terminal образует sibling branch от одного `PreCityBranchCommit`. При terminal `0` CTA нет.
 
 ### 2:15–3:20 — «Собираем жизнь»
 
@@ -149,9 +158,9 @@ Life Git создаёт fork и показывает visual diff.
 | Часть | Что показывается в демо |
 | --- | --- |
 | Input | профиль, сопровождающие, цель, ограничения, предпочтения и unknown |
-| Process | frozen place ranking, current-run official verification, mandatory Yellow Resolution, derived effective status, persistent marker history, replacement, Country Knowledge write-back и future city frontier |
+| Process | frozen place ranking, current-run official verification, mandatory Yellow Resolution, derived effective status, persistent marker history, replacement, Country Knowledge write-back, frozen City Catalog ranking, fresh four-fact city verification и terminal city selection |
 | Evals | отдельный eval artifact с результатами provenance, constraint, fail-closed и reproducibility checks |
-| Output | Resolved Country Shortlist Snapshot с effective green composition, визуальная ветвь, Evidence Passport и Life Git diff |
+| Output | Resolved Country Shortlist Snapshot с effective green composition, terminal City Shortlist Snapshot, atomic city selection/branch, визуальная ветвь, Evidence Passport и Life Git diff |
 
 ## 5. Demo readiness gate
 

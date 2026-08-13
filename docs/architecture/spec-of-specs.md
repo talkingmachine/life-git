@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-12 |
 | Область ответственности | границы, порядок, зависимости и acceptance intent вертикальных срезов MVP |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 2 exact-text baseline; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 2 exact-text baseline; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13 |
 
 ## 1. Назначение
 
@@ -59,7 +59,7 @@ requirements, contracts, recovery design или acceptance/eval checklist кон
 | `VS-2` Честный cold start | Пользователь вводит страну без глубокого dossier. Недостающие официальные источники находятся, claims проходят тот же validation pipeline, а валидированный результат публикует новую версию dossier и показывается отдельным comparator, даже если позднее не войдёт в top-5. | Один cold-start path; без универсального crawler и автоматического восстановления от любого сайта. | Страна без dossier проходит общий pipeline; неподтверждённый источник не публикует новую версию dossier. |
 | `VS-3` Place frontier | Неизменяемый place ranking по установленным country packages, current-run formal verification, persistent planet history и до пяти разных green/yellow стран работают как единый поиск. Красные страны остаются на карте и заменяются следующими по ranking; yellow делает результат preliminary. | Первый implementation slice не включает city fit и десять country packages одним изменением. City frontier следует отдельно и не определяет цвет страны. Top-5 ограничен installed coverage, ranking snapshot и датой. | Green означает хотя бы один verified viable route; red требует complete all-impossible catalog; поиск завершается при пяти non-red либо exhaustion; replay сохраняет exact order и markers. |
 | `VS-3R` Yellow Resolution | После VS-3 пользователь обязательно разрешает каждую formal yellow-страну; accepted yellow получает ordinary effective green, rejected — ordinary effective red и replacement. Terminal Resolved Country Shortlist Snapshot содержит до пяти effective green стран без unresolved yellow. | Не изменяет formal verdict/Evidence/Knowledge/VS-3 snapshots; не реализует City Registry, City Knowledge или city ranking. Automatic Shortlist Snapshot preliminary и не является City Frontier input. | Только verified terminal resolved snapshot с non-empty entries является future City Frontier input; accepted/rejected сохраняют formal-yellow provenance, ordering frozen, empty/exhausted result честен. |
-| `VS-4A` City Frontier | Для одной effective green страны из non-empty Resolved Country Shortlist Snapshot отдельное future research формирует один–три подходящих города. | Не принимает automatic shortlist, working resolution revision или empty terminal; не меняет formal/effective status страны и не реализуется этим change-пакетом. | City Frontier получает только verified resolved-country input; country selection и city fit остаются разными выводами. |
+| `VS-4A` City Frontier | Для одной effective green страны из non-empty Resolved Country Shortlist Snapshot отдельный frozen City Catalog ranking и one-city-at-a-time fresh four-fact verification создают до трёх selectable cities либо честный exhaustion. | Не принимает automatic shortlist, working resolution revision, empty/tampered terminal или effective-red country; city fit не меняет formal/effective status страны. | Catalog включает threshold `>= 20 000`, capitals и top-ten fill без truncation; unknown остаётся selectable warning, stop — `three_selectable`/`catalog_exhausted`, selection atomically creates sibling City Branch Commit. |
 | `VS-4` Полный фильм о жизни | Выбор города, работы и жилья формирует один согласованный сценарий: бюджет, запас накоплений, типичный день, timeline и осторожные projections. Passport разделяет типы информации, а Life Git показывает причинный visual diff. | Нет пятнадцати полных ветвей, точных вероятностей жизненных событий и окончательной юридической или налоговой консультации. | Расчёт воспроизводим; missing input не выдумывается; projection отделён от факта; diff показывает причинную lineage. |
 | `VS-5` Конкурсное доказательство | Чистый canonical run показывает Input, Process, Evals и Output за подтверждённый после spike narrative budget. Есть live verification, cold start, один fork/diff, eval artifact, snapshot replay и один injected outage. | Recorded fallback маркируется датой и не подменяет работающий live end-to-end MVP. | Пройден чистый timed run, один injected outage и отдельно маркированный fallback. |
 
@@ -78,15 +78,18 @@ untrusted и проходят authority/schema gates, не создавая фа
 
 Владеет цепочкой `captured source content -> applicability/freshness/conflict -> typed route/fact
 status -> sealed Evidence Snapshot`, Country Knowledge revisions, country-local route catalogs,
-completeness attestations и source navigation. Только Research публикует verified claim или
-evidence-backed status observation.
+completeness attestations и source navigation. Для VS-4A Research также владеет official City
+Catalog package, bounded one-city four-fact capture, sealed City Evidence и full `City Knowledge
+Revision`; только Research публикует verified claim или evidence-backed status observation.
 
 ### Decision
 
 Владеет подтверждённым Profile Snapshot, `PreferenceProfile`, required/weighted criteria,
 детерминированным `PlaceRanker`, factor projections и formal country verdict над typed route
-outcomes и catalog completeness. Decision получает от Research проверенные claims, unknown или
-conflict, но не сырой HTML; количество маршрутов не является ranking factor. Для `VS-3R` Decision
+outcomes и catalog completeness. Для VS-4A Decision владеет immutable City Catalog/Criteria/Ranking
+Snapshots, four criterion normalizers, required selectability и frozen rank order. Decision получает
+от Research проверенные claims, unknown или conflict, но не сырой HTML; количество маршрутов не
+является ranking factor. Для `VS-3R` Decision
 `CountryResolutionPolicy` детерминированно выводит effective status, unresolved queue, slots,
 cursor и terminal condition из immutable formal markers и Yellow decisions.
 
@@ -96,26 +99,35 @@ cursor и terminal condition из immutable formal markers и Yellow decisions.
 stop и публикацией Ranking/Automatic Shortlist Snapshots. Он не ранжирует и не интерпретирует
 evidence. `CountryResolution` владеет start от verified automatic snapshot, append Yellow decision,
 replacement continuation и terminal Resolved Country Shortlist Snapshot; он не меняет formal verdict.
-Only explicit replacement continuation may invoke CountryVerifierPort or make network calls. Start, yellow decision, presentation, and reload must make zero network calls.
+`CityFrontier` владеет zero-network Start/Present, one-city Continue, marker/cursor chain, terminal
+City Shortlist и atomic Select; только Continue запускает fresh city verification. Only explicit
+replacement continuation may invoke CountryVerifierPort or make network calls. Start, yellow decision,
+presentation, and reload must make zero network calls.
 
 ### Infrastructure
 
-SQLite хранит одну append-only resolution revision chain, проверяемую по immutable source graph;
-existing Evidence, Country Knowledge и CountryVerifierPort переиспользуются для replacements.
-Нового capture pipeline, event store, queue, worker или mutable head table нет.
+SQLite хранит append-only resolution и City Frontier revision chains, проверяемые по immutable source
+graph; existing Evidence, Country Knowledge и CountryVerifierPort переиспользуются для replacements.
+VS-4A добавляет canonical City Catalog/Criteria/Knowledge/Ranking/Selection/Branch artifacts, а
+selection и City Branch Commit пишет одной transaction. Нового capture pipeline, event store, queue,
+worker или mutable head table нет.
 
 ### Branch
 
 Владеет выбранными городом, работой, жильём и допущениями, детерминированными расчётами,
-projections и причинной lineage. Life Git является глубоким модулем Branch и единолично владеет
-commit, rewind, fork, replay и diff.
+projections и причинной lineage. Для VS-4A Branch создаёт `PreCityBranchCommit` до выбора и
+атомарный City Branch Commit при выборе; альтернативы одного terminal являются siblings от общего
+pre-city parent. Life Git является глубоким модулем Branch и единолично владеет commit, rewind,
+fork, replay и diff.
 
 ### Experience
 
 Карта, карточки, бюджет, timeline, Evidence Passport и visual diff являются read models поверх
 опубликованных состояний. Experience выводит effective status и resolution prompt только из
 verified projection: accepted formal yellow рендерится ordinary green, rejected — ordinary red с
-правдивым detail. UI не создаёт факты, не повторяет формулы и не выносит verdict.
+правдивым detail. Для VS-4A card показывает frozen `rank/score на момент старта` отдельно от fresh
+facts/`coverage после проверки`; selectable unknown — green с amber warning ring и explicit text.
+UI не создаёт факты, не повторяет формулы и не выносит verdict.
 
 ## 6. Направление зависимостей и cross-slice flow
 
@@ -143,7 +155,9 @@ confirmed profile + preferences
   -> persistent marker history + red replacement
   -> immutable Automatic Shortlist Snapshot (preliminary)
   -> CountryResolution / effective status / Resolved Country Shortlist Snapshot
-  -> future separate city frontier (resolved non-empty input only)
+  -> City Criteria Snapshot -> frozen full City Catalog ranking
+  -> one-city fresh four-fact verification -> terminal City Shortlist
+  -> atomic City Selection Snapshot + sibling City Branch Commit
   -> coherent life branch and commit
   -> Passport, visual output and fork/diff
 ```
@@ -167,6 +181,13 @@ confirmed profile + preferences
   `rejected` — ordinary effective red без formal-impossibility claim и replacement из frozen ranking.
   Resolved Country Shortlist Snapshot содержит до пяти effective green без unresolved yellow и
   является единственным future City Frontier input.
+- VS-4A City Catalog содержит threshold `>= 20 000`, national/typed regional capitals и top-ten
+  fill без truncation; ranking frozen, а fresh live revision не меняет rank/score текущего run.
+- City Frontier завершает все four facts активированного города, публикует полную `City Knowledge
+  Revision` и останавливается только при `three_selectable` либо `catalog_exhausted`; unknown
+  предупреждает, но не делает city unselectable.
+- City selection atomically публикует City Selection Snapshot и sibling City Branch Commit от общего
+  `PreCityBranchCommit`; city fit не изменяет formal/effective status страны.
 - Current-run Knowledge update не меняет порядок и применяется только в новом run.
 - Evidence Snapshot после sealing не изменяется; продолжение frontier создаёт новую revision.
 - Исторический snapshot разрешён для replay, но не является current-run verification.

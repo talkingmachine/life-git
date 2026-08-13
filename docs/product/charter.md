@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-12 |
 | Область ответственности | аудитория, обещание, ключевая семантика, границы и цели MVP |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13 |
 
 `Life Branches` — рабочее название, а не утверждённый бренд.
 
@@ -128,15 +128,31 @@ Knowledge текущего run влияют только на следующий
 
 ### Города
 
-Country shortlist формируется до city research и не зависит от подтверждения города. В будущем
-City Frontier принимает только non-empty Resolved Country Shortlist Snapshot; automatic shortlist,
-working resolution revision и empty terminal result не открывают city research. Для выбранной
-effective green страны отдельный city frontier предлагает от одного до трёх наиболее подходящих
-городов.
+Country shortlist формируется до city research и не зависит от подтверждения города. City Frontier
+принимает только verified non-empty Resolved Country Shortlist Snapshot; automatic shortlist,
+working resolution revision, empty/tampered terminal и effective-red country не открывают city
+research. Для выбранной effective green страны immutable `City Catalog Revision` содержит каждый
+official city/municipal center с latest comparable official population `>= 20 000`, national и
+explicitly typed regional capitals независимо от population, а затем крупнейшие comparable centers
+до top-10 при наличии. Десять — минимум, не максимум: больший catalog не обрезается, а missing
+population не угадывается и оставляет coverage incomplete.
 
-City fit не меняет формальный цвет страны. Провал одного города исключает только этот город;
-поиск другого города продолжает сохранённый city frontier и переиспользует применимое country
-evidence. Полный сценарий работы, жилья и жизни строится только после выбора города.
+Пользователь подтверждает `City Criteria Snapshot` ровно из четырёх independently configurable
+criteria: безопасность, долгосрочная аренда, городской транспорт и fixed broadband. Полный
+установленный catalog получает frozen ranking; карточка всегда различает `rank/score на момент
+старта` и fresh facts/`coverage после проверки`. City Frontier проверяет по одному городу в этом
+frozen order и закрывает все четыре facts каждого активированного города. Только fresh comparable
+verified mismatch критерия `required` делает город red `Исключён`; unknown не блокирует выбор,
+а оставляет city green `Доступен для выбора` с amber warning ring и exact warning list.
+
+Frontier останавливается при `three_selectable` городах или `catalog_exhausted`; честный terminal
+result `0..2` разрешён, а выбор доступен только из terminal shortlist с `1..3` entries. Каждая
+завершённая проверка публикует full append-only `City Knowledge Revision` ровно из четырёх facts/
+statuses: старое value не переносится в новую revision, а fresh live Knowledge не меняет frozen
+ranking текущего run. Выбор города атомарно фиксирует `City Selection Snapshot` и City Branch
+Commit. Альтернативный выбор из того же terminal shortlist создаёт sibling branch от общего
+`PreCityBranchCommit`; никакой snapshot или прежний выбор не переписывается. Полный сценарий
+работы, жилья и жизни строится только после выбора города.
 
 ## 9. Визуальные состояния поиска
 
