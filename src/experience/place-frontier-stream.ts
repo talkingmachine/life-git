@@ -313,6 +313,10 @@ function unique(values: readonly string[]): boolean {
   return new Set(values).size === values.length;
 }
 
+function instantBefore(left: string, right: string): boolean {
+  return Date.parse(left) < Date.parse(right);
+}
+
 export function normalizeFrontierMarker(
   value: unknown,
   profileSnapshotId?: string,
@@ -365,7 +369,7 @@ export function normalizePlaceFrontierReadModel(value: unknown): PlaceFrontierRe
     shortlist.id !== `${parsed.runId}:shortlist` ||
     shortlist.runId !== parsed.runId ||
     shortlist.rankingSnapshotId !== parsed.rankingSnapshot.id ||
-    shortlist.createdAt < parsed.assessmentAt ||
+    instantBefore(shortlist.createdAt, parsed.assessmentAt) ||
     !unique(markers.map(({ country }) => country.countryCode)) ||
     markers.some((marker, index) => {
       const ranked = parsed.rankingSnapshot.ordered[marker.rank - 1];
