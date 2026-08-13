@@ -2,13 +2,14 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `approved` — implementation pending |
+| Статус | `implemented` — verified 2026-08-13 |
 | Владелец решения | пользователь проекта |
-| Последняя проверка | 2026-08-12 |
+| Последняя проверка | 2026-08-13 |
 | Область ответственности | обязательное пользовательское разрешение formal yellow после automatic Country Frontier и до будущего City Frontier |
 | Supersedes | только forward flow, в котором preliminary automatic yellow мог прямо перейти к city research |
 | Зависимости | [`VS-3 Place frontier`](../vs-3-place-frontier/change.md), [`approved design`](../../../superpowers/specs/2026-08-12-vs-3r-yellow-resolution-design.md), [`implementation plan`](../../../superpowers/plans/2026-08-12-vs-3r-yellow-resolution.md) |
-| Approval | exact written baseline и implementation plan approved by user 2026-08-12 |
+| Approval | exact written baseline и implementation plan approved by user 2026-08-12; implementation evidence approved by user 2026-08-13 |
+| Implementation evidence | [`verified`](implementation-evidence.md) |
 
 ## 1. Goal и canonical result
 
