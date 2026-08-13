@@ -17,7 +17,6 @@ import {
 } from "../decision/place-ranker";
 import type { EvidenceIntegrity } from "../research/research-plan";
 import {
-  countryCheckRunId,
   countryVerificationReplayExpectation,
   materializeFrontierMarker,
   type CountryVerificationProgress,

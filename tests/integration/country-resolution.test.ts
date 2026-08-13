@@ -15,6 +15,10 @@ import type { FormalResidenceVerdict } from
 import { rankPlaces, type RankedPlace } from "../../src/decision/place-ranker";
 import type { PreferenceProfileDraft } from "../../src/decision/preference-profile";
 import type { RelocationProfileDraft } from "../../src/decision/relocation-profile";
+import {
+  presentCountryResolutionReadModel,
+  projectCountryResolutionView,
+} from "../../src/experience/country-resolution-view-model";
 import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { createCountryResolutionComposition } from
   "../../src/infrastructure/country-resolution-composition";
@@ -311,8 +315,12 @@ async function fixture(input: {
     automatic,
     checks,
     database,
+    frontier,
+    integrity,
     officialRequests,
     resolution,
+    store,
+    verifier,
     counts: {
       freeze: () => freezeCalls,
       rank: () => rankCalls,
@@ -492,7 +500,7 @@ describe("country resolution application", () => {
       .rejects.toThrow("integrity_mismatch");
   });
 
-  test("guards City handoff with only a verified non-empty resolved revision", async () => {
+  test("requires a verified non-empty resolved shortlist for City", async () => {
     const source = await fixture({
       ordered: ["AA", "BB", "CC", "DD", "EE"],
       statuses: {},
@@ -567,17 +575,304 @@ describe("country resolution application", () => {
 
   test("presents the same resolved chain twice without network", async () => {
     const source = await fixture({
-      ordered: ["AA", "BB", "CC", "DD", "EE"],
-      statuses: {},
+      ordered: ["AA", "BB", "CC", "DD", "EE", "FF"],
+      statuses: { BB: "yellow", DD: "yellow", FF: "green" },
+      publishKnowledgeFor: "FF",
     });
-    const resolved = await source.resolution.startCountryResolution({
+    const started = await source.resolution.startCountryResolution({
       automaticShortlistSnapshotId: source.automatic.shortlistSnapshot.id,
     });
+    const accepted = await source.resolution.decideYellow({
+      resolutionRunId: started.resolutionRunId,
+      expectedRevisionId: started.revision.id,
+      countryCode: "BB",
+      decision: "accepted_at_own_risk",
+      warningCopyVersion: "yellow-risk@1",
+      commandId: "accept-BB-for-replay",
+    });
+    const rejected = await source.resolution.decideYellow({
+      resolutionRunId: accepted.resolutionRunId,
+      expectedRevisionId: accepted.revision.id,
+      countryCode: "DD",
+      decision: "rejected",
+      warningCopyVersion: "yellow-risk@1",
+      commandId: "reject-DD-for-replay",
+    });
+    const prepared = await source.resolution.prepareCountryResolutionContinuation({
+      resolutionRunId: rejected.resolutionRunId,
+      expectedRevisionId: rejected.revision.id,
+    });
+    const resolved = await source.resolution.continueCountryResolution(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+    expect(source.checks).toEqual([{
+      parentRunId: resolved.resolutionRunId,
+      countryCode: "FF",
+    }]);
+    expect(source.officialRequests).toHaveBeenCalledTimes(1);
 
-    const first = await source.resolution.presentCountryResolution(resolved.resolutionRunId);
-    const second = await source.resolution.presentCountryResolution(resolved.resolutionRunId);
+    source.checks.length = 0;
+    source.officialRequests.mockClear();
+    const requestStep = vi.fn(async () => {
+      throw new Error("network_forbidden");
+    });
+    const check = vi.fn(async () => {
+      await requestStep();
+      throw new Error("network_forbidden");
+    });
+    const present = vi.fn(source.verifier.present.bind(source.verifier));
+    const presentation = createCountryResolutionApplication({
+      frontier: source.frontier,
+      store: source.store,
+      verifier: { check, present },
+      integrity: source.integrity,
+      clock: () => new Date(NOW),
+    });
+    const persistenceSnapshot = () => ({
+      artifacts: source.database.prepare(`
+        SELECT run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
+          byte_length, origin, captured_at, response_status, response_url, request_json, sealed
+        FROM artifacts ORDER BY run_id, artifact_id
+      `).all(),
+      evidenceSnapshots: source.database.prepare(`
+        SELECT id, assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
+          parser_versions_json, rules_version
+        FROM evidence_snapshots ORDER BY id
+      `).all(),
+      countryKnowledgeRevisions: source.database.prepare(`
+        SELECT id, country_code, predecessor_id, trigger_evidence_snapshot_id, schema_version,
+          payload_json, payload_hash, hmac, created_at
+        FROM country_knowledge_revisions ORDER BY id
+      `).all(),
+      dossierVersions: source.database.prepare(`
+        SELECT id, country_code, predecessor_id, evidence_snapshot_id, schema_version,
+          payload_json, payload_hash, manifest_hash, hmac, published_at
+        FROM dossier_versions ORDER BY id
+      `).all(),
+      profileSnapshots: source.database.prepare(`
+        SELECT id, confirmed_at, snapshot_json, snapshot_hash
+        FROM profile_snapshots ORDER BY id
+      `).all(),
+      placeFrontierSnapshots: source.database.prepare(`
+        SELECT id, run_id, kind, schema_version, payload_json, payload_hash, hmac, created_at
+        FROM place_frontier_snapshots ORDER BY id
+      `).all(),
+      countryResolutionRevisions: source.database.prepare(`
+        SELECT id, resolution_run_id, kind, predecessor_id, automatic_shortlist_snapshot_id,
+          ranking_snapshot_id, command_id, command_kind, command_json, command_hash,
+          schema_version, rules_version, context_hash, payload_json, payload_hash, hmac, created_at
+        FROM country_resolution_revisions ORDER BY created_at, id
+      `).all(),
+    });
+    const storedBefore = persistenceSnapshot();
+    const probesBefore = {
+      freeze: source.counts.freeze(),
+      rank: source.counts.rank(),
+    };
+
+    const first = await presentation.presentCountryResolution(resolved.resolutionRunId);
+    const second = await presentation.presentCountryResolution(resolved.resolutionRunId);
+
+    const chain = source.store.loadChainVerified(resolved.resolutionRunId, {
+      source: {
+        automaticShortlistSnapshotId: first.automaticFrontier.shortlistSnapshot.id,
+        rankingSnapshotId: first.automaticFrontier.rankingSnapshot.id,
+        profileSnapshotId: first.automaticFrontier.rankingSnapshot.profileSnapshotId,
+        preferenceProfileSnapshotId:
+          first.automaticFrontier.rankingSnapshot.preferenceProfileSnapshotId,
+      },
+      orderedCountryCodes: first.automaticFrontier.rankingSnapshot.ordered.map(
+        ({ countryCode }) => countryCode,
+      ),
+      markerProjections: [
+        ...first.automaticFrontier.shortlistSnapshot.markers,
+        ...first.revision.replacementMarkers,
+      ].map((marker) => ({
+        countryCode: marker.country.countryCode,
+        rank: marker.rank,
+        formalStatus: marker.formalVerdict.marker,
+        formalMarkerDigest: source.integrity.hash(source.integrity.canonical(marker)),
+        ...(marker.formalVerdict.marker === "yellow" ? {
+          expectedUncertaintyBasis: {
+            unknownRoutes: [],
+            catalogCompletenessUnprovable: {
+              code: "catalog_completeness_unprovable",
+              claimIds: [],
+              evidence: [],
+              navigation: [],
+            },
+          },
+        } : {}),
+      })),
+    });
+    const expectedUncertaintyBasis = {
+      unknownRoutes: [],
+      catalogCompletenessUnprovable: {
+        code: "catalog_completeness_unprovable",
+        claimIds: [],
+        evidence: [],
+        navigation: [],
+      },
+    };
+    const combinedMarkers = [
+      ...first.automaticFrontier.shortlistSnapshot.markers,
+      ...first.revision.replacementMarkers,
+    ];
+    const markerByCountry = new Map(combinedMarkers.map((marker) => [
+      marker.country.countryCode,
+      marker,
+    ]));
+    const projection = projectCountryResolutionView(
+      presentCountryResolutionReadModel(first),
+    );
 
     expect(first).toEqual(second);
+    expect(source.integrity.canonical(first)).toBe(source.integrity.canonical(second));
+    expect(first.automaticFrontier).toMatchObject({
+      runId: "automatic-frontier-run",
+      rankingSnapshot: {
+        id: "automatic-frontier-run:ranking",
+        ordered: [
+          { countryCode: "AA", rank: 1 },
+          { countryCode: "BB", rank: 2 },
+          { countryCode: "CC", rank: 3 },
+          { countryCode: "DD", rank: 4 },
+          { countryCode: "EE", rank: 5 },
+          { countryCode: "FF", rank: 6 },
+        ],
+      },
+      shortlistSnapshot: {
+        id: "automatic-frontier-run:shortlist",
+        markers: [
+          { country: { countryCode: "AA" }, rank: 1, formalVerdict: { marker: "green" } },
+          { country: { countryCode: "BB" }, rank: 2, formalVerdict: { marker: "yellow" } },
+          { country: { countryCode: "CC" }, rank: 3, formalVerdict: { marker: "green" } },
+          { country: { countryCode: "DD" }, rank: 4, formalVerdict: { marker: "yellow" } },
+          { country: { countryCode: "EE" }, rank: 5, formalVerdict: { marker: "green" } },
+        ],
+      },
+    });
+    expect(first.revision).toMatchObject({
+      id: resolved.revision.id,
+      resolutionRunId: resolved.resolutionRunId,
+      predecessorRevisionId: rejected.revision.id,
+      automaticShortlistSnapshotId: "automatic-frontier-run:shortlist",
+      rankingSnapshotId: "automatic-frontier-run:ranking",
+      kind: "resolved",
+      nextUncheckedRank: 7,
+      unresolvedCountryCodes: [],
+      slotCountryCodes: ["AA", "BB", "CC", "EE", "FF"],
+      resolvedEntries: [
+        { countryCode: "AA", rank: 1 },
+        { countryCode: "BB", rank: 2 },
+        { countryCode: "CC", rank: 3 },
+        { countryCode: "EE", rank: 5 },
+        { countryCode: "FF", rank: 6 },
+      ],
+      stopCondition: "five_effective_green",
+      replacementMarkers: [{
+        country: { countryCode: "FF" },
+        rank: 6,
+        countryCheckRunId: countryCheckRunId(
+          resolved.resolutionRunId,
+          "FF",
+          source.integrity,
+        ),
+        evidenceSnapshotId: `evidence-${resolved.resolutionRunId}-FF`,
+        currentKnowledgeRevisionId: "knowledge-FF",
+        updatedKnowledgeRevisionId: "knowledge-FF",
+        knowledgeUpdatedAt: NOW,
+        lastCheckedAt: DAY,
+        formalVerdict: { marker: "green" },
+      }],
+    });
+    expect(first.revision.decisions.map((decision) => ({
+      countryCode: decision.countryCode,
+      decision: decision.decision,
+      uncertaintyBasis: decision.uncertaintyBasis,
+      warningCopyVersion: decision.warningCopyVersion,
+      decidedAt: decision.decidedAt,
+      commandId: decision.commandId,
+    }))).toEqual([{
+      countryCode: "BB",
+      decision: "accepted_at_own_risk",
+      uncertaintyBasis: expectedUncertaintyBasis,
+      warningCopyVersion: "yellow-risk@1",
+      decidedAt: NOW,
+      commandId: "accept-BB-for-replay",
+    }, {
+      countryCode: "DD",
+      decision: "rejected",
+      uncertaintyBasis: expectedUncertaintyBasis,
+      warningCopyVersion: "yellow-risk@1",
+      decidedAt: NOW,
+      commandId: "reject-DD-for-replay",
+    }]);
+    expect(first.revision.decisions.map(({ formalMarkerDigest }) => formalMarkerDigest)).toEqual([
+      source.integrity.hash(source.integrity.canonical(markerByCountry.get("BB"))),
+      source.integrity.hash(source.integrity.canonical(markerByCountry.get("DD"))),
+    ]);
+    expect(chain).toHaveLength(4);
+    expect(chain.map(({ id }) => id)).toEqual([
+      started.revision.id,
+      accepted.revision.id,
+      rejected.revision.id,
+      resolved.revision.id,
+    ]);
+    expect(chain.map(({ predecessorRevisionId }) => predecessorRevisionId)).toEqual([
+      undefined,
+      started.revision.id,
+      accepted.revision.id,
+      rejected.revision.id,
+    ]);
+    expect(combinedMarkers.map((marker) => ({
+      countryCode: marker.country.countryCode,
+      evidenceSnapshotId: marker.evidenceSnapshotId,
+      currentKnowledgeRevisionId: marker.currentKnowledgeRevisionId,
+      updatedKnowledgeRevisionId: marker.updatedKnowledgeRevisionId,
+    }))).toEqual([
+      { countryCode: "AA", evidenceSnapshotId: "evidence-automatic-frontier-run-AA" },
+      { countryCode: "BB", evidenceSnapshotId: "evidence-automatic-frontier-run-BB" },
+      { countryCode: "CC", evidenceSnapshotId: "evidence-automatic-frontier-run-CC" },
+      { countryCode: "DD", evidenceSnapshotId: "evidence-automatic-frontier-run-DD" },
+      { countryCode: "EE", evidenceSnapshotId: "evidence-automatic-frontier-run-EE" },
+      {
+        countryCode: "FF",
+        evidenceSnapshotId: `evidence-${resolved.resolutionRunId}-FF`,
+        currentKnowledgeRevisionId: "knowledge-FF",
+        updatedKnowledgeRevisionId: "knowledge-FF",
+      },
+    ]);
+    expect(projection.candidates.map(({ country, status }) => ({
+      countryCode: country.countryCode,
+      status,
+    }))).toEqual([
+      { countryCode: "AA", status: "green" },
+      { countryCode: "BB", status: "green" },
+      { countryCode: "CC", status: "green" },
+      { countryCode: "DD", status: "red" },
+      { countryCode: "EE", status: "green" },
+      { countryCode: "FF", status: "green" },
+    ]);
+    expect(projection).toMatchObject({
+      canContinue: false,
+      cards: [
+        { country: { countryCode: "AA" } },
+        { country: { countryCode: "BB" } },
+        { country: { countryCode: "CC" } },
+        { country: { countryCode: "EE" } },
+        { country: { countryCode: "FF" } },
+      ],
+      globeMode: "collapsed",
+    });
+    expect(projection.currentPrompt).toBeUndefined();
+    expect(persistenceSnapshot()).toEqual(storedBefore);
+    expect({ freeze: source.counts.freeze(), rank: source.counts.rank() }).toEqual(probesBefore);
+    expect(present).toHaveBeenCalledTimes(2);
+    expect(check).not.toHaveBeenCalled();
+    expect(requestStep).not.toHaveBeenCalled();
     expect(source.checks).toEqual([]);
     expect(source.officialRequests).not.toHaveBeenCalled();
   });
