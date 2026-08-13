@@ -365,7 +365,7 @@ export function normalizePlaceFrontierReadModel(value: unknown): PlaceFrontierRe
     shortlist.id !== `${parsed.runId}:shortlist` ||
     shortlist.runId !== parsed.runId ||
     shortlist.rankingSnapshotId !== parsed.rankingSnapshot.id ||
-    shortlist.createdAt !== parsed.assessmentAt ||
+    shortlist.createdAt < parsed.assessmentAt ||
     !unique(markers.map(({ country }) => country.countryCode)) ||
     markers.some((marker, index) => {
       const ranked = parsed.rankingSnapshot.ordered[marker.rank - 1];

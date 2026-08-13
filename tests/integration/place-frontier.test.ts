@@ -12,6 +12,7 @@ import {
   type CountryVerifierPort,
   type FrontierMarker,
   type PlaceFrontierApplicationPorts,
+  type PlaceFrontierEvent,
   type RankingSnapshot,
   type ShortlistSnapshot,
 } from "../../src/application/place-frontier";
@@ -36,6 +37,10 @@ import { createPlaceFrontierComposition } from
   "../../src/infrastructure/place-frontier-composition";
 import { normalizeCountryVerificationProgress } from
   "../../src/infrastructure/country-verifier-adapter";
+import {
+  initialPlaceFrontierEventState,
+  reducePlaceFrontierEvent,
+} from "../../src/experience/place-frontier-stream";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqlitePlaceFrontierStore } from
   "../../src/infrastructure/sqlite/place-frontier-store";
@@ -242,6 +247,7 @@ interface HarnessOptions {
   readonly preferenceProfile?: PreferenceProfileDraft;
   readonly rankingPlaces?: readonly RankablePlace[];
   readonly useCanonicalRanking?: boolean;
+  readonly clock?: () => Date;
 }
 
 function harness(options: HarnessOptions) {
@@ -373,7 +379,7 @@ function harness(options: HarnessOptions) {
       },
     },
     integrity,
-    clock: () => new Date(NOW),
+    clock: options.clock ?? (() => new Date(NOW)),
     nextRunId: () => "frontier-run-1",
   };
   const application = createPlaceFrontierApplication(ports);
@@ -400,7 +406,7 @@ function harness(options: HarnessOptions) {
     },
     async run() {
       const prepared = await this.prepare();
-      const events: unknown[] = [];
+      const events: PlaceFrontierEvent[] = [];
       const result = await application.runPlaceFrontier(
         prepared,
         (event) => { events.push(event); },
@@ -673,6 +679,24 @@ describe("frozen CountryFrontier", () => {
     await expect(fixture.application.presentPlaceFrontierByShortlistId(
       result.shortlistSnapshot.id,
     )).resolves.toEqual(await fixture.application.presentPlaceFrontier(prepared.runId));
+  });
+
+  test("accepts a terminal shortlist sealed after its ranking assessment", async () => {
+    let seconds = 0;
+    const fixture = harness({
+      rankedCountries: ["SI"],
+      clock: () => new Date(Date.parse(NOW) + seconds++ * 1_000),
+    });
+    const { result, events } = await fixture.run();
+    let state = initialPlaceFrontierEventState();
+
+    for (const event of events) {
+      state = reducePlaceFrontierEvent(state, event);
+    }
+
+    expect(Date.parse(result.shortlistSnapshot.createdAt))
+      .toBeGreaterThan(Date.parse(result.assessmentAt));
+    expect(state.terminal).toEqual(result);
   });
 
   test("isolates completed event payloads from persisted and returned frontier state", async () => {
