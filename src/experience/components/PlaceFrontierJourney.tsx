@@ -77,8 +77,10 @@ type LegacyPlaceFrontierJourneyProps =
     };
 
 export type PlaceFrontierJourneyProps =
-  | { readonly mode: PlaceFrontierJourneyMode }
-  | LegacyPlaceFrontierJourneyProps;
+  (| { readonly mode: PlaceFrontierJourneyMode }
+    | LegacyPlaceFrontierJourneyProps) & {
+    readonly onReload?: () => void;
+  };
 
 interface ActiveStream {
   readonly generation: number;
@@ -464,6 +466,7 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
     };
   }, [resolutionCandidates, resolutionScreen, screen.runId, view.globe]);
   const identity = retryIdentity(mode);
+  const reload = props.onReload ?? (() => window.location.reload());
 
   useEffect(() => {
     if (activeStream === undefined) return;
@@ -862,6 +865,7 @@ export function PlaceFrontierJourney(props: PlaceFrontierJourneyProps) {
             decisionPending={decisionPending}
             onContinue={() => continueResolution(resolutionScreen.readModel)}
             onDecision={decide}
+            onReload={reload}
             readModel={resolutionScreen.readModel}
             view={resolutionView}
           />

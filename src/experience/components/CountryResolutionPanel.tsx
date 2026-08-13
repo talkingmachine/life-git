@@ -19,6 +19,7 @@ interface CountryResolutionPanelProps {
   readonly decisionPending: boolean;
   readonly onContinue: () => void;
   readonly onDecision: (decision: "accepted_at_own_risk" | "rejected") => void;
+  readonly onReload: () => void;
   readonly readModel: CountryResolutionReadModel;
   readonly view: CountryResolutionView;
 }
@@ -70,6 +71,7 @@ export function CountryResolutionPanel({
   decisionPending,
   onContinue,
   onDecision,
+  onReload,
   readModel,
   view,
 }: CountryResolutionPanelProps) {
@@ -79,6 +81,19 @@ export function CountryResolutionPanel({
   useEffect(() => {
     if (view.currentPrompt !== undefined) promptHeading.current?.focus();
   }, [view.currentPrompt?.countryCode]);
+
+  if (view.requiresVerifiedReload) {
+    return (
+      <section className="country-resolution-panel country-resolution-panel--continuation">
+        <p role="alert">
+          Обновление сохранено, но завершение потока не подтверждено.{" "}
+          Перезагрузите страницу, чтобы проверить актуальное состояние.
+        </p>
+        <button onClick={onReload} type="button">Перезагрузить</button>
+        <p className="visually-hidden">Revision: {readModel.revision.id}</p>
+      </section>
+    );
+  }
 
   if (view.currentPrompt !== undefined && candidate !== undefined) {
     return (

@@ -531,7 +531,10 @@ it("makes only red and yellow frontier markers interactive and closes a selected
     status,
     to: { lat: latitude, lng: 15 },
   });
-  const pending = frontierRoute("run-1:pending", "Ожидание", "pending", 44);
+  const pending = {
+    ...frontierRoute("run-1:pending", "Ожидание", "pending", 44),
+    statusLabel: "Проверяется",
+  };
   const green = frontierRoute("run-1:green", "Доступно", "green", 45);
   const yellow = {
     ...frontierRoute("run-1:yellow", "Уточнить", "yellow", 46),
@@ -563,7 +566,7 @@ it("makes only red and yellow frontier markers interactive and closes a selected
   expect(await screen.findByRole("button", { name: "Открыть страну Уточнить" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Открыть страну Недоступно" })).toBeTruthy();
   expect(screen.getAllByRole("button", { name: /Открыть страну/ })).toHaveLength(2);
-  expect(screen.getByRole("note", { name: /Ожидание.*провер/i })).toBeTruthy();
+  expect(screen.getByRole("note", { name: /Ожидание.*Проверяется/i })).toBeTruthy();
   expect(screen.getByRole("note", { name: /Доступно.*формально доступно/i })).toBeTruthy();
 
   const yellowMarker = screen.getByRole("button", { name: "Открыть страну Уточнить" });

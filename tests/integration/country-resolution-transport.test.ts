@@ -40,7 +40,10 @@ function uncertainty() {
   } as const;
 }
 
-function formalVerdict(countryCode: string, status: "green" | "yellow"): FormalResidenceVerdict {
+function formalVerdict(
+  countryCode: string,
+  status: "green" | "yellow" | "red",
+): FormalResidenceVerdict {
   if (status === "yellow") {
     return {
       rulesVersion: "formal-residence@1",
@@ -72,6 +75,36 @@ function formalVerdict(countryCode: string, status: "green" | "yellow"): FormalR
     evidence: [evidence],
     navigation: [],
   };
+  if (status === "red") {
+    return {
+      rulesVersion: "formal-residence@1",
+      marker: "red",
+      verdictAsOf: DAY,
+      routeOutcomes: [],
+      reasons: [],
+      catalogCompleteness: {
+        status: "verified",
+        attestation: {
+          catalogRevisionId: `catalog-${countryCode}`,
+          jurisdiction: countryCode,
+          authority: `authority-${countryCode}`,
+          scopeKind: "all_long_term_residence_routes_for_profile",
+          profileSnapshotId: PROFILE_ID,
+          catalogRoutes: [{
+            routeId: `excluded-${countryCode}`,
+            applicability: "excluded",
+            exclusionCode: "profile_not_eligible",
+            claimIds: [`excluded-claim-${countryCode}`],
+            evidence: [evidence],
+          }],
+          validatorVersion: "catalog-validator@1",
+          effectiveFrom: "2026-01-01",
+          evidenceSnapshotId: evidence.evidenceSnapshotId,
+          catalogEvidence: [evidence],
+        },
+      },
+    };
+  }
   return {
     rulesVersion: "formal-residence@1",
     marker: "green",
@@ -93,7 +126,11 @@ function formalVerdict(countryCode: string, status: "green" | "yellow"): FormalR
   };
 }
 
-function marker(code: string, rank: number, status: "green" | "yellow"): FrontierMarker {
+function marker(
+  code: string,
+  rank: number,
+  status: "green" | "yellow" | "red",
+): FrontierMarker {
   return {
     country: {
       countryCode: code,
@@ -108,6 +145,171 @@ function marker(code: string, rank: number, status: "green" | "yellow"): Frontie
     evidenceSnapshotId: `evidence-${code}`,
     formalVerdict: formalVerdict(code, status),
   };
+}
+
+function multiReplacementProtocolFixture() {
+  const codes = ["AA", "BB", "CC", "DD", "EE", "FF", "GG", "HH"];
+  const markerStatus = (index: number) => index < 2 ? "yellow" as const : "green" as const;
+  const sourceMarkers = codes.slice(0, 5).map((code, index) =>
+    marker(code, index + 1, markerStatus(index)));
+  const replacements = [
+    marker("FF", 6, "red"),
+    marker("GG", 7, "red"),
+    marker("HH", 8, "green"),
+  ];
+  const automaticFrontier = {
+    runId: "automatic-run-multi",
+    assessmentAt: NOW,
+    rankingSnapshot: {
+      schemaVersion: "place-ranking@1",
+      id: "automatic-run-multi:ranking",
+      runId: "automatic-run-multi",
+      profileSnapshotId: PROFILE_ID,
+      preferenceProfileSnapshotId: PREFERENCE_ID,
+      assessmentAt: NOW,
+      contextHash: "b".repeat(64),
+      knowledgeRevisionIds: Object.fromEntries(codes.map((code) => [code, null])),
+      ordered: codes.map((countryCode, index) => ({
+        ...marker(countryCode, index + 1, markerStatus(index)).country,
+        factors: [],
+        rank: index + 1,
+        relevance: "1",
+        coverage: "1",
+        contributions: [],
+      })),
+      excludedPlaces: [],
+      excluded: [],
+      rulesVersion: "place-ranker@1",
+      createdAt: NOW,
+    },
+    shortlistSnapshot: {
+      schemaVersion: "place-shortlist@1",
+      id: "automatic-run-multi:shortlist",
+      runId: "automatic-run-multi",
+      rankingSnapshotId: "automatic-run-multi:ranking",
+      markers: sourceMarkers,
+      rulesVersion: "country-frontier@1",
+      createdAt: NOW,
+    },
+  } as CountryResolutionReadModel["automaticFrontier"];
+  const source = {
+    automaticShortlistSnapshotId: automaticFrontier.shortlistSnapshot.id,
+    rankingSnapshotId: automaticFrontier.rankingSnapshot.id,
+    profileSnapshotId: PROFILE_ID,
+    preferenceProfileSnapshotId: PREFERENCE_ID,
+  };
+  const decisions = [
+    {
+      countryCode: "AA",
+      decision: "accepted_at_own_risk" as const,
+      formalMarkerDigest: "1".repeat(64),
+      uncertaintyBasis: uncertainty(),
+      warningCopyVersion: "yellow-risk@1" as const,
+      decidedAt: NOW,
+      commandId: "accept-AA",
+    },
+    {
+      countryCode: "BB",
+      decision: "rejected" as const,
+      formalMarkerDigest: "2".repeat(64),
+      uncertaintyBasis: uncertainty(),
+      warningCopyVersion: "yellow-risk@1" as const,
+      decidedAt: NOW,
+      commandId: "reject-BB",
+    },
+  ];
+  const base = {
+    schemaVersion: "country-resolution@1" as const,
+    rulesVersion: "country-resolution@1" as const,
+    resolutionRunId: "resolution-run-multi",
+    ...source,
+    decisions,
+    unresolvedCountryCodes: [],
+    slotCountryCodes: ["AA", "CC", "DD", "EE"],
+    createdAt: NOW,
+  };
+  const initialRevision = {
+    ...base,
+    id: "revision-multi-1",
+    replacementMarkers: replacements.slice(0, 1),
+    nextUncheckedRank: 7,
+    contextHash: "3".repeat(64),
+    kind: "working" as const,
+    phase: "replacement_required" as const,
+  };
+  const redRevision = {
+    ...base,
+    id: "revision-multi-2",
+    predecessorRevisionId: initialRevision.id,
+    replacementMarkers: replacements.slice(0, 2),
+    nextUncheckedRank: 8,
+    contextHash: "4".repeat(64),
+    kind: "working" as const,
+    phase: "replacement_required" as const,
+  };
+  const resolvedRevision = {
+    ...base,
+    id: "revision-multi-3",
+    predecessorRevisionId: redRevision.id,
+    replacementMarkers: replacements,
+    nextUncheckedRank: 9,
+    slotCountryCodes: ["AA", "CC", "DD", "EE", "HH"],
+    contextHash: "5".repeat(64),
+    kind: "resolved" as const,
+    resolvedEntries: [
+      { countryCode: "AA", rank: 1, formalMarkerDigest: "1".repeat(64) },
+      { countryCode: "CC", rank: 3, formalMarkerDigest: "3".repeat(64) },
+      { countryCode: "DD", rank: 4, formalMarkerDigest: "4".repeat(64) },
+      { countryCode: "EE", rank: 5, formalMarkerDigest: "5".repeat(64) },
+      { countryCode: "HH", rank: 8, formalMarkerDigest: "8".repeat(64) },
+    ],
+    stopCondition: "five_effective_green" as const,
+  };
+  const initial: CountryResolutionReadModel = {
+    resolutionRunId: base.resolutionRunId,
+    assessmentAt: NOW,
+    automaticFrontier,
+    revision: initialRevision,
+  };
+  const terminal: CountryResolutionReadModel = { ...initial, revision: resolvedRevision };
+  const events: CountryResolutionContinuationEvent[] = [
+    {
+      resolutionRunId: base.resolutionRunId,
+      sequence: 1,
+      occurredAt: NOW,
+      type: "replacement_country_activated",
+      payload: { country: replacements[1]!.country, rank: 7 },
+    },
+    {
+      resolutionRunId: base.resolutionRunId,
+      sequence: 2,
+      occurredAt: NOW,
+      type: "resolution_revision_committed",
+      payload: { marker: replacements[1]!, revision: redRevision },
+    },
+    {
+      resolutionRunId: base.resolutionRunId,
+      sequence: 3,
+      occurredAt: NOW,
+      type: "replacement_country_activated",
+      payload: { country: replacements[2]!.country, rank: 8 },
+    },
+    {
+      resolutionRunId: base.resolutionRunId,
+      sequence: 4,
+      occurredAt: NOW,
+      type: "resolution_revision_committed",
+      payload: { marker: replacements[2]!, revision: resolvedRevision },
+    },
+    {
+      resolutionRunId: base.resolutionRunId,
+      sequence: 5,
+      occurredAt: NOW,
+      type: "resolution_continuation_completed",
+      payload: { readModel: terminal },
+    },
+  ];
+  return { events, initial, replacements, terminal };
 }
 
 function protocolFixture() {
@@ -318,11 +520,15 @@ describe("strict finite country-resolution protocol", () => {
 
     expect(received).toEqual(fixture.events);
     let state = initialCountryResolutionEventState(fixture.initial);
+    let currentReadModel = fixture.initial;
     fixture.events.forEach((event) => {
       state = reduceCountryResolutionEvent(state, event, {
         country: fixture.replacement.country,
         rank: fixture.replacement.rank,
-      });
+      }, currentReadModel);
+      if (event.type === "resolution_revision_committed") {
+        currentReadModel = { ...currentReadModel, revision: event.payload.revision };
+      }
     });
     expect(state).toEqual({
       resolutionRunId: fixture.initial.resolutionRunId,
@@ -338,6 +544,84 @@ describe("strict finite country-resolution protocol", () => {
       terminal: fixture.terminal,
     });
     expect(Object.isFrozen(state)).toBe(true);
+  });
+
+  test("accepts an exact multi-replacement chain before clean EOF", async () => {
+    const fixture = multiReplacementProtocolFixture();
+
+    await expect(collectResolutionEvents(eventStream(fixture.events), fixture.initial))
+      .resolves.toEqual(fixture.events);
+  });
+
+  test.each([
+    ["dropped historical decision", (revision: Record<string, unknown>) => {
+      revision.decisions = (revision.decisions as unknown[]).slice(1);
+    }],
+    ["altered historical decision", (revision: Record<string, unknown>) => {
+      const decisions = structuredClone(revision.decisions) as Array<Record<string, unknown>>;
+      decisions[0] = { ...decisions[0], commandId: "forged-command" };
+      revision.decisions = decisions;
+    }],
+    ["reordered historical decisions", (revision: Record<string, unknown>) => {
+      revision.decisions = [...(revision.decisions as unknown[])].reverse();
+    }],
+    ["dropped prior replacement", (revision: Record<string, unknown>) => {
+      revision.replacementMarkers = (revision.replacementMarkers as unknown[]).slice(1);
+    }],
+    ["altered prior replacement", (revision: Record<string, unknown>) => {
+      const replacements = structuredClone(revision.replacementMarkers) as
+        Array<Record<string, unknown>>;
+      replacements[0] = { ...replacements[0], lastCheckedAt: "2026-08-11" };
+      revision.replacementMarkers = replacements;
+    }],
+    ["source-field drift", (revision: Record<string, unknown>) => {
+      revision.automaticShortlistSnapshotId = "forged-shortlist";
+    }],
+    ["cursor regression", (revision: Record<string, unknown>) => {
+      revision.nextUncheckedRank = 7;
+    }],
+    ["cursor jump", (revision: Record<string, unknown>) => {
+      revision.nextUncheckedRank = 9;
+    }],
+    ["illegal working phase", (revision: Record<string, unknown>) => {
+      revision.phase = "awaiting_decision";
+    }],
+    ["illegal terminal transition", (revision: Record<string, unknown>) => {
+      delete revision.phase;
+      revision.kind = "resolved";
+      revision.resolvedEntries = [
+        { countryCode: "AA", rank: 1, formalMarkerDigest: "1".repeat(64) },
+        { countryCode: "CC", rank: 3, formalMarkerDigest: "3".repeat(64) },
+        { countryCode: "DD", rank: 4, formalMarkerDigest: "4".repeat(64) },
+        { countryCode: "EE", rank: 5, formalMarkerDigest: "5".repeat(64) },
+      ];
+      revision.stopCondition = "ranking_exhausted";
+    }],
+  ] as const)("rejects a successor with %s before yielding its commit", async (_name, mutate) => {
+    const fixture = multiReplacementProtocolFixture();
+    const events = structuredClone(fixture.events) as CountryResolutionContinuationEvent[];
+    const committed = events[1] as Extract<CountryResolutionContinuationEvent, {
+      readonly type: "resolution_revision_committed";
+    }>;
+    const revision = structuredClone(committed.payload.revision) as unknown as
+      Record<string, unknown>;
+    mutate(revision);
+    events[1] = {
+      ...committed,
+      payload: {
+        ...committed.payload,
+        revision: revision as unknown as typeof committed.payload.revision,
+      },
+    };
+    const received: CountryResolutionContinuationEvent[] = [];
+    const consume = async () => {
+      for await (const event of decodeCountryResolutionStream(eventStream(events), fixture.initial)) {
+        received.push(event);
+      }
+    };
+
+    await expect(consume()).rejects.toThrow();
+    expect(received.map(({ type }) => type)).not.toContain("resolution_revision_committed");
   });
 
   test.each([
@@ -802,6 +1086,7 @@ describe("pure country-resolution projection", () => {
       country: fixture.replacement.country,
       rank: 6,
       status: "pending",
+      statusLabel: "Проверяется",
     });
     expect(view.cards).toEqual([]);
 
@@ -809,7 +1094,10 @@ describe("pure country-resolution projection", () => {
     state = reduceCountryResolutionContinuationEvent(state, fixture.events[2]!);
     const failed = failCountryResolutionContinuation(state, "connection_lost");
     view = projectCountryResolutionView(failed);
-    expect(view.candidates.at(-1)?.status).toBe("green");
+    expect(view.candidates.at(-1)).toMatchObject({
+      status: "green",
+      statusLabel: "Доступно для выбора",
+    });
     expect(view.transportError).toBe("connection_lost");
     expect(view.cards).toEqual([]);
   });

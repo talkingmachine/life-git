@@ -23,7 +23,11 @@ export interface CountryResolutionCandidateView {
   readonly country: FrontierCountry;
   readonly rank: number;
   readonly status: "pending" | "green" | "yellow" | "red";
-  readonly statusLabel: "Доступно для выбора" | "Требует решения" | "Исключено";
+  readonly statusLabel:
+    | "Проверяется"
+    | "Доступно для выбора"
+    | "Требует решения"
+    | "Исключено";
   readonly summary?: string;
   readonly officialUrls: readonly string[];
   readonly manualCheckLinks: readonly { readonly label: string; readonly url: string }[];
@@ -39,6 +43,7 @@ export interface CountryResolutionView {
   readonly canContinue: boolean;
   readonly cards: readonly PlaceFrontierCountryCard[];
   readonly globeMode: "full" | "collapsed";
+  readonly requiresVerifiedReload: boolean;
   readonly transportError?: string;
 }
 
@@ -141,7 +146,7 @@ function pendingCandidate(
     country: active.country,
     rank: active.rank,
     status: "pending",
-    statusLabel: "Доступно для выбора",
+    statusLabel: "Проверяется",
     officialUrls: [],
     manualCheckLinks: [],
   });
@@ -205,7 +210,7 @@ export function reduceCountryResolutionContinuationEvent(
           coordinate: ranked.coordinate,
         },
         rank: ranked.rank,
-      });
+      }, state.readModel);
   if (event.type === "resolution_continuation_completed") {
     return presentCountryResolutionReadModel(stream.terminal!);
   }
@@ -263,6 +268,8 @@ export function projectCountryResolutionView(
       state.readModel.revision.phase === "replacement_required",
     cards: isResolved ? resolvedCards(state.readModel) : [],
     globeMode: isResolved ? "collapsed" : "full",
+    requiresVerifiedReload: state.kind === "transportError" &&
+      state.stream.committedRevisionIds.includes(state.readModel.revision.id),
     ...(state.kind === "transportError" ? { transportError: state.message } : {}),
   });
 }

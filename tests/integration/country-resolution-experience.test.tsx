@@ -278,7 +278,29 @@ function rejectedContinuationFixture() {
     decision: "rejected" as const,
     formalMarkerDigest: "1".repeat(64),
     uncertaintyBasis: {
-      unknownRoutes: [],
+      unknownRoutes: [{
+        routeId: "route-AA",
+        reasons: [{
+          code: "route_requirements_unknown",
+          claimIds: ["claim-AA"],
+          evidence: [{
+            evidenceSnapshotId: "evidence-AA",
+            artifactId: "artifact-AA",
+            sourceId: "source-AA",
+            navigationUrl: "https://official.test/AA",
+            resolvedEvidenceUrl: "https://official.test/AA.pdf",
+            sourcePeriod: "2026-08",
+            locator: "section-AA",
+            excerptSha256: "a".repeat(64),
+            validatorVersion: "fixture-validator@1",
+          }],
+          navigation: [{
+            sourceId: "source-AA",
+            url: "https://manual.test/AA",
+            label: "Проверить AA",
+          }],
+        }],
+      }],
       catalogCompletenessUnprovable: {
         code: "catalog_completeness_unprovable",
         claimIds: [],
@@ -558,6 +580,8 @@ describe("country-resolution same-planet handoff", () => {
     const progress = await screen.findByRole("region", { name: "Ход проверки" });
     expect(progress.textContent).toContain("Получен официальный документ FF");
     expect(progress.textContent).toContain("sha256:fixture");
+    expect(screen.getByText(/Россия → Country FF/).closest("li")?.textContent)
+      .toContain("Проверяется");
     continuation?.enqueue(encoder.encode(`${JSON.stringify(fixture.events[2])}\n`));
     continuation?.enqueue(encoder.encode(`${JSON.stringify(fixture.events[3])}\n`));
     continuation?.close();
@@ -569,6 +593,8 @@ describe("country-resolution same-planet handoff", () => {
     expect(screen.getByRole("region", {
       name: "Проверка формальной доступности стран",
     }).getAttribute("data-tone")).toBe("green");
+    expect(screen.getByText(/Россия → Country FF/).closest("li")?.textContent)
+      .toContain("Доступно для выбора");
     expect(screen.queryByText(/Решение по стране/)).toBeNull();
   });
 
@@ -796,8 +822,12 @@ describe("country-resolution continuation ownership", () => {
       },
     });
     vi.stubGlobal("fetch", vi.fn(async () => response));
+    const reload = vi.fn();
     const journey = render(
-      <PlaceFrontierJourney mode={{ kind: "resolution-stored", readModel: fixture.decided }} />,
+      <PlaceFrontierJourney
+        mode={{ kind: "resolution-stored", readModel: fixture.decided }}
+        onReload={reload}
+      />,
     );
     const globe = journey.container.querySelector(".workspace-globe");
 
@@ -809,13 +839,18 @@ describe("country-resolution continuation ownership", () => {
     ));
     continuation?.close();
 
-    expect((await screen.findByRole("alert")).textContent)
-      .toBe("Проверка замены прервана. Сохранённая история не изменена.");
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Обновление сохранено, но завершение потока не подтверждено. " +
+      "Перезагрузите страницу, чтобы проверить актуальное состояние.",
+    );
     await vi.waitFor(() => expect(screen.getByText(/Россия → Country FF/).closest("li")?.className)
       .toContain("--green"));
     expect(screen.getByText(/Россия → Country AA/).closest("li")?.className)
       .toContain("--red");
     expect(journey.container.querySelector(".workspace-globe")).toBe(globe);
     expect(screen.queryByRole("region", { name: "Карточки стран" })).toBeNull();
+    expect(screen.queryByText("Проверяем следующую страну из сохранённого рейтинга.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Перезагрузить" }));
+    expect(reload).toHaveBeenCalledOnce();
   });
 });

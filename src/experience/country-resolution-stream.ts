@@ -9,7 +9,13 @@ import type { CountryResolutionRevision } from
 import type {
   CountryVerificationProgress,
   FrontierCountry,
+  FrontierMarker,
 } from "../application/country-verifier";
+import {
+  deriveYellowUncertaintyBasis,
+  reconstructCountryResolution,
+  type ResolutionMarkerProjection,
+} from "../decision/country-resolution-policy";
 import {
   cancelStreamWithoutMasking,
   createFiniteStreamHandoff,
@@ -282,10 +288,94 @@ interface ExpectedActivation {
   readonly rank: number;
 }
 
+function markerProjectionForProtocol(
+  marker: FrontierMarker,
+  revision: CountryResolutionRevision,
+): ResolutionMarkerProjection {
+  const decision = revision.decisions.find(({ countryCode }) =>
+    countryCode === marker.country.countryCode);
+  const resolvedEntry = revision.kind === "resolved"
+    ? revision.resolvedEntries.find(({ countryCode }) =>
+        countryCode === marker.country.countryCode)
+    : undefined;
+  return {
+    countryCode: marker.country.countryCode,
+    rank: marker.rank,
+    formalStatus: marker.formalVerdict.marker,
+    formalMarkerDigest: decision?.formalMarkerDigest ?? resolvedEntry?.formalMarkerDigest ??
+      `transport-unresolved:${marker.country.countryCode}:${marker.rank}`,
+    ...(marker.formalVerdict.marker === "yellow"
+      ? { expectedUncertaintyBasis: deriveYellowUncertaintyBasis(marker.formalVerdict) }
+      : {}),
+  };
+}
+
+function assertRevisionSemantics(
+  revision: CountryResolutionRevision,
+  automaticFrontier: CountryResolutionReadModel["automaticFrontier"],
+): void {
+  const projection = reconstructCountryResolution({
+    orderedCountryCodes: automaticFrontier.rankingSnapshot.ordered.map(
+      ({ countryCode: code }) => code,
+    ),
+    markers: [
+      ...automaticFrontier.shortlistSnapshot.markers,
+      ...revision.replacementMarkers,
+    ].map((marker) => markerProjectionForProtocol(marker, revision)),
+    decisions: revision.decisions,
+  });
+  const projectionMatches = revision.nextUncheckedRank === projection.nextUncheckedRank &&
+    sameValue(revision.unresolvedCountryCodes, projection.unresolvedCountryCodes) &&
+    sameValue(revision.slotCountryCodes, projection.slotCountryCodes);
+  if (!projectionMatches) throw new Error("invalid_resolution_revision_semantics");
+  if (revision.kind === "working") {
+    if (projection.terminal !== undefined || revision.phase !== projection.phase) {
+      throw new Error("invalid_resolution_revision_semantics");
+    }
+    return;
+  }
+  if (projection.terminal === undefined ||
+    revision.stopCondition !== projection.terminal.stopCondition ||
+    !sameValue(revision.resolvedEntries, projection.terminal.resolvedEntries)) {
+    throw new Error("invalid_resolution_revision_semantics");
+  }
+}
+
+function assertCommittedRevisionTransition(
+  predecessorReadModel: CountryResolutionReadModel,
+  marker: FrontierMarker,
+  successor: CountryResolutionRevision,
+): void {
+  const predecessor = predecessorReadModel.revision;
+  const automatic = predecessorReadModel.automaticFrontier;
+  const exactSource = successor.schemaVersion === predecessor.schemaVersion &&
+    successor.rulesVersion === predecessor.rulesVersion &&
+    successor.resolutionRunId === predecessor.resolutionRunId &&
+    successor.automaticShortlistSnapshotId === predecessor.automaticShortlistSnapshotId &&
+    successor.rankingSnapshotId === predecessor.rankingSnapshotId &&
+    successor.profileSnapshotId === predecessor.profileSnapshotId &&
+    successor.preferenceProfileSnapshotId === predecessor.preferenceProfileSnapshotId;
+  const exactHistory = sameValue(successor.decisions, predecessor.decisions) &&
+    successor.replacementMarkers.length === predecessor.replacementMarkers.length + 1 &&
+    predecessor.replacementMarkers.every((historicalMarker, index) =>
+      sameValue(historicalMarker, successor.replacementMarkers[index])) &&
+    sameValue(successor.replacementMarkers.at(-1), marker);
+  if (!exactSource || !exactHistory || predecessor.kind !== "working" ||
+    predecessor.phase !== "replacement_required" ||
+    successor.predecessorRevisionId !== predecessor.id ||
+    successor.nextUncheckedRank !== predecessor.nextUncheckedRank + 1 ||
+    marker.rank !== predecessor.nextUncheckedRank) {
+    throw new Error("invalid_resolution_commit");
+  }
+  assertRevisionSemantics(predecessor, automatic);
+  assertRevisionSemantics(successor, automatic);
+}
+
 export function reduceCountryResolutionEvent(
   state: CountryResolutionEventState,
   rawEvent: CountryResolutionContinuationEvent,
-  expectedActivation?: ExpectedActivation,
+  expectedActivation: ExpectedActivation | undefined,
+  predecessorReadModel: CountryResolutionReadModel,
 ): CountryResolutionEventState {
   const event = normalizeEvent(rawEvent);
   if (state.terminal !== undefined) throw new Error("event_after_terminal");
@@ -316,7 +406,10 @@ export function reduceCountryResolutionEvent(
       ...(event.payload.sourceUrl === undefined ? {} : { sourceUrl: event.payload.sourceUrl }),
     })];
   } else if (event.type === "resolution_revision_committed") {
-    const revision = event.payload.revision;
+    const revision = normalizeRevision(
+      event.payload.revision,
+      predecessorReadModel.automaticFrontier,
+    );
     const marker = event.payload.marker;
     if (activeReplacement === undefined || marker.rank !== activeReplacement.rank ||
       !sameValue(marker.country, activeReplacement.country) ||
@@ -327,6 +420,7 @@ export function reduceCountryResolutionEvent(
       !sameValue(revision.replacementMarkers.at(-1), marker)) {
       throw new Error("invalid_resolution_commit");
     }
+    assertCommittedRevisionTransition(predecessorReadModel, marker, revision);
     activeReplacement = undefined;
     expectedRevisionId = revision.id;
     committedRevisionIds = [...committedRevisionIds, revision.id];
@@ -408,7 +502,7 @@ export async function* decodeCountryResolutionStream(
       },
       rank: ranked.rank,
     };
-    state = reduceCountryResolutionEvent(state, event, expectedActivation);
+    state = reduceCountryResolutionEvent(state, event, expectedActivation, currentReadModel);
     if (event.type === "resolution_revision_committed") {
       currentReadModel = normalizeCountryResolutionReadModel({
         ...currentReadModel,
