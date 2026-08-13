@@ -539,8 +539,12 @@ it("makes only red and yellow frontier markers interactive and closes a selected
     officialUrl: "https://evidence.test/one",
     officialUrls: ["https://evidence.test/one", "https://evidence.test/two"],
     manualCheckLinks: [{ label: "Навигация", url: "https://manual.test/one" }],
+    statusLabel: "Требует решения",
   };
-  const red = frontierRoute("run-1:red", "Недоступно", "red", 47);
+  const red = {
+    ...frontierRoute("run-1:red", "Недоступно", "red", 47),
+    statusLabel: "Исключено",
+  };
   const props = {
     activeFlight: pending,
     onFlightComplete: () => undefined,
@@ -569,6 +573,7 @@ it("makes only red and yellow frontier markers interactive and closes a selected
   expect(screen.getAllByRole("link", { name: /официальный источник/i })).toHaveLength(2);
   expect(screen.getByRole("heading", { name: "Проверьте вручную" })).toBeTruthy();
   expect(screen.getByRole("link", { name: "Навигация" })).toBeTruthy();
+  expect(screen.getByText("Требует решения")).toBeTruthy();
 
   globe.rerender(
     <ResearchGlobeCanvas
@@ -581,4 +586,71 @@ it("makes only red and yellow frontier markers interactive and closes a selected
   await waitFor(() => expect(document.activeElement).toBe(
     screen.getByRole("button", { name: "Открыть страну Недоступно" }),
   ));
+});
+
+it("does not steal focus from a newer resolution prompt after deferred marker closure", async () => {
+  const countryOrigin = {
+    coordinate: origin.coordinate,
+    country: "Россия",
+    flag: "🇷🇺",
+    kind: "country" as const,
+    label: "Россия",
+  };
+  const yellow: GlobeRoute = {
+    country: "Словения",
+    description: "Нужна ручная проверка",
+    flag: "🇸🇮",
+    from: countryOrigin.coordinate,
+    key: "resolution-run:SI",
+    kind: "country",
+    label: "Словения",
+    routeLabel: "Россия → Словения",
+    status: "yellow",
+    statusLabel: "Требует решения",
+    to: { lat: 46.1512, lng: 14.9955 },
+  };
+  const red: GlobeRoute = {
+    ...yellow,
+    country: "Словакия",
+    flag: "🇸🇰",
+    key: "resolution-run:SK",
+    label: "Словакия",
+    status: "red",
+    statusLabel: "Исключено",
+    to: { lat: 48.669, lng: 19.699 },
+  };
+  const props = {
+    onFlightComplete: () => undefined,
+    onReady: () => undefined,
+    onUnavailable: () => undefined,
+    origin: countryOrigin,
+    overview: { coordinates: [countryOrigin.coordinate, yellow.to, red.to], key: 30 },
+  };
+  const globe = render(
+    <>
+      <h2 data-testid="next-resolution-prompt" tabIndex={-1}>Решение по стране Словакия</h2>
+      <ResearchGlobeCanvas {...props} routes={[yellow, red]} />
+    </>,
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: "Открыть страну Словения" }));
+  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Словения" }));
+
+  globe.rerender(
+    <>
+      <h2 data-testid="next-resolution-prompt" tabIndex={-1}>Решение по стране Словакия</h2>
+      <ResearchGlobeCanvas
+        {...props}
+        routes={[{ ...yellow, status: "green", statusLabel: "Доступно для выбора" }, red]}
+      />
+    </>,
+  );
+  const nextPrompt = screen.getByTestId("next-resolution-prompt");
+  nextPrompt.focus();
+  await nextRendererFrame();
+
+  expect(document.activeElement).toBe(nextPrompt);
+  expect(screen.getByRole("note", { name: /Словения.*доступно для выбора/i })).toBeTruthy();
+  expect(props.overview.key).toBe(30);
+  expect(yellow.key).toBe("resolution-run:SI");
 });

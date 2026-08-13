@@ -169,6 +169,8 @@ describe("responsive product shell", () => {
       </ProductShell>,
     );
     const globe = shell.container.querySelector(".workspace-globe");
+    const sentinel = Symbol("same-product-shell-globe");
+    Object.assign(globe!, { sentinel });
     expect(globe?.getAttribute("data-mode")).toBe("full");
 
     shell.rerender(
@@ -179,6 +181,9 @@ describe("responsive product shell", () => {
     );
 
     expect(shell.container.querySelector(".workspace-globe")).toBe(globe);
+    expect((shell.container.querySelector(".workspace-globe") as Element & {
+      sentinel?: symbol;
+    }).sentinel).toBe(sentinel);
     expect(globe?.getAttribute("data-mode")).toBe("collapsed");
   });
 });

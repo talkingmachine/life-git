@@ -21,3 +21,11 @@ export function replacePlaceFrontierRunUrl(runId: string): void {
     `?flow=place-frontier&run=${encodeURIComponent(runId)}`,
   );
 }
+
+export function replaceCountryResolutionRunUrl(runId: string): void {
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `?flow=country-resolution&run=${encodeURIComponent(runId)}`,
+  );
+}

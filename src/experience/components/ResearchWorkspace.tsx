@@ -14,6 +14,7 @@ type LegacyJourneyCandidate = ReturnType<typeof createJourneyView>["candidate"];
 type LegacyResearchCandidate = Omit<LegacyJourneyCandidate, "reason" | "status"> & {
   readonly reason?: MapResearchCandidate["reason"] | undefined;
   readonly status: CandidateState;
+  readonly statusLabel?: string;
 };
 type ResearchCandidate = MapResearchCandidate | LegacyResearchCandidate;
 
@@ -165,7 +166,9 @@ export function ResearchWorkspace({
                     <span className="research-workspace__route">
                       {candidateRoute(candidate, routeLabel)}
                     </span>
-                    <span className="research-workspace__state-label">{candidateLabels[candidate.status]}</span>
+                    <span className="research-workspace__state-label">
+                      {candidate.statusLabel ?? candidateLabels[candidate.status]}
+                    </span>
                   </div>
                 ) : (
                   <button
@@ -183,7 +186,9 @@ export function ResearchWorkspace({
                     <span className="research-workspace__route">
                       {candidateRoute(candidate, routeLabel)}
                     </span>
-                    <span className="research-workspace__state-label">{candidateLabels[candidate.status]}</span>
+                    <span className="research-workspace__state-label">
+                      {candidate.statusLabel ?? candidateLabels[candidate.status]}
+                    </span>
                     <UiIcon
                       className="research-workspace__disclosure-icon"
                       name={openCandidateId === candidate.id ? "collapse" : "expand"}

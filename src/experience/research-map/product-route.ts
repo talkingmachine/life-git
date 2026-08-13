@@ -41,6 +41,7 @@ export function createProductGlobeRoute(
     officialUrls: candidate.reason?.officialUrls,
     manualCheckLinks: candidate.reason?.manualCheckLinks,
     status: candidate.status,
+    statusLabel: candidate.statusLabel,
     to: candidate.coordinate,
   };
 }
