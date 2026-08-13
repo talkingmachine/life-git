@@ -2,18 +2,18 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `review` — разговорный дизайн одобрен, точный письменный baseline ожидает approval |
+| Статус | `approved` — разговорный дизайн и точный письменный baseline одобрены пользователем |
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-13 |
 | Область | City Registry, установленный City Catalog, City Knowledge, ranking, bounded live frontier, terminal shortlist и выбор первой Life Git ветви |
 | Зависимости | verified non-empty `Resolved Country Shortlist Snapshot` из `VS-3R`, confirmed profile, provider-free runtime, Evidence pipeline |
 | Approval evidence | пользователь одобрил широкий catalog, порог/столицы/top-10, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching в разговорном дизайне 2026-08-13 |
-| Written approval | ожидается после проверки этого exact файла |
+| Written approval | пользователь явно одобрил exact редакцию 2026-08-13 |
 | Canonical effect after approval | заменяет общее обещание «1–3 города» точной City Frontier semantics; не меняет formal/effective country status |
 | Split review | 320-line draft проверен по `CONSTITUTION.md`; сохранён одним документом, потому что catalog, ranking, full-Knowledge и frontier образуют один atomic design contract; tasks/evidence/canonical amendments остаются отдельными |
 
-До approval точной редакции этот документ не изменяет Product Charter, Glossary, Demo Story или
-Spec of Specs. После approval он является design baseline отдельного slice; implementation plan и
+Этот approved документ является design baseline отдельного slice. Product Charter, Glossary, Demo
+Story и Spec of Specs изменяются только отдельным traceable change-package; implementation plan и
 canonical amendments создаются следующими шагами.
 
 ## 1. Цель, результат и граница
@@ -318,7 +318,7 @@ approved `VS-3`/`VS-3R` specs и evidence не переписываются.
 
 ## 10. Approval gate
 
-Conversational decisions зафиксированы, но exact written baseline ещё не approved. После user
-approval следующая допустимая операция — создать detailed implementation plan через
-`writing-plans`. До этого запрещены production code, schema, test scaffolding, source installation и
-canonical amendments.
+Conversational design и exact written baseline одобрены пользователем 2026-08-13. Следующая
+допустимая операция — создать detailed implementation plan через `writing-plans`. До approval этого
+плана запрещены production code, schema, test scaffolding, source installation и canonical
+amendments.
