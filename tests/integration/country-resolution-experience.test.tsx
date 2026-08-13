@@ -547,7 +547,10 @@ describe("country-resolution same-planet handoff", () => {
     await vi.waitFor(() => expect(screen.getByText(/Россия → Country AA/).closest("li")?.className)
       .toContain("--red"));
     fireEvent.click(screen.getByRole("button", { name: /Россия → Country AA/ }));
-    expect(screen.getByText("Пользователь отказался принимать неустранённый риск."))
+    expect(screen.getByText(
+      "Формальные данные остались неполными; пользователь отказался принимать риск " +
+      "самостоятельной проверки.",
+    ))
       .toBeTruthy();
 
     continuation?.enqueue(encoder.encode(`${JSON.stringify(fixture.events[0])}\n`));

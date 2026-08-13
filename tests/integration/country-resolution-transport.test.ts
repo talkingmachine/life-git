@@ -567,7 +567,8 @@ describe("pure country-resolution projection", () => {
     ]);
     expect(view.candidates[0]).toMatchObject({
       statusLabel: "Исключено",
-      summary: "Пользователь отказался принимать неустранённый риск.",
+      summary: "Формальные данные остались неполными; пользователь отказался принимать риск " +
+        "самостоятельной проверки.",
       officialUrls: [],
       manualCheckLinks: [],
     });
