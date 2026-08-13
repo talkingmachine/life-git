@@ -4,79 +4,118 @@
 | --- | --- |
 | `packageStatus` | `unavailable` |
 | `decision` | `NEEDS_CONTEXT` |
-| `captureDate` | `2026-08-13` |
-| `evidencePass` | `2` |
-| `scope` | Official-source feasibility only; no installed package, production code, schema, test scaffolding, crawler, or fixture-backed production success. |
-| `fixtureCount` | `0` |
+| `captureDate` | `2026-08-13..2026-08-14` |
+| `evidencePass` | `4` |
+| `fixtureCount` | `22` files including README, manifests and `SHA256SUMS` |
+| `scope` | Official-source feasibility and privacy-safe validator evidence only. No installed package, production source adapter, schema, crawler or fixture-backed success. |
 
-The package remains fail-closed. Evidence pass 2 proves several official surface semantics, but
-`installable` is forbidden until the catalog and all four metric rows are official, comparable,
-deterministic, bounded, and backed by committed validator fixtures. A partial row cannot waive a
-missing term. In particular, the urban-transit evidence is definitively non-comparable for the
-installed catalog, so it alone keeps this package unavailable.
+The bounded audit found trustworthy official alternatives and materially narrowed every row. It did
+not close one installable Slovenia package: the catalog is now reproducible, while current safety,
+comparable municipal urban transit, and the AKOS reference-period/reuse boundary remain unresolved.
+A missing row must become evidence-backed `unknown`, never zero or a carried-forward value. Task 3
+must not start from these fixtures.
 
 ## Catalog matrix
 
-| sourceId | authority | navigationUrl | resolvedEvidenceUrl/request | officialAreaIdentifier | comparablePopulation/metricDefinition | referencePeriod | unit | denominator | updateCadence | freshness | validatorOutline | captureBound | deterministicBoundaryVectors | fixture/sha256 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `si-city-catalog` | Government of Slovenia (municipality status); Statistical Office of the Republic of Slovenia (SURS; population and settlement presentation); official settlement presentation names GURS and SURS as sources | `https://www.gov.si/teme/obcine-v-stevilkah/`; `https://www.stat.si/KrajevnaImena/en/Settlements/ByRegion` | Official SURS municipality table: `GET https://pxweb.stat.si/SiStatData/pxweb/sl/Data/Data/05C4003S.px/`, body absent for navigation; deterministic PxWeb data request/body **not proven**. Ljubljana search: `GET https://www.stat.si/KrajevnaImena/en/Settlements/Search?id=Ljubljana&s=Ljubljana&streets=0`. Ljubljana detail: `GET https://www.stat.si/KrajevnaImena/en/Settlements/Details/2370` | Municipality table exposes stable municipality codes for Slovenia plus all `212` municipalities. Ljubljana settlement detail ID is `2370`, with settlement and municipality both `Ljubljana`. A deterministic full settlement-to-municipality/centre mapping is **not proven** | GOV.SI states `212` municipalities and `12` with city-municipality status. The official settlement universe states `6,035` settlements. `05C4003S` exposes half-year municipality population through `2026H1`. Ljubljana detail records latitude `46.05667951121722`, longitude `14.500193914931764`, area `163.825`, density `1760`, and population `284293` (2022), `287076` (2023), `288382` (2024), `290903` (2025), each as of January 1. This does **not** yet prove the complete REQ-CF-01 city/municipal-centre universe, regional-capital typing, or top-ten fill | Municipality population through `2026H1`; Ljubljana annual population as of `2022-01-01`, `2023-01-01`, `2024-01-01`, `2025-01-01` | persons; square kilometres; persons per square kilometre | One official municipality or settlement row; the installed catalog's common centre-level denominator is **not proven** | Municipality series is half-year; Ljubljana detail is annual as of January 1 | Reject as stale/unknown until a deterministic request proves the latest complete period and an approved grace window; cadence is observed, but the freshness rule is **not proven** | Validate official universe counts, unique stable codes, area linkage, complete comparable population period, threshold inclusion, national/city/regional capital overrides, top-ten fill, missing-population handling, and no truncation. No success validator can be installed without a bounded bulk request and fixture | Five supplied official surfaces/table views; zero downloaded artifacts; zero fixtures | Observed Ljubljana vector: `2022=284293`, `2023=287076`, `2024=288382`, `2025=290903`. Required `<20000`, `=20000`, `>20000`, capital override, regional-capital override, top-ten fill, missing-population, and no-truncation vectors remain **unproven** | none; no fixture `sha256` exists |
+| Required field | Evidence pass 4 result |
+| --- | --- |
+| `authority` / `navigationUrl` | SURS SMN classification: `https://www.stat.si/Klasje/Klasje/Details/1601`; SURS PxWeb population; GURS RPE WFS: `https://ipi.eprostor.gov.si/wfs-si-gurs-rpe/wfs`. National capital: Constitution Article 10, `https://pisrs.si/pregledPredpisa?id=USTA1&tab=47`. Regional-capital status: GOV.SI says the country is still advancing the process of establishing self-governing provinces. |
+| `resolvedEvidenceUrl` / request | `POST https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C5003S.px` with committed deterministic request. SMN 2022 XLSX/PDF SHA-256 `76c961...fbd6` / `145adb...477`. GOV.SI province-status capture `https://www.gov.si/en/news/2026-06-05-monika-kirbis-rojs-assumes-office-as-minister-of-local-self-government-cohesion-and-regional-development/`, SHA-256 `0893c5...5d0a`. GURS `GetCapabilities`, `DescribeFeatureType NASELJA`, hits, and bounded top-ten GeoJSON hashes are `5d9047...e2`, `7d5c87...d453`, `5f20d3...beb2`, `86aaa3...6380`. |
+| `officialAreaIdentifier` | Six-digit SURS/SMN settlement code; current GURS `SESTAVLJENA_SIFRA` zero-pads to that code. The first three digits and the same PxWeb dimension provide the municipality code/name used as administrative territory. GURS EID remains a versioned external crosswalk, not stable internal `cityId`. |
+| `comparablePopulation` / definition | SURS `05C5003S`, `MERITVE=0`, settlement population on `2026-01-01`, release `2026-06-11`, unit persons, denominator one settlement. Full response: 6,253 rows, 212 municipalities, 6,040 settlement slots, 6,035 non-null current settlements. Raw response SHA-256 `237dc3...bb0c`. |
+| `referencePeriod` / cadence / `freshness` | `2026-01-01`; annual series through 2026. A future validator must load metadata and require the latest released common year, never reuse the capture date as the population reference date. |
+| `validatorOutline` | Replay the complete 104-row SMN level-2 central-urban universe and PxWeb population projection; validate unique six-digit codes, all 104 comparable values, threshold `>=20000`, Ljubljana national role, no invented regional-capital role, then top-up by population descending/code ascending until ten distinct members. GURS polygons may yield a versioned derived `pointOnSurface`, never an alleged official point. |
+| `captureBound` / deterministic vectors | One full PxWeb response, one official SMN export pair, one GOV.SI province-status capture, three GURS schema/count calls and one top-ten polygon call. SMN has 104 central urban centres and all 104 have non-null comparable 2026 population. Seven pass `>=20000`; Slovenia currently has no established self-governing provinces whose capitals could trigger the override; Ptuj, Kamnik and Jesenice fill the catalog to ten. |
+| `fixture` / `sha256` | Deterministic request `4c0c21...fea8`; compact full 104-centre projection `33618a...0b3c`; summary `adcfd0...63eb`; raw population request/response `4ff155...970f` / `237dc3...bb0c`. |
+| `blockingGap` | None at source-feasibility level. A 212-municipality-seat crosswalk is outside the approved SMN central-urban universe. Installation must seal the full registry projection, derive all 104 marker points from GURS polygons, assign package-owned stable `cityId`, and require an explicit identity migration for later reclassification. |
+
+Catalog membership is ten centres: Ljubljana, Maribor, Celje, Kranj, Koper/Capodistria, Velenje,
+Novo mesto, Ptuj, Kamnik and Jesenice. ReSPR50's second-level centres are not silently relabelled as
+regional capitals; if Slovenia establishes provinces and explicitly types their capitals, a new
+catalog revision can apply that override.
 
 ## Metric matrix
 
-| sourceId | criterion | authority | navigationUrl | resolvedEvidenceUrl/request | officialAreaIdentifier | comparablePopulation/metricDefinition | referencePeriod | unit | denominator | updateCadence | freshness | validatorOutline | captureBound | deterministicBoundaryVectors | fixture/sha256 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `si-city-safety` | `safety` | Slovenian Police official surface; source definition not observed because transport never completed | `https://www.policija.si/o-slovenski-policiji/statistika/kriminaliteta` | Direct navigation plus one reload; both timed out. No resolved response URL, status, media type, request grammar, or bytes | **not proven** | **not proven**; timeout is `transport_failure`, not evidence of source or crime-data absence | **not proven** | **not proven** | **not proven** | **not proven** | Always reject as `unknown`; no period/cadence or fresh/stale boundary was observed | Reject on transport failure or any missing definition, area key, denominator, period, deterministic request, or fixture; no success grammar is installed | `2` bounded attempts (initial load plus one reload); `0` responses; `0` fixtures | below/equal/above target, missing city, and fresh/stale boundary are **not derivable** | none; no fixture `sha256` exists |
-| `si-city-rent` | `long_term_rent` | Official e-Prostor real-estate-market surface and Evidence of the Real Estate Market (ETN) semantics | Stale path `https://www.e-prostor.gov.si/podrocja/trg-nepremicnin/`; current path `https://www.e-prostor.gov.si/podrocja/trg-in-vrednosti-nepremicnin/trg-nepremicnin/` | Old path returned `404`. Current official page resolved and states that ETN records prices and rents. It links an annual 2025 PDF, but the large PDF was not downloaded and its artifact URL/bytes were not captured | **not proven** for a deterministic city/settlement aggregate | ETN contains verified and processed price/rent records since `2007`; a lease is long-term when its duration is at least `6 months`. No current city-wide comparable residential-rent aggregate across the installed settlement catalog is proven | Record coverage since `2007`; annual report for `2025` was linked but not captured | Record-level price/rent fields are evidenced; exact comparable aggregate unit is **not proven** | Verified/processed ETN lease records are the source population; city aggregate denominator is missing | Annual 2025 report observed; machine-data cadence is **not proven** | Reject as stale/unknown until a bounded current aggregate period and grace rule are proven | A future validator may enforce lease-duration `>=6 months` and ETN verified/processed status, but must reject without a stable area identifier, common residential scope, period, unit/denominator, deterministic request, and fixture | One stale-path response, one current official page, and one linked large-PDF observation; no download; zero fixtures | Semantic duration vector: `<6 months` excluded, `6 months` included, `>6 months` included. Rent target below/equal/above, missing-city, and fresh/stale vectors remain **unproven** and not fixture-backed | none; no fixture `sha256` exists |
-| `si-city-transit` | `urban_transit` | Official LPP and Marprom operator surfaces; official SURS transport tables | `https://www.lpp.si/en/public-transport`; `https://www.marprom.si/en/urban-bus-service/`; `https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/2221406S.px`; `https://pxweb.stat.si/SiStatData/pxweb/en/Data/-/2281296S.px` | LPP page resolved with operational statistics, but they mix geographies and expose no stable common area ID. Marprom path drifted/timed out. SURS table `2221406S` has only measures by year and is national. SURS table `2281296S` covers only Ljubljana and Maribor; deterministic PxWeb data request/body is not proven | **not proven**; neither operator pages nor the two SURS views establish stable identifiers shared with the full settlement catalog | Definitively non-comparable: LPP statistics have mixed geography; `2221406S` is national; `2281296S` has only Ljubljana and Maribor, years `2021` and `2025`, and absolute trips. None provides one common metric and denominator for the wide installed catalog | Operator period not comparable; SURS city table exposes `2021` and `2025` | Absolute trips in `2281296S`; mixed/other measures are not one common unit | Missing; neither per-resident, per-service-area, nor another common city denominator is proved | Two city-table years do not prove a usable update cadence | Always reject as `unknown`; no common period/cadence or deterministic fresh/stale rule exists | Fail with `universe_incomplete`, `definition_noncomparable`, `area_identifier_unproved`, and `denominator_missing`; do not substitute national data or random operator metrics | Four bounded official surfaces/table views; Marprom ended in source drift/timeout; zero fixtures | Candidate outside Ljubljana/Maribor demonstrates universe incompleteness. Below/equal/above target, cross-operator equality, absent-service, and fresh/stale vectors are **not derivable** from absolute trips | none; no fixture `sha256` exists |
-| `si-city-broadband` | `fixed_broadband` | Agency for Communication Networks and Services of the Republic of Slovenia (AKOS) | `https://www.akos-rs.si/telekomunikacije/raziscite/porocila-raziskave-in-analize/telekomunikacije`; `https://www.akos-rs.si/radijski-spekter/izpostavljamo/akos-testnet-in-geoportal`; `https://gis.akos-rs.si/` | Reports page resolves only national reports. AKOS information says Test Net measures fixed/mobile speed, latency, and availability and that Geoportal retrieves network-connection-point data at municipality/settlement level. Geoportal loaded with `FIKSNO OMREŽJE`, `OPT`, planned `OPT`/white-spots, `naselja`, and municipality layers. Exact API/WFS request and schema are unresolved; direct `app.js` access was blocked by the client | Municipality/settlement layer types are visible, but stable area code fields and their join to the catalog are **not proven** | Partial semantics only: fixed/mobile performance and connection-point data are official, but no deterministic city-comparable fixed-broadband availability/speed field is proven | **not proven** | Speed, latency, and availability concepts are named; exact field, unit, aggregation, and threshold semantics are **not proven** | Missing; no common premise, address, connection-point, household, population, or area denominator is proven | **not proven** | Always reject as `unknown`; neither data period nor cadence/freshness boundary is proven | Reject national-only reports and any UI-only layer until a bounded API/WFS request proves schema, fixed-network field, stable area ID, unit/denominator, period, fixture, and boundary vectors | Three official pages/app views plus one client-blocked direct `app.js` attempt; zero deterministic data responses; zero fixtures | Technology/layer presence is not a criterion vector. Below/equal/above speed or availability target, missing city, denominator, and fresh/stale vectors remain **unproven** | none; no fixture `sha256` exists |
+### `safety` — historical algorithm reproducible; current fact unavailable
 
-## Evidence-pass-2 source outcomes
+| Required field | Evidence pass 4 result |
+| --- | --- |
+| `authority` / `navigationUrl` | Slovenian Police open-data catalog and methodology: `https://www.policija.si/o-slovenski-policiji/statistika/kriminaliteta`; denominator from SURS `05C3002S`. |
+| `resolvedEvidenceUrl` / request | The official page lists `https://www.policija.si/baza/kd2024.zip`, but bounded direct attempts timed out before response bytes. A `kd2023.zip` copy came only from Internet Archive at `https://web.archive.org/web/20250430170053id_/https://www.policija.si/baza/kd2023.zip`; it is non-authoritative historical corroboration. SURS denominator uses the committed PxWeb request. |
+| `officialAreaIdentifier` | Police exposes the text label `UpravnaEnotaStoritve`; no official label-to-SURS-code crosswalk was found. The historical `KOPER` → `Koper/Capodistria` join is manual name inference. Scope is administrative unit, not settlement/city. |
+| `metricDefinition` | Distinct police-recorded offences whose concluding complaint/report document is in year Y, divided by SURS population of the same administrative unit at YH1, times 1,000. Count distinct `ZaporednaStevilkaKD`, not person rows. Sentinel areas `NEZNANA OBČ`, `NEZNANA UE`, `NI PODATKA` are excluded and lower coverage. |
+| `referencePeriod` / unit / denominator | Closing-document year `2023`; offences per 1,000 residents; SURS administrative-unit population at `2023H1`. Archived examples: Koper `32.499170494`, Ljubljana `50.667789935`, Maribor `29.967059810`. |
+| cadence / `freshness` | Police methodology says one prior-year export on the second weekend of February. As of 2026-08-14 the newest listed period is 2024, while 2025 was expected in February 2026: `expected_update_missing`. |
+| `validatorOutline` / bound | Bounded current official request plus at most one retry; validate media/encoding/closed header, deduplicate offence IDs, reject missing period/geo/authoritative crosswalk/denominator, seal SURS response, publish `unknown/source_unavailable_or_stale` if any term fails. Never treat a mirror as official live evidence. |
+| deterministic vectors / fixture | Synthetic duplicate-person/known/unknown-area rows; non-authoritative historical-mirror header `174006...5cb`; synthetic projection `db8f3f...57c9`; non-publishable historical aggregate `fa5e2b...b8285`; SURS request/response `8024b9...f828` / `ea8e16...bd3`. Raw mirrored ZIP/member hashes `788ee9...74f` / `4d4a57...021`. |
+| `blockingGap` | Three independent failures: newest listed official bytes unavailable; expected 2025 update missing; official Police-label-to-SURS-code crosswalk absent. Current result is `unknown`, not a 2023/2024 value. |
 
-Evidence pass 2 used only the supplied read-only official-source observations; this documentation
-update performed no browser or network action and made no download.
+### `long_term_rent` — official definition and current municipality-year aggregate proven
 
-| Surface | Proven in the supplied evidence | Still missing for installation |
-| --- | --- | --- |
-| GOV.SI municipalities | `212` municipalities; `12` have city-municipality status; link to official SURS table | Complete city/municipal-centre construction, national/regional capital typing, top-ten proof, fixture |
-| SURS municipality population | Slovenia plus `212` coded municipalities; half-year population through `2026H1` | Deterministic bounded PxWeb request/body, parser, fixture, approved freshness rule |
-| SURS/GURS settlement presentation | `6,035` settlements; Ljubljana search/detail identity and exact 2022–2025 detail vector | Deterministic bulk settlement universe, complete catalogue join and fixture |
-| Slovenian Police crime | Nothing beyond the official target URL | Response, definition, area ID, period, denominator, request, fixture; two attempts ended in timeout |
-| e-Prostor / ETN | Prices/rents, verified/processed records since 2007, long-term lease `>=6 months` | Comparable current residential city aggregate, area ID, unit/denominator, period, request, downloaded fixture |
-| LPP/Marprom/SURS transit | LPP mixed-geography stats; national SURS table; two-city absolute-trip table for 2021/2025 | A wide-catalog common metric, stable area IDs, common denominator, deterministic request and fixture; current evidence is definitively non-comparable |
-| AKOS | National reports; Test Net/Geoportal semantics; fixed/OPT/planned/white-spot and settlement/municipality layers | Exact API/WFS request, schema and speed/availability field, stable IDs, period, unit/denominator and fixture |
+| Required field | Evidence pass 4 result |
+| --- | --- |
+| `authority` / `navigationUrl` | GURS e-Prostor, Evidence of the Real Estate Market (ETN): `https://www.e-prostor.gov.si/podrocja/trg-in-vrednosti-nepremicnin/trg-nepremicnin/`. |
+| `resolvedEvidenceUrl` / request | Product discovery `GET https://ipi.eprostor.gov.si/jgp-service-api/display-views/groups/131/composite-products`; bounded result `GET .../composite-products/324/result?filterParam=OBCINE&filterValue=61&filterYear=2025`; file endpoint has the same query. Schema DOCX SHA-256 `17ea50...d4c`; Ljubljana 2025 archive SHA-256 `ca3497...9188`. |
+| `officialAreaIdentifier` | `RPE_OBCINE_SIFRA`; municipality scope, explicitly broader than the central settlement. |
+| `metricDefinition` | Median across qualifying contracts of `(monthly contractual rent / that contract's total qualifying leased residential area)`. Qualifying: free-market lease `25:1`; base contract `83:1`; indefinite `26:2` or fixed `26:1` with duration `>=6` months; only house/apartment/residential-room parts `30:1/2/16`; costs/VAT excluded; positive complete rent and area. No undocumented outlier or `TRZNOST_POSLA` filter. |
+| `referencePeriod` / unit / denominator | Calendar year `2025`; EUR/m²/month; qualifying base lease contracts. Ljubljana: `9,982` contracts, median `9.090909090909092`. |
+| cadence / `freshness` | JGP schema says weekly export refresh. Validator must require a supported latest completed calendar year and record both source export date and reference year; the capture timestamp is not the reference period. |
+| `validatorOutline` / bound | One product-list request, one municipality/year result and one archive; validate codebook version, exact two-table join, one row per deal, closed filters and numeric finiteness. Missing/zero rent or area is not comparable. |
+| deterministic vectors / fixture | Synthetic 5/6/7-month, indefinite, invalid act/type/cost/VAT, missing-area, zero-rent and median vectors. Codebooks `5a4226...022`; aggregate `881470...6c`; vectors `bf9842...dc5`. No real transaction row/address/coordinate/property ID is committed. |
+| `blockingGap` | This row is technically usable at municipality scope, but cannot waive failures in the other required package terms. |
 
-## Installation gate
+### `urban_transit` — DUJPP is trusted but insufficient for the approved definition
+
+| Required field | Evidence pass 4 result |
+| --- | --- |
+| `authority` / `navigationUrl` | DUJPP/National Access Point Slovenia: `https://www.nap.si/sl/datasets_details?id=8db7cc40-3770-d834-5e15-81a0a7763f58`. |
+| `resolvedEvidenceUrl` / request | Public no-auth `GET https://dujpp.si/gtfs/dujpp-ijpp.zip`; `200 application/zip`, 41,195,555 bytes, Last-Modified `2026-08-13T12:52:43Z`, raw SHA-256 `e5458f...1f34`, headers `13bd42...8804`, all 11 ZIP members passed CRC. License recorded by NAP: CC BY-SA 4.0. |
+| `officialAreaIdentifier` / definition | GTFS stop/route/operator IDs and coordinates, not a common municipal-centre area identifier. The feed describes integrated public passenger/intercity bus and rail. It does not, by itself, define a comparable complete municipal `urban_transit` metric for every catalog city. |
+| `referencePeriod` / cadence | Captured feed version `260813.5003600`, active span `2025-12-29..2028-01-02`; NAP describes daily refresh. These dates prove feed service, not complete urban coverage. |
+| unit / denominator / freshness | No approved common city unit or denominator can be calculated until municipal operator coverage and stable city/stop-area attribution are proven. Feed freshness cannot cure universe incompleteness. |
+| `validatorOutline` / bound | Validate GTFS closure/CRC, calendar activation, referential integrity and known operator coverage. Any missing municipality/operator must yield `unknown/universe_incomplete`; absence of a route in DUJPP must never mean zero service. No universal operator crawler in this slice. |
+| deterministic vectors / fixture | Full feed counts 5 agencies, 2,477 routes, 19,020 trips, 9,793 stops and 364,105 stop times; it has 37 unique LPP line codes and zero Marprom agency matches. Bounded active LPP/Arriva/SŽ trips are in `dujpp-coverage-projection.json`. These are measured feed properties, not evidence that omitted municipal services do not exist. |
+| `blockingGap` | DUJPP alone cannot establish the approved complete municipal fact. The strongest trusted alternative is the official NAP NeTEx timetable dataset, but it requires registration/approval and one authorized feasibility capture to prove actual municipal-operator and catalog-city coverage. SURS alternatives lack a comparable city dimension. |
+
+### `fixed_broadband` — technical field proven; source period and reuse permission unresolved
+
+| Required field | Evidence pass 4 result |
+| --- | --- |
+| `authority` / `navigationUrl` | AKOS Geoportal: `https://gis.akos-rs.si/Index?force_desktop=true`; official guide `https://gis.akos-rs.si/AKOS_uporabni%C5%A1ka_navodila.pdf`, SHA-256 `1896bc...3fe`. |
+| `resolvedEvidenceUrl` / request | Same-run `GET https://gis.akos-rs.si/StanjePodatkov?lang=slo` plus WMS `GetFeatureInfo` on `pregledovalnik:pokritost_na`, style `naselja_vsaj_100mbits_delez`, with `propertyName=eid_naselj,naziv,eid_obcina,gosp_vsaj_100_delez`. Exact request is in `broadband/manifest.json`. |
+| `officialAreaIdentifier` | `eid_naselj`, stored as an exact decimal string/versioned external crosswalk, not internal `cityId`. It joins current AKOS/GURS settlement surfaces; immutability through reclassification was not proven. |
+| `metricDefinition` | `gosp_vsaj_100_delez`: percentage of settlement households whose permanent-residence address has an OPT with fixed-broadband capacity at least 100 Mbit/s. Unit percent; denominator all households in the settlement. Ljubljana capture: `99.26`. |
+| `referencePeriod` / cadence / `freshness` | Underlying source reference period/age is not exposed. Guide states daily coverage-analysis updates and portal said `Fiksna širokopasovna pokritost = Aktualni podatki`; that is a current portal-status check only, not a source date. Response timestamp is capture time and must not be relabelled. |
+| `validatorOutline` / bound | Same bounded check must receive exact status label and one property-only GFI; reject missing/duplicate/nonfinite/out-of-range values or crosswalk mismatch. Without a defensible source period/policy, publish `unknown/reference_period_unproved` rather than evergreen verified data. |
+| deterministic vectors / fixture | Semantic Ljubljana projection `f39e64...b073`; current-status projection `77fddd...dfad`; synthetic below/equal/above/missing/status vectors `25a648...78`. The 18-digit IDs are strings to avoid JavaScript precision loss. |
+| `blockingGap` | Exact source reference period is unproved, and no license authorizing the intended production reuse was established. Technical access alone is not that authorization. |
+
+## Installation gate and failure taxonomy
 
 ```text
-official registry/universe + population rule
-+ safety definition/validator
-+ long-term rent definition/validator
-+ urban transit definition/validator
-+ fixed broadband definition/validator
-= one closed four-fact package
+official catalog source contract proven
++ current safety unavailable/stale/crosswalk-unproved
++ rent definition/aggregate proven
++ municipal urban-transit universe incomplete
++ broadband reference period/license unresolved
+= unavailable / NEEDS_CONTEXT
 ```
 
-Observed gate:
+Fixtures prove parsers, bounded observations and honest failure modes; they are not a substitute for
+an installed official package. `SHA256SUMS` binds every other committed fixture byte and manifests
+separately bind raw artifacts and transformations.
 
-```text
-PARTIAL + RED + PARTIAL + DEFINITIVE RED + PARTIAL = unavailable / NEEDS_CONTEXT
-```
+- `source_drift`: recorded official path/shape no longer resolves.
+- `transport_failure`: timeout/DNS/TLS/cancellation/non-success; retryable, never evidence of zero.
+- `universe_incomplete`: source does not cover installed catalog/municipal services.
+- `definition_noncomparable`: geo, period, unit, denominator or meaning cannot be compared.
+- `area_identifier_unproved`: exact current crosswalk is absent or ambiguous.
+- `reference_period_unproved`: response/capture time cannot establish source age.
+- `license_unproved`: technical access exists but intended production reuse is not authorized.
+- `fixture_unavailable`: no minimal hash-bound validator evidence exists.
+- `bounded_attempt_exhausted`: documented official attempt bound ended without closing the fact.
 
-Urban transit alone makes the package un-installable in this bounded pass. Partial catalog, rent,
-and broadband evidence cannot waive that failure; safety also remains unresolved after its bounded
-transport failure. The fixture directory remains intentionally absent because no complete source
-row has a deterministic request, success validator, boundary vectors, and bounded official fixture.
-This task must not proceed to the Knowledge plan or any production source package.
-
-## Failure taxonomy
-
-- `source_drift`: an official navigation path or client resource no longer resolves to the recorded shape.
-- `transport_failure`: timeout, connection loss, DNS, TLS, cancellation, or non-success transport; retryable and not evidence of source absence.
-- `universe_incomplete`: the source does not cover the complete installed catalog universe.
-- `definition_noncomparable`: areas, operators, periods, units, or metric meanings cannot be compared as one criterion.
-- `area_identifier_unproved`: no stable official key joins the response area to the installed catalog.
-- `denominator_missing`: no common population, household, premise, service-area, or other required denominator is defined.
-- `freshness_unproved`: cadence or a deterministic fresh/stale rule is absent.
-- `request_nondeterministic`: the exact machine request, including any body, cannot be reconstructed deterministically.
-- `fixture_unavailable`: no smallest bounded official response was captured for the validator.
-- `bounded_attempt_exhausted`: the documented official attempt bound ended without closing the fact.
+Safest next evidence: an official current Police annual payload plus authoritative area crosswalk;
+an approved NAP NeTEx feasibility capture (or another complete comparable municipal source); and
+AKOS reference-period/license clarification. Until then every affected fact is `unknown` and Task 3
+remains blocked.

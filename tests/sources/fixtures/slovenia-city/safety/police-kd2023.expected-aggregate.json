@@ -1,0 +1,27 @@
+{
+  "referencePeriod": "2023",
+  "geoScope": "administrative_unit",
+  "sourceClass": "non_authoritative_historical_mirror",
+  "publishable": false,
+  "crosswalkAuthority": null,
+  "crosswalkMethod": "manual_name_inference",
+  "totalDistinctOffenses": 60175,
+  "unknownGeoDistinctOffenses": 838,
+  "selectedUnits": [
+    {
+      "policeLabel": "KOPER",
+      "sursCode": "17",
+      "distinctOffenses": 1861
+    },
+    {
+      "policeLabel": "LJUBLJANA",
+      "sursCode": "24",
+      "distinctOffenses": 18885
+    },
+    {
+      "policeLabel": "MARIBOR",
+      "sursCode": "64",
+      "distinctOffenses": 4576
+    }
+  ]
+}

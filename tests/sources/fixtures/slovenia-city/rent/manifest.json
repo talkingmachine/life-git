@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "slovenia-city-source-fixture@1",
+  "sourceId": "si-city-long-term-rent",
+  "status": "definition_proven",
+  "captureDate": "2026-08-13",
+  "authority": "Geodetska uprava Republike Slovenije, Evidenca trga nepremičnin",
+  "navigationUrl": "https://www.e-prostor.gov.si/podrocja/trg-in-vrednosti-nepremicnin/trg-nepremicnin/",
+  "productDiscoveryRequest": "GET https://ipi.eprostor.gov.si/jgp-service-api/display-views/groups/131/composite-products",
+  "resultRequest": "GET https://ipi.eprostor.gov.si/jgp-service-api/display-views/groups/131/composite-products/324/result?filterParam=OBCINE&filterValue=61&filterYear=2025",
+  "fileLinkRequest": "GET https://ipi.eprostor.gov.si/jgp-service-api/display-views/groups/131/composite-products/324/file?filterParam=OBCINE&filterValue=61&filterYear=2025",
+  "rawArtifacts": [
+    {
+      "role": "schema",
+      "name": "Opis_strukture_ETN4_V15.1.docx",
+      "sha256": "17ea50b7eb8de0516d9acdaad49f34d2c047077856623e6b3759ee8f44491d4c",
+      "committed": false
+    },
+    {
+      "role": "municipality-year-rent-export",
+      "name": "ETN_061_2025_NP_20260808.zip",
+      "bytes": 968097,
+      "sha256": "ca349751f5d0679412ae8e1a8c5df3b7d041adbbeca1cf5e5621dc22b4f29188",
+      "memberRows": {
+        "POSLI": 13701,
+        "DELISTAVB": 14593,
+        "uniqueDealIds": 13701
+      },
+      "committed": false
+    }
+  ],
+  "definition": {
+    "geoScope": "municipality",
+    "officialAreaIdentifier": "RPE_OBCINE_SIFRA",
+    "referencePeriod": "LETO=2025",
+    "value": "median across qualifying contracts of (monthly contractual rent divided by that contract's total qualifying leased residential area)",
+    "unit": "EUR per square metre per month",
+    "denominator": "qualifying base lease contracts",
+    "filters": {
+      "leaseType": "25:1 free market",
+      "actType": "83:1 base contract",
+      "duration": "26:2 indefinite or 26:1 with TRAJANJE_NAJEMA >= 6 months",
+      "spaceTypes": ["30:1 house", "30:2 apartment", "30:16 residential room(s)"],
+      "allPartsResidential": true,
+      "operatingCostsIncluded": "64:0 no",
+      "vatIncluded": "64:0 no",
+      "rentAndArea": "positive and complete"
+    },
+    "qualifyingCount": 9982,
+    "median": 9.090909090909092
+  },
+  "transformations": [
+    "The codebook fixture retains only rows used by the definition and normalizes UTF-8/LF.",
+    "The aggregate count and median are redacted-derived from the captured official archive.",
+    "All row-level validator examples are synthetic boundary vectors and are not copied from source transactions."
+  ],
+  "fixtureClasses": {
+    "etn-codebooks.csv": "normalized-official field subset, UTF-8/LF",
+    "etn-2025.expected-aggregate.json": "redacted-derived aggregate",
+    "etn-validator-vectors.synthetic.json": "synthetic boundary vectors"
+  },
+  "privacy": "No address, coordinate, free-text note, person, source transaction ID or property ID is committed."
+}

@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "slovenia-city-source-fixture@1",
+  "sourceId": "si-city-safety",
+  "status": "current_fact_unavailable_expected_update_missing",
+  "captureDate": "2026-08-14",
+  "authority": "Policija and Statistični urad Republike Slovenije",
+  "navigationUrls": [
+    "https://www.policija.si/o-slovenski-policiji/statistika/kriminaliteta",
+    "https://www.policija.si/o-slovenski-policiji/statistika/kriminaliteta/kriminaliteta-statistika-navodila",
+    "https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C3002S.px"
+  ],
+  "rawArtifacts": [
+    {
+      "role": "newest-officially-listed-numerator",
+      "referencePeriod": "2024",
+      "url": "https://www.policija.si/baza/kd2024.zip",
+      "captured": false,
+      "failure": "bounded direct origin attempts timed out before response bytes",
+      "rawSha256": null
+    },
+    {
+      "role": "archived-police-numerator",
+      "originalUrl": "https://www.policija.si/baza/kd2023.zip",
+      "resolvedRetrievalUrl": "https://web.archive.org/web/20250430170053id_/https://www.policija.si/baza/kd2023.zip",
+      "retrievalMirror": "Internet Archive",
+      "authoritativeness": "non_authoritative_mirror_of_official_origin",
+      "archiveTimestamp": "20250430170053",
+      "bytes": 2748843,
+      "sha256": "788ee90d6481dcbd2cc6e74f0cdae927aed33f363b86619e48184a69505ae74f",
+      "member": "kd2023.csv",
+      "memberSha256": "4d4a576b2cdfaa84e8bce7d60dbe74a9e70cdcbd7313a6d20c1d9a53d8c7a021",
+      "committed": false
+    },
+    {
+      "role": "population-denominator",
+      "url": "https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C3002S.px",
+      "requestFixture": "surs-05C3002S-2023H1.request.json",
+      "responseFixture": "surs-05C3002S-2023H1.response.json",
+      "rawRequestSha256": "c4c78c1b0713d37e4c536b799aa18eaecc20b7eab26b79774d3f698b2dcbc779",
+      "rawResponseSha256": "65c4f9df598fb54c47d822a50b22a78dc730421b81d9a02453e1e92a0a2c92b3"
+    }
+  ],
+  "fixtureClasses": {
+    "police-kd2023.header.csv": "normalized non-authoritative historical-mirror header, UTF-8/LF normalized from Windows-1250/CRLF",
+    "police-kd2023.synthetic-projection.csv": "synthetic boundary rows; no official case or person data",
+    "police-kd2023.expected-aggregate.json": "redacted derived non-publishable historical-mirror aggregate",
+    "surs-05C3002S-2023H1.request.json": "generated deterministic request",
+    "surs-05C3002S-2023H1.response.json": "exact official public aggregate, newline added"
+  },
+  "syntheticExpectation": {
+    "rows": 6,
+    "distinctOffenses": 5,
+    "knownGeoDistinctOffenses": 4,
+    "unknownGeoDistinctOffenses": 1,
+    "coverage": 0.8
+  },
+  "unknownAdministrativeUnitSentinels": ["NEZNANA OBČ", "NEZNANA UE", "NI PODATKA"],
+  "freshness": {
+    "newestOfficiallyListedPeriod": "2024",
+    "expectedPeriod": "2025",
+    "cadence": "one prior-year export on the second weekend of February",
+    "status": "expected_update_missing"
+  },
+  "areaCrosswalk": {
+    "authority": null,
+    "method": "manual name inference only",
+    "status": "area_identifier_unproved",
+    "example": "Police KOPER versus SURS Koper/Capodistria"
+  },
+  "privacy": "No real offense row, person row, case description, location description or case identifier is committed.",
+  "blockingReason": "The newest listed kd2024 bytes could not be captured, the expected 2025 update is missing, and no authoritative Police-label-to-SURS-code crosswalk was found. The archived mirror is historical corroboration only and cannot publish a verified safety fact."
+}

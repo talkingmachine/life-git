@@ -1,0 +1,15 @@
+ID,SIFRANT,NUMERICNA_VREDNOST,OPIS
+25,Vrsta najemnega posla,1,Oddajanje stavb ali njihovih delov na prostem trgu
+25,Vrsta najemnega posla,2,Oddajanje stavb ali njihovih delov med povezanimi fizičnimi ali pravnimi osebami
+25,Vrsta najemnega posla,3,Oddajanje denacionaliziranih stanovanjskih nepremičnin na podlagi upravne ali sodne odločbe
+25,Vrsta najemnega posla,4,Drugo odplačno oddajanje
+25,Vrsta najemnega posla,5,"Oddajanje stanovanjskih nepremičnin za najemnino, določeno na podlagi zakona"
+26,Čas najema,1,Določen čas
+26,Čas najema,2,Nedoločen čas
+30,Vrsta oddanih prostorov,1,Stanovanjska hiša
+30,Vrsta oddanih prostorov,2,Stanovanje
+30,Vrsta oddanih prostorov,16,Stanovanjska soba ali sobe
+64,Da/Ne,0,Ne
+64,Da/Ne,1,Da
+83,Vrsta akta,1,Osnovna pogodba
+83,Vrsta akta,2,Aneks k pogodbi

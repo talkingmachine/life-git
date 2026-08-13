@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "slovenia-etn-rent-aggregate@1",
+  "sourceArchive": {
+    "name": "ETN_061_2025_NP_20260808.zip",
+    "sha256": "ca349751f5d0679412ae8e1a8c5df3b7d041adbbeca1cf5e5621dc22b4f29188"
+  },
+  "municipalityCode": "61",
+  "referencePeriod": "2025",
+  "unit": "EUR per square metre per month",
+  "denominator": "qualifying lease contracts",
+  "qualifyingCount": 9982,
+  "median": 9.090909090909092,
+  "privacy": "Redacted aggregate only; no source transaction, address, coordinate, note or property identifier is committed."
+}

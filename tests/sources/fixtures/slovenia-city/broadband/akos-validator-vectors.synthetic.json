@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "slovenia-akos-broadband-vectors@1",
+  "targetPercent": 90,
+  "vectors": [
+    {"name": "below", "properties": {"eid_naselj": "SYN-001", "gosp_vsaj_100_delez": 89.99}, "expectedComparison": "does_not_match"},
+    {"name": "equal", "properties": {"eid_naselj": "SYN-002", "gosp_vsaj_100_delez": 90}, "expectedComparison": "matches"},
+    {"name": "above", "properties": {"eid_naselj": "SYN-003", "gosp_vsaj_100_delez": 90.01}, "expectedComparison": "matches"},
+    {"name": "missing-value", "properties": {"eid_naselj": "SYN-004"}, "expectedOutcome": "unknown"},
+    {"name": "missing-current-status", "properties": {"eid_naselj": "SYN-005", "gosp_vsaj_100_delez": 95}, "portalStatus": null, "expectedOutcome": "unknown"}
+  ],
+  "note": "Synthetic parser/evaluator boundaries only. They do not prove the AKOS source reference period or production reuse permission."
+}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "slovenia-etn-rent-vectors@1",
+  "expectedAggregate": {
+    "qualifyingFixtureIds": ["SYN-ETN-01", "SYN-ETN-02", "SYN-ETN-07"],
+    "perContractValues": [10, 10, 12],
+    "median": 10
+  },
+  "rows": [
+    {"fixtureDealId":"SYN-ETN-01","municipalityCode":"61","year":"2025","leaseType":"1","actType":"1","leaseTimeType":"1","durationMonths":6,"operatingCostsIncluded":"0","vatIncluded":"0","monthlyContractRentEur":600,"parts":[{"spaceType":"2","usableLeasedAreaM2":60,"leasedAreaM2":60}],"expectedQualifies":true,"expectedRentEurPerM2":10},
+    {"fixtureDealId":"SYN-ETN-02","municipalityCode":"61","year":"2025","leaseType":"1","actType":"1","leaseTimeType":"2","durationMonths":null,"operatingCostsIncluded":"0","vatIncluded":"0","monthlyContractRentEur":450,"parts":[{"spaceType":"2","usableLeasedAreaM2":45,"leasedAreaM2":45}],"expectedQualifies":true,"expectedRentEurPerM2":10},
+    {"fixtureDealId":"SYN-ETN-03","municipalityCode":"61","year":"2025","leaseType":"1","actType":"2","leaseTimeType":"2","durationMonths":null,"operatingCostsIncluded":"1","vatIncluded":"1","monthlyContractRentEur":500,"parts":[{"spaceType":"3","usableLeasedAreaM2":20,"leasedAreaM2":20}],"expectedQualifies":false,"expectedFailureReasons":["not_base_contract","operating_costs_included","vat_included","not_residential"]},
+    {"fixtureDealId":"SYN-ETN-04","municipalityCode":"61","year":"2025","leaseType":"1","actType":"1","leaseTimeType":"1","durationMonths":5,"operatingCostsIncluded":"0","vatIncluded":"0","monthlyContractRentEur":500,"parts":[{"spaceType":"2","usableLeasedAreaM2":50,"leasedAreaM2":50}],"expectedQualifies":false,"expectedFailureReasons":["under_six_months"]},
+    {"fixtureDealId":"SYN-ETN-05","municipalityCode":"61","year":"2025","leaseType":"1","actType":"1","leaseTimeType":"1","durationMonths":7,"operatingCostsIncluded":"0","vatIncluded":"0","monthlyContractRentEur":0,"parts":[{"spaceType":"2","usableLeasedAreaM2":40,"leasedAreaM2":40}],"expectedQualifies":false,"expectedFailureReasons":["nonpositive_rent"]},
+    {"fixtureDealId":"SYN-ETN-06","municipalityCode":"61","year":"2025","leaseType":"1","actType":"1","leaseTimeType":"1","durationMonths":7,"operatingCostsIncluded":"0","vatIncluded":"0","monthlyContractRentEur":500,"parts":[{"spaceType":"2","usableLeasedAreaM2":null,"leasedAreaM2":null}],"expectedQualifies":false,"expectedFailureReasons":["missing_area"]},
+    {"fixtureDealId":"SYN-ETN-07","municipalityCode":"61","year":"2025","leaseType":"1","actType":"1","leaseTimeType":"1","durationMonths":7,"operatingCostsIncluded":"0","vatIncluded":"0","monthlyContractRentEur":600,"parts":[{"spaceType":"1","usableLeasedAreaM2":50,"leasedAreaM2":50}],"expectedQualifies":true,"expectedRentEurPerM2":12}
+  ],
+  "privacy": "All rows are invented parser/evaluator boundaries and do not originate from an ETN transaction."
+}
