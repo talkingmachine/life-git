@@ -10,12 +10,15 @@ import {
 } from "../../src/decision/city-catalog";
 import type { CityDecisionIntegrity } from "../../src/decision/city-integrity";
 
+function ordinalOrder(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 const INTEGRITY: CityDecisionIntegrity = {
   canonical(value: unknown): string {
     return JSON.stringify(value, (_key, item: unknown) => {
       if (item !== null && typeof item === "object" && !Array.isArray(item)) {
-        return Object.fromEntries(Object.entries(item).sort(([left], [right]) =>
-          left.localeCompare(right)));
+        return Object.fromEntries(Object.entries(item).sort(([left], [right]) => ordinalOrder(left, right)));
       }
       return item;
     });
@@ -148,6 +151,25 @@ describe("city registry and catalog policy", () => {
       .toThrow("invalid_registry_entry");
   });
 
+  test("rejects verified populations from mixed reference periods", () => {
+    // Break caught: comparing population values that have different reference periods.
+    const secondBasis = basis("second", "2");
+    expect(() => catalog([city("first"), city("second")], [
+      basis("first", "1"),
+      {
+        ...secondBasis,
+        comparablePopulation: { ...secondBasis.comparablePopulation, referencePeriod: "2024-01-01" },
+      } as CityCatalogCandidateBasis,
+    ])).toThrow("invalid_candidate_basis");
+  });
+
+  test("uses ordinal UTF-16 city ordering for non-ASCII city IDs", () => {
+    // Break caught: locale-sensitive ordering that puts ä ahead of the ordinally earlier z.
+    const result = catalog([city("ä"), city("z")], [basis("ä", "1"), basis("z", "1")]);
+    expect(result.candidateBasis.map(({ cityId }) => cityId)).toEqual(["z", "ä"]);
+    expect(result.members.map(({ cityId }) => cityId)).toEqual(["z", "ä"]);
+  });
+
   test("requires coverage to reflect unknown population and preserves its explicit partial-universe flag", () => {
     // Break caught: treating unknown population as complete coverage or accepting a missing/extra missing_population reason.
     const entries = [city("known"), city("unknown")];
@@ -183,6 +205,19 @@ describe("city registry and catalog policy", () => {
       { ...cityCatalog, members: cityCatalog.members.map((member) =>
         member.cityId === "capital" ? { ...member, inclusionReasons: ["regional_capital"] as const } : member) },
       { ...cityCatalog, candidateBasis: [cityCatalog.candidateBasis[1]!, cityCatalog.candidateBasis[0]!] },
+      {
+        ...cityCatalog,
+        candidateBasis: cityCatalog.candidateBasis.map((candidate) => candidate.cityId === "ordinary"
+          ? {
+            ...candidate,
+            comparablePopulation: {
+              kind: "verified" as const,
+              value: "20000",
+              referencePeriod: "2025-01-01",
+            },
+          }
+          : candidate),
+      },
       { ...cityCatalog, coverage: { status: "incomplete", reasons: ["missing_population"] as const } },
       { ...cityCatalog, registryRevisionId: "other-registry" },
       { ...cityCatalog, rulesVersion: "city-catalog@2" as "city-catalog@1" },
@@ -199,6 +234,21 @@ describe("city registry and catalog policy", () => {
       registry: { ...cityRegistry, entries: [...cityRegistry.entries].reverse() },
       catalog: cityCatalog,
     })).toThrow("integrity_mismatch");
+    for (const malformedRegistry of [
+      {
+        ...cityRegistry,
+        entries: [{ ...cityRegistry.entries[0]!, coordinate: { lat: "45", lng: 15 } }],
+      },
+      {
+        ...cityRegistry,
+        entries: [{ ...cityRegistry.entries[0]!, evidenceReferenceIds: [] }],
+      },
+    ]) {
+      expect(() => reconstructCityCatalog({
+        registry: malformedRegistry as unknown as typeof cityRegistry,
+        catalog: cityCatalog,
+      })).toThrow("integrity_mismatch");
+    }
 
     const projection = reconstructCityCatalog({ registry: cityRegistry, catalog: cityCatalog });
     expect(Object.isFrozen(projection)).toBe(true);

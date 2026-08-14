@@ -146,8 +146,12 @@ function immutableCopy<T>(value: T): T {
   return deepFreeze(structuredClone(value));
 }
 
+function ordinalOrder(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function cityOrder(left: { readonly cityId: string }, right: { readonly cityId: string }): number {
-  return left.cityId.localeCompare(right.cityId);
+  return ordinalOrder(left.cityId, right.cityId);
 }
 
 function assertStringSet(values: unknown, permitted: readonly string[]): asserts values is readonly string[] {
@@ -283,6 +287,10 @@ function normalizeCandidateBasis(
     candidates.some(({ cityId }, index) => cityId !== registry.entries[index]?.cityId)) {
     throw new Error("invalid_candidate_basis");
   }
+  if (new Set(candidates.flatMap(({ comparablePopulation }) =>
+    comparablePopulation.kind === "verified" ? [comparablePopulation.referencePeriod] : [])).size > 1) {
+    throw new Error("invalid_candidate_basis");
+  }
   return candidates;
 }
 
@@ -375,7 +383,7 @@ function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (isRecord(value)) {
     return Object.fromEntries(Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => ordinalOrder(left, right))
       .map(([key, item]) => [key, canonicalValue(item)]));
   }
   return value;
@@ -431,7 +439,12 @@ export function buildCityCatalogRevision(
 
 export function reconstructCityCatalog(input: ReconstructCityCatalogInput): CityCatalogProjection {
   if (!isRecord(input) || !hasExactKeys(input, ["registry", "catalog"])) integrityMismatch();
-  const registry = decodeRegistry(input.registry);
+  let registry: CityRegistryRevision;
+  try {
+    registry = decodeRegistry(input.registry);
+  } catch {
+    integrityMismatch();
+  }
   const catalog = input.catalog;
   if (!isRecord(catalog) || !hasExactKeys(catalog, [
     "schemaVersion", "id", "packageId", "packageSchemaVersion", "countryCode", "registryRevisionId",
