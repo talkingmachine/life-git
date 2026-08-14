@@ -25,7 +25,7 @@ export interface InstalledCityCriteriaDefaults { readonly schemaVersion: "city-c
 
 const RULES_VERSION = "city-criteria@1" as const;
 function freeze<T>(value: T): T { if (value !== null && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value)) freeze(child); } return value; }
-function instant(value: unknown): value is string { return typeof value === "string" && new Date(value).toISOString() === value; }
+function instant(value: unknown): value is string { try { return typeof value === "string" && new Date(value).toISOString() === value; } catch { return false; } }
 function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function exact(value: object, keys: readonly string[]): boolean { const actual = Object.keys(value).sort(); return actual.length === keys.length && actual.every((key, index) => key === [...keys].sort()[index]); }
 function criterionIndex(id: CityCriterionId): number { return CITY_CRITERION_IDS.indexOf(id); }
@@ -62,6 +62,6 @@ export function confirmCityCriteria(input: { readonly draft: unknown; readonly p
   return freeze({ id: `city-criteria:${integrity.hash(integrity.canonical(payload))}`, ...payload });
 }
 export function reconstructCityCriteria(snapshot: CityCriteriaSnapshot, evaluators: CityCriterionEvaluatorRegistry): CityCriteriaProjection {
-  if (!record(snapshot) || !exact(snapshot, ["schemaVersion", "id", "profileSnapshotId", "preferenceProfileSnapshotId", "criteria", "rulesVersion", "confirmedAt"]) || snapshot.schemaVersion !== RULES_VERSION || snapshot.rulesVersion !== RULES_VERSION || typeof snapshot.id !== "string" || snapshot.id.length === 0 || typeof snapshot.profileSnapshotId !== "string" || typeof snapshot.preferenceProfileSnapshotId !== "string" || !instant(snapshot.confirmedAt)) throw new Error("integrity_mismatch");
-  try { const criteria = normalizeCriteria(snapshot.criteria, evaluators); return freeze({ profileSnapshotId: snapshot.profileSnapshotId, preferenceProfileSnapshotId: snapshot.preferenceProfileSnapshotId, criteria, rulesVersion: RULES_VERSION, confirmedAt: snapshot.confirmedAt }); } catch { throw new Error("integrity_mismatch"); }
+  if (!record(snapshot) || !exact(snapshot, ["schemaVersion", "id", "profileSnapshotId", "preferenceProfileSnapshotId", "criteria", "rulesVersion", "confirmedAt"]) || snapshot.schemaVersion !== RULES_VERSION || snapshot.rulesVersion !== RULES_VERSION || typeof snapshot.id !== "string" || snapshot.id.length === 0 || typeof snapshot.profileSnapshotId !== "string" || snapshot.profileSnapshotId.length === 0 || typeof snapshot.preferenceProfileSnapshotId !== "string" || snapshot.preferenceProfileSnapshotId.length === 0 || !instant(snapshot.confirmedAt)) throw new Error("integrity_mismatch");
+  try { const criteria = normalizeCriteria(snapshot.criteria, evaluators); if (JSON.stringify(criteria) !== JSON.stringify(snapshot.criteria)) throw new Error(); return freeze({ profileSnapshotId: snapshot.profileSnapshotId, preferenceProfileSnapshotId: snapshot.preferenceProfileSnapshotId, criteria, rulesVersion: RULES_VERSION, confirmedAt: snapshot.confirmedAt }); } catch { throw new Error("integrity_mismatch"); }
 }

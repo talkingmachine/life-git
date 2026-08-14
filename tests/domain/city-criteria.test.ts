@@ -77,5 +77,9 @@ describe("city criteria policy", () => {
       preferenceProfileSnapshotId: "preferences", confirmedAt: "2026-08-14T00:00:00.000Z" }, evaluators, INTEGRITY)).toThrow();
     expect(() => reconstructCityCriteria({ ...first, extra: true } as typeof first, evaluators))
       .toThrow("integrity_mismatch");
+    expect(() => reconstructCityCriteria({ ...first, criteria: [...first.criteria].reverse() as unknown as typeof first.criteria }, evaluators))
+      .toThrow("integrity_mismatch");
+    expect(() => reconstructCityCriteria({ ...first, profileSnapshotId: "" }, evaluators)).toThrow("integrity_mismatch");
+    expect(() => reconstructCityCriteria({ ...first, confirmedAt: "not-an-instant" }, evaluators)).toThrow("integrity_mismatch");
   });
 });

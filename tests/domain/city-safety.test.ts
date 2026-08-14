@@ -55,7 +55,7 @@ describe("city safety policy", () => {
       definitionId: evaluator.definition.definitionId,
       geoScope: "municipality",
       referencePeriod,
-      freshnessBasis: "annual",
+      freshnessBasis: "municipal-annual-july-boundary@1",
       unit: "offences_per_100000_residents",
       denominator: "municipality_population_january_1",
       outcome: { kind: "verified" as const, basis: { kind: "municipal_safety" as const, quantity: quantity(offenceCount) } },
@@ -72,6 +72,14 @@ describe("city safety policy", () => {
     expect(evaluator.evaluate({ criterion, fact: fact("2", "2024"), assessmentAt })).toEqual({
       state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "stale",
     });
+    expect(evaluator.evaluate({ criterion, fact: { ...fact("2"), criterionId: "urban_transit" }, assessmentAt }))
+      .toEqual({ state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "not_comparable" });
+    expect(evaluator.evaluate({ criterion, fact: { ...fact("2"), freshnessBasis: "other" }, assessmentAt }))
+      .toEqual({ state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "not_comparable" });
+    expect(evaluator.evaluate({ criterion, fact: { ...fact("2"), outcome: { kind: "unknown", reason: "not_found" } }, assessmentAt }))
+      .toEqual({ state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "not_found" });
+    expect(evaluator.evaluate({ criterion, fact: fact("2", "2024"), assessmentAt: "2026-06-30T00:00:00.000Z" }))
+      .toMatchObject({ state: "verified" });
     expect(() => evaluator.evaluate({
       criterion: { ...criterion, target: "10" }, fact: fact("2"), assessmentAt,
     })).toThrow("invalid_zero_score_boundary");

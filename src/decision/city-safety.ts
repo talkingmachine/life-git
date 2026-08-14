@@ -1,4 +1,4 @@
-import Decimal from "decimal.js";
+import DecimalJs from "decimal.js";
 
 import { canonicalDecimal, linearAtMostFactor } from "./city-criterion-evaluator";
 import type {
@@ -19,9 +19,12 @@ export type CitySafetyPeriodDisposition = "preferred" | "fallback" | "stale";
 
 const UNSIGNED_INTEGER = /^(0|[1-9][0-9]*)$/;
 const RATE_MULTIPLIER = 100_000n;
+const Decimal = DecimalJs.clone({ precision: 40, rounding: DecimalJs.ROUND_HALF_EVEN });
 
 function assertInstant(value: unknown): asserts value is string {
-  if (typeof value !== "string" || new Date(value).toISOString() !== value) throw new Error("invalid_assessment_at");
+  try {
+    if (typeof value !== "string" || new Date(value).toISOString() !== value) throw new Error();
+  } catch { throw new Error("invalid_assessment_at"); }
 }
 
 function assertQuantity(value: unknown): asserts value is CitySafetyQuantity {
@@ -41,8 +44,8 @@ function decimalParts(target: string): { readonly coefficient: bigint; readonly 
   return { coefficient: BigInt(`${whole}${fraction}`), scale: 10n ** BigInt(fraction.length) };
 }
 
-function actualRate(quantity: CitySafetyQuantity): Decimal {
-  return new Decimal(quantity.offenceCount).mul(RATE_MULTIPLIER.toString()).div(quantity.population);
+function actualRate(quantity: CitySafetyQuantity): string {
+  return new Decimal(quantity.offenceCount).mul(RATE_MULTIPLIER.toString()).div(quantity.population).toFixed();
 }
 
 export function classifyCitySafetyPeriod(input: {
@@ -87,30 +90,35 @@ export function createCitySafetyEvaluator(input: {
     freshnessPolicyVersion: "municipal-annual-july-boundary@1",
     evaluatorVersion: "si-municipal-safety-linear@1",
   };
+  const canonicalizeTarget = (target: unknown): string => {
+    const canonical = canonicalDecimal(target);
+    if (new Decimal(canonical).greaterThanOrEqualTo(boundary)) throw new Error("invalid_zero_score_boundary");
+    return canonical;
+  };
   const unknown = (reason: CityCriterionEvaluation["unknownReason"]): CityCriterionEvaluation => ({
     state: "unknown", factor: "0", targetComparison: "unknown", ...(reason === undefined ? {} : { unknownReason: reason }),
   });
   return {
     definition,
-    canonicalizeTarget: canonicalDecimal,
+    canonicalizeTarget,
     evaluate(evaluation: CityCriterionEvaluationInput): CityCriterionEvaluation {
       const { criterion, fact, assessmentAt } = evaluation;
       if (criterion.criterionId !== "safety" || criterion.definitionId !== definition.definitionId) {
         throw new Error("invalid_safety_criterion");
       }
-      const target = new Decimal(canonicalDecimal(criterion.target));
-      if (target.greaterThanOrEqualTo(boundary)) throw new Error("invalid_zero_score_boundary");
-      if (fact.outcome.kind === "unknown") return unknown(fact.outcome.reason);
-      if (fact.geoScope !== "municipality" || fact.unit !== definition.unit ||
+      const target = canonicalizeTarget(criterion.target);
+      if (fact.criterionId !== "safety" || fact.definitionId !== definition.definitionId ||
+        fact.freshnessBasis !== definition.freshnessPolicyVersion || fact.geoScope !== "municipality" || fact.unit !== definition.unit ||
         fact.denominator !== definition.denominator || fact.referencePeriod === null ||
         !/^\d{4}$/.test(fact.referencePeriod)) return unknown("not_comparable");
+      if (fact.outcome.kind === "unknown") return unknown(fact.outcome.reason);
       if (classifyCitySafetyPeriod({ assessmentAt, referenceYear: Number(fact.referencePeriod) }) === "stale") {
         return unknown("stale");
       }
       if (fact.outcome.basis.kind !== "municipal_safety") return unknown("not_comparable");
       const quantity = fact.outcome.basis.quantity;
       assertQuantity(quantity);
-      const targetComparison = compareCitySafetyToTarget({ quantity, target: criterion.target, direction: "at_most" });
+      const targetComparison = compareCitySafetyToTarget({ quantity, target, direction: "at_most" });
       return { state: "verified", factor: linearAtMostFactor(actualRate(quantity), target, boundary), targetComparison };
     },
   };
