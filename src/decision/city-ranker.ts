@@ -32,14 +32,24 @@ function decimal(value: string): Rational { if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.te
 function add(left: Rational, right: Rational): Rational { return { numerator: left.numerator * right.denominator + right.numerator * left.denominator, denominator: left.denominator * right.denominator }; }
 function multiply(left: Rational, value: bigint): Rational { return { numerator: left.numerator * value, denominator: left.denominator }; }
 function compare(left: Rational, right: Rational): number { const delta = left.numerator * right.denominator - right.numerator * left.denominator; return delta < 0n ? -1 : delta > 0n ? 1 : 0; }
-function text(value: Rational): string { const whole = value.numerator / value.denominator; const remainder = value.numerator % value.denominator; if (remainder === 0n) return whole.toString(); const scale = 10n ** 18n; const rounded = (remainder * scale * 2n + value.denominator) / (value.denominator * 2n); return `${whole}.${rounded.toString().padStart(18, "0").replace(/0+$/, "")}`; }
+function text(value: Rational): string {
+  let whole = value.numerator / value.denominator;
+  const remainder = value.numerator % value.denominator;
+  const scale = 10n ** 18n;
+  let fraction = remainder * scale / value.denominator;
+  const discarded = remainder * scale % value.denominator;
+  if (discarded * 2n > value.denominator || (discarded * 2n === value.denominator && fraction % 2n === 1n)) fraction += 1n;
+  if (fraction === scale) { whole += 1n; fraction = 0n; }
+  if (fraction === 0n) return whole.toString();
+  return `${whole}.${fraction.toString().padStart(18, "0").replace(/0+$/, "")}`;
+}
 function tuple<T>(values: T[]): readonly [T, T, T, T] { if (values.length !== 4) fail(); return values as unknown as readonly [T, T, T, T]; }
 
 function evaluateCity(cityId: string, knowledge: CityKnowledgeRankingProjection, input: RankCitiesInput): { readonly cityId: string; readonly knowledgeRevisionId: string | null; readonly factors: readonly [CityRankingFactor, CityRankingFactor, CityRankingFactor, CityRankingFactor]; readonly score: Rational; readonly coverage: Rational; readonly mismatches: readonly CityRequiredMismatch[] } {
   const criteria = reconstructCityCriteria(input.criteria, input.evaluators).criteria;
   if (knowledge.cityId !== cityId) fail();
   const facts = knowledge.knowledgeRevisionId === null ? [] : knowledge.facts;
-  if ((knowledge.knowledgeRevisionId === null && facts.length !== 0) || (knowledge.knowledgeRevisionId !== null && facts.length !== 4)) fail();
+  if ((knowledge.knowledgeRevisionId === null && facts.length !== 0) || (knowledge.knowledgeRevisionId !== null && (knowledge.knowledgeRevisionId.length === 0 || facts.length !== 4))) fail();
   const factors = criteria.map((criterion, index) => {
     const evaluator = input.evaluators[criterion.criterionId];
     let evaluation: { state: "verified" | "unknown"; factor: string; targetComparison: "matches" | "does_not_match" | "unknown"; unknownReason?: CityRankingUnknownReason };
