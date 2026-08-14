@@ -108,10 +108,11 @@ export function createCitySafetyEvaluator(input: {
       }
       const target = canonicalizeTarget(criterion.target);
       if (fact.criterionId !== "safety" || fact.definitionId !== definition.definitionId ||
-        fact.freshnessBasis !== definition.freshnessPolicyVersion || fact.geoScope !== "municipality" || fact.unit !== definition.unit ||
+        fact.freshnessBasis !== definition.freshnessPolicyVersion) throw new Error("invalid_safety_fact");
+      if (fact.outcome.kind === "unknown") return unknown(fact.outcome.reason);
+      if (fact.geoScope !== "municipality" || fact.unit !== definition.unit ||
         fact.denominator !== definition.denominator || fact.referencePeriod === null ||
         !/^\d{4}$/.test(fact.referencePeriod)) return unknown("not_comparable");
-      if (fact.outcome.kind === "unknown") return unknown(fact.outcome.reason);
       if (classifyCitySafetyPeriod({ assessmentAt, referenceYear: Number(fact.referencePeriod) }) === "stale") {
         return unknown("stale");
       }

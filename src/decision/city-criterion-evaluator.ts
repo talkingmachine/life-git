@@ -15,6 +15,7 @@ export function linearAtMostFactor(actual: DecimalJs.Value, target: DecimalJs.Va
   const actualValue = new Decimal(actual);
   const targetValue = new Decimal(target);
   const boundaryValue = new Decimal(boundary);
+  if (!boundaryValue.greaterThan(targetValue)) throw new Error("invalid_linear_boundary");
   if (actualValue.lessThanOrEqualTo(targetValue)) return "1";
   if (actualValue.greaterThanOrEqualTo(boundaryValue)) return "0";
   return canonicalDecimal(boundaryValue.minus(actualValue).div(boundaryValue.minus(targetValue))
@@ -25,6 +26,7 @@ export function linearAtLeastFactor(actual: DecimalJs.Value, target: DecimalJs.V
   const actualValue = new Decimal(actual);
   const targetValue = new Decimal(target);
   const zeroValue = new Decimal(zeroBoundary);
+  if (!zeroValue.lessThan(targetValue)) throw new Error("invalid_linear_boundary");
   if (actualValue.greaterThanOrEqualTo(targetValue)) return "1";
   if (actualValue.lessThanOrEqualTo(zeroValue)) return "0";
   return canonicalDecimal(actualValue.minus(zeroValue).div(targetValue.minus(zeroValue))

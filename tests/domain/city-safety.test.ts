@@ -6,6 +6,8 @@ import {
   createCitySafetyEvaluator,
   type CitySafetyQuantity,
 } from "../../src/decision/city-safety";
+import { linearAtLeastFactor, linearAtMostFactor } from "../../src/decision/city-criterion-evaluator";
+import Decimal from "decimal.js";
 
 const assessmentAt = "2026-07-01T00:00:00.000Z";
 const quantity = (offenceCount: string, population = "100000"): CitySafetyQuantity => ({
@@ -72,16 +74,35 @@ describe("city safety policy", () => {
     expect(evaluator.evaluate({ criterion, fact: fact("2", "2024"), assessmentAt })).toEqual({
       state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "stale",
     });
-    expect(evaluator.evaluate({ criterion, fact: { ...fact("2"), criterionId: "urban_transit" }, assessmentAt }))
-      .toEqual({ state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "not_comparable" });
-    expect(evaluator.evaluate({ criterion, fact: { ...fact("2"), freshnessBasis: "other" }, assessmentAt }))
-      .toEqual({ state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "not_comparable" });
+    expect(() => evaluator.evaluate({ criterion, fact: { ...fact("2"), criterionId: "urban_transit" }, assessmentAt }))
+      .toThrow("invalid_safety_fact");
+    expect(() => evaluator.evaluate({ criterion, fact: { ...fact("2"), definitionId: "other" }, assessmentAt }))
+      .toThrow("invalid_safety_fact");
+    expect(() => evaluator.evaluate({ criterion, fact: { ...fact("2"), freshnessBasis: "other" }, assessmentAt }))
+      .toThrow("invalid_safety_fact");
     expect(evaluator.evaluate({ criterion, fact: { ...fact("2"), outcome: { kind: "unknown", reason: "not_found" } }, assessmentAt }))
       .toEqual({ state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "not_found" });
+    expect(evaluator.evaluate({ criterion, fact: { ...fact("2"), referencePeriod: null, outcome: { kind: "unknown", reason: "source_unavailable" } }, assessmentAt }))
+      .toEqual({ state: "unknown", factor: "0", targetComparison: "unknown", unknownReason: "source_unavailable" });
     expect(evaluator.evaluate({ criterion, fact: fact("2", "2024"), assessmentAt: "2026-06-30T00:00:00.000Z" }))
       .toMatchObject({ state: "verified" });
     expect(() => evaluator.evaluate({
       criterion: { ...criterion, target: "10" }, fact: fact("2"), assessmentAt,
     })).toThrow("invalid_zero_score_boundary");
+  });
+
+  test("keeps both definition-specific linear curves bounded and isolated from global Decimal mutation", () => {
+    // Break caught: inverted at-least curve, boundary leakage, or mutable global Decimal configuration.
+    expect(linearAtLeastFactor("0", "10", "0")).toBe("0");
+    expect(linearAtLeastFactor("5", "10", "0")).toBe("0.5");
+    expect(linearAtLeastFactor("10", "10", "0")).toBe("1");
+    expect(linearAtLeastFactor("11", "10", "0")).toBe("1");
+    expect(linearAtMostFactor("2", "2", "10")).toBe("1");
+    expect(linearAtMostFactor("6", "2", "10")).toBe("0.5");
+    expect(linearAtMostFactor("10", "2", "10")).toBe("0");
+    Decimal.set({ precision: 2, rounding: Decimal.ROUND_UP });
+    expect(linearAtMostFactor("3", "2", "5")).toBe("0.666666666666666667");
+    expect(() => linearAtMostFactor("3", "5", "5")).toThrow();
+    expect(() => linearAtLeastFactor("3", "5", "5")).toThrow();
   });
 });
