@@ -10,6 +10,8 @@
 
 **Depends on:** completed [`Foundations`](2026-08-13-vs-4a-city-frontier-foundations.md) and [`Evidence and Knowledge`](2026-08-13-vs-4a-city-frontier-knowledge.md).
 
+**Required safety amendment:** [`VS-4A Safety Source Discovery`](2026-08-14-vs-4a-safety-source-discovery.md). Marker, Continue, replay and selection behavior below use its yellow-selectable and accepted/reviewed-link semantics.
+
 **Format metadata:** `review-matrix` — executable five-task checklist whose apparent length comes from mandatory per-task file, interface, RED/GREEN and commit cells; it is linked from the short master index and is not a narrative specification.
 
 ## Constraints specific to this plan
@@ -17,8 +19,8 @@
 - Start must call the existing `requireResolvedCountryShortlistForCity`; no duplicate or weaker gate.
 - Pre-city parent binds only stable country/profile context. It must not bind criteria, ranking or terminal city results, so alternative city runs remain sibling-capable.
 - Screened exclusions are audit-only and never become live red markers.
-- Continue completes exactly one candidate per command. Internal four-source captures may be parallel, but there is one durable marker successor.
-- A city with any unknown but no verified required mismatch is selectable. Only fresh verified required mismatches produce `excluded`.
+- Continue completes exactly one candidate per command. Internal four-criterion captures may be parallel, but safety candidate inspection is sequential and bounded, and there is one durable marker successor.
+- A city with any unknown but no verified required mismatch is yellow and selectable. Only fresh verified required mismatches produce red `excluded`.
 - No current Knowledge reload may rerank a run.
 - Do not extend housing `life-git.ts`, `branch_commits` or `run_revisions` with a city union.
 
@@ -40,7 +42,8 @@
 export interface CityLiveMarker {
   readonly cityId: string;
   readonly rank: number;
-  readonly status: "selectable" | "excluded";
+  readonly status: CityMarkerDisposition;
+  readonly visualStatus: CityCommittedMarkerVisualStatus;
   readonly knowledgeRevisionId: string;
   readonly evidenceSnapshotId: string;
   readonly requiredMismatches: readonly CityRequiredMismatch[];
@@ -52,8 +55,11 @@ export interface CityLiveMarker {
 export interface CityFactLinkProjection {
   readonly sourceId: string;
   readonly label: string;
+  readonly disposition: "accepted" | "reviewed_rejected";
   readonly navigationUrl: string;
   readonly resolvedEvidenceUrl?: string;
+  readonly referenceYear?: number;
+  readonly rejectionReason?: CitySafetyCandidateRejectionReason;
 }
 
 export interface CityUnknownWarning {
@@ -64,7 +70,7 @@ export interface CityUnknownWarning {
 
 export interface CityCommittedFactProjection extends Omit<CityRankingFactInput, "outcome"> {
   readonly outcome:
-    | { readonly kind: "verified"; readonly value: string }
+    | { readonly kind: "verified"; readonly basis: CityVerifiedFactBasis }
     | { readonly kind: "unknown"; readonly reason: CityUnknownReason };
   readonly evidenceLinks: readonly CityFactLinkProjection[];
   readonly manualCheckLinks: readonly CityFactLinkProjection[];
@@ -96,7 +102,7 @@ export function reconstructCitySelection(input: ReconstructCitySelectionInput): 
 
 - [ ] **Step 1: Write the frontier truth-table RED**
 
-Test pending first rank, selectable verified city, selectable unknown, verified required mismatch exclusion, persistent excluded history/replacement, three-selectable stop, exhaustion with 0/1/2, no fourth selectable, frozen-rank marker prefix and one-marker transition.
+Test pending first rank, all-verified green selectable city, unknown yellow selectable city, verified required mismatch red exclusion, persistent excluded history/replacement, yellow occupying a terminal slot without replacement, three-selectable stop, exhaustion with 0/1/2, no fourth selectable, frozen-rank marker prefix and one-marker transition. Reject green with unknown, yellow with no unknown, red without a required mismatch, and any marker whose accepted/reviewed links do not reconstruct from its Evidence.
 
 - [ ] **Step 2: Run RED**
 
@@ -107,11 +113,11 @@ Test pending first rank, selectable verified city, selectable unknown, verified 
 
 - [ ] **Step 3: Implement pure reconstruction and transition validation**
 
-Require markers in activation/frozen rank order with unique city IDs and exact Knowledge/Evidence bindings. A marker is excluded iff `requiredMismatches` is nonempty; unknown never excludes. Terminal entries are selectable markers in frozen order and stop only at exactly three or cursor exhaustion.
+Require markers in activation/frozen rank order with unique city IDs and exact Knowledge/Evidence bindings. A marker is red/excluded iff `requiredMismatches` is nonempty; otherwise it is yellow iff any fact is unknown, and green iff all four are verified. Terminal entries are green/yellow selectable markers in frozen order and stop only at exactly three or cursor exhaustion.
 
 - [ ] **Step 4: Implement server-derived selection/warning basis**
 
-Selection accepts only an exact terminal entry. Reconstruct warnings from the selected marker, require no copy version for empty basis and exact `city-unknown-risk@1` for nonempty basis, and reject client-supplied facts/parent/basis fields.
+Selection accepts only an exact terminal entry. Reconstruct warnings and reviewed source links from the selected marker, require no copy version for green and exact `city-unknown-risk@1` for yellow, and reject client-supplied facts/parent/basis/link fields. Yellow selection accepts the displayed risk inline; no separate modal or decision aggregate is introduced.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -196,6 +202,12 @@ export interface TerminalCityShortlistSnapshot {
 
 export type CityFrontierRevision = WorkingCityFrontierRevision | TerminalCityShortlistSnapshot;
 
+export type CityFrontierEvent =
+  | { readonly type: "city_activated"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly rank: number }
+  | { readonly type: "city_progress"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly stage: string; readonly label: string; readonly detail?: string; readonly sourceUrl?: string }
+  | { readonly type: "city_revision_committed"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly marker: CityLiveMarker; readonly revision: CityFrontierRevision }
+  | { readonly type: "city_continuation_completed"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly readModel: CityFrontierReadModel };
+
 export interface CitySelectionWithBranch {
   readonly selection: CitySelectionSnapshot;
   readonly commit: CityBranchCommit;
@@ -252,7 +264,7 @@ export interface CityBranchCommit {
 
 - [ ] **Step 1: Write branch and closed-contract RED tests**
 
-Test deterministic pre-city ID, exact resolved country entry digest, exact relocation + Preference Profile bindings, complete selection context/selected-marker digest, A/B sibling branch identity, `parentId === forkedFrom`, wrong parent/profile/preference/country/city/criteria/ranking rejection, replay tamper and deep freeze.
+Test deterministic pre-city ID, exact resolved country entry digest, exact relocation + Preference Profile bindings, the closed Application-owned `CityFrontierEvent` union, complete selection context/selected-marker digest including visual status and reviewed links, green/yellow selection, yellow warning-basis tamper, A/B sibling branch identity, `parentId === forkedFrom`, wrong parent/profile/preference/country/city/criteria/ranking rejection, replay tamper and deep freeze.
 
 - [ ] **Step 2: Run RED**
 
@@ -297,7 +309,9 @@ git commit -m "feat: define city branch snapshots"
 - Create: `tests/support/city-frontier-publication-worker.ts`
 - Modify: `src/infrastructure/sqlite/schema.sql`
 - Modify: `src/infrastructure/sqlite/db.ts`
-- Modify exact schema inventories.
+- Modify: `tests/integration/database-schema.test.ts`
+- Modify: `tests/integration/confirmed-life.test.ts`
+- Modify: `tests/branch/life-git.test.ts`
 
 **Interfaces:**
 
@@ -394,7 +408,7 @@ The setup read model contains the verified country entry, installed package/defi
 
 - [ ] **Step 1: Write Start/Present RED tests**
 
-Assert setup and Start reject automatic/working/empty/tampered/effective-red inputs; accepted formal-yellow effective-green setup; exact installed definitions/default draft; exact relocation + Preference Profile IDs from source binding; exact Registry/catalog identity and coordinates; confirmed criteria; deterministic pre-city parent; frozen ranking; zero source calls; injected failure after each Start insert leaves zero partial rows; exact retry converges; two canonical presentations with zero source/request-step calls; exact four-fact/link marker projections; verified selection/branch history after reload.
+Assert setup and Start reject automatic/working/empty/tampered/effective-red inputs; accepted formal-yellow effective-green setup; exact installed definitions/default draft; exact relocation + Preference Profile IDs from source binding; exact Registry/catalog identity and coordinates; confirmed criteria; deterministic pre-city parent; frozen ranking; zero official/search calls; injected failure after each Start insert leaves zero partial rows; exact retry converges; two canonical presentations with zero source/request-step/search calls; exact four-fact accepted/reviewed-link marker projections; verified selection/branch history after reload.
 
 - [ ] **Step 2: Run RED**
 
@@ -408,11 +422,11 @@ Setup and Start both call the existing country guard first. They load and verify
 
 - [ ] **Step 4: Add Continue RED matrix**
 
-Cover one city per command, all four subchecks despite early required mismatch, red then replacement, selectable unknown, three-stop, exhaustion 0/1/2, no rerank after Knowledge write, abort/fatal error no cursor, source-unavailable unknown, Evidence-sealed/Knowledge-missing recovery, Knowledge-published/frontier-missing recovery, exactly one final `city_continuation_completed` for both working and terminal results, canonical callback/return equality, emit throw after commit, stale/idempotent commands, and two concurrent identical Continues sharing one source execution.
+Cover one city per command, all four subchecks despite early required mismatch, red then replacement, yellow selectable/no replacement, three-stop, exhaustion 0/1/2, no rerank after Knowledge write, abort/fatal error no cursor, previous accepted Y-1 with zero search, previous Y-2 continuing search, first route failure then discovered exact source, stale/broad/missing-total candidate continuation, completed-empty provider result, typed provider failure, explicit unconfigured producer, full budget unknown, January–June fallback, July stale, same-chain conflict, both raw-seal and delete-transient artifact handoffs, known-to-unknown without carry-forward, Evidence-sealed/Knowledge-missing recovery, Knowledge-published/frontier-missing recovery, exactly one final `city_continuation_completed` for both working and terminal results, canonical callback/return equality, emit throw after commit, stale/idempotent commands, and two concurrent identical Continues sharing one source execution.
 
 - [ ] **Step 5: Implement present-first Continue ordering**
 
-For the active frozen city: check abort; load completed check by deterministic ID; replay/publish missing Knowledge; otherwise use one composition-scoped promise keyed by `cityCheckRunId` so concurrent identical commands share the same bounded research call; seal Evidence; publish Knowledge; evaluate criteria; append one marker successor; emit the committed marker; construct the verified working-or-terminal read model; emit exactly one `city_continuation_completed`; then return the canonically identical model. An emit failure after append never rolls back the revision. Clear the single-flight entry in `finally`; never hold SQLite across HTTP or add a lease table.
+For the active frozen city: check abort; load completed check by deterministic ID; replay/publish missing Knowledge; otherwise use one composition-scoped promise keyed by `cityCheckRunId` so concurrent identical commands share the same bounded four-fact research call. The Research package supplies the verified safety source plan/directory; Application invokes `runCitySafetyDiscovery` with public city/year/criterion terms and injected search/document ports. Merge its exact sealable artifacts with the three fixed-source captures, seal generic Evidence plus the attempt ledger overlay, publish all four Knowledge facts, evaluate criteria, append one green/yellow/red marker successor, emit the committed marker, construct the verified working-or-terminal read model, emit exactly one `city_continuation_completed`, then return the canonically identical model. `city-frontier-composition.ts` constructs the provider-neutral search port exactly as Task S2 specifies: valid config uses `createCitySafetySearchPort({step:createHttpCitySafetySearchStep(config, request), providerId:config.providerId})`; missing config uses `createUnconfiguredCitySafetySearchPort()`, stays explicitly unconfigured and blocks the source-ready/live gate. An emit failure after append never rolls back the revision. Clear the single-flight entry in `finally`; never hold SQLite across HTTP/search or add a lease table.
 
 - [ ] **Step 6: Run GREEN and commit**
 
@@ -472,7 +486,7 @@ Use the Task 13 `city_selection_snapshots` and `city_branch_commits` schemas. Ve
 
 - [ ] **Step 4: Implement one atomic writer transaction**
 
-Load/verify terminal and source graph inside the transaction, derive warning basis and branch parent server-side, construct both pure values, insert both, reload/verify both, then commit. Add `listSelectionsWithBranchesVerified(runId)` to the inward writer port; Select and `presentCityFrontier` return the complete verified history. A second city from the same terminal reuses the same pre-city parent and creates a sibling commit.
+Load/verify terminal and source graph inside the transaction, derive yellow warning basis, accepted/reviewed link binding and branch parent server-side, construct both pure values, insert both, reload/verify both, then commit. Source links never affect selectability by themselves. Add `listSelectionsWithBranchesVerified(runId)` to the inward writer port; Select and `presentCityFrontier` return the complete verified history. A second city from the same terminal reuses the same pre-city parent and creates a sibling commit.
 
 - [ ] **Step 5: Run the core gate and commit**
 
@@ -489,7 +503,6 @@ git diff --check
 git add src/application/city-selection.ts \
   src/infrastructure/sqlite/city-selection-writer.ts \
   src/infrastructure/city-frontier-composition.ts \
-  src/infrastructure/composition-root.ts tests/integration/city-selection.test.ts \
-  tests/integration/database-schema.test.ts
+  src/infrastructure/composition-root.ts tests/integration/city-selection.test.ts
 git commit -m "feat: select city branch"
 ```

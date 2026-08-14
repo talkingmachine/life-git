@@ -10,15 +10,17 @@
 
 **Depends on:** completed [`Frontier Core`](2026-08-13-vs-4a-city-frontier-core.md).
 
-**Split review:** This 289-line delivery checklist stays together because its four tasks share one strict wire/read-model lifecycle and one globe owner; the larger Foundations, Knowledge and Core matrices are already separate linked plans.
+**Required safety amendment:** [`VS-4A Safety Source Discovery`](2026-08-14-vs-4a-safety-source-discovery.md). It replaces the green-with-amber/no-yellow projection and extends replay/evidence to the bounded safety-search ledger.
+
+**Split review:** This sub-300-line delivery checklist stays together because its four tasks share one strict wire/read-model lifecycle and one globe owner; the larger Foundations, Safety, Knowledge and Core matrices are separate linked plans.
 
 ## Constraints specific to this plan
 
 - HTTP never accepts facts, score, warning basis, branch parent or Knowledge/Evidence IDs from the client.
-- Start and Select are strict JSON. Continue is finite NDJSON and the only endpoint whose use case may reach official sources.
+- Start and Select are strict JSON. Continue is finite NDJSON and the only endpoint whose use case may reach official sources or the safety-search port.
 - Browser modules may runtime-import only Decision and Experience. Application imports are type-only; Infrastructure and `node:*` are forbidden in the web bundle.
 - Active unchecked city is gray `Проверяется`, never green or selectable.
-- Selectable unknown and fully verified selectable use the same green; the former adds amber ring, icon/text warnings and an acceptance CTA. There is no city yellow.
+- Fully verified selectable is green. Selectable with any unknown is yellow with warning text and the same selection affordance; yellow occupies a terminal slot and needs no separate modal.
 - Cards show frozen rank/score and separately fresh verification coverage/facts. React never computes a second score.
 - No Select control before terminal. Terminal 0 renders honest exhaustion and no City CTA.
 - Preserve existing country, cold-start, housing and globe focus/reduced-motion behavior.
@@ -53,7 +55,7 @@ POST /api/city-frontier/select
 
 - [ ] **Step 1: Write route RED tests**
 
-Cover exact media type, malformed JSON, unknown/missing/extra fields, exact four-criteria body, expected 404/409 safe mappings, generic no-leak 500, no application call on invalid input, and exact JSON outputs.
+Cover exact media type, malformed JSON, unknown/missing/extra fields, exact four-criteria body, green/yellow/red committed markers, expected 404/409 safe mappings, generic no-leak 500, provider/internal error text suppression, no application call on invalid input, and exact JSON outputs.
 
 - [ ] **Step 2: Add Continue lifecycle RED tests**
 
@@ -95,15 +97,7 @@ git commit -m "feat: expose city frontier transport"
 - Modify: `tests/fixtures/place-frontier-client/entry.ts`
 - Modify: `tests/integration/city-frontier-transport.test.ts`
 
-**Wire contract:**
-
-```ts
-export type CityFrontierEvent =
-  | { readonly type: "city_activated"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly rank: number }
-  | { readonly type: "city_progress"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly stage: string; readonly label: string; readonly detail?: string; readonly sourceUrl?: string }
-  | { readonly type: "city_revision_committed"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly marker: CityLiveMarker; readonly revision: CityFrontierRevision }
-  | { readonly type: "city_continuation_completed"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly readModel: CityFrontierReadModel };
-```
+**Wire contract:** Task 12 owns the closed `CityFrontierEvent` union in `src/application/city-frontier-contracts.ts`. Delivery type-imports that contract and independently validates its exact browser-safe wire projection; Experience never becomes an Application dependency.
 
 - [ ] **Step 1: Write closed-protocol RED tests**
 
@@ -125,7 +119,7 @@ Reuse `readFiniteNdjson` and generic handoff; do not copy the reader. Runtime-im
 
 - [ ] **Step 5: Implement pure projection and browser smoke**
 
-Project all frozen-order markers from the verified Registry revision; pending label `Проверяется`; excluded red; selectable green; nonempty unknown basis adds amber warning flag but does not change status. Copy the exact committed tuple of four browser-safe fact projections and official/manual Evidence links; never reconstruct it in React. Cards are terminal only and copy rank/score from Ranking plus fresh facts/coverage from committed markers. Project verified selection/branch history on stored reload. Stored mode has no fabricated progress/flight. Add City Decision plus both Experience modules to the real web-target fixture and fail on any Application/Infrastructure/`node:*` runtime edge.
+Project all frozen-order markers from the verified Registry revision: pending gray `Проверяется`, all-verified selectable green `Доступен для выбора`, unknown selectable yellow `Доступен с неполными данными`, excluded red `Исключён`. `city_progress.sourceUrl` may contain only an already validated official navigation/document URL; never expose an untrusted provider result or snippet. Copy the exact committed tuple of four browser-safe fact projections plus accepted/reviewed official Evidence links and rejection reasons; never reconstruct them in React. Cards are terminal only and copy rank/score from Ranking plus fresh facts/coverage from committed markers. Project verified selection/branch history on stored reload. Stored mode has no fabricated progress/flight. Add City Decision plus both Experience modules to the real web-target fixture and fail on any Application/Infrastructure/`node:*` runtime edge.
 
 - [ ] **Step 6: Run GREEN and commit**
 
@@ -177,7 +171,9 @@ Assert each resolved country CTA carries exact source/country; setup Page verifi
 
 - [ ] **Step 2: Write marker/card/selection RED tests**
 
-Assert gray active marker; red excluded stays visible/clickable; green selectable; green+amber warning ring/text; no yellow; exact frozen `rank/score at start`; separate fresh four facts/coverage; explicit installed-catalog limitation and incomplete-coverage warning; no second score or global-best claim; no Select before terminal; terminal 0 no CTA; terminal 1–3 selection; warning CTA states risk acceptance; exact Select payload; committed selection/branch confirmation; selecting a second terminal city creates and displays a sibling alternative.
+Assert gray active marker; red excluded stays visible/clickable; green all-verified selectable; yellow unknown selectable with the same interaction and terminal-slot behavior; exact frozen `rank/score at start`; separate fresh four facts/coverage; explicit installed-catalog limitation and incomplete-coverage warning; no second score or global-best claim; no Select before terminal; terminal 0 no CTA; terminal 1–3 green/yellow selection; yellow CTA states inline risk acceptance without a modal; exact Select payload; committed selection/branch confirmation; selecting a second terminal city creates and displays a sibling alternative.
+
+For a verified safety fact, assert accepted official link, reference year, offence numerator, SURS denominator and `lastCheckedAt`. For unknown safety, assert terminal reason, reviewed official links and per-link rejection reasons. Exhaustion copy says the bounded search ended; transport copy says the provider/official path was unavailable. Neither says that no source exists anywhere.
 
 - [ ] **Step 3: Write lifecycle/a11y RED tests**
 
@@ -197,7 +193,7 @@ Cover StrictMode one-shot handoff, true-unmount cancel once, superseding Continu
 
 - [ ] **Step 6: Add only presentation fields needed by the existing globe**
 
-Extend route/candidate contracts with city warning-ring/status labels and exact Evidence/manual links. Green city destinations are interactive only in terminal selection context; pending is a noninteractive note, excluded remains interactive for explanation. Do not change camera, material, lighting or flight algorithms.
+Extend route/candidate contracts with exact gray/green/yellow/red status labels and accepted/reviewed Evidence links. Green and yellow city destinations are interactive only in terminal selection context; pending is a noninteractive note, excluded remains interactive for explanation. Add a real yellow material/style and visual-system assertions; do not emulate it with green plus an amber ring. Do not change camera, lighting or flight algorithms.
 
 - [ ] **Step 7: Run GREEN and commit**
 
@@ -249,7 +245,7 @@ git commit -m "feat: show city frontier on globe"
 ./node_modules/.bin/next build
 git diff --check
 ! rg -n -i \
-  'openai|anthropic|gemini|langchain|llamaindex|api[_-]?key|model[_-]?name' \
+  'openai|anthropic|gemini|langchain|llamaindex|llm[_-]?|model[_-]?name' \
   src tests evals package.json pnpm-lock.yaml .env.example
 ```
 
@@ -257,7 +253,7 @@ Record exact counts, duration, HEAD and timestamp. If any gate fails, stop evide
 
 - [ ] **Step 2: Run the canonical two-presentation replay proof**
 
-On an isolated copy/backup of a real completed test DB, replace every official source/request-step port with counted throwing spies. Call `presentCityFrontier(runId)` twice and compare canonical read models including catalog/criteria/ranking, marker prefix, terminal entries, four-fact Knowledge IDs/Evidence IDs, pre-city parent and selections/branches. Snapshot full immutable rows from all eight new tables plus relevant generic Evidence rows before/after; assert byte equality and zero source calls.
+On an isolated copy/backup of a real completed test DB, replace every official source/request-step/safety-search port with counted throwing spies. Call `presentCityFrontier(runId)` twice and compare canonical read models including catalog/criteria/ranking, marker prefix, terminal entries, four-fact Knowledge IDs/Evidence IDs, full safety attempt ledger, accepted/reviewed URLs and reasons, pre-city parent and selections/branches. Snapshot full immutable rows from all eight new tables plus relevant generic Evidence rows before/after; assert byte equality and zero official/search calls.
 
 - [ ] **Step 3: Verify City selection and sibling branch SQL**
 
@@ -265,14 +261,16 @@ With `PRAGMA query_only=ON`, prove the selected city belongs to the exact termin
 
 - [ ] **Step 4: Execute one isolated official-source walkthrough**
 
-Immediately before every browser opening or browser-tool call, stop, state the exact intended action, ask the user for explicit permission and wait; no earlier or blanket permission carries forward. Then use a `mktemp -d` database and a process-only HMAC key. Install the official catalog with the administrative installer, start from a verified resolved country, confirm four criteria, explicitly Continue candidates until terminal/exhaustion, inspect actual source/fact progress, gray/red/green+amber states, select one city, reload the exact URL and verify no new official capture. Do not click arbitrary external links, reuse a developer DB or replace live outcomes with fixtures.
+Follow the then-current local `AGENTS.md`: an explicit chat-wide read-only permission may cover browser navigation in that chat, while downloads/forms/uploads/sign-in require separate immediate confirmation. Then use a `mktemp -d` database and a process-only HMAC key. Install the official catalog with the administrative installer, start from a verified resolved country, confirm four criteria, explicitly Continue candidates until terminal/exhaustion, inspect actual previous/configured/search fallback, query/candidate/hop bounds, rejection ledger, source/fact progress and gray/green/yellow/red states. Select one green or yellow city, reload the exact URL and verify the same links/reasons with no new official/search request. Do not click arbitrary external links, reuse a developer DB or replace live outcomes with fixtures.
 
 - [ ] **Step 5: Write exact evidence and stop for approval**
 
-Evidence includes HEAD/time, commands/counts, source/capture outcomes, catalog membership/coverage, ranking formula inputs, marker/four-fact lineage, terminal stop, selection/branch IDs, zero-network replay, SQL integrity, limitations and cleanup (server stopped, temp DB/sidecars removed, HMAC unset). Run:
+Evidence includes HEAD/time, commands/counts, source/capture outcomes, query/provider/template IDs, `3/10/2` counters, candidate rejection ledger, accepted/reviewed URLs, retention/transient cleanup, catalog membership/coverage, ranking formula inputs, marker/four-fact lineage, terminal stop, selection/branch IDs, zero-network replay, SQL integrity, limitations and cleanup (server stopped, temp DB/sidecars removed, HMAC/search credentials unset). Run:
 
 ```bash
-git diff --check -- docs/changes/active/vs-4a-city-frontier/implementation-evidence.md
+evidence_diff_check="$(git diff --no-index --check /dev/null \
+  docs/changes/active/vs-4a-city-frontier/implementation-evidence.md 2>&1 || true)"
+test -z "$evidence_diff_check"
 git status --short
 ```
 

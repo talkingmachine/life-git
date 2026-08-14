@@ -8,7 +8,9 @@
 
 **Tech Stack:** TypeScript, the existing generic `ResearchPlan`/Evidence store, official source adapters, SQLite immediate transactions, canonical JSON/SHA-256/HMAC and Vitest.
 
-**Depends on:** completed [`VS-4A Foundations`](2026-08-13-vs-4a-city-frontier-foundations.md), including an `installable` Slovenia field map.
+**Depends on:** completed [`VS-4A Foundations`](2026-08-13-vs-4a-city-frontier-foundations.md) and its exact source contracts. Production package installation and live Knowledge publication remain gated on an `installable` Slovenia field map.
+
+**Required safety dependency:** completed [`VS-4A Safety Source Discovery`](2026-08-14-vs-4a-safety-source-discovery.md). The whole package installation gate remains unchanged: safety component work may be green while transit/broadband still block an installed Slovenia package.
 
 **Format metadata:** `review-matrix` — executable five-task checklist whose length comes from mandatory source, persistence, RED/GREEN, replay and commit cells; it is linked from the short master index and is not a narrative specification.
 
@@ -17,9 +19,9 @@
 - If the source field map is not `installable`, stop. Never create a production package from synthetic fixtures.
 - Do not generalize or alter Country Knowledge carry-forward behavior. City Knowledge is a separate full-projection contract.
 - A City Knowledge revision contains exactly four current outcomes. Its predecessor contributes only the previous `knowledgeUpdatedAt` comparison baseline.
-- `source_unavailable` requires sealed bounded official attempts. Abort, storage, protocol, integrity and unexpected errors publish no City Knowledge.
-- Raw bytes stay in `artifacts`; the City Evidence overlay and City Knowledge contain references only.
-- Official catalog installation is an explicit administrative operation before user Start. Within a City Frontier run, only Continue may call official sources.
+- `source_unavailable` requires a sealed completed discovery ledger. One failed candidate is never terminal; abort, storage, protocol, integrity and unexpected errors publish no City Knowledge.
+- Raw bytes stay in `artifacts` only when the source-specific retention policy permits it. A prohibited transient copy is deleted after its minimal hash/locator projection is sealed; the City Evidence overlay and City Knowledge contain references only.
+- Official catalog installation is an explicit administrative operation before user Start. Within a City Frontier run, only Continue may call official sources or the narrow safety-search port.
 
 ---
 
@@ -69,13 +71,17 @@ export interface CatalogResearchBundle {
 }
 
 export interface CityFactsResearchBundle {
-  readonly plan: ResearchPlan<Exclude<SloveniaCitySourceId, "si-city-catalog">, CityEvidenceClaim>;
-  readonly source: OfficialSourcePort<Exclude<SloveniaCitySourceId, "si-city-catalog">>;
+  readonly fixedPlan: ResearchPlan<Exclude<SloveniaCitySourceId, "si-city-catalog" | "si-city-safety">, CityEvidenceClaim>;
+  readonly fixedSource: OfficialSourcePort<Exclude<SloveniaCitySourceId, "si-city-catalog" | "si-city-safety">>;
+  readonly safety: {
+    readonly sourcePlan: CitySafetySourcePlan;
+    readonly authorityDirectory: OfficialAuthorityDirectory;
+  };
   readonly criterionIds: readonly ["safety", "long_term_rent", "urban_transit", "fixed_broadband"];
 }
 ```
 
-`CatalogResearchBundle` has its own typed official-registry/population parser contract and exactly one catalog terminal result. Only `CityFactsResearchBundle` closes all four criterion IDs; each criterion yields one verified typed claim or one evidence-backed blocker that the Knowledge builder maps to an approved unknown reason.
+`CatalogResearchBundle` has its own typed official-registry/population parser contract and exactly one catalog terminal result. `CityFactsResearchBundle.fixedPlan` closes rent/transit/broadband; the Application-owned safety discovery contributes the fourth `si-city-safety` terminal result and its artifacts before Evidence sealing. Together they close all four criterion IDs; each criterion yields one verified typed claim or one evidence-backed blocker that the Knowledge builder maps to an approved unknown reason.
 
 - [ ] **Step 1: Write the missing-package and fixture-vector RED tests**
 
@@ -92,11 +98,11 @@ Expected: missing city package modules.
 
 - [ ] **Step 3: Implement parsers and bounded source adapters from the approved field map**
 
-Use only field-map URLs, schemas, numeric limits and fixture hashes. Validator outputs are `verified`, `not_found`, `stale`, `conflict` or `not_comparable`; transport outcomes retain their existing capture taxonomy. Do not infer a value across a different geo scope, denominator or reference period.
+Use only the installed field-map definitions, authority/source plan, schemas, numeric limits and fixture hashes. Rent/transit/broadband remain fixed-route. The Research package produces the immutable safety source plan/directory/validators only; it does not import or call Application. Core Task 14 injects and invokes the completed Application discovery use case for `previous accepted URL -> configured official routes -> bounded search candidates`. Search provider results are not a `SloveniaCitySourceId`, artifact or claim. `CitySafetyDiscoveryResult.artifacts` contains only permitted official raw captures or canonical minimal retention projections under `si-city-safety`; the Application verifier merges those exact values into the generic Evidence manifest before sealing the overlay ledger. Validator outputs are `verified`, `not_found`, `stale`, `conflict`, `not_comparable` or sealed `source_unavailable`. Do not infer a value across a different geo scope, denominator or reference period.
 
 - [ ] **Step 4: Extend generic Evidence failure typing without changing country behavior**
 
-Add `not_found` and `not_comparable` only where the generic Research plan needs typed semantic outcomes. Preserve existing cold-start mappings byte-for-byte in behavior. Map protocol/integrity failures (`navigation_mismatch`, wrong media, too large, malformed structure) to operation failure, not `source_unavailable`.
+Add `not_found` and `not_comparable` only where the generic Research plan needs typed semantic outcomes. Preserve existing cold-start mappings byte-for-byte in behavior. For the safety composite only, wrong media, too large, untrusted redirect and unapproved retention become candidate rejections and continue within budget. A malformed provider response, tampered sealed Evidence, storage/integrity/internal failure or unexpected exception remains an operation failure, not `source_unavailable`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -152,6 +158,7 @@ export interface CityEvidenceSnapshot {
   readonly rankingSnapshotId: string;
   readonly definitionIds: Readonly<Record<CityCriterionId, string>>;
   readonly rulesVersion: string;
+  readonly safetyAttemptLedger: CitySafetyAttemptLedger;
   readonly contextHash: string;
   readonly completedAt: string;
 }
@@ -167,7 +174,7 @@ Define this port in `src/application/city-data-contracts.ts`; the SQLite adapter
 
 - [ ] **Step 1: Write RED for atomic Evidence/overlay sealing**
 
-Test same-ID exact retry, conflicting payload, exact city/package/catalog/criteria/ranking binding, `completedAt >= max(capturedAt)`, overlay-without-generic rejection, generic-without-overlay recovery, byte/hash/HMAC tamper and immutable UPDATE/DELETE.
+Test same-ID exact retry, conflicting payload, exact city/package/catalog/criteria/ranking binding, `completedAt >= max(capturedAt, searchedAt)`, every ledger artifact reference present exactly once in the generic Evidence manifest, every previous-origin attempt resolving to an exact prior verified City Evidence/source-plan/accepted URL lineage, overlay-without-generic rejection, generic-without-overlay recovery, byte/hash/HMAC tamper and immutable UPDATE/DELETE. Mutate/re-sign safety query/provider/outcome/result order, assessment time, previous Evidence/source-plan provenance, canonical URL, redirect, authority/media/retention decision, artifact/source hash, locator, rejection reason and `3/10/2` counters; every semantic mutation must fail reconstruction.
 
 - [ ] **Step 2: Run RED**
 
@@ -182,7 +189,7 @@ Columns: ID FK to `evidence_snapshots`, unique check-run ID, mirrored city/count
 
 - [ ] **Step 4: Implement one immediate seal transaction and verified replay**
 
-Factor reusable byte-free generic Evidence verification out of `evidence-store.ts`; do not add city branches to old source-ID unions. On lost insert race, read back and canonical-compare. A cancellation or thrown storage/parser error must leave no overlay row.
+Factor reusable generic Evidence verification out of `evidence-store.ts`; do not add city branches to old source-ID unions. Before sealing, load and verify every previous-origin Evidence reference and canonical-compare its city/municipality/definition/source-plan plus accepted URL with the discovery input; no arbitrary current official URL may impersonate prior provenance. Seal the discovery result's exact `si-city-safety` artifacts through the existing artifact writer before the signed generic snapshot and overlay; the raw-seal mode stores permitted official bytes, while hash-locator mode stores only its canonical minimal projection. On lost insert race, read back and canonical-compare. A cancellation or thrown storage/parser error must leave no overlay row; a sealed generic snapshot without its overlay is recovered idempotently on retry.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -217,7 +224,7 @@ git commit -m "feat: seal city evidence context"
 
 ```ts
 export type CityFactOutcome =
-  | { readonly kind: "verified"; readonly value: string }
+  | { readonly kind: "verified"; readonly basis: CityVerifiedFactBasis }
   | { readonly kind: "unknown"; readonly reason: CityUnknownReason };
 
 export type CityFactEvidenceReference =
@@ -286,7 +293,7 @@ Cover 4/4 verified, every live `CityUnknownReason`, rejection of ranking-only `n
 
 - [ ] **Step 3: Implement full projection and revision-level time semantics**
 
-Build all four facts only from the current verified Evidence, bind its exact `rulesVersion` and seal the revision ID through injected `CityDecisionIntegrity`. For semantic comparison include definition, geo scope, reference period, freshness basis, unit, denominator and outcome; exclude Evidence refs, IDs and timestamps. First revision sets `knowledgeUpdatedAt = lastCheckedAt`; unchanged successor preserves predecessor value; any changed fact sets it to the new `lastCheckedAt`. Enforce predecessor time `< lastCheckedAt <= createdAt`.
+Build all four facts only from the current verified Evidence, bind its exact `rulesVersion` and seal the revision ID through injected `CityDecisionIntegrity`. Safety verified facts retain `offenceCount`, `population` and the exact rational basis; Knowledge does not copy search queries, provider results or the attempt ledger. For semantic comparison include definition, geo scope, reference period, freshness basis, unit, denominator and outcome; exclude Evidence refs, accepted/reviewed URL changes, IDs and timestamps. First revision sets `knowledgeUpdatedAt = lastCheckedAt`; unchanged successor preserves predecessor value; known-to-unknown or any changed fact sets it to the new `lastCheckedAt`. Enforce predecessor time `< lastCheckedAt <= createdAt`.
 
 - [ ] **Step 4: Add reconstruction/tamper and deep-freeze tests**
 
@@ -321,7 +328,9 @@ git commit -m "feat: build full city knowledge"
 - Create: `tests/integration/city-knowledge-store.test.ts`
 - Modify: `src/infrastructure/sqlite/schema.sql`
 - Modify: `src/infrastructure/sqlite/db.ts`
-- Modify schema inventories as in Task 7.
+- Modify exact table/index/trigger inventories: `tests/integration/database-schema.test.ts`
+- Modify exact table inventories: `tests/integration/confirmed-life.test.ts`
+- Modify exact table inventories: `tests/branch/life-git.test.ts`
 
 **Interfaces:**
 
@@ -364,7 +373,7 @@ Cover out-of-band official catalog capture/seal/publication, full considered-uni
 
 - [ ] **Step 4: Implement immediate publication and the administrative installer**
 
-Catalog installer is an explicit CLI/eval use case, never a browser route and never called by City Start. `CityCatalogStore.loadVerified` replays the exact sealed catalog artifacts through the pinned package parser without HTTP, compares the full Registry/population projection and only then reconstructs membership. Knowledge publication loads verified City Evidence inside `BEGIN IMMEDIATE`, resolves the current head, rebuilds the full revision with injected integrity, rejects a check not newer than the head, inserts, reloads and verifies the complete predecessor chain.
+Catalog installer is an explicit CLI/eval use case, never a browser route and never called by City Start. `CityCatalogStore.loadVerified` replays the exact sealed catalog artifacts through the pinned package parser without HTTP, compares the full Registry/population projection and only then reconstructs membership. Knowledge publication loads verified City Evidence inside `BEGIN IMMEDIATE`, reconstructs the complete safety ledger and accepted/reviewed URL lineage, resolves the current head, rebuilds the full revision with injected integrity, rejects a check not newer than the head, inserts, reloads and verifies the complete predecessor chain.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -410,7 +419,7 @@ export function replayCityEvidence(input: {
 
 - [ ] **Step 1: Write zero-network RED**
 
-Construct a real sealed city bundle, replace every request/source port with a throwing counted spy, replay twice, compare canonical claims/blockers/context/completedAt, and assert zero calls.
+Construct a real sealed city bundle, replace every request/official-source/safety-search port with a throwing counted spy, replay twice, compare canonical claims/blockers/safety ledger/accepted and reviewed URLs/context/completedAt, and assert zero calls.
 
 - [ ] **Step 2: Run RED**
 
@@ -420,11 +429,11 @@ Construct a real sealed city bundle, replace every request/source port with a th
 
 - [ ] **Step 3: Implement package-specific byte replay**
 
-Load the signed overlay and generic artifacts, resolve the exact installed package/version, reconstruct its plan, rerun validators on sealed bytes and canonical-compare all claims, blockers, parser/rules versions and context. Never call `OfficialSourcePort`.
+Load the signed overlay and generic artifacts, recursively load any explicitly referenced prior City Evidence, resolve the exact installed package/version, reconstruct its plan and safety attempt ledger with verified previous provenance, rerun validators on sealed permitted bytes/minimal projections and canonical-compare all claims, blockers, queries, candidate order, redirects, counters, accepted/reviewed URLs, parser/rules versions and context. Reject cycles and wrong-city/source-plan lineage. Never call `OfficialSourcePort` or `CitySafetySearchPort`.
 
 - [ ] **Step 4: Add drift/tamper tests**
 
-Reject parser version drift, wrong package/city/context, altered bytes/hash, missing artifact, changed blocker and re-signed semantic mutation.
+Reject parser version drift, wrong package/city/context, altered bytes/hash, missing artifact, missing/altered/cyclic prior Evidence lineage, changed blocker and re-signed semantic mutation.
 
 - [ ] **Step 5: Run the Knowledge gate and commit**
 

@@ -10,6 +10,8 @@
 
 **Master plan:** [`VS-4A City Frontier`](2026-08-13-vs-4a-city-frontier.md)
 
+**Required safety amendment:** [`VS-4A Safety Source Discovery`](2026-08-14-vs-4a-safety-source-discovery.md). It replaces the safety-specific source gate, exact quantity/freshness and yellow-marker wording below; execute it after this plan and before Knowledge.
+
 **Format metadata:** `review-matrix` — executable five-task checklist whose apparent length comes from mandatory per-task file, interface, RED/GREEN and commit cells; it is linked from the short master index and is not a narrative specification.
 
 ## Constraints specific to this plan
@@ -50,7 +52,7 @@ Expected: exit 1 or incomplete matches, proving the forward canon does not yet c
 
 - [ ] **Step 2: Create the active change package**
 
-Write `change.md` with status `approved — implementation pending`, links to the approved design and all five plan files, and exact traceability for `GOAL-CF-01`, `REQ-CF-01..07`, `SCN-CF-01..10`. Include this normative flow:
+Write `change.md` with status `approved — implementation pending`, links to the baseline design, approved safety supplement and all six plan files, and exact traceability for `GOAL-CF-01`, `REQ-CF-01..07`, `SCN-CF-01..10`. Include this normative flow:
 
 ```text
 Resolved Country Shortlist entry
@@ -63,16 +65,16 @@ Resolved Country Shortlist entry
 
 - [ ] **Step 3: Amend only forward canonical docs**
 
-Add the exact catalog threshold/capital/top-ten rule, unknown/selectability rule, stop-at-three rule, full four-fact revision rule, frozen-vs-fresh labels, and sibling branch semantics. In Spec of Specs add a `VS-4A` row after VS-3R and ownership sections for Decision, Research, Application, Infrastructure, Branch and Experience. In README link the active change, approved design and this plan index.
+Add the exact catalog threshold/capital/top-ten rule, bounded official safety fallback, yellow-selectability rule, stop-at-three rule, full four-fact revision rule, frozen-vs-fresh labels, accepted/reviewed source-link replay and sibling branch semantics. In Spec of Specs add a `VS-4A` row after VS-3R and ownership sections for Decision, Research, Application, Infrastructure, Branch and Experience. In README link the active change, both approved designs and this plan index.
 
 - [ ] **Step 4: Verify no stale city promise remains**
 
 ```bash
-rg -n 'City Catalog Revision|three_selectable|city-unknown-risk@1|PreCityBranchCommit' \
+rg -n 'City Catalog Revision|three_selectable|city-unknown-risk@1|PreCityBranchCommit|Доступен с неполными данными|3 queries / 10 candidates / 2' \
   docs/product/charter.md docs/product/glossary.md docs/product/demo-story.md \
   docs/architecture/spec-of-specs.md docs/README.md \
   docs/changes/active/vs-4a-city-frontier/change.md
-! rg -n 'yellow city|city yellow|unknown.*исключает|перв(ый|ого).*город.*остан' \
+! rg -n 'unknown.*исключает|перв(ый|ого).*город.*остан|green\+amber|no city yellow' \
   docs/product docs/architecture/spec-of-specs.md \
   docs/changes/active/vs-4a-city-frontier/change.md
 git diff --check
@@ -91,28 +93,28 @@ git commit -m "docs: canonicalize VS4A city frontier"
 
 ---
 
-### Task 2: Prove the Slovenia official city-source package before installing it
+### Task 2: Prove the Slovenia official city-source contracts before installing a package
 
 **Requirements:** REQ-CF-01, REQ-CF-02, REQ-CF-04, REQ-CF-05; SCN-CF-01, SCN-CF-06
 
 **Files:**
-- Create: `docs/changes/active/vs-4a-city-frontier/source-field-map.md`
-- Create only when a source row is proven: `tests/sources/fixtures/slovenia-city/**`
+- Modify: `docs/changes/active/vs-4a-city-frontier/source-field-map.md`
+- Modify only when a source row is proven: `tests/sources/fixtures/slovenia-city/**`
 - Do not create production package files in this task.
 
 **Interfaces:** Produces the exact official URLs, authority/geo/period/unit/denominator definitions, request shapes, parser fixture hashes, freshness rules and failure taxonomy used by the Knowledge plan.
 
 - [ ] **Step 1: Write the fail-closed field-map skeleton**
 
-Create a four-row metric matrix (`safety`, `long_term_rent`, `urban_transit`, `fixed_broadband`) plus a catalog matrix. Every row requires: authority, navigation URL, resolved evidence URL/request, official area identifier, comparable population/metric definition, reference period, unit, denominator, update cadence, freshness rule, validator outline, capture bound and deterministic boundary vectors. Mark the package `unavailable` until every cell is evidenced.
+Maintain a four-row metric matrix (`safety`, `long_term_rent`, `urban_transit`, `fixed_broadband`) plus a catalog matrix. Every row requires: authority, navigation URL, resolved evidence URL/request, official area identifier, comparable population/metric definition, reference period, unit, denominator, update cadence, freshness rule, validator outline, capture bound and deterministic boundary vectors. Safety additionally records a per-catalog-member manifest, authority/host directory, known routes, query-template version, redirect/media/size/retention policy and criterion-level readiness. Mark the package `unavailable` until every criterion contract is complete.
 
 - [ ] **Step 2: Inspect only official authority surfaces**
 
-Use a disposable temporary database/directory. Immediately before every browser opening or browser-tool call, stop, state the exact official surface/action, ask the user for explicit permission and wait; prior or blanket permission is not sufficient. Candidate authorities must remain Slovenian official public bodies or official municipal/operator sources; third-party aggregators are forbidden. Record final URLs, redirects, media types, request bodies and dates without recording credentials. Do not touch the existing developer database.
+Use a disposable temporary database/directory. Follow the then-current local `AGENTS.md`: an explicit chat-wide read-only permission may cover navigation in that chat, while downloads, POST captures, forms, uploads and sign-in require separate immediate confirmation. Candidate authorities must remain Slovenian official public bodies or official municipal/operator sources; a search provider may discover candidate URLs but is never authority. Record final URLs, redirects, media types, request bodies and dates without recording credentials. Do not touch the existing developer database.
 
 - [ ] **Step 3: Capture bounded reproducible fixtures**
 
-For each proven catalog/criterion source, preserve the smallest response needed by the validator under `tests/sources/fixtures/slovenia-city/`, record SHA-256 and capture date in the field map, and exclude unrelated personal/raw data. Each of the four criteria must end in either one comparable definition with boundary vectors or an explicit infeasibility result.
+For each proven catalog/criterion source, preserve the smallest response needed by the validator under `tests/sources/fixtures/slovenia-city/`, record SHA-256 and capture date in the field map, and exclude unrelated personal/raw data. Safety requires a fresh exact-municipality positive projection for a catalog member, a broad/multi-municipality rejection projection, a same-year SURS municipality denominator and search/trust vectors; raw municipal PDF/HTML bytes stay outside the repository. Each criterion ends in one closed source contract whose per-city result is `verified | unknown`, or an explicit infeasibility result.
 
 - [ ] **Step 4: Apply the package installation gate**
 
@@ -127,7 +129,7 @@ official registry/universe + population rule
 = one closed four-fact package
 ```
 
-If any term is missing or non-comparable, stop the entire implementation with `NEEDS_CONTEXT`; commit the honest unavailable field map only. Do not proceed with a partial package, placeholder URL, generic crawler or fixture-backed production success.
+An incomplete manifest, trust policy, definition or validator keeps that criterion unavailable. Safety may advance from `candidate_available_with_partial_official_coverage` to `available_with_partial_official_coverage` even when some cities resolve to evidenced unknown. This does not install the country package: transit or broadband failure keeps the whole package `unavailable / NEEDS_CONTEXT` and blocks package installation, live Start and source-verified claims. Pure Catalog/Criteria/Ranker and the separate safety component plan may proceed against synthetic/domain fixtures; do not claim integrated VS-4A success, add a placeholder URL, build a universal crawler or use fixtures as production facts.
 
 - [ ] **Step 5: Verify and commit the feasibility result**
 
@@ -274,13 +276,36 @@ git commit -m "feat: define city catalog policy"
 **Requirements:** REQ-CF-02; SCN-CF-02
 
 **Files:**
+- Create: `src/decision/city-safety.ts`
 - Create: `src/decision/city-criterion-evaluator.ts`
 - Create: `src/decision/city-criteria.ts`
+- Create: `tests/domain/city-safety.test.ts`
 - Create: `tests/domain/city-criteria.test.ts`
 
 **Interfaces:**
 
 ```ts
+export type CanonicalUnsignedInteger = string;
+
+export interface CitySafetyQuantity {
+  readonly offenceCount: CanonicalUnsignedInteger;
+  readonly population: CanonicalUnsignedInteger;
+  readonly rateBasis: "offences_per_100000_residents";
+}
+
+export type CitySafetyPeriodDisposition = "preferred" | "fallback" | "stale";
+
+export function classifyCitySafetyPeriod(input: {
+  readonly assessmentAt: string;
+  readonly referenceYear: number;
+}): CitySafetyPeriodDisposition;
+
+export function compareCitySafetyToTarget(input: {
+  readonly quantity: CitySafetyQuantity;
+  readonly target: string;
+  readonly direction: "at_most";
+}): "matches" | "does_not_match";
+
 export const CITY_CRITERION_IDS = [
   "safety", "long_term_rent", "urban_transit", "fixed_broadband",
 ] as const;
@@ -326,6 +351,10 @@ export type CityUnknownReason =
   | "not_found" | "stale" | "conflict" | "not_comparable" | "source_unavailable";
 export type CityRankingUnknownReason = CityUnknownReason | "no_knowledge_revision";
 
+export type CityVerifiedFactBasis =
+  | { readonly kind: "canonical_scalar"; readonly value: string }
+  | { readonly kind: "municipal_safety"; readonly quantity: CitySafetyQuantity };
+
 export interface CityCriteriaSnapshot {
   readonly schemaVersion: "city-criteria@1";
   readonly id: string;
@@ -349,7 +378,7 @@ export interface CityRankingFactInput {
   readonly unit: string;
   readonly denominator: string;
   readonly outcome:
-    | { readonly kind: "verified"; readonly value: string }
+    | { readonly kind: "verified"; readonly basis: CityVerifiedFactBasis }
     | { readonly kind: "unknown"; readonly reason: CityUnknownReason };
 }
 
@@ -390,31 +419,35 @@ export function reconstructCityCriteria(
 
 - [ ] **Step 1: Write RED for the closed snapshot**
 
-Test exactly four unique IDs in fixed order, required/weighted parity, importance boundaries, definition ownership, canonical targets, unsupported definition/unit/domain, stable ID under draft permutation, exact reconstruction and extra-field rejection. Add exact relocation/profile-preference-to-default mapping vectors for all four criteria; country-only preferences may influence documented matching city defaults but must never invent missing rent/transit/broadband targets.
+Test exactly four unique IDs in fixed order, required/weighted parity, importance boundaries, definition ownership, canonical targets, unsupported definition/unit/domain, stable ID under draft permutation, exact reconstruction and extra-field rejection. Add exact relocation/profile-preference-to-default mapping vectors for all four criteria; country-only preferences may influence documented matching city defaults but must never invent missing rent/transit/broadband targets. In `city-safety.test.ts`, reject signed/leading-zero/decimal/exponent/unsafe numeric inputs and zero population; accept explicit zero offences; cover exact target below/equal/above and June 30/July 1 `Y-1/Y-2` boundaries.
 
 - [ ] **Step 2: Run RED**
 
 ```bash
-./node_modules/.bin/vitest run tests/domain/city-criteria.test.ts
+./node_modules/.bin/vitest run tests/domain/city-safety.test.ts \
+  tests/domain/city-criteria.test.ts
 ```
 
 - [ ] **Step 3: Implement the registry and snapshot**
 
-Keep normalizers in definition-specific evaluator objects. `city-criteria.ts` owns the pure versioned `deriveCityCriteriaDraft` mapping and validates/counts/orders, but contains no universal distance curve. Package defaults provide every numeric target that the profile cannot derive. Sealing IDs uses injected `CityDecisionIntegrity`; browser semantic reconstruction never hashes and Decision imports no crypto adapter. Use canonical Decimal strings and exact canonical instants.
+Use canonical-instant validation and browser-safe `BigInt` only after closed string validation. Canonical integers match `/^(0|[1-9][0-9]*)$/`; population is positive. Convert the target Decimal to integer coefficient/scale and compare cross-products without division or rounding. Keep source URLs, Evidence and search concepts out of Decision. Keep other normalizers in definition-specific evaluator objects. `city-criteria.ts` owns the pure versioned `deriveCityCriteriaDraft` mapping and validates/counts/orders, but contains no universal distance curve. Package defaults provide every numeric target that the profile cannot derive. Sealing IDs uses injected `CityDecisionIntegrity`; browser semantic reconstruction never hashes and Decision imports no crypto adapter. Use canonical Decimal strings and exact canonical instants. The safety definition is exactly `si-municipal-police-offences-per-100000@1`, direction `at_most`, municipality scope, unit `offences_per_100000_residents` and freshness `municipal-annual-july-boundary@1`; its evaluator imports `city-safety.ts` and compares integer cross-products.
 
 - [ ] **Step 4: Add evaluator boundary vectors**
 
-For both directions verify below/boundary/above target, factor `[0,1]`, saturation at `1`, monotonic approach and freshness boundary. Use synthetic evaluator fixtures here; official Slovenia vectors belong to the installed-package task.
+For both directions verify below/boundary/above target, factor `[0,1]`, saturation at `1`, monotonic approach and freshness boundary. Safety additionally covers June 30/July 1, preferred `Y-1`, held January–June `Y-2`, July stale, zero numerator, missing/zero denominator and a display-rounded rate that cannot change comparison. Use synthetic evaluator fixtures here; official Slovenia vectors belong to the installed-package task.
 
 - [ ] **Step 5: Run GREEN and commit**
 
 ```bash
-./node_modules/.bin/vitest run tests/domain/city-criteria.test.ts
+./node_modules/.bin/vitest run tests/domain/city-safety.test.ts \
+  tests/domain/city-criteria.test.ts
 ./node_modules/.bin/tsc --noEmit
-./node_modules/.bin/eslint src/decision/city-criterion-evaluator.ts \
-  src/decision/city-criteria.ts tests/domain/city-criteria.test.ts
+./node_modules/.bin/eslint src/decision/city-safety.ts \
+  src/decision/city-criterion-evaluator.ts src/decision/city-criteria.ts \
+  tests/domain/city-safety.test.ts tests/domain/city-criteria.test.ts
 git diff --check
-git add src/decision/city-criterion-evaluator.ts src/decision/city-criteria.ts \
+git add src/decision/city-safety.ts src/decision/city-criterion-evaluator.ts \
+  src/decision/city-criteria.ts tests/domain/city-safety.test.ts \
   tests/domain/city-criteria.test.ts
 git commit -m "feat: define city criteria"
 ```
@@ -448,7 +481,7 @@ export interface CityRequiredMismatch {
   readonly criterionId: CityCriterionId;
   readonly definitionId: string;
   readonly target: string;
-  readonly verifiedValue: string;
+  readonly verifiedBasis: CityVerifiedFactBasis;
   readonly evaluatorVersion: string;
 }
 
@@ -506,7 +539,7 @@ score    = sum(importance * factor) / sum(importance)
 coverage = sum(importance where verified) / sum(importance)
 ```
 
-Cover unknown `0` with full denominator, required match contribution, required verified mismatch exclusion, required unknown retention, weighted mismatch retention, all four factors for excluded cities, and null Knowledge as four ranking-only `no_knowledge_revision` factors. Assert that this reason is rejected by live City Evidence/Knowledge decoders.
+Cover unknown `0` with full denominator, required match contribution, required verified mismatch exclusion, required unknown retention, weighted mismatch retention, all four factors for excluded cities, and null Knowledge as four ranking-only `no_knowledge_revision` factors. Assert that this reason is rejected by live City Evidence/Knowledge decoders. For safety, mutate the formatted display rate while holding the exact integer basis and prove required mismatch/factor/order are unchanged; mutate the integer basis and prove reconstruction fails or the outcome changes deterministically.
 
 - [ ] **Step 2: Run RED**
 
