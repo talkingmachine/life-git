@@ -10,9 +10,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | `review` |
+| Status | `approved` |
 | Owner | project user |
 | Date | 2026-08-14 |
+| Approval | project user / 2026-08-14 / exact plan commit `bb608b5` / approved |
 | Approved design | [`2026-08-14-vs-4a-safety-source-discovery-design.md`](../specs/2026-08-14-vs-4a-safety-source-discovery-design.md) |
 | Depends on | completed VS-4A Foundations Tasks 1–5; production package installation remains blocked until transit and broadband gates pass |
 | Supersedes | safety-specific fixed-route/provider-free/candidate-fatal and green-with-amber steps in the 2026-08-13 VS-4A plans |
