@@ -2,21 +2,22 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `review` — разговорный дизайн одобрен 2026-08-14; exact written text ожидает проверки пользователя |
+| Статус | `approved` — разговорный дизайн и exact written text одобрены пользователем 2026-08-14 |
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-14 |
 | Область | только municipal safety source discovery, Evidence, unknown semantics и city-marker projection внутри `VS-4A` |
 | Зависимости | [VS-4A City Frontier baseline](./2026-08-13-vs-4a-city-frontier-design.md), exact City Catalog Revision, City Evidence pipeline, SURS municipality population |
-| После written approval | точечно supersedes baseline provider-free dependency для узкого search port, invariant 12, safety-subflow `REQ-CF-04`, unknown projection `REQ-CF-06`, `SCN-CF-04` и non-goal city-yellow marker |
+| Written approval | пользователь явно подтвердил exact редакцию 2026-08-14 |
+| Canonical effect | точечно supersedes baseline provider-free dependency для узкого search port, invariant 12, safety-subflow `REQ-CF-04`, unknown projection `REQ-CF-06`, `SCN-CF-04` и non-goal city-yellow marker |
 | Не изменяет | catalog membership, four-fact atomic Knowledge, frozen ranking, required-mismatch exclusion, stop-at-three, selection branching или country status |
 | Split review | документ короче 250 строк и имеет одну ответственность |
 
-Этот supplement заменяет только ранее согласованный single-route safety plan. Другие три критерия
-не получают внешний поиск автоматически. До written approval действующим остаётся baseline
-2026-08-13; после approval implementation plan обязан применять оба документа с указанным
-supersession. Runtime LLM остаётся запрещён, но safety получает узкий внешний web-search port.
+Этот approved supplement заменяет только ранее согласованный single-route safety plan. Другие три
+критерия не получают внешний поиск автоматически. Implementation plan обязан применять baseline
+2026-08-13 вместе с указанным supersession. Runtime LLM остаётся запрещён, но safety получает узкий
+внешний web-search port.
 
-После approval существующие `2026-08-13-vs-4a-city-frontier*.md` implementation plans считаются
+Существующие `2026-08-13-vs-4a-city-frontier*.md` implementation plans считаются
 stale в частях provider-free safety, fixed-URL/no-discovery, candidate-failure и green-with-amber
 projection. Перед исполнением их необходимо amend/regenerate; противоречащие tasks запускать нельзя.
 
@@ -226,8 +227,9 @@ manifest или непроверяемая trust policy недопустимы.
 runtime LLM, background search workers, изменение country color, rerank текущего run и перенос
 старого safety value.
 
-## 9. Written approval gate
+## 9. Следующий gate
 
-После exact user approval этот supplement становится `approved`, а перечисленные safety/marker
-правила baseline 2026-08-13 считаются superseded. До этого разрешены только правки документации;
-production code, schema, test scaffolding и source installation остаются запрещены.
+Перечисленные safety/marker правила baseline 2026-08-13 superseded этой approved редакцией.
+Следующая допустимая операция — amend/regenerate detailed implementation plan через
+`writing-plans`. До approval обновлённого плана production code, schema, test scaffolding и source
+installation остаются запрещены.
