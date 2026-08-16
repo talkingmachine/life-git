@@ -57,6 +57,7 @@ type Mutable<T> = T extends readonly (infer Item)[]
 function buildContext(
   retentionMode: "seal_raw_artifact" | "seal_hash_locator_then_delete_transient" =
   "seal_raw_artifact",
+  sursAllowedMediaTypes: readonly string[] = ["application/pdf"],
 ): FixtureContext {
   const registry = buildCityRegistryRevision({
     packageId: "si-cities",
@@ -94,13 +95,14 @@ function buildContext(
     publisherId: string,
     authorityKind: "police" | "government" | "open_data" | "statistics" | "municipality",
     navigationUrl: string,
+    allowedMediaTypes: readonly string[] = ["application/pdf"],
   ) => ({
     publisherId,
     authorityKind,
     navigationUrl,
     allowedHosts: [new URL(navigationUrl).hostname],
     delegatedDocumentHosts: [],
-    allowedMediaTypes: ["application/pdf"],
+    allowedMediaTypes,
     maxBytes: 1_000_000,
     redirectPolicyVersion: "official-chain@1" as const,
     documentLocatorPolicyId: `${publisherId}-locator@1`,
@@ -117,7 +119,7 @@ function buildContext(
       policy("police", "police", "https://policija.si/"),
       policy("gov", "government", "https://gov.si/"),
       policy("opsi", "open_data", "https://podatki.gov.si/"),
-      policy("surs", "statistics", "https://pxweb.stat.si/"),
+      policy("surs", "statistics", "https://pxweb.stat.si/", sursAllowedMediaTypes),
     ],
     municipalities: [{
       cityId: "ljubljana",
@@ -675,6 +677,57 @@ describe("city-safety trusted trace, artifacts and denominator", () => {
     expect(reconstructCitySafetyAttemptLedger(ledger, fixture.reconstruction)).toEqual(ledger);
   });
 
+  test("accepts raw SURS JSON independently of the municipal PDF media type", () => {
+    // Break caught: replay incorrectly couples denominator media to the municipal document media.
+    const fixture = buildContext("seal_raw_artifact", ["application/json"]);
+    const ledger = mutableClone(preferredLedger(fixture));
+    const candidate = ledger.candidates[0];
+    if (candidate?.disposition !== "usable") throw new Error("expected usable fixture");
+    candidate.denominator.mediaType = "application/json";
+
+    expect(reconstructCitySafetyAttemptLedger(ledger, fixture.reconstruction)).toEqual(ledger);
+  });
+
+  test("rejects an untrusted host relabeled as a publisher-allowed hop-limit target", () => {
+    // Break caught: changing only an allowed hop-limit target to an external host remains trusted.
+    const fixture = buildContext();
+    const valid = mutableClone(baselineLedger(fixture));
+    const candidate = valid.candidates[0];
+    if (candidate?.disposition !== "rejected") throw new Error("expected rejected fixture");
+    candidate.reason = "untrusted_redirect";
+    candidate.officialTrace = {
+      initialUrl: "https://ljubljana.si/safety",
+      edges: [{
+        kind: "http_redirect",
+        fromUrl: "https://ljubljana.si/safety",
+        toUrl: "https://ljubljana.si/redirect-one",
+      }, {
+        kind: "http_redirect",
+        fromUrl: "https://ljubljana.si/redirect-one",
+        toUrl: "https://ljubljana.si/redirect-two",
+      }],
+      lastTrustedUrl: "https://ljubljana.si/redirect-two",
+      officialHops: 2,
+      failure: {
+        captureKind: "navigation_mismatch",
+        rejectedTarget: { kind: "hop_limit", url: "https://ljubljana.si/redirect-three" },
+      },
+    };
+    valid.counters = { ...valid.counters, maxOfficialHops: 2 };
+    expect(reconstructCitySafetyAttemptLedger(valid, fixture.reconstruction)).toEqual(valid);
+
+    const relabeled = mutableClone(valid);
+    const relabeledCandidate = relabeled.candidates[0];
+    if (relabeledCandidate?.disposition !== "rejected" ||
+      relabeledCandidate.officialTrace.failure?.rejectedTarget?.kind !== "hop_limit") {
+      throw new Error("expected hop-limit fixture");
+    }
+    relabeledCandidate.officialTrace.failure.rejectedTarget.url =
+      "https://untrusted.example/redirect-three";
+    expect(() => reconstructCitySafetyAttemptLedger(relabeled, fixture.reconstruction))
+      .toThrow("integrity_mismatch");
+  });
+
   test.each([
     ["candidate extra field", (candidate: Record<string, unknown>) => { candidate.userCopy = "forbidden"; }],
     ["trace hop count", (candidate: Record<string, unknown>) => {
@@ -819,6 +872,14 @@ describe("city-safety lineage, projection and immutability", () => {
     const externalLedger = trustedExternalAuthorityLedger(external);
     expect(reconstructCitySafetyAttemptLedger(externalLedger, external.reconstruction))
       .toEqual(externalLedger);
+    const emptyAuthority = mutableClone(externalLedger);
+    const rejected = emptyAuthority.candidates[0];
+    if (rejected?.disposition !== "rejected" || rejected.reviewedOfficial === undefined) {
+      throw new Error("expected reviewed fixture");
+    }
+    rejected.reviewedOfficial.dataAuthorityId = "";
+    expect(() => reconstructCitySafetyAttemptLedger(emptyAuthority, external.reconstruction))
+      .toThrow("integrity_mismatch");
   });
 
   test("rejects an extra field in caller-verified previous lineage", () => {
@@ -859,6 +920,19 @@ describe("city-safety lineage, projection and immutability", () => {
       .toThrow("integrity_mismatch");
   });
 
+  test("accepts a raw SURS JSON denominator in an internal conflict", () => {
+    // Break caught: rejected conflict replay couples raw SURS media to the municipal PDF.
+    const fixture = buildContext("seal_raw_artifact", ["application/json"]);
+    const ledger = mutableClone(internalConflictLedger(fixture));
+    const candidate = ledger.candidates[0];
+    if (candidate?.disposition !== "rejected" || candidate.conflictBasis === undefined) {
+      throw new Error("expected conflict fixture");
+    }
+    candidate.conflictBasis.denominator.mediaType = "application/json";
+
+    expect(reconstructCitySafetyAttemptLedger(ledger, fixture.reconstruction)).toEqual(ledger);
+  });
+
   test("rejects conflicting global reuse of one SURS artifact identity", () => {
     // Break caught: one denominator artifact ID means different hashes in two candidate attempts.
     const fixture = buildContext();
@@ -869,6 +943,26 @@ describe("city-safety lineage, projection and immutability", () => {
     if (denominator === undefined) throw new Error("expected denominator fixture");
     denominator.artifactSha256 = SHA_A;
     denominator.sourceSha256 = SHA_A;
+
+    expect(() => reconstructCitySafetyAttemptLedger(ledger, fixture.reconstruction))
+      .toThrow("integrity_mismatch");
+  });
+
+  test("rejects divergent global reuse of a municipal artifact identity", () => {
+    // Break caught: one municipal artifact ID is rebound to another locator across attempts.
+    const fixture = buildContext();
+    const ledger = mutableClone(fallbackLedger(fixture));
+    const first = ledger.candidates[0];
+    const second = ledger.candidates[1];
+    if (first?.disposition !== "usable" || second?.disposition !== "usable") {
+      throw new Error("expected usable fixtures");
+    }
+    const firstMunicipal = first.artifactRefs.find((ref) => ref.role === "municipal_source");
+    const secondMunicipal = second.artifactRefs.find((ref) => ref.role === "municipal_source");
+    if (firstMunicipal === undefined || secondMunicipal === undefined) {
+      throw new Error("expected municipal fixtures");
+    }
+    secondMunicipal.artifactId = firstMunicipal.artifactId;
 
     expect(() => reconstructCitySafetyAttemptLedger(ledger, fixture.reconstruction))
       .toThrow("integrity_mismatch");
@@ -991,7 +1085,7 @@ describe("city-safety real S2 producer compatibility", () => {
     const fallbackProduced = await runCitySafetyDiscovery(discoveryInput(fallback), {
       officialDocuments: { inspect: async (candidate) => usableInspection(candidate, 2024) },
       search: {
-        search: async () => ({ kind: "completed", providerId: "provider-a", urls: [] }),
+        search: async () => ({ kind: "completed", providerId: "provider / deployment", urls: [] }),
       },
       clock: () => new Date("2026-03-01T12:00:00.000Z"),
     });
@@ -1052,5 +1146,71 @@ describe("city-safety real S2 producer compatibility", () => {
     });
     expect(reconstructCitySafetyAttemptLedger(untrustedProduced.ledger, untrusted.reconstruction))
       .toEqual(untrustedProduced.ledger);
+  });
+
+  test("reconstructs a non-identifier reviewed authority emitted by S2", async () => {
+    // Break caught: Research rejects a non-empty external authority identity accepted by S2.
+    const fixture = buildContext();
+    const produced = await runCitySafetyDiscovery(discoveryInput(fixture), {
+      officialDocuments: {
+        inspect: async (candidate) => ({
+          kind: "rejected",
+          detail: {
+            officialTrace: {
+              initialUrl: candidate.candidateUrl,
+              edges: [],
+              lastTrustedUrl: candidate.candidateUrl,
+              officialHops: 0,
+              failure: { captureKind: "navigation_mismatch" },
+            },
+            reviewedOfficial: {
+              publisherId: "municipality-ljubljana",
+              dataAuthorityId: "external / authority",
+              publisherNavigationUrl: "https://ljubljana.si/safety",
+              resolvedEvidenceUrl: candidate.candidateUrl,
+              referenceYear: 2025,
+            },
+            artifactRefs: [],
+            disposition: "rejected",
+            reason: "authority_untrusted",
+          },
+          artifacts: [],
+        }),
+      },
+      search: { search: async () => ({ kind: "completed", providerId: "provider-a", urls: [] }) },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(reconstructCitySafetyAttemptLedger(produced.ledger, fixture.reconstruction))
+      .toEqual(produced.ledger);
+  });
+
+  test("canonicalizes noncanonical previous URLs accepted and emitted canonically by S2", async () => {
+    // Break caught: Research requires caller context URLs to already match S2's canonical ledger URLs.
+    const fixture = buildContext();
+    const previousAccepted = {
+      cityId: "ljubljana",
+      municipalityCode: "061",
+      sourcePlanId: "city-safety-source-plan:older",
+      definitionId: "si-municipal-police-offences-per-100000@1" as const,
+      publisherId: "police",
+      navigationUrl: "https://POLICIJA.SI:443/#official",
+      resolvedEvidenceUrl: "https://POLICIJA.SI:443/previous.pdf#claim",
+      referenceYear: 2025,
+      evidenceSnapshotId: "city-evidence:older",
+    };
+    const produced = await runCitySafetyDiscovery({
+      ...discoveryInput(fixture),
+      previousAccepted,
+    }, {
+      officialDocuments: { inspect: async (candidate) => usableInspection(candidate, 2025) },
+      search: { search: async () => { throw new Error("preferred must suppress search"); } },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(reconstructCitySafetyAttemptLedger(produced.ledger, {
+      ...fixture.reconstruction,
+      previousAccepted,
+    })).toEqual(produced.ledger);
   });
 });

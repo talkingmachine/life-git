@@ -401,7 +401,8 @@ function decodeQuery(
     "index", "queryId", "queryTemplateVersion", "providerId", "query", "searchedAt", "outcome",
   ]) || value.index !== index || value.queryId !== `city-safety-query:${runId}:${index + 1}` ||
     value.queryTemplateVersion !== "slovenia-municipal-safety-query@1" ||
-    !identifier(value.providerId) || value.query !== expectedQuery || !canonicalInstant(value.searchedAt) ||
+    typeof value.providerId !== "string" || value.providerId.length === 0 ||
+    value.query !== expectedQuery || !canonicalInstant(value.searchedAt) ||
     !record(value.outcome)) mismatch();
   let outcome: CitySafetyQueryAttempt["outcome"];
   if (value.outcome.kind === "completed" && exactKeys(value.outcome, ["kind", "returnedUrls"]) &&
@@ -466,8 +467,8 @@ function decodePreviousAccepted(
     typeof value.evidenceSnapshotId !== "string" || value.evidenceSnapshotId.length === 0 ||
     !Number.isSafeInteger(value.referenceYear)) mismatch();
   const publisher = publisherById(directory, value.publisherId);
-  const navigationUrl = canonicalLedgerUrl(value.navigationUrl);
-  const resolvedEvidenceUrl = canonicalLedgerUrl(value.resolvedEvidenceUrl);
+  const navigationUrl = canonicalizeCitySafetyCandidateUrl(value.navigationUrl as string);
+  const resolvedEvidenceUrl = canonicalizeCitySafetyCandidateUrl(value.resolvedEvidenceUrl as string);
   if (!urlAllowed(navigationUrl, publisher) || !urlAllowed(resolvedEvidenceUrl, publisher)) mismatch();
   return {
     cityId,
@@ -486,6 +487,8 @@ function urlAllowed(value: string, publisher: OfficialPublisherPolicy): boolean 
   const host = new URL(value).hostname;
   return publisher.allowedHosts.includes(host) || publisher.delegatedDocumentHosts.includes(host);
 }
+
+const denominatorMediaAllowed = (mediaType: string, publisher: OfficialPublisherPolicy): boolean => publisher.retentionMode === "seal_raw_artifact" ? publisher.allowedMediaTypes.includes(mediaType) : mediaType === "application/json";
 
 function canonicalLedgerUrl(value: unknown): string {
   if (typeof value !== "string") mismatch();
@@ -563,6 +566,8 @@ function decodeTrace(
   if (failure?.responseUrl !== undefined && failure.responseUrl !== lastTrustedUrl ||
     failure?.rejectedTarget?.kind === "redirect_loop" && !visited.has(failure.rejectedTarget.url) ||
     failure?.rejectedTarget?.kind === "hop_limit" && edges.length !== 2 ||
+    failure?.rejectedTarget?.kind === "hop_limit" && publisher !== undefined &&
+      !urlAllowed(failure.rejectedTarget.url, publisher) ||
     failure?.rejectedTarget?.kind === "untrusted_target" && publisher !== undefined &&
       urlAllowed(failure.rejectedTarget.url, publisher)) mismatch();
   return {
@@ -659,14 +664,13 @@ function validateArtifactOrder(
   if (expected.some((ref, index) => ref !== refs[index])) mismatch();
 }
 
-function decodeReviewedOfficial(
-  value: unknown,
-): NonNullable<CitySafetyRejectedCandidateAttempt["reviewedOfficial"]> {
+function decodeReviewedOfficial(value: unknown): NonNullable<CitySafetyRejectedCandidateAttempt["reviewedOfficial"]> {
   if (!record(value)) mismatch();
   const keys = ["publisherId", "dataAuthorityId", "publisherNavigationUrl"];
   if (value.resolvedEvidenceUrl !== undefined) keys.push("resolvedEvidenceUrl");
   if (value.referenceYear !== undefined) keys.push("referenceYear");
-  if (!exactKeys(value, keys) || !identifier(value.publisherId) || !identifier(value.dataAuthorityId) ||
+  if (!exactKeys(value, keys) || !identifier(value.publisherId) ||
+    typeof value.dataAuthorityId !== "string" || value.dataAuthorityId.length === 0 ||
     value.referenceYear !== undefined && !Number.isSafeInteger(value.referenceYear)) mismatch();
   return {
     publisherId: value.publisherId,
@@ -765,9 +769,8 @@ function decodeCandidateEnvelope(
       denominator.population !== quantity.population || denominator.retentionPolicyId !==
         denominatorPublisher.retentionPolicyId || denominator.transientRawDeleted !==
         (denominatorPublisher.retentionMode === "seal_hash_locator_then_delete_transient") ||
-      denominator.mediaType !== (denominatorPublisher.retentionMode === "seal_raw_artifact"
-        ? value.mediaType
-        : "application/json") || !refs.some((ref) => ref.role === "surs_denominator" &&
+      !denominatorMediaAllowed(denominator.mediaType, denominatorPublisher) ||
+      !refs.some((ref) => ref.role === "surs_denominator" &&
           ref.artifactId === denominator.artifactId)) mismatch();
     validateArtifactOrder(refs, trace, true, true);
     return {
@@ -858,9 +861,7 @@ function decodeCandidateEnvelope(
       conflictBasis.denominator.retentionPolicyId !== denominatorPublisher.retentionPolicyId ||
       conflictBasis.denominator.transientRawDeleted !==
         (denominatorPublisher.retentionMode === "seal_hash_locator_then_delete_transient") ||
-      conflictBasis.denominator.mediaType !== (denominatorPublisher.retentionMode === "seal_raw_artifact"
-        ? value.mediaType
-        : "application/json") ||
+      !denominatorMediaAllowed(conflictBasis.denominator.mediaType, denominatorPublisher) ||
       !refs.some((ref) => ref.role === "surs_denominator" &&
         ref.artifactId === conflictBasis.denominator.artifactId))) mismatch();
   validateArtifactOrder(refs, trace, semantic, rejectionNeedsDenominator(reason));
@@ -1021,14 +1022,13 @@ export function reconstructCitySafetyAttemptLedger(
       }
     }
     if (candidates.length !== value.candidates.length) mismatch();
-    const reusedDenominators = new Map<string, string>();
+    const reusedArtifacts = new Map<string, string>();
     for (const candidate of candidates) {
       for (const ref of candidate.artifactRefs) {
-        if (ref.role !== "surs_denominator") continue;
-        const closed = JSON.stringify(ref);
-        const existing = reusedDenominators.get(ref.artifactId);
+        const closed = JSON.stringify([ref.role, ref.artifactSha256, ref.sourceSha256, ref.locator]);
+        const existing = reusedArtifacts.get(ref.artifactId);
         if (existing !== undefined && existing !== closed) mismatch();
-        reusedDenominators.set(ref.artifactId, closed);
+        reusedArtifacts.set(ref.artifactId, closed);
       }
     }
     const exhausted = candidates.length === 10 || queries.length === 3 &&
