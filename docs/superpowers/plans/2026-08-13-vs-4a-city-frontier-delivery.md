@@ -253,7 +253,7 @@ Record exact counts, duration, HEAD and timestamp. If any gate fails, stop evide
 
 - [ ] **Step 2: Run the canonical two-presentation replay proof**
 
-On an isolated copy/backup of a real completed test DB, replace every official source/request-step/safety-search port with counted throwing spies. Call `presentCityFrontier(runId)` twice and compare canonical read models including catalog/criteria/ranking, marker prefix, terminal entries, four-fact Knowledge IDs/Evidence IDs, full safety attempt ledger, accepted/reviewed URLs and reasons, pre-city parent and selections/branches. Snapshot full immutable rows from all eight new tables plus relevant generic Evidence rows before/after; assert byte equality and zero official/search calls.
+On an isolated copy/backup of a real completed test DB, replace every official source/request-step/safety-search port with counted throwing spies. Call `presentCityFrontier(runId)` twice and compare canonical read models including catalog/criteria/ranking, marker prefix, terminal entries, four-fact Knowledge IDs/Evidence IDs, projected accepted/reviewed URLs and reasons, pre-city parent and selections/branches. Separately load or replay the verified City Evidence bundle and canonical-compare its full safety attempt ledger. Snapshot full immutable rows from all eight new tables plus relevant generic Evidence rows before/after; assert byte equality and zero official/search calls.
 
 - [ ] **Step 3: Verify City selection and sibling branch SQL**
 

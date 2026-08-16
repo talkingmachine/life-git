@@ -635,26 +635,45 @@ git commit -m "feat: discover official safety sources"
 **Reconstruction API for the shared Task S2 values:**
 
 ```ts
+export interface CitySafetyLedgerReconstructionContext {
+  readonly runId: string;
+  readonly catalog: CityCatalogRevision; // caller-verified capability
+  readonly integrity: CityDecisionIntegrity;
+  readonly sourcePlan: CitySafetySourcePlan;
+  readonly authorityDirectory: OfficialAuthorityDirectory;
+  readonly previousAccepted?: CitySafetyPreviousAcceptedReference; // caller-verified lineage
+}
+
+export type CitySafetyEvidenceLink =
+  | {
+      readonly disposition: "accepted";
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl: string;
+      readonly referenceYear: number;
+    }
+  | {
+      readonly disposition: "reviewed_rejected";
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl?: string;
+      readonly referenceYear?: number;
+      readonly rejectionReason: CitySafetyCandidateRejectionReason;
+    };
+
 export function reconstructCitySafetyAttemptLedger(
   value: unknown,
-  context: {
-    readonly catalog: CityCatalogRevision;
-    readonly integrity: CityDecisionIntegrity;
-    readonly sourcePlan: CitySafetySourcePlan;
-    readonly authorityDirectory: OfficialAuthorityDirectory;
-    readonly previousAccepted?: CitySafetyPreviousAcceptedReference;
-  },
+  context: CitySafetyLedgerReconstructionContext,
 ): CitySafetyAttemptLedger;
 export function projectCitySafetyEvidenceLinks(
-  ledger: CitySafetyAttemptLedger,
+  value: unknown,
+  context: CitySafetyLedgerReconstructionContext,
 ): readonly CitySafetyEvidenceLink[];
 ```
 
-Candidate attempts bind a closed origin: previous binds exact prior source-plan/Evidence IDs and verified publisher context (which may differ from the current plan), configured binds its exact route index, and search binds its exact query ID. They also bind canonical/publisher/navigation/resolved URLs, the combined typed official chain and capture failure, Police data authority, media/retention decisions, role-qualified municipal and SURS artifact hashes/locators, exact denominator municipality/date/population/retention disposition, reference year, preferred/fallback disposition and exact rejection. Query attempts are regenerated through reconstructed Catalog/directory/plan plus `buildCitySafetyQueries`, then bind query/template/provider IDs, Evidence-clock `searchedAt` and either ordered returned URLs (including repeats) or typed provider/unconfigured availability. Search text is retained only as the deterministic public query; snippets are forbidden.
+Candidate attempts bind a closed origin: previous binds exact prior source-plan/Evidence IDs and caller-verified publisher context (which may differ from the current plan), configured binds its exact route index, and search binds its exact query ID regenerated from a `context.runId` that passes the S2 identifier regex `^[a-zA-Z0-9][a-zA-Z0-9._:-]*$`. They also bind canonical/publisher/navigation/resolved URLs, the combined typed official chain and capture failure, Police data authority where required, media/retention decisions, role-qualified municipal and SURS artifact hashes/locators, exact denominator municipality/date/population/retention disposition where present, reference year, preferred/fallback disposition and exact rejection. Query attempts regenerate query text through the S1-reconstructed directory/source plan and the caller-verified Catalog ID plus ordered member context, then bind query/template IDs, a closed non-empty provider ID, Evidence-clock `searchedAt` and either ordered returned URLs (including repeats) or typed provider/unconfigured availability. Provider identity is retained audit data protected by the later signed Evidence overlay; S3 does not pretend to derive it from the source plan. Search text is retained only as the deterministic public query; snippets are forbidden.
 
 - [ ] **Step 1: Write strict ledger RED**
 
-Reject extra/missing fields, out-of-order indices, duplicate canonical candidate attempts, over-budget counters, altered Catalog/integrity/query reconstruction, combined-hop under/over-reporting, broken/noncontiguous/retyped official edges, missing/extra capture failure or rejected target metadata, completed-empty rewritten as unavailable (and vice versa), a search-origin candidate with a missing/late/wrong query ID or URL absent from that exact query result, a configured candidate with a missing/wrong route index, publisher context or URL absent from that exact bound route, a previous candidate with missing/altered prior source-plan/Evidence/publisher IDs or no canonically equal verified `previousAccepted` context, cross-catalog/directory/current-source-plan/city/municipality/definition binding, dangling publisher/data-authority IDs, fallback selected before budget exhaustion, unknown with an eligible selected result, preferred result skipped for fallback, incompatible same-year usable fallbacks not producing conflict, compatible fallbacks producing false conflict, missing/extra/reordered/altered conflict basis or Police authority, missing/duplicate/reordered/document-role-swapped/class-incompatible artifact references or retained navigation/inspection outcomes, altered SURS publisher/municipality/date/population/hash/locator/media/retention/deletion disposition, altered assessment time/URL/authority/media/retention/result/reason and any profile/user-data field.
+Reject extra/missing fields and sparse arrays, out-of-order indices, duplicate canonical candidate attempts, over-budget counters, a malformed context `runId`, wrong run-derived query IDs, altered caller-verified Catalog ID/member order, directory/source-plan/query reconstruction, combined-hop under/over-reporting, broken/noncontiguous/retyped official edges, impossible capture-failure/rejected-target shapes, completed-empty rewritten as unavailable (and vice versa), a search-origin candidate with a missing/late/wrong query ID or URL absent from that exact earlier query result, a configured candidate with a missing/wrong route index, publisher context or URL absent from that exact bound route, a previous candidate with missing/altered prior source-plan/Evidence/publisher IDs or no canonically equal caller-verified `previousAccepted` context, cross-catalog/directory/current-source-plan/city/municipality/definition binding, dangling publisher IDs, non-Police authority on usable/conflict attempts, fallback selected before budget exhaustion, unknown with an eligible selected result, preferred result skipped for fallback, incompatible same-year usable fallbacks not producing conflict, compatible fallbacks producing false conflict, missing/extra/reordered/altered conflict basis or Police authority, missing/duplicate/reordered/document-role-swapped/class-incompatible artifact references, malformed hashes/locators, altered SURS publisher/municipality/date/population/media/retention/deletion disposition where the ledger carries it, altered assessment time/URL/authority/media/retention/result/reason and any profile/user-data field. Explicitly cover both real S2 `authority_untrusted` forms: (a) untrusted initial URL has zero edges, `navigation_mismatch`, no `lastTrustedUrl`, no `reviewedOfficial` and therefore no data-authority ID; (b) a trusted captured publication that declares an external authority keeps the policy-valid trusted trace and a `reviewedOfficial` carrying that observed external `dataAuthorityId`. Reject either shape for other semantic classes. Add a closure test that reconstructs representative ledgers returned by `runCitySafetyDiscovery` unchanged.
 
 - [ ] **Step 2: Run RED**
 
@@ -664,7 +683,13 @@ Reject extra/missing fields, out-of-order indices, duplicate canonical candidate
 
 - [ ] **Step 3: Implement reconstruction and link projection**
 
-Reconstruct the exact Catalog, authority directory and source plan with the supplied integrity, regenerate query texts through `buildCitySafetyQueries`, then re-run the pure discovery invariants; do not trust mirrored counters, origins, freshness disposition, query text or publisher IDs. A previous origin requires a canonically equal verified `previousAccepted` context and exact prior source-plan/Evidence/publisher context, without requiring equality to the current source-plan ID; configured and search origins resolve through their exact route index/query ID. Every official trace must form one contiguous policy-valid chain whose redirect plus confirmed-document-link edges equal `officialHops <= 2`; capture failure metadata and rejected target are allowed only for their exact rejection class. Every usable attempt must bind `dataAuthorityId === directory.requiredPublisherIds.police`, exact current municipality scope, and one exact SURS denominator reference/artifact matching quantity/reference year and SURS retention policy. A rejected conflict attempt must contain two unequal canonical quantities for one municipality/year, the exact shared denominator, a reviewed official publisher and `dataAuthorityId === directory.requiredPublisherIds.police`; conflict basis is absent otherwise. Validate artifact-reference closed shape, role, canonical hash syntax, uniqueness and class-specific cardinality: semantic rejections from complete bytes require the exact raw/retained-inspection municipal artifact, and denominator-bearing outcomes require the matching SURS raw/retained-denominator artifact. Do not claim byte/locator verification without an Evidence manifest. Recompute compatible/incompatible same-year fallback handling directly from usable quantities: unequal same-year fallbacks plus no preferred result require terminal conflict. The selected `acceptedCandidateIndex` must reference a usable candidate whose quantity/year exactly equal the result. A January–June fallback may remain usable while search continues; it becomes selected only after query/candidate exhaustion and only when no preferred candidate exists. Project the selected official document first, then only trusted reviewed official candidates; capture-failure rejected targets are never links. When terminal conflict derives from incompatible usable fallbacks, project their official links as reviewed conflict links without mutating the ledger attempts. Never expose untrusted search-only URLs as official links. Deep-freeze all returned values.
+Treat `context.catalog` and `context.previousAccepted` as caller-verified capabilities; S3 rebinds the exact Catalog ID plus ordered members through S1 directory/source-plan reconstruction and never claims Registry-level Catalog verification. Regenerate query text through `buildCitySafetyQueries` and query IDs through `context.runId`, then re-run the pure discovery reducer; do not trust mirrored counters, origins, freshness disposition or query text. Validate provider IDs as closed non-empty audit values without claiming source-plan derivation. A previous origin requires canonical equality to the supplied prior context and exact prior source-plan/Evidence/publisher fields, without requiring equality to the current source-plan ID; configured and search origins resolve through their exact route index/query ID.
+
+Validate `context.runId` with the exact S2 identifier regex before deriving any query ID. Every trusted official trace forms one contiguous policy-valid chain whose redirect plus confirmed-document-link edges equal `officialHops <= 2`. The untrusted-initial `authority_untrusted` form has zero edges, `navigation_mismatch`, no `lastTrustedUrl` and no `reviewedOfficial`; a different trusted-publication `authority_untrusted` form may carry an observed external data-authority ID only inside `reviewedOfficial` after a policy-valid capture. No other class gets either exception. Preserve only capture-failure and rejected-target combinations actually accepted by S2 rather than inventing stricter producer rules. Every usable attempt binds `dataAuthorityId === directory.requiredPublisherIds.police`, exact current municipality scope, and one exact SURS denominator reference/artifact matching quantity/reference year and SURS retention policy. A rejected conflict attempt contains two unequal canonical quantities for one municipality/year, the exact shared denominator, a reviewed official publisher and Police data authority; conflict basis is absent otherwise.
+
+Validate artifact-reference closed shape, role, canonical hash syntax, uniqueness and class-specific cardinality. S3 validates ledger-contained denominator fields for usable/conflict attempts and may require `artifactSha256 === sourceSha256` in raw mode. It does not parse retained projections or claim that reference hashes/locators match bytes or a manifest; Knowledge Tasks 7/10 own those checks. Query indices are a continuous `0..n-1` prefix; the first usable preferred result is the final inspected candidate and must be selected. Otherwise compatible fallback selection points to the earliest usable fallback and is allowed only after ten candidate attempts or all three query outcomes plus a fully drained/deduplicated queue; unknown follows the same exhaustion rule. Recompute incompatible same-year fallback conflict directly from usable quantities. Counters equal array lengths and `maxOfficialHops` is the maximum, not a sum.
+
+`projectCitySafetyEvidenceLinks` first reconstructs the unknown value with the same context. It projects the selected official document first, then trusted `reviewedOfficial` rejected candidates in candidate order. When terminal conflict derives from incompatible usable fallbacks, it additionally projects those usable official documents as `reviewed_rejected` with reason `conflict`, without mutating the ledger. It never includes other usable fallbacks, unreviewed attempts, search-only `canonicalUrl` values or `failure.rejectedTarget`, and it performs no link-level deduplication. Build fresh objects field-by-field (or clone before freezing); deep-freeze the reconstructed ledger and projected links without freezing caller-owned input.
 
 - [ ] **Step 4: Verify downstream contract ownership before implementation continues**
 
