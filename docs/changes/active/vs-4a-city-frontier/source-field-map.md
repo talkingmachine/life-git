@@ -2,29 +2,32 @@
 
 | Field | Value |
 | --- | --- |
-| `packageStatus` | `unavailable` |
-| `decision` | `NEEDS_CONTEXT` |
+| `sourceContractStatus` | `bounded_verified_or_unknown` |
+| `artifactInstallability` | `not_installable_artifacts_unsealed` |
+| `publicationStatus` | `not_published` |
+| `decision` | `PROCEED_WITH_TASK_6; PUBLICATION_PENDING_ARTIFACTS` |
 | `captureDate` | `2026-08-13..2026-08-14`; candidate projections sealed 2026-08-16 |
 | `evidencePass` | `5` |
 | `fixtureCount` | `26` files including README, manifests and `SHA256SUMS` |
 | `catalogPolicyAmendment` | `city-catalog@2` approved 2026-08-16; existing ten-member summary is legacy evidence and does not authorize installation |
 | `scope` | Official-source feasibility and privacy-safe validator evidence only. No installed package, production source adapter, schema, crawler or fixture-backed success. |
 
-The bounded audit found trustworthy official alternatives and materially narrowed every row. It did
-not close one installable Slovenia package: the 104-row official catalog universe is reproducible,
-but its old ten-member projection predates the cap-100 policy; safety now has a closed official
-route-plan contract, while its exhaustive @2 per-member plan/current exact positive, comparable
-municipal urban transit, and the AKOS reference-period/reuse boundary remain unresolved.
-A missing row must become evidence-backed `unknown`, never zero or a carried-forward value.
-Implementation may use these artifacts only as bounded validator evidence; the administrative
-package installer must not publish from them.
+The bounded audit found trustworthy official alternatives and materially narrowed every row. A
+complete source contract deterministically closes one city fact as `verified | unknown` after bounded
+official attempts; it does not require a current positive value for every city. The fresh
+`city-catalog@2` 100-member summary, all 104 Registry point-on-surface projections and selected-member
+per-fact source-plan artifacts are not sealed. The legacy ten-member catalog and candidate-only safety
+fixtures are not those artifacts and must never be relabelled as them. A missing row becomes
+evidence-backed `unknown`, never zero or a carried-forward value. Artifact installability remains
+blocked by the unsealed artifacts; current fixtures do not administratively install or publish a
+Slovenia package.
 
 ## Catalog matrix
 
 | Required field | Evidence pass 4 result |
 | --- | --- |
 | `authority` / `navigationUrl` | SURS SMN classification: `https://www.stat.si/Klasje/Klasje/Details/1601`; SURS PxWeb population; GURS RPE WFS: `https://ipi.eprostor.gov.si/wfs-si-gurs-rpe/wfs`. National capital: Constitution Article 10, `https://pisrs.si/pregledPredpisa?id=USTA1&tab=47`. Regional-capital status: GOV.SI says the country is still advancing the process of establishing self-governing provinces. |
-| `resolvedEvidenceUrl` / request | `POST https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C5003S.px` with committed deterministic request. SMN 2022 XLSX/PDF SHA-256 `76c961...fbd6` / `145adb...477`. GOV.SI province-status capture `https://www.gov.si/en/news/2026-06-05-monika-kirbis-rojs-assumes-office-as-minister-of-local-self-government-cohesion-and-regional-development/`, SHA-256 `0893c5...5d0a`. GURS `GetCapabilities`, `DescribeFeatureType NASELJA`, hits, and bounded legacy top-ten GeoJSON hashes are `5d9047...e2`, `7d5c87...d453`, `5f20d3...beb2`, `86aaa3...6380`; the last capture proves the coordinate method only, not @2 catalog closure. |
+| `resolvedEvidenceUrl` / request | `POST https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C5003S.px` with committed deterministic request. SMN 2022 XLSX/PDF SHA-256 `76c961...fbd6` / `145adb...477`. GOV.SI province-status capture `https://www.gov.si/en/news/2026-06-05-monika-kirbis-rojs-assumes-office-as-minister-of-local-self-government-cohesion-and-regional-development/`, SHA-256 `0893c5...5d0a`. GURS `GetCapabilities`, `DescribeFeatureType NASELJA`, hits, and bounded legacy top-ten GeoJSON hashes are documentary and uncommitted unless bound by a committed manifest: `5d9047...e2`, `7d5c87...d453`, `5f20d3...beb2`, `86aaa3...6380`; the last capture proves the coordinate method only, not @2 catalog closure. |
 | `officialAreaIdentifier` | Six-digit SURS/SMN settlement code; current GURS `SESTAVLJENA_SIFRA` zero-pads to that code. The first three digits and the same PxWeb dimension provide the municipality code/name used as administrative territory. GURS EID remains a versioned external crosswalk, not stable internal `cityId`. |
 | `comparablePopulation` / definition | SURS `05C5003S`, `MERITVE=0`, settlement population on `2026-01-01`, release `2026-06-11`, unit persons, denominator one settlement. Full response: 6,253 rows, 212 municipalities, 6,040 settlement slots, 6,035 non-null current settlements. Raw response SHA-256 `237dc3...bb0c`. |
 | `referencePeriod` / cadence / `freshness` | `2026-01-01`; annual series through 2026. A future validator must load metadata and require the latest released common year, never reuse the capture date as the population reference date. |
@@ -42,7 +45,7 @@ apply that override.
 
 ## Metric matrix
 
-### `safety` — official route-plan contract sealed; current exact fact not hash-bound/publishable from committed fixtures
+### `safety` — candidate-only official route-plan contract; current exact fact not hash-bound/publishable from committed fixtures
 
 | Required field | Evidence pass 5 result |
 | --- | --- |
@@ -81,7 +84,7 @@ apply that override.
 | unit / denominator / freshness | No approved common city unit or denominator can be calculated until municipal operator coverage and stable city/stop-area attribution are proven. Feed freshness cannot cure universe incompleteness. |
 | `validatorOutline` / bound | Validate GTFS closure/CRC, calendar activation, referential integrity and known operator coverage. Any missing municipality/operator must yield `unknown/universe_incomplete`; absence of a route in DUJPP must never mean zero service. No universal operator crawler in this slice. |
 | deterministic vectors / fixture | Full feed counts 5 agencies, 2,477 routes, 19,020 trips, 9,793 stops and 364,105 stop times; it has 37 unique LPP line codes and zero Marprom agency matches. Bounded active LPP/Arriva/SŽ trips are in `dujpp-coverage-projection.json`. These are measured feed properties, not evidence that omitted municipal services do not exist. |
-| `blockingGap` | DUJPP alone cannot establish the approved complete municipal fact. The strongest trusted alternative is the official NAP NeTEx timetable dataset, but it requires registration/approval and one authorized feasibility capture to prove actual municipal-operator and catalog-city coverage. SURS alternatives lack a comparable city dimension. |
+| `blockingGap` | DUJPP alone cannot establish the approved complete municipal fact. Additional NAP or other official comparable evidence would improve this yellow fact to verified; it does not unblock Task 6. SURS alternatives lack a comparable city dimension. |
 
 ### `fixed_broadband` — technical field proven; source period and reuse permission unresolved
 
@@ -94,17 +97,17 @@ apply that override.
 | `referencePeriod` / cadence / `freshness` | Underlying source reference period/age is not exposed. Guide states daily coverage-analysis updates and portal said `Fiksna širokopasovna pokritost = Aktualni podatki`; that is a current portal-status check only, not a source date. Response timestamp is capture time and must not be relabelled. |
 | `validatorOutline` / bound | Same bounded check must receive exact status label and one property-only GFI; reject missing/duplicate/nonfinite/out-of-range values or crosswalk mismatch. Without a defensible source period/policy, publish `unknown/reference_period_unproved` rather than evergreen verified data. |
 | deterministic vectors / fixture | Semantic Ljubljana projection `f39e64...b073`; current-status projection `77fddd...dfad`; synthetic below/equal/above/missing/status vectors `25a648...78`. The 18-digit IDs are strings to avoid JavaScript precision loss. |
-| `blockingGap` | Exact source reference period is unproved, and no license authorizing the intended production reuse was established. Technical access alone is not that authorization. |
+| `blockingGap` | Exact source reference period is unproved, and no license authorizing the intended production reuse was established. Additional AKOS evidence would improve this yellow fact to verified; it does not unblock Task 6. Technical access alone is not that authorization. |
 
 ## Installation gate and failure taxonomy
 
 ```text
-official 104-row catalog source universe proven; @2 membership/coordinates not sealed
-+ safety route-plan contract candidate-only; installed plan/positive/denominator unbound
-+ rent definition/aggregate proven
-+ municipal urban-transit universe incomplete
-+ broadband reference period/license unresolved
-= unavailable / NEEDS_CONTEXT
+complete bounded source contracts may close facts as verified | unknown
++ fresh city-catalog@2 100-member summary, all 104 Registry point-on-surface projections, and selected-member per-fact plans unsealed
++ legacy ten-member catalog and candidate-only safety fixtures are not installable artifacts
+= sourceContractStatus: bounded_verified_or_unknown
+= artifactInstallability: not_installable_artifacts_unsealed
+= publicationStatus: not_published
 ```
 
 Fixtures prove parsers, bounded observations and honest failure modes; they are not a substitute for
@@ -121,8 +124,7 @@ separately bind raw artifacts and transformations.
 - `fixture_unavailable`: no minimal hash-bound validator evidence exists.
 - `bounded_attempt_exhausted`: documented official attempt bound ended without closing the fact.
 
-Safest next evidence: a fresh official exact-municipality Police total for a catalog member plus the
-same-year exact SURS municipality denominator result;
-an approved NAP NeTEx feasibility capture (or another complete comparable municipal source); and
-AKOS reference-period/license clarification. Until then every affected fact is `unknown` and Task 3
-remains blocked.
+Next artifact work is to seal the fresh `city-catalog@2` summary, all 104 Registry point-on-surface
+projections and selected-member per-fact plans. Additional Police/SURS, NAP or AKOS evidence can
+improve a yellow fact to verified; it does not unblock Task 6. No registration, download or external
+enquiry is a next action in this preflight.

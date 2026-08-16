@@ -21,6 +21,7 @@
 - Browser modules may runtime-import only Decision and Experience. Application imports are type-only; Infrastructure and `node:*` are forbidden in the web bundle.
 - Active unchecked city is gray `Проверяется`, never green or selectable.
 - Fully verified selectable is green. Selectable with any unknown is yellow with warning text and the same selection affordance; yellow occupies a terminal slot and needs no separate modal.
+- For every unknown fact, browser read models verify and expose its terminal reason plus saved checked official URLs, attempt dispositions and rejection reasons. Search queries, provider snippets and credentials never enter browser read models; safety may retain its additional detailed ledger only in Evidence.
 - Cards show frozen rank/score and separately fresh verification coverage/facts. React never computes a second score.
 - No Select control before terminal. Terminal 0 renders its exact `catalog_exhausted` or
   `live_candidate_limit_reached` reason and no City CTA; budget copy never claims the catalog ended.

@@ -8,20 +8,20 @@
 
 **Tech Stack:** TypeScript, the existing generic `ResearchPlan`/Evidence store, official source adapters, SQLite immediate transactions, canonical JSON/SHA-256/HMAC and Vitest.
 
-**Depends on:** completed [`VS-4A Foundations`](2026-08-13-vs-4a-city-frontier-foundations.md) and its exact source contracts. Production package installation and live Knowledge publication remain gated on an `installable` Slovenia field map.
+**Depends on:** completed [`VS-4A Foundations`](2026-08-13-vs-4a-city-frontier-foundations.md) and its exact source contracts. `installable` means a sealed `city-catalog@2` projection plus four complete deterministic plans whose city outcomes are `verified | unknown`; missing or malformed catalog/plan policy remains a real blocker.
 
-**Required safety dependency:** completed [`VS-4A Safety Source Discovery`](2026-08-14-vs-4a-safety-source-discovery.md). The whole package installation gate remains unchanged: safety component work may be green while transit/broadband still block an installed Slovenia package.
+**Required safety dependency:** completed [`VS-4A Safety Source Discovery`](2026-08-14-vs-4a-safety-source-discovery.md). A complete safety, rent, transit or broadband plan may close a city as evidence-backed unknown; a missing catalog projection or incomplete four-fact plan policy, not an unknown outcome, blocks installation.
 
 **Format metadata:** `review-matrix` — executable five-task checklist whose length comes from mandatory source, persistence, RED/GREEN, replay and commit cells; it is linked from the short master index and is not a narrative specification.
 
 ## Constraints specific to this plan
 
-- If the source field map is not `installable`, stop. Never create a production package from synthetic fixtures.
+- If the source field map has not sealed `city-catalog@2` and four deterministic per-member plans, stop. Never create a production package from synthetic fixtures; a completed plan's `unknown` is not a stop condition.
 - Do not generalize or alter Country Knowledge carry-forward behavior. City Knowledge is a separate full-projection contract.
 - A City Knowledge revision contains exactly four current outcomes. Its predecessor contributes only the previous `knowledgeUpdatedAt` comparison baseline.
 - `source_unavailable` requires a sealed completed discovery ledger. One failed candidate is never terminal; abort, storage, protocol, integrity and unexpected errors publish no City Knowledge.
 - Raw bytes stay in `artifacts` only when the source-specific retention policy permits it. A prohibited transient copy is deleted after its minimal hash/locator projection is sealed; the City Evidence overlay and City Knowledge contain references only.
-- Official catalog installation is an explicit administrative operation before user Start. Within a City Frontier run, only Continue may call official sources or the narrow safety-search port.
+- Official catalog installation is an explicit administrative operation before user Start. Within a City Frontier run, only Continue may call official sources or the narrow safety-search port. Task 6 uses only committed fixtures and local synthetic boundary vectors: do not register, download, contact an authority or perform any network operation.
 
 ---
 
@@ -81,7 +81,7 @@ export interface CityFactsResearchBundle {
 }
 ```
 
-`CatalogResearchBundle` has its own typed official-registry/population parser contract and exactly one catalog terminal result. `CityFactsResearchBundle.fixedPlan` closes rent/transit/broadband; the Application-owned safety discovery contributes the fourth `si-city-safety` terminal result and its artifacts before Evidence sealing. Together they close all four criterion IDs; each criterion yields one verified typed claim or one evidence-backed blocker that the Knowledge builder maps to an approved unknown reason.
+`CatalogResearchBundle` has its own typed official-registry/population parser contract and exactly one catalog terminal result. `CityFactsResearchBundle.fixedPlan` closes rent/transit/broadband; before any blocker becomes unknown, each fixed plan records its checked official URLs, attempt dispositions and rejection reasons. The Application-owned safety discovery contributes the fourth `si-city-safety` terminal result and its artifacts before Evidence sealing. Together they close all four criterion IDs; each criterion yields one verified typed claim or one evidence-backed blocker that the Knowledge builder maps to an approved unknown reason.
 
 - [ ] **Step 1: Write the missing-package and fixture-vector RED tests**
 
@@ -98,7 +98,7 @@ Expected: missing city package modules.
 
 - [ ] **Step 3: Implement parsers and bounded source adapters from the approved field map**
 
-Use only the installed field-map definitions, authority/source plan, schemas, numeric limits and fixture hashes. Rent/transit/broadband remain fixed-route. The Research package produces the immutable safety source plan/directory/validators only; it does not import or call Application. Core Task 14 injects and invokes the completed Application discovery use case for `previous accepted URL -> configured official routes -> bounded search candidates`. Search provider results are not a `SloveniaCitySourceId`, artifact or claim. `CitySafetyDiscoveryResult.artifacts` contains only permitted official raw captures or canonical minimal retention projections under `si-city-safety`; the Application verifier merges those exact values into the generic Evidence manifest before sealing the overlay ledger. Validator outputs are `verified`, `not_found`, `stale`, `conflict`, `not_comparable` or sealed `source_unavailable`. Do not infer a value across a different geo scope, denominator or reference period.
+Use only the installed field-map definitions, authority/source plan, schemas, numeric limits and committed fixture hashes. Rent/transit/broadband remain fixed-route and must record their checked official URLs, attempt dispositions and rejection reasons before a terminal blocker becomes unknown. The Research package produces the immutable safety source plan/directory/validators only; it does not import or call Application. Core Task 14 injects and invokes the completed Application discovery use case for `previous accepted URL -> configured official routes -> bounded search candidates`. Search provider results are not a `SloveniaCitySourceId`, artifact or claim. `CitySafetyDiscoveryResult.artifacts` contains only permitted official raw captures or canonical minimal retention projections under `si-city-safety`; the Application verifier merges those exact values into the generic Evidence manifest before sealing the overlay ledger. Validator outputs are `verified`, `not_found`, `stale`, `conflict`, `not_comparable` or sealed `source_unavailable`. Do not infer a value across a different geo scope, denominator or reference period; Task 6 performs no registration, download, authority contact or network operation.
 
 - [ ] **Step 4: Extend generic Evidence failure typing without changing country behavior**
 
@@ -293,7 +293,7 @@ Cover 4/4 verified, every live `CityUnknownReason`, rejection of ranking-only `n
 
 - [ ] **Step 3: Implement full projection and revision-level time semantics**
 
-Build all four facts only from the current verified Evidence, bind its exact `rulesVersion` and seal the revision ID through injected `CityDecisionIntegrity`. Safety verified facts retain `offenceCount`, `population` and the exact rational basis; Knowledge does not copy search queries, provider results or the attempt ledger. For semantic comparison include definition, geo scope, reference period, freshness basis, unit, denominator and outcome; exclude Evidence refs, accepted/reviewed URL changes, IDs and timestamps. First revision sets `knowledgeUpdatedAt = lastCheckedAt`; unchanged successor preserves predecessor value; known-to-unknown or any changed fact sets it to the new `lastCheckedAt`. Enforce predecessor time `< lastCheckedAt <= createdAt`.
+Build all four facts only from current sealed Evidence, whether the outcome is verified or unknown, bind its exact `rulesVersion` and seal the revision ID through injected `CityDecisionIntegrity`. Safety verified facts retain `offenceCount`, `population` and the exact rational basis; Knowledge does not copy search queries, provider results or the attempt ledger. For semantic comparison include definition, geo scope, reference period, freshness basis, unit, denominator and outcome; exclude Evidence refs, accepted/reviewed URL changes, IDs and timestamps. First revision sets `knowledgeUpdatedAt = lastCheckedAt`; an unchanged semantic projection preserves only predecessor `knowledgeUpdatedAt`, never a predecessor fact value; known-to-unknown or any changed fact sets it to the new `lastCheckedAt`. Enforce predecessor time `< lastCheckedAt <= createdAt`.
 
 - [ ] **Step 4: Add reconstruction/tamper and deep-freeze tests**
 

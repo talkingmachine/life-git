@@ -62,9 +62,9 @@ shortlist, working resolution, empty/tampered terminal или effective-red coun
 - `REQ-CF-06` — frontier останавливается при `three_selectable`, `catalog_exhausted` либо
   `live_candidate_limit_reached`. Последняя причина допустима только после десяти committed city
   checks, если frozen queue ещё не исчерпана и найдено меньше трёх selectable. Terminal result `0..2`
-  допустим; CTA выбора появляется только для terminal `1..3`. Selectable city остаётся green;
-  unknown показывает amber warning ring и explicit warning list, а red означает только fresh
-  verified required mismatch.
+  допустим; CTA выбора появляется только для terminal `1..3`. Fully verified selectable city green;
+  unknown показывает yellow `Доступен с неполными данными`, remains selectable и занимает terminal
+  slot, а red означает только fresh verified required mismatch.
 - `REQ-CF-07` — Select server-derived warning basis принимает terminal ID, city ID, command ID и
   `city-unknown-risk@1` только при показанных warnings. Он атомарно публикует `City Selection
   Snapshot` и `City Branch Commit`; выборы A и B одного terminal являются sibling commits с
@@ -76,7 +76,7 @@ shortlist, working resolution, empty/tampered terminal или effective-red coun
   ordinal tie-break, `NEEDS_CONTEXT` при >100 mandatory capitals и honest incomplete coverage.
 - `SCN-CF-02 Ranking unknown` — unknown снижает score/coverage, но сохраняет candidate в queue; required mismatch попадает только в screened exclusions.
 - `SCN-CF-03 Fresh replacement` — full four-fact check находит verified required mismatch, оставляет persistent red marker и активирует next frozen candidate.
-- `SCN-CF-04 Selectable unknown` — unknown facts дают green card с amber warning ring, selectable slot и фиксируемый warning basis.
+- `SCN-CF-04 Selectable unknown` — unknown facts дают yellow `Доступен с неполными данными`, selectable slot и фиксируемый warning basis.
 - `SCN-CF-05 Revalidation` — equal four-fact projection сохраняет `knowledgeUpdatedAt`; known-to-unknown публикует explicit unknown и обновляет projection time.
 - `SCN-CF-06 Failure boundary` — только bounded official attempts seal unknown; crash/cancel/storage/integrity failure не публикует revision и retry начинает с того же city.
 - `SCN-CF-07 Frozen order` — fresh facts/coverage обновляются без изменения current-run rank/score.

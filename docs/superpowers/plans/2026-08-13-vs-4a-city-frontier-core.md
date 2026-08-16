@@ -480,7 +480,7 @@ marker, construct the verified working-or-terminal read model, emit exactly one
 specifies: valid config uses
 `createCitySafetySearchPort({step:createHttpCitySafetySearchStep(config, request), providerId:config.providerId})`;
 missing config uses `createUnconfiguredCitySafetySearchPort()`, stays explicitly unconfigured and
-blocks the source-ready/live gate. An emit failure after append never rolls back the revision. Clear
+may close `source_unavailable` after configured official routes are exhausted; it does not invalidate an otherwise complete installed plan. An emit failure after append never rolls back the revision. Clear
 the single-flight entry in `finally`; never hold SQLite across HTTP/search or add a lease table.
 
 - [ ] **Step 6: Run GREEN and commit**

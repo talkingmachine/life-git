@@ -217,12 +217,12 @@ municipal PDF/HTML не коммитятся и не распространяю�
 
 До hash-bound fresh positive exact-municipality fixture safety имеет статус
 `candidate_available_with_partial_official_coverage`. После такого fixture, negative broad-scope
-fixture, SURS denominator vector и trust/search-budget tests статус становится
-`available_with_partial_official_coverage`.
+fixture, SURS denominator vector и trust/search-budget tests source contract готов закрывать city
+facts как `verified | unknown`; fresh positive value для каждого city не является prerequisite.
 
-Это criterion-level status. Общий Slovenia package остаётся `unavailable / NEEDS_CONTEXT`, пока
-отдельные transit и broadband gates не закрыты. Unknown для части catalog cities допустим; неполный
-manifest или непроверяемая trust policy недопустимы.
+Это criterion-level status. Для artifact installability требуются sealed `city-catalog@2` и complete
+deterministic plans для всех четырёх facts; unknown для части catalog cities допустим и не блокирует
+Start или selectability. Неполный manifest или непроверяемая trust policy недопустимы.
 
 Вне scope: universal crawler, произвольные сайты, crowdsourced perceptions, media summaries,
 runtime LLM, background search workers, изменение country color, rerank текущего run и перенос

@@ -36,7 +36,7 @@ Each numbered task ends in a local commit and a fresh focused gate. Do not begin
   population uses ordinal `cityId`. More than 100 mandatory capitals is `NEEDS_CONTEXT`, never silent
   truncation. New append/install/Start paths require `city-catalog@2`; historical `city-catalog@1`
   remains loadable for audit and historical presentation only.
-- The first production slice installs exactly one country package. A package is unavailable unless an official field map proves catalog coverage and complete deterministic source plans for safety, long-term rent, urban transit and fixed broadband. A complete safety plan may close individual cities as evidence-backed unknown; it does not require a verified value for every city.
+- The first production slice installs exactly one country package. Artifact installability requires a sealed `city-catalog@2` Registry/catalog projection and complete deterministic source plans for safety, long-term rent, urban transit and fixed broadband. Each complete plan deterministically closes each city fact as `verified | unknown` after bounded official attempts; no fresh positive value for every city is an installation prerequisite. Missing or malformed catalog/plan policy blocks installability, while an honest evidence-backed `unknown` lowers coverage but leaves the city selectable.
 - City Criteria and City Ranker are separate modules. Do not edit or reuse `preference-profile.ts`, `place-ranker.ts`, `place-package.ts` or their country snapshots for city semantics.
 - Unknown contributes factor `0`, retains its importance in the denominator, lowers coverage and warns. Only a fresh comparable verified required mismatch excludes a city.
 - Ranking is frozen across the full catalog. Live Knowledge changes fresh facts and verification coverage only; it never changes current-run rank/score/order.
@@ -216,7 +216,7 @@ Then execute the deterministic replay proof from the delivery plan and one isola
 VS-4A is complete only when:
 
 - all five linked plans are implemented and locally reviewed;
-- the official installed package passed the source feasibility gate; safety separately reached `available_with_partial_official_coverage`, while the whole package is not installable until transit and broadband gates pass;
+- the official installed package has a sealed `city-catalog@2` projection and complete deterministic four-fact plans; each city fact may close as `verified | unknown`, while missing catalog artifacts or incomplete plan policy still block installation and publication;
 - terminal selection and sibling branch publication are demonstrated on persisted data;
 - replay is canonical and zero official/search network;
 - canonical docs and the active change package are updated;

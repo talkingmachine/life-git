@@ -15,7 +15,7 @@
 | Date | 2026-08-14 |
 | Approval | project user / 2026-08-14 / exact plan commit `bb608b5` / approved |
 | Approved design | [`2026-08-14-vs-4a-safety-source-discovery-design.md`](../specs/2026-08-14-vs-4a-safety-source-discovery-design.md) |
-| Depends on | completed VS-4A Foundations Tasks 1–5; production package installation remains blocked until transit and broadband gates pass |
+| Depends on | completed VS-4A Foundations Tasks 1–5; artifact installability requires a sealed catalog and complete deterministic plans for all four facts, while a completed plan may close a city as `verified | unknown` |
 | Supersedes | safety-specific fixed-route/provider-free/candidate-fatal and green-with-amber steps in the 2026-08-13 VS-4A plans |
 | Format metadata | `review-matrix` — three executable tasks whose length comes from mandatory trust types, source gates, adversarial RED/GREEN and commit cells; linked from the short master and not a narrative specification |
 | Split review | Decision quantity/freshness remains in Foundations; persistence/UI consumers remain in Knowledge, Core and Delivery, so this document has one bounded discovery responsibility |
@@ -32,8 +32,8 @@
 - Abort/cancel, malformed provider protocol, Evidence/storage/integrity failure and unexpected errors abort the operation. They never become a domain unknown and never advance the City Frontier cursor.
 - From January through June, exact `Y-2` is held as fallback while the full budget searches for `Y-1`; from July onward `Y-2` is stale. A previous `Y-2` never suppresses search.
 - Persist canonical URLs and minimal aggregate/hash/locator metadata in the ledger. Raw municipal PDF/HTML bytes may exist only inside signed Evidence when the source-specific `seal_raw_artifact` policy permits it; they are always forbidden in repository fixtures, City Knowledge and browser read models. Search snippets are never persisted anywhere.
-- The criterion may become `available_with_partial_official_coverage`; the whole Slovenia package stays `unavailable / NEEDS_CONTEXT` until all four criterion gates pass.
-- A deployment with no named `CitySafetySearchPort` is explicitly `search_provider_unconfigured`; it may seal `source_unavailable` after configured routes but cannot pass the live source-ready walkthrough. This plan standardizes the inward URL-only protocol and does not silently select or embed a vendor SDK.
+- The criterion may become `available_with_partial_official_coverage`; criterion readiness closes as `verified | unknown` after bounded official attempts. A missing catalog projection or incomplete four-fact plan policy keeps artifacts uninstalled, but a completed plan's unknown outcome does not.
+- A deployment with no named `CitySafetySearchPort` is explicitly `search_provider_unconfigured`; after configured official routes are exhausted it may seal `source_unavailable`, reducing discovery without invalidating an otherwise complete installed plan. This plan standardizes the inward URL-only protocol and does not silently select or embed a vendor SDK.
 - This plan adds no table. Its ledger is embedded in the signed `city_evidence_snapshots` payload introduced by Knowledge Task 7.
 
 Candidate rejection uses the closed `CitySafetyCandidateRejectionReason` union from the master ledger; terminal unknown remains the narrower `CityUnknownReason` selected only after budget closure.

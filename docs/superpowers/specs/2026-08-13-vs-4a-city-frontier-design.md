@@ -63,7 +63,8 @@ City Criteria Snapshot, Knowledge revisions и временем ranking. Он н
     каждого активированного города, даже если required mismatch уже найден, и публикует максимум
     десять completed city markers за run. Незавершённый retry тот же city budget повторно не тратит.
 12. Проверенный required mismatch создаёт persistent red marker и replacement. Без такого mismatch
-    город selectable: green без unknown либо green с amber warning ring при unknown.
+    город selectable: green без unknown либо yellow `Доступен с неполными данными` при unknown; yellow
+    занимает terminal slot и не запускает replacement.
 13. Frontier останавливается после трёх selectable городов, доказанного exhaustion либо десятого
     completed city check. Terminal результат `0..2` допустим; выбор разрешён только из terminal
     result с `1..3` entries. Отдельный per-city safety budget
@@ -197,7 +198,7 @@ exact Knowledge/Evidence lineage. Stop precedence после commit детерм
 
 - gray `Проверяется` для active candidate;
 - green `Доступен для выбора` без unknown;
-- тот же green с amber warning ring и explicit warning list при unknown;
+- yellow `Доступен с неполными данными` с explicit warning list при unknown; yellow остаётся selectable и занимает terminal slot;
 - red `Исключён` только при fresh verified required mismatch.
 
 Цвет всегда дублируется текстом/icon. Card различает frozen `rank/score на момент старта` и fresh
