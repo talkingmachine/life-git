@@ -372,7 +372,8 @@ function sanitizeReviewedOfficial(value: unknown): NonNullable<CitySafetyRejecte
   if (value.resolvedEvidenceUrl !== undefined) keys.push("resolvedEvidenceUrl");
   if (value.referenceYear !== undefined) keys.push("referenceYear");
   if (!hasExactKeys(value, keys) || typeof value.publisherId !== "string" ||
-    typeof value.dataAuthorityId !== "string" || typeof value.publisherNavigationUrl !== "string" ||
+    typeof value.dataAuthorityId !== "string" || value.dataAuthorityId.length === 0 ||
+    typeof value.publisherNavigationUrl !== "string" ||
     value.resolvedEvidenceUrl !== undefined && typeof value.resolvedEvidenceUrl !== "string" ||
     value.referenceYear !== undefined && !Number.isSafeInteger(value.referenceYear)) invalidInspection();
   return {

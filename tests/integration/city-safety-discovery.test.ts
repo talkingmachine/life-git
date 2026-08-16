@@ -571,8 +571,13 @@ describe("runCitySafetyDiscovery", () => {
     })).rejects.toThrow("invalid_city_safety_inspection");
   });
 
-  test("rejects trusted authority-untrusted capture without reviewed publication provenance", async () => {
-    // Break caught: a configured trusted publisher is mislabeled as an unresolved initial authority.
+  test.each([
+    { name: "missing review", dataAuthorityId: undefined, accepted: false },
+    { name: "empty authority", dataAuthorityId: "", accepted: false },
+    { name: "required Police authority", dataAuthorityId: "police", accepted: false },
+    { name: "nonempty external authority", dataAuthorityId: "external / authority", accepted: true },
+  ] as const)("closes $name in a trusted authority-untrusted publication", async (scenario) => {
+    // Break caught: trusted publication provenance is absent, empty, Police, or rejects a valid external authority.
     const context = buildContext();
     const officialDocuments: CitySafetyOfficialDocumentPort = {
       inspect: async (candidate) => ({
@@ -585,6 +590,15 @@ describe("runCitySafetyDiscovery", () => {
             officialHops: 0,
             failure: { captureKind: "navigation_mismatch" },
           },
+          ...(scenario.dataAuthorityId === undefined ? {} : {
+            reviewedOfficial: {
+              publisherId: "municipality-ljubljana",
+              dataAuthorityId: scenario.dataAuthorityId,
+              publisherNavigationUrl: "https://ljubljana.si/safety",
+              resolvedEvidenceUrl: candidate.candidateUrl,
+              referenceYear: 2025,
+            },
+          }),
           artifactRefs: [],
           disposition: "rejected",
           reason: "authority_untrusted",
@@ -593,11 +607,19 @@ describe("runCitySafetyDiscovery", () => {
       }),
     };
 
-    await expect(runCitySafetyDiscovery(input(context), {
+    const discovery = runCitySafetyDiscovery(input(context), {
       officialDocuments,
       search: { search: async () => ({ kind: "completed", providerId: "provider-a", urls: [] }) },
       clock: () => new Date("2026-03-01T12:00:00.000Z"),
-    })).rejects.toThrow("invalid_city_safety_inspection");
+    });
+    if (!scenario.accepted) {
+      await expect(discovery).rejects.toThrow("invalid_city_safety_inspection");
+      return;
+    }
+    const result = await discovery;
+    expect(result.ledger.candidates[0]).toEqual(expect.objectContaining({
+      reviewedOfficial: expect.objectContaining({ dataAuthorityId: scenario.dataAuthorityId }),
+    }));
   });
 
   test("rejects a semantic conclusion whose unreviewed edge leaves the configured publisher", async () => {
