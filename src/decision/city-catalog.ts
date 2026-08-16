@@ -1,16 +1,38 @@
 import {
+  CITY_CATALOG_MEMBER_LIMIT,
   CITY_CATALOG_RULES_VERSION,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
   type CityDecisionIntegrity,
 } from "./city-integrity";
 
-export { CITY_CATALOG_RULES_VERSION } from "./city-integrity";
+export {
+  CITY_CATALOG_MEMBER_LIMIT,
+  CITY_CATALOG_RULES_VERSION,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
+} from "./city-integrity";
 
 export type CityCapitalRole = "national" | "regional";
 export type CityCatalogInclusionReason =
+  // Historical @1-only reasons.
   | "population_threshold"
+  | "top_ten_fill"
+  // Shared capital reasons.
   | "national_capital"
   | "regional_capital"
-  | "top_ten_fill";
+  // Current @2-only fill reason.
+  | "population_fill";
+
+export class CityCatalogNeedsContextError extends Error {
+  readonly code = "mandatory_capitals_exceed_limit";
+  readonly mandatoryCapitalCount: number;
+  readonly memberLimit = CITY_CATALOG_MEMBER_LIMIT;
+
+  constructor(mandatoryCapitalCount: number) {
+    super("mandatory_capitals_exceed_limit");
+    this.name = "CityCatalogNeedsContextError";
+    this.mandatoryCapitalCount = mandatoryCapitalCount;
+  }
+}
 
 export interface CityRegistryEntry {
   readonly cityId: string;
@@ -64,7 +86,7 @@ export interface CityCatalogRevision {
   readonly coverage:
     | { readonly status: "complete" }
     | { readonly status: "incomplete"; readonly reasons: readonly ("missing_population" | "official_universe_partial")[] };
-  readonly rulesVersion: "city-catalog@1";
+  readonly rulesVersion: "city-catalog@1" | "city-catalog@2";
   readonly createdAt: string;
 }
 
@@ -104,6 +126,12 @@ const INCLUSION_REASON_ORDER: readonly CityCatalogInclusionReason[] = [
   "national_capital",
   "regional_capital",
   "top_ten_fill",
+  "population_fill",
+];
+const CURRENT_INCLUSION_REASON_ORDER: readonly CityCatalogInclusionReason[] = [
+  "national_capital",
+  "regional_capital",
+  "population_fill",
 ];
 
 function integrityMismatch(): never {
@@ -333,7 +361,7 @@ function populationOf(candidate: CityCatalogCandidateBasis): bigint | undefined 
     : undefined;
 }
 
-function calculateMembers(
+function calculateLegacyMembers(
   registry: CityRegistryRevision,
   candidates: readonly CityCatalogCandidateBasis[],
 ): readonly CityCatalogMember[] {
@@ -367,6 +395,55 @@ function calculateMembers(
     .sort(cityOrder);
 }
 
+function calculateCurrentMembers(
+  registry: CityRegistryRevision,
+  candidates: readonly CityCatalogCandidateBasis[],
+): readonly CityCatalogMember[] {
+  const mandatoryReasons = new Map<string, Set<CityCatalogInclusionReason>>();
+  for (const entry of registry.entries) {
+    const reasons = new Set<CityCatalogInclusionReason>();
+    if (entry.capitalRoles.includes("national")) reasons.add("national_capital");
+    if (entry.capitalRoles.includes("regional")) reasons.add("regional_capital");
+    if (reasons.size > 0) mandatoryReasons.set(entry.cityId, reasons);
+  }
+  if (mandatoryReasons.size > CITY_CATALOG_MEMBER_LIMIT) {
+    throw new CityCatalogNeedsContextError(mandatoryReasons.size);
+  }
+  const populationFill = [...candidates]
+    .filter(({ cityId, comparablePopulation }) =>
+      !mandatoryReasons.has(cityId) && comparablePopulation.kind === "verified")
+    .sort((left, right) => {
+      const populationDifference = populationOf(right)! > populationOf(left)!
+        ? 1
+        : populationOf(right)! < populationOf(left)! ? -1 : 0;
+      return populationDifference || cityOrder(left, right);
+    })
+    .slice(0, CITY_CATALOG_MEMBER_LIMIT - mandatoryReasons.size);
+  for (const { cityId } of populationFill) {
+    mandatoryReasons.set(cityId, new Set(["population_fill"]));
+  }
+  return [...mandatoryReasons.entries()]
+    .map(([cityId, reasons]) => ({
+      cityId,
+      inclusionReasons: CURRENT_INCLUSION_REASON_ORDER.filter((reason) => reasons.has(reason)),
+    }))
+    .sort(cityOrder);
+}
+
+function calculateMembers(
+  rulesVersion: CityCatalogRevision["rulesVersion"],
+  registry: CityRegistryRevision,
+  candidates: readonly CityCatalogCandidateBasis[],
+): readonly CityCatalogMember[] {
+  if (rulesVersion === LEGACY_CITY_CATALOG_RULES_VERSION) {
+    return calculateLegacyMembers(registry, candidates);
+  }
+  if (rulesVersion === CITY_CATALOG_RULES_VERSION) {
+    return calculateCurrentMembers(registry, candidates);
+  }
+  integrityMismatch();
+}
+
 function catalogPayload(catalog: Omit<CityCatalogRevision, "id">): Omit<CityCatalogRevision, "id"> {
   return catalog;
 }
@@ -392,6 +469,7 @@ function canonicalValue(value: unknown): unknown {
 function buildCatalog(
   input: unknown,
   integrity?: CityDecisionIntegrity,
+  rulesVersion: CityCatalogRevision["rulesVersion"] = CITY_CATALOG_RULES_VERSION,
 ): CityCatalogRevision {
   if (!isRecord(input) || !hasExactKeys(input, [
     "registry", "evidenceSnapshotId", "populationDefinition", "candidateBasis", "coverage", "createdAt",
@@ -411,9 +489,9 @@ function buildCatalog(
     evidenceSnapshotId: input.evidenceSnapshotId,
     populationDefinition,
     candidateBasis,
-    members: calculateMembers(registry, candidateBasis),
+    members: calculateMembers(rulesVersion, registry, candidateBasis),
     coverage,
-    rulesVersion: CITY_CATALOG_RULES_VERSION,
+    rulesVersion,
     createdAt: input.createdAt,
   };
   return integrity === undefined
@@ -450,7 +528,9 @@ export function reconstructCityCatalog(input: ReconstructCityCatalogInput): City
     "schemaVersion", "id", "packageId", "packageSchemaVersion", "countryCode", "registryRevisionId",
     "evidenceSnapshotId", "populationDefinition", "candidateBasis", "members", "coverage", "rulesVersion",
     "createdAt",
-  ]) || catalog.schemaVersion !== "city-catalog@1" || catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION ||
+  ]) || catalog.schemaVersion !== "city-catalog@1" ||
+    (catalog.rulesVersion !== LEGACY_CITY_CATALOG_RULES_VERSION &&
+      catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) ||
     !isNonEmptyString(catalog.id) || catalog.registryRevisionId !== registry.id ||
     catalog.packageId !== registry.packageId || catalog.packageSchemaVersion !== registry.packageSchemaVersion ||
     catalog.countryCode !== registry.countryCode) integrityMismatch();
@@ -463,7 +543,7 @@ export function reconstructCityCatalog(input: ReconstructCityCatalogInput): City
       candidateBasis: catalog.candidateBasis,
       coverage: catalog.coverage,
       createdAt: catalog.createdAt,
-    });
+    }, undefined, catalog.rulesVersion);
   } catch {
     integrityMismatch();
   }
@@ -471,5 +551,5 @@ export function reconstructCityCatalog(input: ReconstructCityCatalogInput): City
     !sameValue(reconstructed.members, catalog.members) || !sameValue(reconstructed.coverage, catalog.coverage)) {
     integrityMismatch();
   }
-  return immutableCopy({ registry, catalog: { ...reconstructed, id: catalog.id } });
+  return immutableCopy({ registry, catalog: catalog as CityCatalogRevision });
 }
