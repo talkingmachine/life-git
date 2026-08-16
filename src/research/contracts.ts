@@ -94,6 +94,9 @@ export type EvidenceBlockerKind =
   | "country_not_installed"
   | "integrity_mismatch"
   | "semantic_mismatch"
+  | "not_found"
+  | "not_comparable"
+  | "source_unavailable"
   | "stale"
   | "conflict"
   | "deadline";

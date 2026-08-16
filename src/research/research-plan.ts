@@ -163,6 +163,8 @@ function validateTerminalEntries<S extends string, C extends Claim<unknown, S>>(
   entries: readonly TerminalEvidenceEntry<S, C>[],
 ): void {
   if (
+    !denseArray(sourceIds) || !denseArray(entries) ||
+    entries.some((entry) => !containsOnlyDenseArrays(entry)) ||
     entries.length !== sourceIds.length ||
     sourceIds.some((sourceId) => entries.filter((entry) => entry.sourceId === sourceId).length !== 1)
   ) {
@@ -200,6 +202,74 @@ function validateTerminalEntries<S extends string, C extends Claim<unknown, S>>(
       throw new Error("invalid_terminal_evidence");
     }
   }
+}
+
+function denseArray(value: unknown): value is readonly unknown[] {
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(value, index)) return false;
+  }
+  return true;
+}
+
+function containsOnlyDenseArrays(value: unknown, ancestors = new Set<object>()): boolean {
+  if (value instanceof Uint8Array || value === null || typeof value !== "object") return true;
+  if (ancestors.has(value)) return false;
+  ancestors.add(value);
+  const valid = Array.isArray(value)
+    ? denseArray(value) && value.every((item) => containsOnlyDenseArrays(item, ancestors))
+    : Object.values(value).every((item) => containsOnlyDenseArrays(item, ancestors));
+  ancestors.delete(value);
+  return valid;
+}
+
+function cloneFrozenTerminalValue<T>(value: T): T {
+  if (value instanceof Uint8Array) return new Uint8Array(value) as T;
+  if (Array.isArray(value)) {
+    const clone = value.map((item) => cloneFrozenTerminalValue(item));
+    return Object.freeze(clone) as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error("invalid_terminal_evidence");
+    }
+    const clone = Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneFrozenTerminalValue(item)]),
+    );
+    return Object.freeze(clone) as T;
+  }
+  return value;
+}
+
+export function composeTerminalEvidenceEntries<
+  S extends string,
+  C extends Claim<unknown, S>,
+>(
+  sourceIds: readonly S[],
+  batches: readonly (readonly TerminalEvidenceEntry<S, C>[])[],
+): readonly TerminalEvidenceEntry<S, C>[] {
+  const ownedSourceIds = cloneFrozenTerminalValue(sourceIds);
+  const ownedBatches = cloneFrozenTerminalValue(batches);
+  if (
+    !denseArray(ownedSourceIds) || ownedSourceIds.length === 0 ||
+    ownedSourceIds.some((sourceId) => typeof sourceId !== "string" || sourceId.length === 0) ||
+    new Set(ownedSourceIds).size !== ownedSourceIds.length ||
+    !denseArray(ownedBatches) || !ownedBatches.every(denseArray)
+  ) {
+    throw new Error("non_terminal_evidence");
+  }
+  const entries = ownedBatches.flat();
+  validateTerminalEntries(ownedSourceIds, entries);
+  const artifactIds = entries.flatMap((entry) =>
+    entry.parserEntry.artifacts.map((artifact) => artifact.artifactId));
+  if (new Set(artifactIds).size !== artifactIds.length) {
+    throw new Error("invalid_terminal_evidence");
+  }
+  const ordered = ownedSourceIds.map(
+    (sourceId) => entries.find((entry) => entry.sourceId === sourceId)!,
+  );
+  return cloneFrozenTerminalValue(ordered);
 }
 
 function sameOrderedStrings(left: readonly string[], right: readonly string[]): boolean {
