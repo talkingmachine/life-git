@@ -855,6 +855,281 @@ describe("runCitySafetyDiscovery", () => {
       clock: () => new Date("2026-03-01T12:00:00.000Z"),
     })).rejects.toThrow("city_safety_artifact_conflict");
   });
+
+  test.each([
+    { name: "artifact identity", mutate: (denominator: Record<string, unknown>) => { denominator.artifactId = "forged-surs-id"; } },
+    { name: "artifact media", mutate: (denominator: Record<string, unknown>) => { denominator.mediaType = "application/pdf"; } },
+  ])("rejects a rehashed retained denominator with forged $name", async ({ mutate }) => {
+    // Break caught: a rejection projection can name SURS evidence other than the returned ref/artifact.
+    const context = buildContext("seal_hash_locator_then_delete_transient");
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({ artifact: artifact("forged-denominator-terminal", request.url), redirectChain: [request.url] }),
+      analyze: async () => ({
+        kind: "terminal", dataAuthorityId: "police", municipalityCodes: ["061"],
+        definitionId: "si-municipal-police-offences-per-100000@1", referenceYear: 2025, offenceCounts: ["1200"],
+      }),
+      loadPopulation: async ({ runId }) => ({
+        kind: "captured", publisherId: "surs", municipalityCode: "061", referenceDate: "2025-01-01",
+        population: "0", artifact: { ...artifact("forged-denominator-surs", "https://pxweb.stat.si/population"), runId },
+      }),
+    });
+    await expect(runCitySafetyDiscovery(input(context), {
+      officialDocuments: {
+        inspect: async (candidate) => {
+          const inspected = await adapter.inspect(candidate);
+          if (inspected.kind !== "rejected") return inspected;
+          const terminalIndex = inspected.detail.artifactRefs.findIndex((ref) =>
+            ref.role === "municipal_source" && ref.documentRole === "terminal_claim");
+          const projection = JSON.parse(new TextDecoder().decode(inspected.artifacts[terminalIndex]!.bytes)) as {
+            outcome: { basis: { observedDenominator: Record<string, unknown> } };
+          };
+          mutate(projection.outcome.basis.observedDenominator);
+          const bytes = new TextEncoder().encode(INTEGRITY.canonical(projection));
+          const digest = createHash("sha256").update(bytes).digest("hex");
+          const artifactId = `forged-terminal:${digest}`;
+          return {
+            ...inspected,
+            artifacts: inspected.artifacts.map((item, index) => index === terminalIndex
+              ? { ...item, artifactId, sha256: digest, bytes }
+              : item),
+            detail: {
+              ...inspected.detail,
+              artifactRefs: inspected.detail.artifactRefs.map((ref, index) => index === terminalIndex
+                ? { ...ref, artifactId, artifactSha256: digest }
+                : ref),
+            },
+          };
+        },
+      },
+      search: { search: async () => ({ kind: "unavailable", providerId: "provider-a", reason: "provider_unavailable" }) },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test.each([
+    { name: "non-array", artifacts: { forged: true } },
+    { name: "non-empty", artifacts: [{}] },
+    { name: "sparse", artifacts: Object.assign([], { length: 1 }) },
+  ])("rejects $name artifacts when publisher authority is unresolved", async ({ artifacts: malformedArtifacts }) => {
+    // Break caught: the unresolved-publisher branch must validate, not discard, the adapter payload.
+    const context = buildContext();
+    let query = 0;
+    await expect(runCitySafetyDiscovery(input(context), {
+      officialDocuments: {
+        inspect: async (candidate) => candidate.candidateUrl.includes("unknown.example")
+          ? {
+              kind: "rejected",
+              detail: {
+                officialTrace: {
+                  initialUrl: candidate.candidateUrl,
+                  edges: [],
+                  officialHops: 0,
+                  failure: { captureKind: "navigation_mismatch" },
+                },
+                artifactRefs: [],
+                disposition: "rejected",
+                reason: "authority_untrusted",
+              },
+              artifacts: malformedArtifacts,
+            } as unknown as CitySafetyCandidateInspection
+          : missingAt(candidate),
+      },
+      search: {
+        search: async () => ({
+          kind: "completed", providerId: "provider-a",
+          urls: query++ === 0 ? ["https://unknown.example/report.pdf"] : [],
+        }),
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test.each(["seal_raw_artifact", "seal_hash_locator_then_delete_transient"] as const)(
+    "preserves exact PXWeb POST provenance under %s",
+    async (retentionMode) => {
+      // Break caught: SURS POST provenance is either rejected or silently rewritten to GET.
+      const context = buildContext(retentionMode);
+      const bodySha256 = "a".repeat(64);
+      const officialDocuments = createSloveniaCitySafetyAdapter({
+        capture: async (request) => ({ artifact: artifact("post-terminal", request.url), redirectChain: [request.url] }),
+        analyze: async () => ({
+          kind: "terminal", dataAuthorityId: "police", municipalityCodes: ["061"],
+          definitionId: "si-municipal-police-offences-per-100000@1", referenceYear: 2025, offenceCounts: ["1200"],
+        }),
+        loadPopulation: async ({ runId }) => ({
+          kind: "captured", publisherId: "surs", municipalityCode: "061", referenceDate: "2025-01-01",
+          population: "300000",
+          artifact: {
+            ...artifact("post-surs", "https://pxweb.stat.si/population"),
+            runId,
+            request: {
+              method: "POST",
+              url: "https://pxweb.stat.si/population",
+              bodyMediaType: "application/json",
+              bodySha256,
+            },
+          },
+        }),
+      });
+
+      const result = await runCitySafetyDiscovery(input(context), {
+        officialDocuments,
+        search: { search: vi.fn() },
+        clock: () => new Date("2026-03-01T12:00:00.000Z"),
+      });
+
+      expect(result.artifacts.find(({ role }) => role === "surs_denominator")?.request).toEqual({
+        method: "POST",
+        url: "https://pxweb.stat.si/population",
+        bodyMediaType: "application/json",
+        bodySha256,
+      });
+    },
+  );
+
+  test.each([
+    { name: "POST missing media", request: { method: "POST", url: "https://pxweb.stat.si/population", bodySha256: "a".repeat(64) } },
+    { name: "POST malformed hash", request: { method: "POST", url: "https://pxweb.stat.si/population", bodyMediaType: "application/json", bodySha256: "bad" } },
+    { name: "POST extra field", request: { method: "POST", url: "https://pxweb.stat.si/population", bodyMediaType: "application/json", bodySha256: "a".repeat(64), extra: true } },
+    { name: "GET body metadata", request: { method: "GET", url: "https://pxweb.stat.si/population", bodyMediaType: "application/json", bodySha256: "a".repeat(64) } },
+  ])("rejects malformed SURS request provenance: $name", async ({ request }) => {
+    const context = buildContext();
+    await expect(runCitySafetyDiscovery(input(context), {
+      officialDocuments: {
+        inspect: async (candidate) => {
+          const inspected = usable(candidate, 2025, {
+            offenceCount: "1200", population: "300000", rateBasis: "offences_per_100000_residents",
+          });
+          return {
+            ...inspected,
+            artifacts: inspected.artifacts.map((item) => item.role === "surs_denominator"
+              ? { ...item, request }
+              : item),
+          } as CitySafetyCandidateInspection;
+        },
+      },
+      search: { search: vi.fn() },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("rejects POST provenance on a municipal document artifact", async () => {
+    const context = buildContext();
+    await expect(runCitySafetyDiscovery(input(context), {
+      officialDocuments: {
+        inspect: async (candidate) => {
+          const inspected = usable(candidate, 2025, {
+            offenceCount: "1200", population: "300000", rateBasis: "offences_per_100000_residents",
+          });
+          return {
+            ...inspected,
+            artifacts: inspected.artifacts.map((item) => item.role === "municipal_source"
+              ? {
+                  ...item,
+                  request: {
+                    method: "POST", url: item.request.url, bodyMediaType: "application/json",
+                    bodySha256: "a".repeat(64),
+                  },
+                }
+              : item),
+          } as CitySafetyCandidateInspection;
+        },
+      },
+      search: { search: vi.fn() },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("records retention_unapproved as source unavailable without artifacts", async () => {
+    const context = buildContext();
+    const result = await runCitySafetyDiscovery(input(context), {
+      officialDocuments: {
+        inspect: async (candidate) => ({
+          kind: "rejected",
+          detail: {
+            officialTrace: {
+              initialUrl: candidate.candidateUrl, edges: [], lastTrustedUrl: candidate.candidateUrl, officialHops: 0,
+            },
+            artifactRefs: [], disposition: "rejected", reason: "retention_unapproved",
+          },
+          artifacts: [],
+        }),
+      },
+      search: { search: async () => ({ kind: "unavailable", providerId: "provider-a", reason: "provider_unavailable" }) },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(result.ledger.result).toEqual({ kind: "unknown", reason: "source_unavailable" });
+    expect(result.artifacts).toEqual([]);
+  });
+
+  test("records all three search_provider_unconfigured outcomes", async () => {
+    const context = buildContext();
+    const result = await runCitySafetyDiscovery(input(context), {
+      officialDocuments: { inspect: async (candidate) => missingAt(candidate) },
+      search: {
+        search: async () => ({
+          kind: "unavailable", providerId: "unconfigured", reason: "search_provider_unconfigured",
+        }),
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(result.ledger.queries.map(({ outcome }) => outcome)).toEqual([
+      { kind: "unavailable", reason: "search_provider_unconfigured" },
+      { kind: "unavailable", reason: "search_provider_unconfigured" },
+      { kind: "unavailable", reason: "search_provider_unconfigured" },
+    ]);
+    expect(result.ledger.result).toEqual({ kind: "unknown", reason: "source_unavailable" });
+  });
+
+  test("propagates the exact caller abort reason without sealing a ledger", async () => {
+    const context = buildContext();
+    const controller = new AbortController();
+    const reason = new DOMException("caller stopped", "AbortError");
+    const promise = runCitySafetyDiscovery({ ...input(context), signal: controller.signal }, {
+      officialDocuments: {
+        inspect: async () => {
+          controller.abort(reason);
+          throw reason;
+        },
+      },
+      search: { search: vi.fn() },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    await expect(promise).rejects.toBe(reason);
+  });
+
+  test("accepts previous preferred Y-1 before configured routes and suppresses search", async () => {
+    const context = buildContext();
+    const inspected: string[] = [];
+    const search = vi.fn();
+    const result = await runCitySafetyDiscovery({
+      ...input(context),
+      previousAccepted: {
+        cityId: "ljubljana", municipalityCode: "061", sourcePlanId: "prior-plan:1",
+        definitionId: "si-municipal-police-offences-per-100000@1", publisherId: "police",
+        navigationUrl: "https://policija.si/", resolvedEvidenceUrl: "https://policija.si/previous.pdf",
+        referenceYear: 2025, evidenceSnapshotId: "evidence:previous",
+      },
+    }, {
+      officialDocuments: {
+        inspect: async (candidate) => {
+          inspected.push(candidate.candidateUrl);
+          return usable(candidate, 2025, {
+            offenceCount: "1200", population: "300000", rateBasis: "offences_per_100000_residents",
+          });
+        },
+      },
+      search: { search },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(inspected).toEqual(["https://policija.si/previous.pdf"]);
+    expect(search).not.toHaveBeenCalled();
+    expect(result.ledger.result).toEqual(expect.objectContaining({ kind: "verified", acceptedCandidateIndex: 0 }));
+  });
 });
 
 describe("Slovenia city-safety official adapter", () => {

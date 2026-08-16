@@ -516,6 +516,28 @@ function validateRejectionBasis(
   invalidInspection();
 }
 
+function sanitizeArtifactRequest(
+  value: unknown,
+  role: CitySafetyArtifactReference["role"],
+): LiveCapturedArtifact<"si-city-safety">["request"] {
+  if (!isRecord(value) || typeof value.url !== "string") invalidInspection();
+  const url = canonicalizeCitySafetyCandidateUrl(value.url);
+  if (value.method === "GET" && hasExactKeys(value, ["method", "url"])) {
+    return { method: "GET", url };
+  }
+  if (role === "surs_denominator" && value.method === "POST" && hasExactKeys(value, [
+    "method", "url", "bodyMediaType", "bodySha256",
+  ]) && value.bodyMediaType === "application/json" && hexSha256(value.bodySha256)) {
+    return {
+      method: "POST",
+      url,
+      bodyMediaType: "application/json",
+      bodySha256: value.bodySha256,
+    };
+  }
+  invalidInspection();
+}
+
 async function sanitizeArtifacts(
   value: unknown,
   refs: readonly CitySafetyArtifactReference[],
@@ -544,11 +566,10 @@ async function sanitizeArtifacts(
       !Number.isSafeInteger(artifact.responseStatus) || (artifact.responseStatus as number) < 200 ||
       (artifact.responseStatus as number) >= 300 || typeof artifact.capturedAt !== "string") invalidInspection();
     canonicalInstant(artifact.capturedAt, "invalid_city_safety_inspection");
-    if (!isRecord(artifact.request) || !hasExactKeys(artifact.request, ["method", "url"]) ||
-      artifact.request.method !== "GET" || typeof artifact.request.url !== "string") invalidInspection();
+    const artifactRequest = sanitizeArtifactRequest(artifact.request, ref.role);
     const policy = ref.role === "municipal_source" ? municipalPublisher : denominatorPublisher;
     if (!urlAllowedByPublisher(artifact.url, policy) || !urlAllowedByPublisher(artifact.responseUrl, policy) ||
-      !urlAllowedByPublisher(artifact.request.url, policy)) invalidInspection();
+      !urlAllowedByPublisher(artifactRequest.url, policy)) invalidInspection();
     const isTransient = policy.retentionMode === "seal_hash_locator_then_delete_transient";
     if (!isTransient && (artifact.sha256 !== ref.sourceSha256 ||
       !policy.allowedMediaTypes.includes(artifact.mediaType)) ||
@@ -623,7 +644,9 @@ async function sanitizeArtifacts(
         if (!hasExactKeys(projection, [
           "schemaVersion", "publisherId", "municipalityCode", "referenceDate", "population",
           "sourceSha256", "sourceLocator", "sourceMediaType", "retentionPolicyId", "transientRawDeleted",
-        ]) || projectionDenominator === undefined || projection.publisherId !== projectionDenominator.publisherId ||
+        ]) || projectionDenominator === undefined || ref.artifactId !== projectionDenominator.artifactId ||
+          artifact.mediaType !== projectionDenominator.mediaType ||
+          projection.publisherId !== projectionDenominator.publisherId ||
           projection.municipalityCode !== projectionDenominator.municipalityCode ||
           projection.referenceDate !== projectionDenominator.referenceDate ||
           projection.population !== projectionDenominator.population) invalidInspection();
@@ -642,7 +665,7 @@ async function sanitizeArtifacts(
       capturedAt: artifact.capturedAt,
       responseStatus: artifact.responseStatus as number,
       responseUrl: ref.locator,
-      request: { method: "GET", url: canonicalizeCitySafetyCandidateUrl(artifact.request.url) },
+      request: artifactRequest,
     });
   }
   return sanitized;
@@ -749,6 +772,9 @@ async function validateInspection(
         conflictBasis.denominator.referenceDate !== `${conflictBasis.referenceYear}-01-01` ||
         !refs.some((ref) => ref.role === "surs_denominator" &&
           ref.artifactId === conflictBasis.denominator.artifactId))) invalidInspection();
+    if (publisher === undefined && (!isDenseArray(inspection.artifacts) || inspection.artifacts.length !== 0)) {
+      invalidInspection();
+    }
     const artifacts = publisher === undefined ? [] : await sanitizeArtifacts(
       inspection.artifacts, refs, request, publisher, denominatorPublisher, {
         candidate,
