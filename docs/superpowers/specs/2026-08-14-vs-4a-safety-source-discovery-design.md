@@ -9,7 +9,7 @@
 | Зависимости | [VS-4A City Frontier baseline](./2026-08-13-vs-4a-city-frontier-design.md), exact City Catalog Revision, City Evidence pipeline, SURS municipality population |
 | Written approval | пользователь явно подтвердил exact редакцию 2026-08-14 |
 | Canonical effect | точечно supersedes baseline provider-free dependency для узкого search port, invariant 12, safety-subflow `REQ-CF-04`, unknown projection `REQ-CF-06`, `SCN-CF-04` и non-goal city-yellow marker |
-| Не изменяет | catalog membership, four-fact atomic Knowledge, frozen ranking, required-mismatch exclusion, stop-at-three, selection branching или country status |
+| Не изменяет | catalog membership, four-fact atomic Knowledge, frozen ranking, required-mismatch exclusion, target-three/separate frontier-wide live-city limit, selection branching или country status |
 | Split review | документ короче 250 строк и имеет одну ответственность |
 
 Этот approved supplement заменяет только ранее согласованный single-route safety plan. Другие три
@@ -27,10 +27,11 @@ Safety использует bounded external web discovery, когда посл�
 официальный документ недоступен, устарел либо несопоставим. Поисковая система находит только
 кандидатов и никогда не является authority или источником числового факта.
 
-Один city safety check имеет фиксированный budget:
+Один city safety check имеет фиксированный budget; он не является отдельным лимитом десяти live
+городов всего City Frontier run:
 
 - не более трёх versioned поисковых запросов;
-- не более десяти unique candidate URLs после canonical URL deduplication, включая previous,
+- не более десяти unique document candidate URLs после canonical URL deduplication, включая previous,
   configured и discovered routes;
 - не более двух переходов от search result внутри подтверждённой official publication chain;
 - остановка после первого exact result за newest eligible year; до 1 July допустимый `Y-2`
@@ -97,7 +98,7 @@ Evidence Snapshot сохраняет:
 - reference period, municipality identifiers, numerator claim и SURS denominator reference;
 - rejection reason каждого проверенного candidate;
 - accepted official source URL либо terminal unknown basis;
-- counters, подтверждающие соблюдение `3 queries / 10 candidates / 2 hops`.
+- counters, подтверждающие соблюдение `3 queries / 10 document URL candidates / 2 hops`.
 
 Search snippets не используются как claim. City Knowledge хранит compact typed fact и Evidence
 references, но не raw bytes, search result text или дублированный attempt ledger. Stored read model
@@ -112,7 +113,7 @@ references, но не raw bytes, search result text или дублирован�
 3. формирует до трёх deterministic public queries только из official city/municipality names,
    reference year и versioned safety terms; profile или иные user data в запросы не входят;
 4. добавляет provider results после previous/configured routes, дедуплицирует общую очередь и
-   проверяет не более десяти candidates, применяя trust policy;
+   проверяет не более десяти document URL candidates, применяя trust policy;
 5. для official navigation page следует максимум по двум подтверждённым official links;
 6. принимает первый exact comparable `Y-1`; до 1 July удерживает exact `Y-2` как fallback и
    продолжает искать `Y-1` до исчерпания budget;

@@ -7,37 +7,42 @@
 | `captureDate` | `2026-08-13..2026-08-14`; candidate projections sealed 2026-08-16 |
 | `evidencePass` | `5` |
 | `fixtureCount` | `26` files including README, manifests and `SHA256SUMS` |
+| `catalogPolicyAmendment` | `city-catalog@2` approved 2026-08-16; existing ten-member summary is legacy evidence and does not authorize installation |
 | `scope` | Official-source feasibility and privacy-safe validator evidence only. No installed package, production source adapter, schema, crawler or fixture-backed success. |
 
 The bounded audit found trustworthy official alternatives and materially narrowed every row. It did
-not close one installable Slovenia package: the catalog is reproducible and safety now has a closed
-official route-plan contract, while its installed plan/current exact positive, comparable municipal urban transit, and the
-AKOS reference-period/reuse boundary remain unresolved.
-A missing row must become evidence-backed `unknown`, never zero or a carried-forward value. Task 3
-must not start from these fixtures.
+not close one installable Slovenia package: the 104-row official catalog universe is reproducible,
+but its old ten-member projection predates the cap-100 policy; safety now has a closed official
+route-plan contract, while its exhaustive @2 per-member plan/current exact positive, comparable
+municipal urban transit, and the AKOS reference-period/reuse boundary remain unresolved.
+A missing row must become evidence-backed `unknown`, never zero or a carried-forward value.
+Implementation may use these artifacts only as bounded validator evidence; the administrative
+package installer must not publish from them.
 
 ## Catalog matrix
 
 | Required field | Evidence pass 4 result |
 | --- | --- |
 | `authority` / `navigationUrl` | SURS SMN classification: `https://www.stat.si/Klasje/Klasje/Details/1601`; SURS PxWeb population; GURS RPE WFS: `https://ipi.eprostor.gov.si/wfs-si-gurs-rpe/wfs`. National capital: Constitution Article 10, `https://pisrs.si/pregledPredpisa?id=USTA1&tab=47`. Regional-capital status: GOV.SI says the country is still advancing the process of establishing self-governing provinces. |
-| `resolvedEvidenceUrl` / request | `POST https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C5003S.px` with committed deterministic request. SMN 2022 XLSX/PDF SHA-256 `76c961...fbd6` / `145adb...477`. GOV.SI province-status capture `https://www.gov.si/en/news/2026-06-05-monika-kirbis-rojs-assumes-office-as-minister-of-local-self-government-cohesion-and-regional-development/`, SHA-256 `0893c5...5d0a`. GURS `GetCapabilities`, `DescribeFeatureType NASELJA`, hits, and bounded top-ten GeoJSON hashes are `5d9047...e2`, `7d5c87...d453`, `5f20d3...beb2`, `86aaa3...6380`. |
+| `resolvedEvidenceUrl` / request | `POST https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C5003S.px` with committed deterministic request. SMN 2022 XLSX/PDF SHA-256 `76c961...fbd6` / `145adb...477`. GOV.SI province-status capture `https://www.gov.si/en/news/2026-06-05-monika-kirbis-rojs-assumes-office-as-minister-of-local-self-government-cohesion-and-regional-development/`, SHA-256 `0893c5...5d0a`. GURS `GetCapabilities`, `DescribeFeatureType NASELJA`, hits, and bounded legacy top-ten GeoJSON hashes are `5d9047...e2`, `7d5c87...d453`, `5f20d3...beb2`, `86aaa3...6380`; the last capture proves the coordinate method only, not @2 catalog closure. |
 | `officialAreaIdentifier` | Six-digit SURS/SMN settlement code; current GURS `SESTAVLJENA_SIFRA` zero-pads to that code. The first three digits and the same PxWeb dimension provide the municipality code/name used as administrative territory. GURS EID remains a versioned external crosswalk, not stable internal `cityId`. |
 | `comparablePopulation` / definition | SURS `05C5003S`, `MERITVE=0`, settlement population on `2026-01-01`, release `2026-06-11`, unit persons, denominator one settlement. Full response: 6,253 rows, 212 municipalities, 6,040 settlement slots, 6,035 non-null current settlements. Raw response SHA-256 `237dc3...bb0c`. |
 | `referencePeriod` / cadence / `freshness` | `2026-01-01`; annual series through 2026. A future validator must load metadata and require the latest released common year, never reuse the capture date as the population reference date. |
-| `validatorOutline` | Replay the complete 104-row SMN level-2 central-urban universe and PxWeb population projection; validate unique six-digit codes, all 104 comparable values, threshold `>=20000`, Ljubljana national role, no invented regional-capital role, then top-up by population descending/code ascending until ten distinct members. GURS polygons may yield a versioned derived `pointOnSurface`, never an alleged official point. |
-| `captureBound` / deterministic vectors | One full PxWeb response, one official SMN export pair, one GOV.SI province-status capture, three GURS schema/count calls and one top-ten polygon call. SMN has 104 central urban centres and all 104 have non-null comparable 2026 population. Seven pass `>=20000`; Slovenia currently has no established self-governing provinces whose capitals could trigger the override; Ptuj, Kamnik and Jesenice fill the catalog to ten. |
-| `fixture` / `sha256` | Deterministic request `4c0c21...fea8`; compact full 104-centre projection `33618a...0b3c`; summary `adcfd0...63eb`; raw population request/response `4ff155...970f` / `237dc3...bb0c`. |
-| `blockingGap` | None at source-feasibility level. A 212-municipality-seat crosswalk is outside the approved SMN central-urban universe. Installation must seal the full registry projection, derive all 104 marker points from GURS polygons, assign package-owned stable `cityId`, and require an explicit identity migration for later reclassification. |
+| `validatorOutline` | Replay the complete 104-row SMN level-2 central-urban universe and PxWeb population projection; validate unique six-digit codes, all 104 comparable values, Ljubljana national role, no invented first-level regional-capital role, then select national/verified regional capitals and population-fill to at most 100 with ordinal `cityId` tie-break. GURS polygons may yield a versioned derived `pointOnSurface`, never an alleged official point. |
+| `captureBound` / deterministic vectors | One full PxWeb response, one official SMN export pair, one GOV.SI province-status capture, three GURS schema/count calls and one legacy top-ten polygon call. SMN has 104 central urban centres and all 104 have non-null comparable 2026 population. Slovenia currently has no established self-governing provinces whose capitals could trigger the override. Under @2 the current source rows deterministically yield 100 members; the existing polygon capture covers only ten. |
+| `fixture` / `sha256` | Deterministic request `4c0c21...fea8`; compact full 104-centre projection `33618a...0b3c`; legacy ten-member summary `adcfd0...63eb`; raw population request/response `4ff155...970f` / `237dc3...bb0c`. No @2 summary hash is claimed. |
+| `blockingGap` | Source-universe feasibility is proven, but installation remains blocked until a fresh `city-catalog@2` 100-member summary, derived GURS point-on-surface for all 104 Registry/considered-universe entries, and safety/criterion plans for each of the selected 100 Catalog members are sealed. The four nonmembers remain in Registry/candidate basis for reconstruction but need no per-member metric plan. A 212-municipality-seat crosswalk is outside the approved SMN central-urban universe. Stable `cityId` remains package-owned and later reclassification requires an explicit identity migration. |
 
-Catalog membership is ten centres: Ljubljana, Maribor, Celje, Kranj, Koper/Capodistria, Velenje,
-Novo mesto, Ptuj, Kamnik and Jesenice. ReSPR50's second-level centres are not silently relabelled as
-regional capitals; if Slovenia establishes provinces and explicitly types their capitals, a new
-catalog revision can apply that override.
+The legacy summary contains ten centres and remains historical fixture evidence only. Under the
+approved @2 rule, the same complete 104-row population projection would select 100 members and omit
+only Šmartno pri Litiji, Kranjska Gora, Turnišče and Cerkno; this derived statement is not a sealed @2
+fixture. ReSPR50's second-level centres are not silently relabelled as first-level regional capitals;
+if Slovenia establishes provinces and explicitly types their capitals, a new catalog revision can
+apply that override.
 
 ## Metric matrix
 
-### `safety` — official route-plan contract sealed; current exact fact still unavailable
+### `safety` — official route-plan contract sealed; current exact fact not hash-bound/publishable from committed fixtures
 
 | Required field | Evidence pass 5 result |
 | --- | --- |
@@ -47,9 +52,9 @@ catalog revision can apply that override.
 | `metricDefinition` | Integer total Police-recorded offences explicitly for one exact municipality and complete calendar year, divided by positive SURS municipality population on 1 January of that same year, times 100,000. Police-district aggregates, convictions, selected categories, perceptions and offender-residence counts are non-comparable. |
 | `referencePeriod` / unit / denominator | No publishable current value is committed. The required unit is offences per 100,000 residents; numerator is a complete calendar year and denominator is the same-year SURS municipality population at 1 January. Historical administrative-unit examples remain non-publishable context. |
 | cadence / `freshness` | `municipal-annual-july-boundary@1`: `Y-1` is preferred; from January through June exact `Y-2` may be held as fallback while the full budget searches `Y-1`; from July onward `Y-2` is stale. |
-| `validatorOutline` / bound | Sequential `previous -> configured -> search`, at most `3 queries / 10 canonical candidates / 2 official hops`. Validate exact authority, publisher/redirect/media/retention, municipality, full-year integer total and same-year positive SURS denominator. Candidate failure continues; closed failure produces typed `unknown`, never a carried value. |
-| deterministic vectors / fixture | Candidate manifest plus unavailable broad-scope projection, generated SURS request/unavailable result status and six synthetic boundary vectors. The older administrative-unit fixtures remain clearly historical/non-publishable. No municipal raw PDF/HTML, search text or real offence/individual row is committed. |
-| `blockingGap` | No fresh exact-municipality positive for a current catalog member and no same-year exact municipality SURS result are hash-bound. Criterion status is `candidate_available_with_partial_official_coverage`, not `available`; package installation remains unauthorized. |
+| `validatorOutline` / bound | Sequential `previous -> configured -> search`, at most `3 queries / 10 canonical document URL candidates / 2 official hops` for one city. Validate exact authority, publisher/redirect/media/retention, municipality, full-year integer total and same-year positive SURS denominator. Candidate failure continues; closed failure produces typed `unknown`, never a carried value. This document budget is independent from the frontier-wide ten-city limit. |
+| deterministic vectors / fixture | Candidate-only fixture manifest plus unavailable broad-scope projection, generated SURS request/unavailable result status and six synthetic boundary vectors. The older administrative-unit fixtures remain clearly historical/non-publishable. No municipal raw PDF/HTML, search text or real offence/individual row is committed. |
+| `blockingGap` | No fresh exact-municipality positive for a current catalog member and no same-year exact municipality SURS result are hash-bound. No installed per-member source-plan manifest or authority directory is sealed; the bounded candidate fixtures are not such a manifest and do not cover amended @2 membership. Criterion status is `candidate_available_with_partial_official_coverage`, not `available`; package installation remains unauthorized. |
 
 ### `long_term_rent` — official definition and current municipality-year aggregate proven
 
@@ -94,7 +99,7 @@ catalog revision can apply that override.
 ## Installation gate and failure taxonomy
 
 ```text
-official catalog source contract proven
+official 104-row catalog source universe proven; @2 membership/coordinates not sealed
 + safety route-plan contract candidate-only; installed plan/positive/denominator unbound
 + rent definition/aggregate proven
 + municipal urban-transit universe incomplete

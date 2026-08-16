@@ -7,10 +7,10 @@
 | Дата | 2026-08-13 |
 | Область | City Registry, установленный City Catalog, City Knowledge, ranking, bounded live frontier, terminal shortlist и выбор первой Life Git ветви |
 | Зависимости | verified non-empty `Resolved Country Shortlist Snapshot` из `VS-3R`, confirmed profile, provider-free runtime, Evidence pipeline |
-| Approval evidence | пользователь одобрил широкий catalog, порог/столицы/top-10, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching в разговорном дизайне 2026-08-13 |
-| Written approval | пользователь явно одобрил exact редакцию 2026-08-13 |
+| Approval evidence | пользователь одобрил широкий catalog, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching 2026-08-13; hard cap 100, capital/population priority и separate live-10 budget 2026-08-16 |
+| Written approval | пользователь явно одобрил exact редакцию 2026-08-13 и catalog/runtime amendment 2026-08-16 |
 | Canonical effect after approval | заменяет общее обещание «1–3 города» точной City Frontier semantics; не меняет formal/effective country status |
-| Split review | 320-line draft проверен по `CONSTITUTION.md`; сохранён одним документом, потому что catalog, ranking, full-Knowledge и frontier образуют один atomic design contract; tasks/evidence/canonical amendments остаются отдельными |
+| Split review | текущий baseline остаётся короче 400 строк и проверен по `CONSTITUTION.md`; сохранён одним документом, потому что catalog, ranking, full-Knowledge и frontier образуют один atomic design contract; tasks/evidence/canonical amendments остаются отдельными |
 
 Этот approved документ является design baseline отдельного slice. Product Charter, Glossary, Demo
 Story и Spec of Specs изменяются только отдельным traceable change-package; implementation plan и
@@ -20,7 +20,8 @@ canonical amendments создаются следующими шагами.
 
 `GOAL-CF-01`: для одной effective-green страны из verified non-empty resolved country shortlist
 пользователь наблюдает проверку городов в замороженном порядке и получает до трёх selectable
-городов либо честное исчерпание установленного каталога.
+городов за максимум десять завершённых live city checks либо честный partial terminal, если frozen
+queue исчерпана или достигнут отдельный live candidate limit.
 
 City Frontier отвечает только на вопрос городского fit. Он не меняет formal residence verdict,
 effective country color или решение о риске accepted formal-yellow страны. Город остаётся
@@ -39,12 +40,14 @@ City Criteria Snapshot, Knowledge revisions и временем ranking. Он н
    отклоняются. Accepted formal-yellow country разрешена, но её formal status остаётся yellow.
 3. Автоматический universe — установленный каталог официальных городских/муниципальных центров,
    не все деревни и не случайная web-выборка.
-4. Каталог включает каждый центр с latest comparable official population `>= 20 000`, всегда
-   включает национальную и явно типизированные региональные столицы, затем при необходимости
-   дополняется крупнейшими сопоставимыми центрами до top-10. Десять — минимум, не максимум.
-5. Если официальных сопоставимых центров меньше десяти, включаются все доступные; неполнота
-   показывается явно. Missing population не угадывается и не смешивается между urban-center и
-   municipal-area definitions.
+4. City Catalog содержит максимум 100 городов на страну. Membership определяется строго по
+   приоритету: national capital; все explicitly and officially typed first-level regional capitals;
+   затем крупнейшие остальные official urban centers по latest comparable population до общего
+   лимита 100, с ordinal `cityId` tie-break.
+5. Обязательные capitals никогда не обрезаются молча. Если их unique count больше 100, country
+   package получает `NEEDS_CONTEXT` до explicit country-specific policy. Если comparable population
+   отсутствует, value не угадывается, несовместимые geo definitions не смешиваются, а coverage
+   остаётся честно incomplete.
 6. У каждого города есть stable `cityId`; имя, координаты и административные metadata версионируются
    и не являются самим identity.
 7. Setup содержит ровно четыре independently configurable критерия: безопасность, долгосрочная
@@ -56,12 +59,16 @@ City Criteria Snapshot, Knowledge revisions и временем ranking. Он н
    предупреждение. Required-критерий среди non-excluded городов также участвует в score.
 10. Ranking охватывает весь установленный catalog, использует только Knowledge revisions на момент
     start и остаётся frozen. Fresh live Knowledge влияет только на следующий run.
-11. Live frontier проверяет кандидатов строго в frozen-rank order и завершает все четыре факта для
-    каждого активированного города, даже если required mismatch уже найден.
+11. Live frontier проверяет кандидатов строго в frozen-rank order, завершает все четыре факта для
+    каждого активированного города, даже если required mismatch уже найден, и публикует максимум
+    десять completed city markers за run. Незавершённый retry тот же city budget повторно не тратит.
 12. Проверенный required mismatch создаёт persistent red marker и replacement. Без такого mismatch
     город selectable: green без unknown либо green с amber warning ring при unknown.
-13. Frontier останавливается после трёх selectable городов или доказанного exhaustion. Terminal
-    результат `0..2` допустим; выбор разрешён только из terminal result с `1..3` entries.
+13. Frontier останавливается после трёх selectable городов, доказанного exhaustion либо десятого
+    completed city check. Terminal результат `0..2` допустим; выбор разрешён только из terminal
+    result с `1..3` entries. Отдельный per-city safety budget
+    `3 queries / 10 document URL candidates / 2 official hops` не является этим frontier-wide city
+    limit.
 14. Каждая успешно завершённая live-проверка публикует полную City Knowledge Revision ровно из
     четырёх фактов/statuses. Carry-forward старого value в новую revision запрещён.
 15. Выбор города фиксирует показанные unknown warnings как принятый риск без отдельного modal;
@@ -79,10 +86,17 @@ lineage, coverage status и rules version.
 
 Acceptance:
 
-- threshold `20 000` включителен;
-- capital override работает независимо от population;
-- top-up сортируется по comparable population descending, затем `cityId` ascending;
-- наличие более десяти threshold/capital centers не обрезает каталог;
+- membership содержит не больше 100 unique city IDs;
+- national capital и все explicitly evidenced first-level regional capitals включаются первыми
+  независимо от population;
+- остальные official urban centers выбираются по latest comparable population descending, затем
+  ordinal `cityId` ascending, пока общий membership не достигнет 100 либо universe не закончится;
+- ровно 100 mandatory capitals допустимы без population fill; 101-й mandatory capital даёт typed
+  package outcome `NEEDS_CONTEXT`, а не catalog или silent truncation;
+- `city-catalog@1` остаётся replayable как historical policy; новые revisions используют
+  `city-catalog@2`, и reconstruction проверяет reason set и membership по bound rules version;
+- historical Load/Present может читать @1, но новый append/install/Start принимает только @2;
+  legacy-only package даёт typed `city_catalog_upgrade_required` без source call или новых rows;
 - новая registry/catalog revision влияет только на новый run;
 - incomplete coverage никогда не заполняется выдуманным центром.
 
@@ -127,6 +141,8 @@ frozen order. `ordered + screenedExclusions` обязаны точно покр�
 Start создаёт ranking/frontier без official HTTP. Только явный Continue проверяет следующий frozen
 candidate через установленный source plan. Внутренние source subchecks могут выполняться
 параллельно, но city completion возможен только после closed outcome всех четырёх критериев.
+Run допускает максимум десять committed completed candidates. Crash, cancel или любой failure до
+durable marker commit не расходует этот limit; idempotent retry completed city второй раз не считает.
 
 Для каждого факта результат ровно один:
 
@@ -170,8 +186,12 @@ Live check, не подтвердивший current fact, публикует exp
 ### `REQ-CF-06` — terminal shortlist и правдивое представление
 
 Frontier revision chain хранит source bindings, completed live markers в activation order, frozen
-cursor и selectable slots. Terminal City Shortlist Snapshot публикуется ровно при трёх selectable
-либо exhaustion и содержит entries в frozen-rank order с exact Knowledge/Evidence lineage.
+cursor и selectable slots. Terminal City Shortlist Snapshot публикуется при трёх selectable, frozen
+queue exhaustion либо после десятого completed city check и содержит entries в frozen-rank order с
+exact Knowledge/Evidence lineage. Stop precedence после commit детерминирована: `three_selectable`;
+иначе `catalog_exhausted`, если следующего frozen candidate нет; иначе
+`live_candidate_limit_reached`. Working revision с десятью markers и активация одиннадцатого city
+недопустимы.
 
 До terminal seal CTA выбора отсутствует. UI показывает:
 
@@ -203,8 +223,9 @@ Knowledge/Evidence, warnings и optional copy version.
 
 ## 4. Основные сценарии
 
-- `SCN-CF-01 Catalog`: все `>=20k`, capital below threshold и largest fillers входят; 14 threshold
-  cities не обрезаются; missing population делает coverage incomplete.
+- `SCN-CF-01 Catalog`: 99/100/101 total members, 99/100/101 mandatory capitals, national/first-level
+  regional priority, equal-population ordinal `cityId` tie-break и input-order invariance; >100
+  mandatory capitals дают `NEEDS_CONTEXT`, а missing population делает coverage incomplete.
 - `SCN-CF-02 Ranking unknown`: unknown даёт zero contribution и меньшую coverage, но остаётся в
   queue; comparable required mismatch попадает только в screened exclusions.
 - `SCN-CF-03 Fresh replacement`: первый live city проходит все четыре checks, получает required
@@ -216,8 +237,10 @@ Knowledge/Evidence, warnings и optional copy version.
 - `SCN-CF-06 Failure boundary`: evidence-backed bounded source exhaustion публикует unknown;
   crash/cancel/storage/integrity failure не публикует revision и retry начинает с того же city.
 - `SCN-CF-07 Frozen order`: live Knowledge меняет fresh facts/coverage, но не rank/score текущего run.
-- `SCN-CF-08 Exhaustion`: terminal с двумя selectable разрешает выбор; terminal с нулём не создаёт
-  selection и не открывает `VS-4`.
+- `SCN-CF-08 Bounded terminal`: catalog exhaustion либо десятый completed city check с двумя
+  selectable разрешает выбор; terminal с нулём не создаёт selection и не открывает `VS-4`; при
+  оставшемся frozen queue budget stop называется `live_candidate_limit_reached`, и одиннадцатый city
+  не активируется.
 - `SCN-CF-09 Alternative branch`: A, затем B из одного terminal создают две sibling branches от
   одного pre-city parent.
 - `SCN-CF-10 Offline replay`: reload восстанавливает committed cursor, markers, terminal и selections
@@ -279,12 +302,14 @@ Presentation/reload/select не выполняют official HTTP. После tra
 
 Минимальный обязательный набор:
 
-- pure tests порога/capitals/top-10, exact formula/unknown/required/tie-break и stop table;
+- pure tests cap-100/capital priority/population fill/ordinal tie/overflow, exact
+  formula/unknown/required/tie-break и three-way stop table;
 - package fixture vectors для всех четырёх definitions, directions, boundaries и freshness policies;
 - full revision tests: 4/4 facts, no carry-forward, same-value revalidation, known-to-unknown и
   source-failure-vs-crash boundary;
 - ranking snapshot reconstruction, catalog union, screened exclusions и no-current-run-rerank;
-- frontier replacement, persistent red, selectable unknown, three/exhaustion `0..2`, abort/retry;
+- frontier replacement, persistent red, selectable unknown, three/exhaustion/live-limit `0..2`,
+  no-eleventh-city и abort/retry;
 - append-only/hash/HMAC/predecessor/idempotency/concurrency/tamper matrices;
 - strict transport, EOF-held terminal, committed-before-event, zero-network double presentation;
 - UI/accessibility tests gray/green/amber/red, warning acceptance, frozen-vs-fresh labels and same globe;
@@ -312,13 +337,12 @@ explicitly unavailable; фиктивные data или generic crawler запр�
 ## 9. Canonical amendments после written approval
 
 Change-package обязан узко обновить Product Charter, Glossary, Demo Story, Spec of Specs и docs
-index: exact 3-or-exhaustion stop, selectable-only-on-verified-required-mismatch, wide catalog,
-full four-fact City Knowledge, marker semantics и City Selection sibling branches. Исторические
-approved `VS-3`/`VS-3R` specs и evidence не переписываются.
+index: catalog cap 100 и capital/population priority, exact 3-or-exhaustion-or-live-10 stop,
+selectable-only-on-verified-required-mismatch, full four-fact City Knowledge, marker semantics и City
+Selection sibling branches. Исторические approved `VS-3`/`VS-3R` specs и evidence не переписываются.
 
 ## 10. Approval gate
 
-Conversational design и exact written baseline одобрены пользователем 2026-08-13. Следующая
-допустимая операция — создать detailed implementation plan через `writing-plans`. До approval этого
-плана запрещены production code, schema, test scaffolding, source installation и canonical
-amendments.
+Conversational design и exact written baseline одобрены пользователем 2026-08-13; hard catalog cap,
+membership priority и separate live-10 amendment одобрены 2026-08-16. Detailed implementation plan
+обязан применять эту редакцию без повторного продуктового вопроса.

@@ -131,11 +131,12 @@ Knowledge текущего run влияют только на следующий
 Country shortlist формируется до city research и не зависит от подтверждения города. City Frontier
 принимает только verified non-empty Resolved Country Shortlist Snapshot; automatic shortlist,
 working resolution revision, empty/tampered terminal и effective-red country не открывают city
-research. Для выбранной effective green страны immutable `City Catalog Revision` содержит каждый
-official city/municipal center с latest comparable official population `>= 20 000`, national и
-explicitly typed regional capitals независимо от population, а затем крупнейшие comparable centers
-до top-10 при наличии. Десять — минимум, не максимум: больший catalog не обрезается, а missing
-population не угадывается и оставляет coverage incomplete.
+research. Для выбранной effective green страны immutable `City Catalog Revision` содержит максимум
+100 городов: national capital; все explicitly and officially typed first-level regional capitals;
+затем крупнейшие остальные official urban centers по latest comparable population до общего лимита,
+с ordinal `cityId` tie-break. Если обязательных capitals больше 100, package получает
+`NEEDS_CONTEXT`; silent truncation запрещён. Missing population не угадывается и оставляет coverage
+incomplete.
 
 Пользователь подтверждает `City Criteria Snapshot` ровно из четырёх independently configurable
 criteria: безопасность, долгосрочная аренда, городской транспорт и fixed broadband. Полный
@@ -145,8 +146,10 @@ frozen order и закрывает все четыре facts каждого ак
 verified mismatch критерия `required` делает город red `Исключён`; unknown не блокирует выбор,
 а оставляет city green `Доступен для выбора` с amber warning ring и exact warning list.
 
-Frontier останавливается при `three_selectable` городах или `catalog_exhausted`; честный terminal
-result `0..2` разрешён, а выбор доступен только из terminal shortlist с `1..3` entries. Каждая
+Frontier останавливается при `three_selectable`, `catalog_exhausted` или после десяти completed city
+checks с `live_candidate_limit_reached`; честный terminal result `0..2` разрешён, а выбор доступен
+только из terminal shortlist с `1..3` entries. Per-city safety budget
+`3 queries / 10 document URLs / 2 hops` является отдельным лимитом. Каждая
 завершённая проверка публикует full append-only `City Knowledge Revision` ровно из четырёх facts/
 statuses: старое value не переносится в новую revision, а fresh live Knowledge не меняет frozen
 ranking текущего run. Выбор города атомарно фиксирует `City Selection Snapshot` и City Branch

@@ -24,7 +24,9 @@
 
 - Search discovers URL candidates only. Search rank, snippet, TLS and domain appearance never prove authority or a fact.
 - Queries contain only official public city/municipality names, reference year and versioned safety terms. Profile, targets, selection, income and all other user data are forbidden.
-- One check is sequential and bounded by `3 queries / 10 canonical candidates total / 2 official-chain hops`. No crawler, background worker, queue or runtime LLM is introduced.
+- One city-safety check is sequential and bounded by
+  `3 queries / 10 canonical document URLs total / 2 official-chain hops`. This per-city document budget is independent from the City Frontier limit of
+  ten completed cities per run. No crawler, background worker, queue or runtime LLM is introduced.
 - Previous and configured routes count toward the ten-candidate limit. Canonical URL deduplication happens before the queue consumes a candidate.
 - Candidate 404, stale/broad/missing-total content, wrong media, oversize body, untrusted redirect and unapproved retention are recorded and search continues while budget remains.
 - Abort/cancel, malformed provider protocol, Evidence/storage/integrity failure and unexpected errors abort the operation. They never become a domain unknown and never advance the City Frontier cursor.

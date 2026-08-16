@@ -57,24 +57,29 @@ Write `change.md` with status `approved — implementation pending`, links to th
 ```text
 Resolved Country Shortlist entry
   -> confirmed four-criterion City Criteria Snapshot
-  -> full installed City Catalog ranking
+  -> full installed City Catalog ranking (at most 100 members)
   -> one-city-at-a-time fresh four-fact verification
-  -> three selectable cities or catalog exhaustion
+  -> `three_selectable`, `catalog_exhausted` or `live_candidate_limit_reached` (10 completed cities)
   -> atomic City Selection Snapshot + sibling City Branch Commit
 ```
 
 - [ ] **Step 3: Amend only forward canonical docs**
 
-Add the exact catalog threshold/capital/top-ten rule, bounded official safety fallback, yellow-selectability rule, stop-at-three rule, full four-fact revision rule, frozen-vs-fresh labels, accepted/reviewed source-link replay and sibling branch semantics. In Spec of Specs add a `VS-4A` row after VS-3R and ownership sections for Decision, Research, Application, Infrastructure, Branch and Experience. In README link the active change, both approved designs and this plan index.
+Add the exact catalog cap-100/national-and-first-level-regional-capital/population-fill rule, typed
+`NEEDS_CONTEXT` overflow, separate live-10 candidate bound, bounded official safety fallback,
+yellow-selectability rule, three-way terminal rule, full four-fact revision rule, frozen-vs-fresh
+labels, accepted/reviewed source-link replay and sibling branch semantics. In Spec of Specs add a
+`VS-4A` row after VS-3R and ownership sections for Decision, Research, Application, Infrastructure,
+Branch and Experience. In README link the active change, both approved designs and this plan index.
 
 - [ ] **Step 4: Verify no stale city promise remains**
 
 ```bash
-rg -n 'City Catalog Revision|three_selectable|city-unknown-risk@1|PreCityBranchCommit|Доступен с неполными данными|3 queries / 10 candidates / 2' \
+rg -n 'City Catalog Revision|100 cities|live_candidate_limit_reached|three_selectable|city-unknown-risk@1|PreCityBranchCommit|Доступен с неполными данными|10 document URL candidates' \
   docs/product/charter.md docs/product/glossary.md docs/product/demo-story.md \
   docs/architecture/spec-of-specs.md docs/README.md \
   docs/changes/active/vs-4a-city-frontier/change.md
-! rg -n 'unknown.*исключает|перв(ый|ого).*город.*остан|green\+amber|no city yellow' \
+! rg -n 'population.*>= ?20.?000|top.?10|unknown.*исключает|перв(ый|ого).*город.*остан|green\+amber|no city yellow' \
   docs/product docs/architecture/spec-of-specs.md \
   docs/changes/active/vs-4a-city-frontier/change.md
 git diff --check
@@ -106,7 +111,7 @@ git commit -m "docs: canonicalize VS4A city frontier"
 
 - [ ] **Step 1: Write the fail-closed field-map skeleton**
 
-Maintain a four-row metric matrix (`safety`, `long_term_rent`, `urban_transit`, `fixed_broadband`) plus a catalog matrix. Every row requires: authority, navigation URL, resolved evidence URL/request, official area identifier, comparable population/metric definition, reference period, unit, denominator, update cadence, freshness rule, validator outline, capture bound and deterministic boundary vectors. Safety additionally records a per-catalog-member manifest, authority/host directory, known routes, query-template version, redirect/media/size/retention policy and criterion-level readiness. Mark the package `unavailable` until every criterion contract is complete.
+Maintain a four-row metric matrix (`safety`, `long_term_rent`, `urban_transit`, `fixed_broadband`) plus a catalog matrix. Every row requires: authority, navigation URL, resolved evidence URL/request, official area identifier, comparable population/metric definition, reference period, unit, denominator, update cadence, freshness rule, validator outline, capture bound and deterministic boundary vectors. The catalog matrix must prove the full considered universe, mandatory-capital roles and deterministic at-most-100 membership. Safety additionally records a per-catalog-member manifest for every catalog member, authority/host directory, known routes, query-template version, redirect/media/size/retention policy and criterion-level readiness. Mark the package `unavailable` until every criterion contract is complete.
 
 - [ ] **Step 2: Inspect only official authority surfaces**
 
@@ -114,7 +119,7 @@ Use a disposable temporary database/directory. Follow the then-current local `AG
 
 - [ ] **Step 3: Capture bounded reproducible fixtures**
 
-For each proven catalog/criterion source, preserve the smallest response needed by the validator under `tests/sources/fixtures/slovenia-city/`, record SHA-256 and capture date in the field map, and exclude unrelated personal/raw data. Safety requires a fresh exact-municipality positive projection for a catalog member, a broad/multi-municipality rejection projection, a same-year SURS municipality denominator and search/trust vectors; raw municipal PDF/HTML bytes stay outside the repository. Each criterion ends in one closed source contract whose per-city result is `verified | unknown`, or an explicit infeasibility result.
+For each proven catalog/criterion source, preserve the smallest response needed by the validator under `tests/sources/fixtures/slovenia-city/`, record SHA-256 and capture date in the field map, and exclude unrelated personal/raw data. Regenerate the prior ten-member catalog projection as an at-most-100 projection; never relabel the old top-ten hashes. Seal registry identity/point projections for every considered-universe entry, even when it is not selected, while criterion source plans cover exactly every selected Catalog member. Safety requires a fresh exact-municipality positive projection for a catalog member, a broad/multi-municipality rejection projection, a same-year SURS municipality denominator and search/trust vectors; raw municipal PDF/HTML bytes stay outside the repository. Each criterion ends in one closed source contract whose per-city result is `verified | unknown`, or an explicit infeasibility result.
 
 - [ ] **Step 4: Apply the package installation gate**
 
@@ -128,6 +133,10 @@ official registry/universe + population rule
 + fixed broadband definition/validator
 = one closed four-fact package
 ```
+
+The catalog part of this gate must publish `city-catalog@2`, prove `members.length <= 100`, and stop
+with `NEEDS_CONTEXT` before package publication if the sealed mandatory-capital set alone exceeds 100.
+An earlier ten-member fixture or a source plan that covers only those ten is not sufficient.
 
 An incomplete manifest, trust policy, definition or validator keeps that criterion unavailable. Safety may advance from `candidate_available_with_partial_official_coverage` to `available_with_partial_official_coverage` even when some cities resolve to evidenced unknown. This does not install the country package: transit or broadband failure keeps the whole package `unavailable / NEEDS_CONTEXT` and blocks package installation, live Start and source-verified claims. Pure Catalog/Criteria/Ranker and the separate safety component plan may proceed against synthetic/domain fixtures; do not claim integrated VS-4A success, add a placeholder URL, build a universal crawler or use fixtures as production facts.
 
@@ -154,24 +163,47 @@ Expected: one explicit final package status, exact field evidence, no secrets, a
 **Requirements:** REQ-CF-01; SCN-CF-01
 
 **Files:**
-- Create: `src/decision/city-integrity.ts`
-- Create: `src/decision/city-catalog.ts`
-- Create: `tests/domain/city-catalog.test.ts`
+- Modify: `src/decision/city-integrity.ts`
+- Modify: `src/decision/city-catalog.ts`
+- Modify: `tests/domain/city-catalog.test.ts`
+- Modify regressions: `tests/domain/city-ranker.test.ts`
+- Modify regressions: `tests/research/city-safety-source-plan.test.ts`
+- Modify regressions: `tests/research/city-safety-evidence.test.ts`
+- Modify regressions: `tests/integration/city-safety-discovery.test.ts`
 
 **Interfaces:**
 
 ```ts
-export const CITY_CATALOG_RULES_VERSION = "city-catalog@1" as const;
+export const LEGACY_CITY_CATALOG_RULES_VERSION = "city-catalog@1" as const;
+export const CITY_CATALOG_RULES_VERSION = "city-catalog@2" as const;
+export const CITY_CATALOG_MEMBER_LIMIT = 100 as const;
 export interface CityDecisionIntegrity {
   canonical(value: unknown): string;
   hash(canonicalText: string): string;
 }
+// `regional` is accepted for @2 only when sealed package evidence explicitly types
+// the city as a first-level regional capital. Lower-level centres do not qualify.
 export type CityCapitalRole = "national" | "regional";
 export type CityCatalogInclusionReason =
+  // Historical @1-only reasons.
   | "population_threshold"
+  | "top_ten_fill"
+  // Shared capital reasons.
   | "national_capital"
   | "regional_capital"
-  | "top_ten_fill";
+  // Current @2-only fill reason.
+  | "population_fill";
+
+export class CityCatalogNeedsContextError extends Error {
+  readonly code = "mandatory_capitals_exceed_limit";
+  readonly mandatoryCapitalCount: number;
+  readonly memberLimit = CITY_CATALOG_MEMBER_LIMIT;
+  constructor(mandatoryCapitalCount: number) {
+    super("mandatory_capitals_exceed_limit");
+    this.name = "CityCatalogNeedsContextError";
+    this.mandatoryCapitalCount = mandatoryCapitalCount;
+  }
+}
 
 export interface CityRegistryEntry {
   readonly cityId: string;
@@ -225,7 +257,7 @@ export interface CityCatalogRevision {
   readonly coverage:
     | { readonly status: "complete" }
     | { readonly status: "incomplete"; readonly reasons: readonly ("missing_population" | "official_universe_partial")[] };
-  readonly rulesVersion: "city-catalog@1";
+  readonly rulesVersion: "city-catalog@1" | "city-catalog@2";
   readonly createdAt: string;
 }
 
@@ -234,11 +266,27 @@ export function buildCityCatalogRevision(input: BuildCityCatalogInput, integrity
 export function reconstructCityCatalog(input: ReconstructCityCatalogInput): CityCatalogProjection;
 ```
 
-`CityCatalogRevision` binds package/schema/country, exact registry/evidence IDs, population definition, the complete considered-universe `CityCatalogCandidateBasis[]` for every registry entry, members with inclusion reasons, complete-or-incomplete coverage, rules version and createdAt. Reconstruction recomputes threshold/capital/top-up membership from that full projection; it never trusts the member list alone.
+`CityCatalogRevision` binds package/schema/country, exact registry/evidence IDs, population definition,
+the complete considered-universe `CityCatalogCandidateBasis[]` for every registry entry, members with
+inclusion reasons, complete-or-incomplete coverage, rules version and createdAt. New writes use
+`city-catalog@2`: unique mandatory capitals first, then verified comparable population descending and
+ordinal `cityId` ascending until at most 100 members; stored members remain canonical `cityId` order.
+Reconstruction dispatches by bound rules version, keeps historical `city-catalog@1` replayable, and
+never trusts the member list alone.
+
+**Approved amendment (2026-08-16):** the repository already contains the historical @1 implementation.
+Execute this task as a TDD policy migration: do not rewrite or invalidate @1 rows; make the default
+builder emit @2 and throw `CityCatalogNeedsContextError` before sealing an @2 ID. Knowledge Task 9
+alone owns translation to package status `NEEDS_CONTEXT` and the zero-durable-row proof.
 
 - [ ] **Step 1: Write the membership RED matrix**
 
-Cover `19999/20000/20001`, national/regional capitals with low or missing population, top-up by comparable population descending then `cityId` ascending, fourteen threshold cities, fewer than ten official centers, input-order invariance, omitted threshold/top-up candidates and incomplete coverage.
+Cover 99/100/101 ordinary population-fill members; 99/100/101 unique mandatory capitals with low or
+missing population; a city carrying both roles counted once; equal-population ordinal `cityId`
+tie-break; mixed population periods rejected; fewer than 100 official centers; input-order invariance;
+omitted candidate-basis rows for either a selected or unselected Registry entry; incomplete population
+coverage; exact @1 replay. Assert 101 mandatory capitals throws `CityCatalogNeedsContextError` before
+returning an @2 revision.
 
 - [ ] **Step 2: Run RED**
 
@@ -246,27 +294,42 @@ Cover `19999/20000/20001`, national/regional capitals with low or missing popula
 ./node_modules/.bin/vitest run tests/domain/city-catalog.test.ts
 ```
 
-Expected: suite fails because `city-catalog.ts` is missing.
+Expected after the 2026-08-16 amendment: the existing @1 suite fails the new @2
+cap/priority/overflow assertions before production code changes.
 
 - [ ] **Step 3: Implement closed validation and canonical membership**
 
-Reject duplicate city IDs, foreign country entries, invalid coordinates, mixed population definition/geo scope, incomplete considered-universe coverage, missing evidence refs and extra fields. `CityDecisionIntegrity` is a type-only inward capability; Application/Infrastructure inject the existing canonical/SHA implementation. Inject it only when sealing IDs; semantic reconstruction recomputes projection without hashing. Decision must not import `node:crypto` or Infrastructure. Store candidate bases and members in canonical `cityId` order; do not rank by population after membership is built.
+Reject duplicate city IDs, foreign country entries, invalid coordinates, mixed population definition/geo scope, incomplete considered-universe coverage, missing evidence refs and extra fields. For @2 deduplicate mandatory roles by city, fail closed above 100, then fill only from verified comparable populations; unknown non-capital population is never guessed. `CityDecisionIntegrity` is a type-only inward capability; Application/Infrastructure inject the existing canonical/SHA implementation. Inject it only when sealing IDs; semantic reconstruction recomputes projection without hashing. Decision must not import `node:crypto` or Infrastructure. Store candidate bases and members in canonical `cityId` order; do not rank by population after membership is built.
+For @2 canonicalize each member reason in `national_capital`, `regional_capital`, `population_fill`
+order and reject either @1-only reason on an @2 revision.
 
 - [ ] **Step 4: Add reconstruction/tamper tests**
 
-Mutate/resign membership, an omitted candidate, inclusion reason, coverage, population basis, registry binding, rule version and order. Assert semantic reconstruction failure, deep immutability and absence of targets/scores/raw bytes; server-side store tests separately assert sealed ID/hash/HMAC mismatch as `integrity_mismatch`.
+Mutate/resign membership, the 100/101 boundary, an omitted candidate, inclusion reason, coverage,
+population basis, registry binding, rule version and order. Assert cross-version reason misuse fails,
+historical @1 reconstruction stays byte-stable, @2 semantic reconstruction fails closed, returned data
+is deeply immutable and targets/scores/raw bytes are absent; server-side store tests separately assert
+sealed ID/hash/HMAC mismatch as `integrity_mismatch`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
 ```bash
 ./node_modules/.bin/vitest run tests/domain/city-catalog.test.ts
+./node_modules/.bin/vitest run tests/domain/city-ranker.test.ts \
+  tests/research/city-safety-source-plan.test.ts \
+  tests/research/city-safety-evidence.test.ts \
+  tests/integration/city-safety-discovery.test.ts
 ./node_modules/.bin/tsc --noEmit
 ./node_modules/.bin/eslint src/decision/city-integrity.ts \
-  src/decision/city-catalog.ts tests/domain/city-catalog.test.ts
+  src/decision/city-catalog.ts tests/domain/city-catalog.test.ts \
+  tests/domain/city-ranker.test.ts tests/research/city-safety-source-plan.test.ts \
+  tests/research/city-safety-evidence.test.ts tests/integration/city-safety-discovery.test.ts
 git diff --check
 git add src/decision/city-integrity.ts src/decision/city-catalog.ts \
-  tests/domain/city-catalog.test.ts
-git commit -m "feat: define city catalog policy"
+  tests/domain/city-catalog.test.ts tests/domain/city-ranker.test.ts \
+  tests/research/city-safety-source-plan.test.ts tests/research/city-safety-evidence.test.ts \
+  tests/integration/city-safety-discovery.test.ts
+git commit -m "feat: cap city catalog membership"
 ```
 
 ---

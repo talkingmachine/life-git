@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Persist a frozen city ranking, advance an append-only one-city-at-a-time frontier to three selectable cities or exhaustion, and atomically record a terminal city selection as a sibling branch.
+**Goal:** Persist a frozen city ranking, advance an append-only one-city-at-a-time frontier to three selectable cities, queue exhaustion or an exact ten-city live limit, and atomically record a terminal city selection as a sibling branch.
 
 **Architecture:** Decision reconstructs frontier and selection state from immutable projections. Application owns Start/Continue/Present/Select and commit ordering behind inward-defined ports. SQLite persists one ranking snapshot, one append-only frontier revision chain and atomic selection/branch records. Research/source calls remain outside transactions and occur only in Continue.
 
@@ -20,6 +20,8 @@
 - Pre-city parent binds only stable country/profile context. It must not bind criteria, ranking or terminal city results, so alternative city runs remain sibling-capable.
 - Screened exclusions are audit-only and never become live red markers.
 - Continue completes exactly one candidate per command. Internal four-criterion captures may be parallel, but safety candidate inspection is sequential and bounded, and there is one durable marker successor.
+- One run commits at most ten completed city markers. A retry before marker commit consumes no city
+  slot; after the tenth marker the successor is terminal and no eleventh city is activated.
 - A city with any unknown but no verified required mismatch is yellow and selectable. Only fresh verified required mismatches produce red `excluded`.
 - No current Knowledge reload may rerank a run.
 - Do not extend housing `life-git.ts`, `branch_commits` or `run_revisions` with a city union.
@@ -92,7 +94,7 @@ export interface CityFrontierProjection {
   readonly phase?: "verification_required";
   readonly terminal?: {
     readonly entries: readonly CityTerminalEntry[];
-    readonly stopCondition: "three_selectable" | "catalog_exhausted";
+    readonly stopCondition: CityFrontierStopCondition;
   };
 }
 
@@ -102,7 +104,14 @@ export function reconstructCitySelection(input: ReconstructCitySelectionInput): 
 
 - [ ] **Step 1: Write the frontier truth-table RED**
 
-Test pending first rank, all-verified green selectable city, unknown yellow selectable city, verified required mismatch red exclusion, persistent excluded history/replacement, yellow occupying a terminal slot without replacement, three-selectable stop, exhaustion with 0/1/2, no fourth selectable, frozen-rank marker prefix and one-marker transition. Reject green with unknown, yellow with no unknown, red without a required mismatch, and any marker whose accepted/reviewed links do not reconstruct from its Evidence.
+Test pending first rank, all-verified green selectable city, unknown yellow selectable city, verified
+required mismatch red exclusion, persistent excluded history/replacement, yellow occupying a terminal
+slot without replacement, three-selectable stop, exhaustion with 0/1/2, nine completed markers with
+0/1/2 selectable followed by a tenth-marker limit terminal, ten red with terminal zero, no fourth selectable, no
+eleventh activation, frozen-rank marker prefix and one-marker transition. Reject green with unknown,
+yellow with no unknown, red without a required mismatch, a working revision with ten markers, a limit
+terminal below ten markers or after queue exhaustion, and any marker whose accepted/reviewed links do
+not reconstruct from its Evidence.
 
 - [ ] **Step 2: Run RED**
 
@@ -113,7 +122,12 @@ Test pending first rank, all-verified green selectable city, unknown yellow sele
 
 - [ ] **Step 3: Implement pure reconstruction and transition validation**
 
-Require markers in activation/frozen rank order with unique city IDs and exact Knowledge/Evidence bindings. A marker is red/excluded iff `requiredMismatches` is nonempty; otherwise it is yellow iff any fact is unknown, and green iff all four are verified. Terminal entries are green/yellow selectable markers in frozen order and stop only at exactly three or cursor exhaustion.
+Require markers in activation/frozen rank order with unique city IDs and exact Knowledge/Evidence
+bindings. A marker is red/excluded iff `requiredMismatches` is nonempty; otherwise it is yellow iff
+any fact is unknown, and green iff all four are verified. Terminal entries are green/yellow selectable
+markers in frozen order. After each committed marker choose stop deterministically: `three_selectable`;
+else `catalog_exhausted` when no frozen candidate remains; else `live_candidate_limit_reached` at ten
+markers. Otherwise preserve working `verification_required` state.
 
 - [ ] **Step 4: Implement server-derived selection/warning basis**
 
@@ -164,6 +178,7 @@ export interface CityRankingSnapshot {
   readonly ordered: readonly RankedCity[];
   readonly screenedExclusions: readonly ScreenedCityExclusion[];
   readonly rulesVersion: "city-ranker@1";
+  readonly verificationBudget: CityFrontierVerificationBudget;
   readonly createdAt: string;
 }
 
@@ -195,7 +210,7 @@ export interface TerminalCityShortlistSnapshot {
   readonly markers: readonly CityLiveMarker[];
   readonly nextUncheckedRank: number;
   readonly entries: readonly CityTerminalEntry[];
-  readonly stopCondition: "three_selectable" | "catalog_exhausted";
+  readonly stopCondition: CityFrontierStopCondition;
   readonly operation: CityFrontierOperation;
   readonly createdAt: string;
 }
@@ -333,7 +348,11 @@ export interface CityFrontierStartWriterPort {
 
 - [ ] **Step 1: Write schema/store RED tests**
 
-Cover strict Criteria/Ranking and pre-city parent round-trip, exact relocation + Preference Profile bindings, atomic `publishStart` with failure after each would-be insert, full ranking reconstruction, one root/successor/terminal, command retry/conflict, stale head, exact bindings and immutable triggers.
+Cover strict Criteria/Ranking and pre-city parent round-trip, exact relocation + Preference Profile
+bindings, frozen `city-frontier-budget@1`, atomic `publishStart` with failure after each would-be insert,
+full ranking reconstruction, one root/successor/terminal, no working head with ten markers, exact
+three-way terminal reason/count/queue validation, command retry/conflict, stale head, exact bindings and
+immutable triggers.
 
 - [ ] **Step 2: Run RED**
 
@@ -344,7 +363,7 @@ Cover strict Criteria/Ranking and pre-city parent round-trip, exact relocation +
 
 - [ ] **Step 3: Add five tables and strict preflight**
 
-Add `city_criteria_snapshots`, `city_ranking_snapshots`, `city_frontier_revisions`, `city_selection_snapshots` and closed-union `city_branch_commits`. The selection table exists before branch FKs but is written only in Task 15. A `pre_city` row has no parent/selection and is unique by resolved-country revision + country; `selection` rows require a parent and selection FK. Ranking is unique per run. Frontier has one root/successor/command/terminal indexes. Add immutable triggers/preflight and update exact inventories.
+Add `city_criteria_snapshots`, `city_ranking_snapshots`, `city_frontier_revisions`, `city_selection_snapshots` and closed-union `city_branch_commits`. The selection table exists before branch FKs but is written only in Task 15. A `pre_city` row has no parent/selection and is unique by resolved-country revision + country; `selection` rows require a parent and selection FK. Ranking is unique per run and binds the exact verification budget. Frontier has one root/successor/command/terminal indexes. Add immutable triggers/preflight and update exact inventories.
 
 - [ ] **Step 4: Implement canonical verification and race normalization**
 
@@ -408,7 +427,16 @@ The setup read model contains the verified country entry, installed package/defi
 
 - [ ] **Step 1: Write Start/Present RED tests**
 
-Assert setup and Start reject automatic/working/empty/tampered/effective-red inputs; accepted formal-yellow effective-green setup; exact installed definitions/default draft; exact relocation + Preference Profile IDs from source binding; exact Registry/catalog identity and coordinates; confirmed criteria; deterministic pre-city parent; frozen ranking; zero official/search calls; injected failure after each Start insert leaves zero partial rows; exact retry converges; two canonical presentations with zero source/request-step/search calls; exact four-fact accepted/reviewed-link marker projections; verified selection/branch history after reload.
+Assert setup and Start reject automatic/working/empty/tampered/effective-red inputs; accepted
+formal-yellow effective-green setup; exact installed definitions/default draft; exact relocation +
+Preference Profile IDs from source binding; exact Registry/catalog identity, @2 at-most-100 membership
+and coordinates; confirmed criteria; deterministic pre-city parent; frozen ranking bound to
+`city-frontier-budget@1` (`10` completed / target `3`); zero official/search calls; injected failure
+after each Start insert leaves zero partial rows; exact retry converges; two canonical presentations
+with zero source/request-step/search calls; exact four-fact accepted/reviewed-link marker projections;
+verified selection/branch history after reload. A legacy-only @1 package must fail Setup/Start as
+`city_catalog_upgrade_required` before ranking, source calls or durable Start rows; historical Present
+may still replay a run whose frozen catalog is @1.
 
 - [ ] **Step 2: Run RED**
 
@@ -422,11 +450,38 @@ Setup and Start both call the existing country guard first. They load and verify
 
 - [ ] **Step 4: Add Continue RED matrix**
 
-Cover one city per command, all four subchecks despite early required mismatch, red then replacement, yellow selectable/no replacement, three-stop, exhaustion 0/1/2, no rerank after Knowledge write, abort/fatal error no cursor, previous accepted Y-1 with zero search, previous Y-2 continuing search, first route failure then discovered exact source, stale/broad/missing-total candidate continuation, completed-empty provider result, typed provider failure, explicit unconfigured producer, full budget unknown, January–June fallback, July stale, same-chain conflict, both raw-seal and delete-transient artifact handoffs, known-to-unknown without carry-forward, Evidence-sealed/Knowledge-missing recovery, Knowledge-published/frontier-missing recovery, exactly one final `city_continuation_completed` for both working and terminal results, canonical callback/return equality, emit throw after commit, stale/idempotent commands, and two concurrent identical Continues sharing one source execution.
+Cover one city per command, all four subchecks despite early required mismatch, red then replacement,
+yellow selectable/no replacement, three-stop, exhaustion 0/1/2, live-city limit with 0/1/2, stop
+precedence on the tenth marker, no eleventh activation or source call, no rerank after Knowledge write,
+abort/fatal error no cursor or city-budget consumption, previous accepted Y-1 with zero search, previous
+Y-2 continuing search, first route failure then discovered exact source, stale/broad/missing-total
+candidate continuation, completed-empty provider result, typed provider failure, explicit unconfigured
+producer, full safety URL budget unknown, January–June fallback, July stale, same-chain conflict, both
+raw-seal and delete-transient artifact handoffs, known-to-unknown without carry-forward,
+Evidence-sealed/Knowledge-missing recovery, Knowledge-published/frontier-missing recovery, exactly one
+final `city_continuation_completed` for both working and terminal results, canonical callback/return
+equality, emit throw after commit, stale/idempotent commands, and two concurrent identical Continues
+sharing one source execution.
 
 - [ ] **Step 5: Implement present-first Continue ordering**
 
-For the active frozen city: check abort; load completed check by deterministic ID; replay/publish missing Knowledge; otherwise use one composition-scoped promise keyed by `cityCheckRunId` so concurrent identical commands share the same bounded four-fact research call. The Research package supplies the verified safety source plan/directory; Application invokes `runCitySafetyDiscovery` with public city/year/criterion terms and injected search/document ports. Merge its exact sealable artifacts with the three fixed-source captures, seal generic Evidence plus the attempt ledger overlay, publish all four Knowledge facts, evaluate criteria, append one green/yellow/red marker successor, emit the committed marker, construct the verified working-or-terminal read model, emit exactly one `city_continuation_completed`, then return the canonically identical model. `city-frontier-composition.ts` constructs the provider-neutral search port exactly as Task S2 specifies: valid config uses `createCitySafetySearchPort({step:createHttpCitySafetySearchStep(config, request), providerId:config.providerId})`; missing config uses `createUnconfiguredCitySafetySearchPort()`, stays explicitly unconfigured and blocks the source-ready/live gate. An emit failure after append never rolls back the revision. Clear the single-flight entry in `finally`; never hold SQLite across HTTP/search or add a lease table.
+For the active frozen city: reconstruct the head and reject Continue before any source call when it is
+terminal or already has ten markers; check abort; load completed check by deterministic ID;
+replay/publish missing Knowledge; otherwise use one composition-scoped promise keyed by
+`cityCheckRunId` so concurrent identical commands share the same bounded four-fact research call. The
+Research package supplies the verified safety source plan/directory; Application invokes
+`runCitySafetyDiscovery` with public city/year/criterion terms and injected search/document ports.
+Merge its exact sealable artifacts with the three fixed-source captures, seal generic Evidence plus
+the attempt ledger overlay, publish all four Knowledge facts, evaluate criteria, append one
+green/yellow/red marker successor, derive the exact three-way terminal reason, emit the committed
+marker, construct the verified working-or-terminal read model, emit exactly one
+`city_continuation_completed`, then return the canonically identical model.
+`city-frontier-composition.ts` constructs the provider-neutral search port exactly as Task S2
+specifies: valid config uses
+`createCitySafetySearchPort({step:createHttpCitySafetySearchStep(config, request), providerId:config.providerId})`;
+missing config uses `createUnconfiguredCitySafetySearchPort()`, stays explicitly unconfigured and
+blocks the source-ready/live gate. An emit failure after append never rolls back the revision. Clear
+the single-flight entry in `finally`; never hold SQLite across HTTP/search or add a lease table.
 
 - [ ] **Step 6: Run GREEN and commit**
 

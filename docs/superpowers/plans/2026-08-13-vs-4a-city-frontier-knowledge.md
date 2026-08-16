@@ -358,7 +358,14 @@ Both store ports above live in `src/application/city-data-contracts.ts`; SQLite 
 
 - [ ] **Step 1: Write store/install RED tests**
 
-Cover out-of-band official catalog capture/seal/publication, full considered-universe reconstruction with omitted-threshold/top-up and re-signed population tamper, Start-visible latest Registry/catalog without HTTP, distinct-city roots, exact retry, same-projection successor, known-to-unknown, stale completed check rejection, simultaneous identical publication, simultaneous distinct publication forming one linear chain, and no revision for fatal outcomes.
+Cover out-of-band official catalog capture/seal/publication, full considered-universe reconstruction
+with omitted mandatory-capital/selected-population-fill rows and re-signed population tamper, exact
+99/100/101 member boundary, `NEEDS_CONTEXT` with zero publication for more than 100 mandatory capitals,
+historical `city-catalog@1` load/replay, rejection and zero new rows for `appendVerified(@1)`,
+Start-visible latest @2 Registry/catalog without HTTP, distinct-city
+roots, exact retry, same-projection successor, known-to-unknown, stale completed check rejection,
+simultaneous identical publication, simultaneous distinct publication forming one linear chain, and no
+revision for fatal outcomes.
 
 - [ ] **Step 2: Run RED**
 
@@ -373,7 +380,17 @@ Cover out-of-band official catalog capture/seal/publication, full considered-uni
 
 - [ ] **Step 4: Implement immediate publication and the administrative installer**
 
-Catalog installer is an explicit CLI/eval use case, never a browser route and never called by City Start. `CityCatalogStore.loadVerified` replays the exact sealed catalog artifacts through the pinned package parser without HTTP, compares the full Registry/population projection and only then reconstructs membership. Knowledge publication loads verified City Evidence inside `BEGIN IMMEDIATE`, reconstructs the complete safety ledger and accepted/reviewed URL lineage, resolves the current head, rebuilds the full revision with injected integrity, rejects a check not newer than the head, inserts, reloads and verifies the complete predecessor chain.
+Catalog installer is an explicit CLI/eval use case, never a browser route and never called by City
+Start. It must prove a source plan for every member of the at-most-100 catalog, while a particular
+frontier run may check only ten. `CityCatalogNeedsContextError` becomes package status `NEEDS_CONTEXT`
+and inserts no Registry/catalog rows. `appendVerified` and the installer accept only
+`city-catalog@2`; an @1 publication request is `city_catalog_upgrade_required` and writes nothing.
+`CityCatalogStore.loadVerified` still replays an already persisted historical @1 row, or the exact
+sealed @2 catalog artifacts, through the rules-version-pinned package parser without HTTP, compares
+the full Registry/population projection and only then reconstructs membership. Knowledge publication loads verified City Evidence
+inside `BEGIN IMMEDIATE`, reconstructs the complete safety ledger and accepted/reviewed URL lineage,
+resolves the current head, rebuilds the full revision with injected integrity, rejects a check not
+newer than the head, inserts, reloads and verifies the complete predecessor chain.
 
 - [ ] **Step 5: Run GREEN and commit**
 
