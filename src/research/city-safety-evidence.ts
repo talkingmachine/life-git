@@ -829,10 +829,10 @@ function decodeCandidateEnvelope(
     "denominator_zero", "denominator_period_mismatch", "denominator_scope_mismatch", "conflict",
   ].includes(reason);
   const untrustedInitial = reason === "authority_untrusted" && publisher === undefined;
-  const untrustedPublication = reason === "authority_untrusted" && reviewed !== undefined;
+  const untrustedPublication = reason === "authority_untrusted" && publisher !== undefined;
   if (untrustedInitial && (trace.edges.length !== 0 || trace.lastTrustedUrl !== undefined ||
       reviewed !== undefined || value.artifactRefs instanceof Array && value.artifactRefs.length !== 0) ||
-    untrustedPublication && reviewed.dataAuthorityId === directory.requiredPublisherIds.police ||
+    untrustedPublication && (reviewed === undefined || reviewed.dataAuthorityId === directory.requiredPublisherIds.police) ||
     reason !== "authority_untrusted" && reviewed !== undefined &&
       reviewed.dataAuthorityId !== directory.requiredPublisherIds.police ||
     semantic && reviewed === undefined || semantic && reviewed?.resolvedEvidenceUrl !== trace.lastTrustedUrl ||

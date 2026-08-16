@@ -729,6 +729,8 @@ async function validateInspection(
     }
     const trace = sanitizeTrace(inspection.detail.officialTrace, candidate, publisher);
     if (CAPTURE_REASONS.has(reason) !== (trace.failure !== undefined) ||
+      reason === "authority_untrusted" && publisher !== undefined && (reviewed === undefined ||
+        reviewed.dataAuthorityId === directory.requiredPublisherIds.police) ||
       semantic && reviewed?.dataAuthorityId !== directory.requiredPublisherIds.police ||
       semantic && reviewed?.resolvedEvidenceUrl !== trace.lastTrustedUrl ||
       ["stale", "denominator_missing", "denominator_zero", "denominator_period_mismatch",

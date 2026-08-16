@@ -927,6 +927,22 @@ describe("city-safety lineage, projection and immutability", () => {
       .toThrow("integrity_mismatch");
   });
 
+  test("rejects trusted authority-untrusted capture without reviewed publication provenance", () => {
+    // Break caught: configured publisher context is accepted as if its authority were unresolved.
+    const fixture = buildContext();
+    const forged = mutableClone(trustedExternalAuthorityLedger(fixture));
+    const candidate = forged.candidates[0];
+    if (candidate?.disposition !== "rejected" || candidate.reviewedOfficial === undefined) {
+      throw new Error("expected trusted publication fixture");
+    }
+    delete candidate.reviewedOfficial;
+
+    expect(() => reconstructCitySafetyAttemptLedger(forged, fixture.reconstruction))
+      .toThrow("integrity_mismatch");
+    expect(() => projectCitySafetyEvidenceLinks(forged, fixture.reconstruction))
+      .toThrow("integrity_mismatch");
+  });
+
   test("rejects an extra field in caller-verified previous lineage", () => {
     // Break caught: caller verification becomes permission to smuggle an unbound lineage field.
     const fixture = previousPreferredFixture();

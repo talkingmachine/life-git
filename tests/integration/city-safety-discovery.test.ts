@@ -571,6 +571,35 @@ describe("runCitySafetyDiscovery", () => {
     })).rejects.toThrow("invalid_city_safety_inspection");
   });
 
+  test("rejects trusted authority-untrusted capture without reviewed publication provenance", async () => {
+    // Break caught: a configured trusted publisher is mislabeled as an unresolved initial authority.
+    const context = buildContext();
+    const officialDocuments: CitySafetyOfficialDocumentPort = {
+      inspect: async (candidate) => ({
+        kind: "rejected",
+        detail: {
+          officialTrace: {
+            initialUrl: candidate.candidateUrl,
+            edges: [],
+            lastTrustedUrl: candidate.candidateUrl,
+            officialHops: 0,
+            failure: { captureKind: "navigation_mismatch" },
+          },
+          artifactRefs: [],
+          disposition: "rejected",
+          reason: "authority_untrusted",
+        },
+        artifacts: [],
+      }),
+    };
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      officialDocuments,
+      search: { search: async () => ({ kind: "completed", providerId: "provider-a", urls: [] }) },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
   test("rejects a semantic conclusion whose unreviewed edge leaves the configured publisher", async () => {
     // Break caught: omitting reviewedOfficial bypasses publisher-policy validation for trusted edges.
     const context = buildContext();
