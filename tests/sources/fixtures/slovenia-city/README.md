@@ -4,15 +4,17 @@ These fixtures support the fail-closed source audit in
 `docs/changes/active/vs-4a-city-frontier/source-field-map.md`. They do not install a production
 city package and do not turn an unavailable criterion into a verified fact.
 
-Every source directory distinguishes five classes explicitly:
+Every source directory distinguishes six classes explicitly:
 
 - `official`: exact or newline-normalized public authority bytes;
 - `normalized-official`: an official payload with a declared encoding, formatting or field-only
   normalization; its raw transport hash is retained separately;
 - `redacted-derived`: a projection or aggregate computed from captured official bytes, with the
   raw artifact hash retained in the manifest;
-- `synthetic`: invented boundary rows containing no real case, person, address or property ID.
-- `generated-request`: a deterministic public API request body, containing no source observation.
+- `synthetic`: invented boundary rows containing no real case, person, address or property ID;
+- `generated-request`: a deterministic public API request body, containing no source observation;
+- `unavailable_projection`: a fail-closed status/provenance contract that explicitly contains no
+  captured official result and cannot be published as a fact.
 
 Large archives, geometries, addresses, free-text notes, case descriptions, person rows and source
 credentials are intentionally excluded. Source URLs, capture dates, raw artifact hashes and

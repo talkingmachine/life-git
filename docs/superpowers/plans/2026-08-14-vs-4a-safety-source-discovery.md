@@ -154,10 +154,12 @@ export function buildCitySafetyQueries(
   entry: CitySafetySourcePlanEntry,
   directory: OfficialAuthorityDirectory,
   assessmentAt: string,
+  catalog: CityCatalogRevision,
+  integrity: CityDecisionIntegrity,
 ): readonly [string, string, string];
 ```
 
-`slovenia-municipal-safety-query@1` always emits the first two queries for newest completed year `Y-1`: `site:<municipalityHost> "<municipalityName>" policija "kazniva dejanja" <Y-1>` and `site:policija.si "<municipalityName>" "kazniva dejanja" <Y-1>`. The third query is `"<cityName>" "<municipalityName>" policija poročilo <year>` where `<year>` is `Y-2` from January through June and `Y-1` from July through December. Thus preferred discovery remains first while the bounded plan can still discover an eligible fallback before July. Names/host are the first canonical values in the sealed entry/directory; escaping quotes/backslashes is deterministic and tested. No user-derived token is accepted by this function.
+`slovenia-municipal-safety-query@1` always emits the first two queries for newest completed year `Y-1`: `site:<municipalityHost> "<municipalityName>" policija "kazniva dejanja" <Y-1>` and `site:policija.si "<municipalityName>" "kazniva dejanja" <Y-1>`. The third query is `"<cityName>" "<municipalityName>" policija poročilo <year>` where `<year>` is `Y-2` from January through June and `Y-1` from July through December. Thus preferred discovery remains first while the bounded plan can still discover an eligible fallback before July. The function first reconstructs the directory against the exact catalog and injected integrity capability; there is no structural-only query path. Names/host are the first canonical values in the sealed entry/directory; escaping quotes/backslashes is deterministic and tested. No user-derived token is accepted by this function.
 
 The authority directory is the versioned source of truth for `settlementCode`, both official-name arrays, municipality code, publisher, and host. Every source-plan entry must be canonically equal to those directory fields; callers cannot introduce a second crosswalk. Stable IDs use the exact prefixes `official-authority-directory:` and `city-safety-source-plan:` followed by the injected hash of their canonical payload. URLs are credential-free HTTPS with a lowercase hostname, no wildcard, fragment, explicit/default port, or trailing-dot hostname; canonical paths preserve `/` only when it is the origin root.
 

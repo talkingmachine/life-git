@@ -22,7 +22,47 @@ function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
+function nestedKeys(value: unknown): readonly string[] {
+  if (Array.isArray(value)) return value.flatMap(nestedKeys);
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, child]) => [key, ...nestedKeys(child)]);
+}
+
+function normalizedPrivacyKey(value: string): string {
+  return value.replaceAll(/[-_\s]/g, "").toLowerCase();
+}
+
+const FORBIDDEN_JSON_KEYS = new Set([
+  "address", "firstname", "lastname", "fullname", "personname",
+  "personid", "personidentifier", "victim", "suspect", "caseid", "caseidentifier",
+  "offenceid", "eventid", "eventdescription", "location", "locationdescription",
+  "snippet", "title", "searchsnippet", "searchtitle", "searchresult", "searchresults",
+  "searchdescription", "searchtext", "resulttitle", "resulttext", "resultdescription",
+  "resultsummary", "htmlsnippet", "htmltitle", "displaylink", "formattedurl", "pagemap",
+]);
+const ALLOWED_CSV_FIXTURES = new Set([
+  "police-kd2023.header.csv",
+  "police-kd2023.synthetic-projection.csv",
+]);
+
 describe("Slovenia city-safety source readiness fixtures", () => {
+  test.each([
+    "firstName", "last_name", "full-name", "person name", "offenceId", "event_id",
+    "eventDescription", "location", "location_description", "caseIdentifier", "personIdentifier",
+  ])("recognizes nested private/search row key %s after normalization", (privateKey) => {
+    // Break caught: normalized personal/event/location identifiers evade the recursive JSON gate.
+    const nested = { envelope: [{ payload: { [privateKey]: "forbidden" } }] };
+    expect(nestedKeys(nested).map(normalizedPrivacyKey).some((key) => FORBIDDEN_JSON_KEYS.has(key)))
+      .toBe(true);
+  });
+
+  test("documents all six fixture classes including unavailable projections", () => {
+    // Break caught: unavailable projections are omitted from the fixture taxonomy and mistaken for observations.
+    const readme = readFileSync(`${FIXTURE_ROOT}README.md`, "utf8");
+    expect(readme).toContain("six classes explicitly");
+    expect(readme).toContain("`unavailable_projection`");
+  });
+
   test("stays candidate-only without a hash-bound current catalog-member positive", () => {
     // Break caught: source readiness is promoted from route discovery without official fact bytes/result.
     const manifest = readJson("manifest.json");
@@ -101,12 +141,16 @@ describe("Slovenia city-safety source readiness fixtures", () => {
     // Break caught: raw reports, search text, or identifiable offence rows enter repository fixtures.
     const safetyFiles = filesBelow(SAFETY_ROOT);
     expect(safetyFiles.some((name) => /\.(?:pdf|html?|zip)$/i.test(name))).toBe(false);
-    const forbiddenKey = /"(?:address|person_?id|victim|suspect|case_?id|searchSnippet)"\s*:/i;
     for (const name of safetyFiles.filter((item) => item.endsWith(".json"))) {
-      expect(readFileSync(`${SAFETY_ROOT}${name}`, "utf8")).not.toMatch(forbiddenKey);
+      const value = readJson(name);
+      expect(nestedKeys(value).map(normalizedPrivacyKey).filter((key) => FORBIDDEN_JSON_KEYS.has(key)))
+        .toEqual([]);
     }
-    const syntheticRows = readFileSync(`${SAFETY_ROOT}police-kd2023.synthetic-projection.csv`, "utf8")
-      .trim().split("\n").slice(1);
-    expect(syntheticRows.every((row) => row.startsWith("SYN-"))).toBe(true);
+    for (const name of safetyFiles.filter((item) => item.endsWith(".csv"))) {
+      expect(ALLOWED_CSV_FIXTURES.has(name)).toBe(true);
+      const rows = readFileSync(`${SAFETY_ROOT}${name}`, "utf8").trim().split("\n");
+      if (name === "police-kd2023.header.csv") expect(rows).toHaveLength(1);
+      else expect(rows.slice(1).every((row) => row.startsWith("SYN-"))).toBe(true);
+    }
   });
 });

@@ -112,6 +112,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isDenseArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(value, index)) return false;
+  }
+  return true;
+}
+
 function hasExactKeys(value: object, expected: readonly string[]): boolean {
   const actual = Object.keys(value).sort(ordinalOrder);
   const canonicalExpected = [...expected].sort(ordinalOrder);
@@ -160,14 +168,14 @@ function normalizeStringSet(
   error: string,
   options: { readonly allowEmpty?: boolean; readonly validate?: (item: string) => boolean } = {},
 ): readonly string[] {
-  if (!Array.isArray(value) || (!options.allowEmpty && value.length === 0) ||
+  if (!isDenseArray(value) || (!options.allowEmpty && value.length === 0) ||
     !value.every(isNonEmptyString) || new Set(value).size !== value.length ||
     (options.validate !== undefined && !value.every(options.validate))) throw new Error(error);
   return [...value].sort(ordinalOrder);
 }
 
 function normalizeOrderedNames(value: unknown): readonly string[] {
-  if (!Array.isArray(value) || value.length === 0 || !value.every((name) =>
+  if (!isDenseArray(value) || value.length === 0 || !value.every((name): name is string =>
     isNonEmptyString(name) && name.trim() === name && !/[\u0000-\u001f\u007f]/.test(name)) ||
     new Set(value).size !== value.length) throw new Error("invalid_official_municipality");
   return [...value];
@@ -194,7 +202,8 @@ function containsForbiddenEncoding(value: string): boolean {
 }
 
 function parseCanonicalHttpsUrl(value: unknown, error: string): URL {
-  if (!isNonEmptyString(value) || value.trim() !== value || /[\u0000-\u001f\u007f]/.test(value) ||
+  if (!isNonEmptyString(value) || value.trim() !== value || value.includes("#") ||
+    /[\u0000-\u001f\u007f]/.test(value) ||
     containsForbiddenEncoding(value)) throw new Error(error);
   try {
     const parsed = new URL(value);
@@ -277,7 +286,7 @@ function normalizeDirectoryPayload(value: unknown): Omit<OfficialAuthorityDirect
   if (!isRecord(value) || !hasExactKeys(value, DIRECTORY_KEYS) ||
     value.schemaVersion !== "official-authority-directory@1" || value.countryCode !== "SI" ||
     !isNonEmptyString(value.catalogRevisionId) || value.rulesVersion !== "slovenia-official-authorities@1" ||
-    !Array.isArray(value.publishers) || !Array.isArray(value.municipalities)) {
+    !isDenseArray(value.publishers) || !isDenseArray(value.municipalities)) {
     throw new Error("invalid_official_authority_directory");
   }
   const requiredPublisherIds = normalizeRequiredPublisherIds(value.requiredPublisherIds);
@@ -330,10 +339,10 @@ function directoryId(
 
 function assertCatalogContext(catalog: CityCatalogRevision): readonly string[] {
   if (!isRecord(catalog) || catalog.schemaVersion !== "city-catalog@1" || catalog.countryCode !== "SI" ||
-    !isNonEmptyString(catalog.id) || !Array.isArray(catalog.members)) throw new Error("invalid_city_catalog");
+    !isNonEmptyString(catalog.id) || !isDenseArray(catalog.members)) throw new Error("invalid_city_catalog");
   const memberIds = catalog.members.map((member) => {
     if (!isRecord(member) || !hasExactKeys(member, ["cityId", "inclusionReasons"]) ||
-      !isIdentifier(member.cityId) || !Array.isArray(member.inclusionReasons)) throw new Error("invalid_city_catalog");
+      !isIdentifier(member.cityId) || !isDenseArray(member.inclusionReasons)) throw new Error("invalid_city_catalog");
     return member.cityId;
   });
   if (memberIds.length === 0 || new Set(memberIds).size !== memberIds.length ||
@@ -442,7 +451,7 @@ function normalizeEntry(
     directory.requiredPublisherIds.surs,
   ];
   if (!requiredEntryPublisherIds.every((publisherId) => publisherIds.includes(publisherId)) ||
-    !Array.isArray(value.configuredRoutes)) throw new Error("invalid_city_safety_source_entry");
+    !isDenseArray(value.configuredRoutes)) throw new Error("invalid_city_safety_source_entry");
   const configuredRoutes = value.configuredRoutes.map((route) =>
     normalizeRoute(route, publishersById, publisherIds));
   const routeKeys = configuredRoutes.map((route) => JSON.stringify(route));
@@ -459,7 +468,7 @@ function normalizeEntry(
 }
 
 function sameOrderedStrings(value: unknown, expected: readonly string[]): boolean {
-  return Array.isArray(value) && value.length === expected.length &&
+  return isDenseArray(value) && value.length === expected.length &&
     value.every((item, index) => item === expected[index]);
 }
 
@@ -468,7 +477,7 @@ function normalizeEntries(
   catalog: CityCatalogRevision,
   directory: OfficialAuthorityDirectory,
 ): readonly CitySafetySourcePlanEntry[] {
-  if (!Array.isArray(value)) throw new Error("invalid_city_safety_source_plan");
+  if (!isDenseArray(value)) throw new Error("invalid_city_safety_source_plan");
   const entries = value.map((item) => normalizeEntry(item, directory))
     .sort((left, right) => ordinalOrder(left.cityId, right.cityId));
   const memberIds = assertCatalogContext(catalog);
@@ -564,19 +573,14 @@ export function buildCitySafetyQueries(
   entry: CitySafetySourcePlanEntry,
   directory: OfficialAuthorityDirectory,
   assessmentAt: string,
+  catalog: CityCatalogRevision,
+  integrity: CityDecisionIntegrity,
 ): readonly [string, string, string] {
   assertCanonicalInstant(assessmentAt);
-  if (!isRecord(directory) || !hasExactKeys(directory, ["id", ...DIRECTORY_KEYS]) ||
-    !isNonEmptyString(directory.id)) throw new Error("invalid_official_authority_directory");
-  const normalizedDirectory = normalizeDirectoryPayload(Object.fromEntries(
-    DIRECTORY_KEYS.map((key) => [key, directory[key]]),
-  ));
-  if (!sameSimpleValue({ ...normalizedDirectory, id: directory.id }, directory)) {
-    throw new Error("invalid_official_authority_directory");
-  }
-  const normalizedEntry = normalizeEntry(entry, directory);
+  const trustedDirectory = reconstructOfficialAuthorityDirectory(directory, catalog, integrity);
+  const normalizedEntry = normalizeEntry(entry, trustedDirectory);
   if (!sameSimpleValue(normalizedEntry, entry)) throw new Error("invalid_city_safety_source_entry");
-  const municipality = directory.municipalities.find(({ cityId }) => cityId === entry.cityId)!;
+  const municipality = trustedDirectory.municipalities.find(({ cityId }) => cityId === entry.cityId)!;
   const assessment = new Date(assessmentAt);
   const preferredYear = assessment.getUTCFullYear() - 1;
   const fallbackQueryYear = assessment.getUTCMonth() < 6 ? preferredYear - 1 : preferredYear;

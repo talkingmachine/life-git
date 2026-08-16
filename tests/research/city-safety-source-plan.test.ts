@@ -177,6 +177,12 @@ function buildPlan(cityCatalog = catalog(), directory = builtDirectory(cityCatal
   }, INTEGRITY);
 }
 
+function withTrailingHole<T>(values: readonly T[]): T[] {
+  const sparse = new Array<T>(values.length + 1);
+  values.forEach((value, index) => { sparse[index] = value; });
+  return sparse;
+}
+
 describe("official city-safety authority directory", () => {
   test("canonicalizes set-like fields while preserving ordered names and seals an immutable stable ID", () => {
     // Break caught: caller order changes an ID, canonical names lose priority, or sealed policy remains mutable.
@@ -253,10 +259,35 @@ describe("official city-safety authority directory", () => {
     for (const value of invalid) expect(() => buildOfficialAuthorityDirectory(value, INTEGRITY)).toThrow();
   });
 
+  test("rejects sparse arrays at every directory boundary", () => {
+    // Break caught: Array.every/map skip holes, allowing undefined policy/name values into a sealed hash payload.
+    const base = directoryInput();
+    const sparseNames = new Array<string>(2);
+    sparseNames[0] = "City A";
+    const invalid: readonly Omit<OfficialAuthorityDirectory, "id">[] = [
+      { ...base, publishers: withTrailingHole(base.publishers) },
+      { ...base, municipalities: withTrailingHole(base.municipalities) },
+      {
+        ...base,
+        publishers: base.publishers.map((item) => item.publisherId === "si-police"
+          ? { ...item, allowedHosts: withTrailingHole(item.allowedHosts) }
+          : item),
+      },
+      {
+        ...base,
+        municipalities: base.municipalities.map((item) => item.cityId === "city-a"
+          ? { ...item, officialCityNames: sparseNames }
+          : item),
+      },
+    ];
+    for (const value of invalid) expect(() => buildOfficialAuthorityDirectory(value, INTEGRITY)).toThrow();
+  });
+
   test.each([
     "http://www.policija.si/path",
     "https://user:secret@www.policija.si/path",
     "https://www.policija.si/path#fragment",
+    "https://www.policija.si/path#",
     "https://*.policija.si/path",
     "https://WWW.POLICIJA.SI/path",
     "https://www.policija.si./path",
@@ -335,6 +366,29 @@ describe("city safety source plan", () => {
     }
   });
 
+  test("rejects sparse entries, publisher IDs, and configured routes", () => {
+    // Break caught: sparse source-plan arrays bypass membership and route validation through skipped callbacks.
+    const cityCatalog = catalog();
+    const directory = builtDirectory(cityCatalog);
+    const entries = directory.municipalities.map(entry);
+    const sparseEntries = new Array<CitySafetySourcePlanEntry>(entries.length);
+    sparseEntries[0] = entries[0]!;
+    const sparsePublisherIds = withTrailingHole(entries[0]!.publisherIds);
+    const sparseRoutes = withTrailingHole(entries[0]!.configuredRoutes);
+    const invalid: readonly (readonly CitySafetySourcePlanEntry[])[] = [
+      sparseEntries,
+      entries.map((item, index) => index === 0 ? { ...item, publisherIds: sparsePublisherIds } : item),
+      entries.map((item, index) => index === 0 ? { ...item, configuredRoutes: sparseRoutes } : item),
+    ];
+    for (const candidateEntries of invalid) {
+      expect(() => buildCitySafetySourcePlan({
+        catalog: cityCatalog,
+        directory,
+        entries: candidateEntries,
+      }, INTEGRITY)).toThrow();
+    }
+  });
+
   test("binds every configured navigation and resolved document URL to its declared publisher", () => {
     // Break caught: a route smuggles an unapproved host or uses another publisher's delegation.
     const cityCatalog = catalog();
@@ -346,6 +400,8 @@ describe("city safety source plan", () => {
       { ...entries[0]!.configuredRoutes[0]!, navigationUrl: "https://evil.example/porocila" },
       { ...entries[0]!.configuredRoutes[0]!, resolvedEvidenceUrl: "https://evil.example/report.pdf" },
       { ...entries[0]!.configuredRoutes[0]!, navigationUrl: "https://a.example.si/porocila#result" },
+      { ...entries[0]!.configuredRoutes[0]!, navigationUrl: "https://a.example.si/porocila#" },
+      { ...entries[0]!.configuredRoutes[0]!, resolvedEvidenceUrl: "https://docs.a.example.si/report.pdf#" },
       { ...entries[0]!.configuredRoutes[0]!, unexpected: true },
     ];
     for (const route of invalidRoutes) {
@@ -396,26 +452,77 @@ describe("city safety source plan", () => {
       "site:a.example.si \"Municipality \\\\ \\\"A\\\"\" policija \"kazniva dejanja\" 2025",
       "site:policija.si \"Municipality \\\\ \\\"A\\\"\" \"kazniva dejanja\" 2025",
     ];
-    expect(buildCitySafetyQueries(sourceEntry, directory, "2026-01-01T00:00:00.000Z"))
+    expect(buildCitySafetyQueries(sourceEntry, directory, "2026-01-01T00:00:00.000Z", cityCatalog, INTEGRITY))
       .toEqual([...expectedPreferred, "\"Ci\\\\ty \\\"A\\\"\" \"Municipality \\\\ \\\"A\\\"\" policija poročilo 2024"]);
-    expect(buildCitySafetyQueries(sourceEntry, directory, "2026-06-30T23:59:59.999Z"))
+    expect(buildCitySafetyQueries(sourceEntry, directory, "2026-06-30T23:59:59.999Z", cityCatalog, INTEGRITY))
       .toEqual([...expectedPreferred, "\"Ci\\\\ty \\\"A\\\"\" \"Municipality \\\\ \\\"A\\\"\" policija poročilo 2024"]);
-    expect(buildCitySafetyQueries(sourceEntry, directory, "2026-07-01T00:00:00.000Z"))
+    expect(buildCitySafetyQueries(sourceEntry, directory, "2026-07-01T00:00:00.000Z", cityCatalog, INTEGRITY))
       .toEqual([...expectedPreferred, "\"Ci\\\\ty \\\"A\\\"\" \"Municipality \\\\ \\\"A\\\"\" policija poročilo 2025"]);
-    expect(buildCitySafetyQueries(sourceEntry, directory, "2026-12-31T23:59:59.999Z"))
+    expect(buildCitySafetyQueries(sourceEntry, directory, "2026-12-31T23:59:59.999Z", cityCatalog, INTEGRITY))
       .toEqual([...expectedPreferred, "\"Ci\\\\ty \\\"A\\\"\" \"Municipality \\\\ \\\"A\\\"\" policija poročilo 2025"]);
+  });
+
+  test("rejects forged structurally valid directory names and host even with a plausible arbitrary ID", () => {
+    // Break caught: query text trusts a caller-built directory without reconstructing its catalog-bound hash.
+    const cityCatalog = catalog();
+    const directory = builtDirectory(cityCatalog);
+    const municipalityPolicy = directory.municipalities[0]!;
+    const forgedDirectory: OfficialAuthorityDirectory = {
+      ...directory,
+      id: "official-authority-directory:forged",
+      publishers: directory.publishers.map((policy) => policy.publisherId === municipalityPolicy.publisherId
+        ? {
+            ...policy,
+            navigationUrl: "https://forged.example.si/",
+            allowedHosts: ["forged.example.si"],
+            delegatedDocumentHosts: [],
+          }
+        : policy),
+      municipalities: directory.municipalities.map((policy) => policy.cityId === municipalityPolicy.cityId
+        ? {
+            ...policy,
+            officialCityNames: ["Forged City"],
+            officialMunicipalityNames: ["Forged Municipality"],
+            officialHost: "forged.example.si",
+          }
+        : policy),
+    };
+    const forgedEntry: CitySafetySourcePlanEntry = {
+      ...entry(forgedDirectory.municipalities[0]!),
+      configuredRoutes: [
+        {
+          publisherId: municipalityPolicy.publisherId,
+          navigationUrl: "https://forged.example.si/reports",
+        },
+        {
+          publisherId: "si-police",
+          navigationUrl: "https://www.policija.si/o-slovenski-policiji/statistika/kriminaliteta",
+        },
+      ],
+    };
+
+    expect(() => buildCitySafetyQueries(
+      forgedEntry,
+      forgedDirectory,
+      "2026-08-14T12:00:00.000Z",
+      cityCatalog,
+      INTEGRITY,
+    )).toThrow("integrity_mismatch");
   });
 
   test("rejects forged query identities and non-canonical assessment instants", () => {
     // Break caught: query text can be influenced by a caller-owned name/host or ambiguous local time.
-    const directory = builtDirectory();
+    const cityCatalog = catalog();
+    const directory = builtDirectory(cityCatalog);
     const sourceEntry = entry(directory.municipalities[0]!);
     expect(() => buildCitySafetyQueries(
       { ...sourceEntry, officialMunicipalityNames: ["Injected"] },
       directory,
       "2026-08-14T12:00:00.000Z",
+      cityCatalog,
+      INTEGRITY,
     )).toThrow("invalid_city_safety_source_entry");
-    expect(() => buildCitySafetyQueries(sourceEntry, directory, "2026-08-14"))
+    expect(() => buildCitySafetyQueries(sourceEntry, directory, "2026-08-14", cityCatalog, INTEGRITY))
       .toThrow("invalid_assessment_at");
   });
 });
