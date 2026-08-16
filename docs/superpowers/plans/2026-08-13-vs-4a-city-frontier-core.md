@@ -401,6 +401,7 @@ git commit -m "feat: persist city frontier"
 - Create: `src/application/city-frontier.ts`
 - Create: `src/infrastructure/city-verifier-adapter.ts`
 - Create: `src/infrastructure/city-frontier-composition.ts`
+- Create: `src/infrastructure/sources/slovenia-city-source-adapter.ts`
 - Create: `tests/integration/city-frontier.test.ts`
 - Modify: `src/infrastructure/composition-root.ts`
 
@@ -438,6 +439,14 @@ verified selection/branch history after reload. A legacy-only @1 package must fa
 `city_catalog_upgrade_required` before ranking, source calls or durable Start rows; historical Present
 may still replay a run whose frozen catalog is @1.
 
+Add the package-readiness preflight ahead of any database, source or ranking port. For the current SI
+candidate, both Setup and Start fail `city_package_not_ready` with all four readiness issues and zero
+installed-lookup/database/source/ranking calls. `city_package_not_installed` is distinct and applies
+only when pure readiness returns a `CityResearchPackageReadyCandidate` and the subsequent
+`InstalledCityPackageLookupPort.findReady(countryCode)` result is absent; never accept a slash-form
+alternative. Use only a local synthetic ready candidate plus a separate matching synthetic installed
+package for positive Start/Continue integration tests.
+
 - [ ] **Step 2: Run RED**
 
 ```bash
@@ -446,7 +455,19 @@ may still replay a run whose frozen catalog is @1.
 
 - [ ] **Step 3: Implement Start and graph verification**
 
-Setup and Start both call the existing country guard first. They load and verify both exact profile IDs from its frozen source binding; Setup derives defaults from those snapshots only. Start revalidates the entry/draft and both profile IDs, loads Registry/catalog/current Knowledge and ranks outside SQLite; then one Application-owned `publishStart` port uses a single immediate transaction to exact-replay or insert Criteria, pre-city parent, Ranking and frontier root atomically. Presentation reconstructs Registry identity, both profile bindings, every exact source and selection/branch history without network.
+Setup and Start first call pure `getCityResearchPackageAvailability(countryCode)` and
+`assertCityPackageReady` without touching a port. An existing but unready candidate throws
+`city_package_not_ready`; only the returned `CityResearchPackageReadyCandidate` proceeds to
+`InstalledCityPackageLookupPort.findReady(countryCode)`, where absence throws
+`city_package_not_installed`. Require the installed value to repeat the ready candidate's exact
+definition/source-contract/readiness fields. For a matching ready installed package, both then call
+the existing country guard before any other use-case work. They load and verify both
+exact profile IDs from its frozen source binding; Setup derives defaults from those snapshots only.
+Start revalidates the entry/draft and both profile IDs, loads Registry/catalog/current Knowledge and
+ranks outside SQLite; then one Application-owned `publishStart` port uses a single immediate
+transaction to exact-replay or insert Criteria, pre-city parent, Ranking and frontier root atomically.
+Presentation reconstructs Registry identity, both profile bindings, every exact source and
+selection/branch history without network.
 
 - [ ] **Step 4: Add Continue RED matrix**
 
@@ -461,26 +482,58 @@ raw-seal and delete-transient artifact handoffs, known-to-unknown without carry-
 Evidence-sealed/Knowledge-missing recovery, Knowledge-published/frontier-missing recovery, exactly one
 final `city_continuation_completed` for both working and terminal results, canonical callback/return
 equality, emit throw after commit, stale/idempotent commands, and two concurrent identical Continues
-sharing one source execution.
+sharing one source execution. For the three fixed runs, use counted installed value/period validators,
+an injected Application clock and a fake Infrastructure deadline scheduler; assert every exact
+capability reaches `CityFixedSourceRunInput`. Make one route port never settle and prove the scheduler
+aborts/rejects the shared operation with zero Evidence, Knowledge, marker or budget advancement and
+no late output.
 
 - [ ] **Step 5: Implement present-first Continue ordering**
 
 For the active frozen city: reconstruct the head and reject Continue before any source call when it is
-terminal or already has ten markers; check abort; load completed check by deterministic ID;
+terminal or already has ten markers; check abort; load the completed check by deterministic ID;
 replay/publish missing Knowledge; otherwise use one composition-scoped promise keyed by
-`cityCheckRunId` so concurrent identical commands share the same bounded four-fact research call. The
-Research package supplies the verified safety source plan/directory; Application invokes
-`runCitySafetyDiscovery` with public city/year/criterion terms and injected search/document ports.
-Merge its exact sealable artifacts with the three fixed-source captures, seal generic Evidence plus
-the attempt ledger overlay, publish all four Knowledge facts, evaluate criteria, append one
+`cityCheckRunId` so concurrent identical commands share the same bounded four-fact research call.
+Infrastructure composition repeats the same two-stage boundary: pure availability/readiness first,
+then the inward `InstalledCityPackageLookupPort.findReady(countryCode)`. It never treats the ready
+candidate itself as installed, and it rejects a returned package whose package ID/schema/evidence
+rules do not equal the frontier run's frozen package context. The installed package supplies only its
+exact immutable per-member
+`CityFixedSourcePlan` values and safety plan; it never constructs or imports an adapter.
+`city-frontier-composition.ts` separately constructs
+`slovenia-city-source-adapter.ts` as the Infrastructure implementation of `CityFixedRoutePort` and
+constructs the Infrastructure `CityFixedDeadlineScheduler` over the real timer primitive. It injects
+both ports into Application; Application owns/injects the canonical clock and derives each absolute
+deadline. For every fixed run, Application passes `now` from that clock,
+`deadlineScheduler` from Infrastructure, exact `validateValue: installed.validateValue`, and exact
+`validateSourcePeriod: installed.validateSourcePeriod` into `CityFixedSourceRunInput`. Run the three
+strict fixed plans independently through `runCityFixedSourcePlan`; neither Research nor the source
+adapter reads `Date`, creates a timer or chooses a validator. Application invokes
+`runCitySafetyDiscovery` separately with the installed safety plan/directory, public
+city/year/criterion terms and injected search/document ports, then converts its Research-owned replay
+ledger through the pure safety terminal adapter using the same reconstructed plan/directory and
+`cityCheckRunId`, including deterministic official fallback lineage for a zero-candidate unknown.
+
+Call `composeTerminalEvidenceEntries` with the canonical four-source order, the three fixed terminal
+entries and the safety terminal entry. The fixed runner entries already contain the ordered union of
+every route artifact, including rejected prefixes. Call `sealEvidencePlan` exactly once on the
+composed four entries. Then build `CityEvidenceSealInput.artifacts` as the exact complete live
+artifact union in the sealed generic manifest's order from all three fixed results plus the safety
+discovery artifacts, with no missing/extra/duplicate artifact. Pass that array, the already signed
+generic bundle, all three fixed ledgers and the safety ledger to the City store, which atomically
+persists the bytes, generic bundle and overlay without resealing. Publish all four Knowledge facts, evaluate criteria, append one
 green/yellow/red marker successor, derive the exact three-way terminal reason, emit the committed
 marker, construct the verified working-or-terminal read model, emit exactly one
-`city_continuation_completed`, then return the canonically identical model.
+`city_continuation_completed`, then return the canonically identical model. Abort/deadline,
+malformed source output and every fixed operation failure publish no Evidence/Knowledge and advance
+no cursor or city budget; they never become unknown.
 `city-frontier-composition.ts` constructs the provider-neutral search port exactly as Task S2
 specifies: valid config uses
 `createCitySafetySearchPort({step:createHttpCitySafetySearchStep(config, request), providerId:config.providerId})`;
 missing config uses `createUnconfiguredCitySafetySearchPort()`, stays explicitly unconfigured and
-may close `source_unavailable` after configured official routes are exhausted; it does not invalidate an otherwise complete installed plan. An emit failure after append never rolls back the revision. Clear
+may close `source_unavailable` after configured official routes are exhausted; it does not invalidate an otherwise complete installed plan. Current SI never reaches this path while its candidate is unready.
+Recovery reuses the one already sealed generic four-source bundle and overlay without network or a
+second seal. An emit failure after append never rolls back the revision. Clear
 the single-flight entry in `finally`; never hold SQLite across HTTP/search or add a lease table.
 
 - [ ] **Step 6: Run GREEN and commit**
@@ -493,11 +546,14 @@ the single-flight entry in `finally`; never hold SQLite across HTTP/search or ad
 ./node_modules/.bin/tsc --noEmit
 ./node_modules/.bin/eslint src/application/city-{frontier,verifier}.ts \
   src/infrastructure/city-{frontier-composition,verifier-adapter}.ts \
+  src/infrastructure/sources/slovenia-city-source-adapter.ts \
   tests/integration/city-frontier.test.ts
 git diff --check
 git add src/application/city-frontier.ts src/application/city-verifier.ts \
   src/infrastructure/city-frontier-composition.ts \
-  src/infrastructure/city-verifier-adapter.ts src/infrastructure/composition-root.ts \
+  src/infrastructure/city-verifier-adapter.ts \
+  src/infrastructure/sources/slovenia-city-source-adapter.ts \
+  src/infrastructure/composition-root.ts \
   tests/integration/city-frontier.test.ts
 git commit -m "feat: run city frontier"
 ```
