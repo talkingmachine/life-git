@@ -40,12 +40,146 @@ const FORBIDDEN_JSON_KEYS = new Set([
   "searchdescription", "searchtext", "resulttitle", "resulttext", "resultdescription",
   "resultsummary", "htmlsnippet", "htmltitle", "displaylink", "formattedurl", "pagemap",
 ]);
+
+function keyVocabulary(value: string): ReadonlySet<string> {
+  return new Set(value.split(" "));
+}
+
+const ALLOWED_JSON_KEYS_BY_FIXTURE: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["discovery-validator-vectors.synthetic.json", keyVocabulary([
+    "dataauthority definitionid documentmunicipalitycode documentmunicipalitycodes",
+    "expecteddisposition expectedmunicipalitycode expectedreason fixtureclass id offencecount",
+    "population populationreferenceyear privacy publisher quantitykind referenceyear schemaversion vectors",
+  ].join(" "))],
+  ["manifest.json", keyVocabulary([
+    "archivetimestamp areacrosswalk assessmentdate authoritativeness authority blockingreason bytes cadence",
+    "captured capturedate committed coverage discoveryvalidatorvectors.synthetic.json disposition",
+    "distinctoffenses example expectedperiod failure fallbackreferenceyear fixtureclasses freshness",
+    "installationauthorized installedauthoritydirectoryid installedsourceplanid knowngeodistinctoffenses",
+    "member membersha256 method municipalbroadscope.expected.json nationwidecontext navigationurls",
+    "newestofficiallylistedperiod originalurl policekd2023.expectedaggregate.json policekd2023.header.csv",
+    "policekd2023.syntheticprojection.csv preferredreferenceyear privacy projectionfixture rawartifacts",
+    "rawrequestsha256 rawresponsesha256 rawsha256 referenceperiod requestfixture resolvedretrievalurl",
+    "responsefixture resultstatusfixture retrievalmirror role rows rulesversion schemaversion sha256 sourceid",
+    "status surs05c3002s2023h1.request.json surs05c3002s2023h1.response.json",
+    "sursmunicipalitypopulation.expected.json sursmunicipalitypopulation.request.json syntheticexpectation",
+    "unknownadministrativeunitsentinels unknowngeodistinctoffenses url verifiedcatalogmemberpositive",
+  ].join(" "))],
+  ["municipal-broad-scope.expected.json", keyVocabulary([
+    "coveredmunicipalitycodes coveredmunicipalitynames dataauthorityclaim disposition fixtureclass",
+    "municipalitycode navigationurl proofboundary publishable publisher rawartifactcommitted rawsha256",
+    "rejectionreason resolvedevidenceurl schemaversion settlementcode sourcereadiness",
+  ].join(" "))],
+  ["police-kd2023.expected-aggregate.json", keyVocabulary([
+    "crosswalkauthority crosswalkmethod distinctoffenses geoscope policelabel publishable referenceperiod",
+    "selectedunits sourceclass surscode totaldistinctoffenses unknowngeodistinctoffenses",
+  ].join(" "))],
+  ["surs-05C3002S-2023H1.request.json", keyVocabulary(
+    "code filter format query response selection values",
+  )],
+  ["surs-05C3002S-2023H1.response.json", keyVocabulary([
+    "0 17 2023h1 24 64 category class decimals dimension extension id index label polletje px role show size",
+    "source spol starost time updated upravnaenota value version",
+  ].join(" "))],
+  ["surs-municipality-population.expected.json", keyVocabulary([
+    "fixtureclass geography period proofboundary publishable rawresponsecaptured rawresponsesha256",
+    "referencedate requestfixture requiredresultcontract schemaversion source sourcetable status unit value",
+  ].join(" "))],
+  ["surs-municipality-population.request.json", keyVocabulary([
+    "code endpoint filter fixtureclass format provenanceboundary query referencedate request",
+    "requestedmunicipalitycodes requeststatus response schemaversion selection sourcetable values",
+  ].join(" "))],
+]);
 const ALLOWED_CSV_FIXTURES = new Set([
   "police-kd2023.header.csv",
   "police-kd2023.synthetic-projection.csv",
 ]);
+const ALLOWED_SAFETY_FIXTURES = new Set([
+  ...ALLOWED_JSON_KEYS_BY_FIXTURE.keys(),
+  ...ALLOWED_CSV_FIXTURES,
+]);
+
+interface FixtureTreeFile {
+  readonly name: string;
+  readonly text: string;
+}
+
+function assertPrivacySafeFixtureTree(files: readonly FixtureTreeFile[]): void {
+  const names = files.map(({ name }) => name);
+  const unexpectedNames = names.filter((name) => !ALLOWED_SAFETY_FIXTURES.has(name));
+  const missingNames = [...ALLOWED_SAFETY_FIXTURES].filter((name) => !names.includes(name));
+  if (unexpectedNames.length > 0 || missingNames.length > 0 || new Set(names).size !== names.length) {
+    throw new Error("unexpected_safety_fixture_tree");
+  }
+  for (const file of files) {
+    const allowedJsonKeys = ALLOWED_JSON_KEYS_BY_FIXTURE.get(file.name);
+    if (allowedJsonKeys !== undefined) {
+      const value: unknown = JSON.parse(file.text);
+      const keys = nestedKeys(value).map(normalizedPrivacyKey);
+      const forbiddenKeys = keys.filter((key) => FORBIDDEN_JSON_KEYS.has(key));
+      if (forbiddenKeys.length > 0) throw new Error(`private_json_key:${file.name}`);
+      const unexpectedKeys = keys.filter((key) => !allowedJsonKeys.has(key));
+      if (unexpectedKeys.length > 0) {
+        throw new Error(`unexpected_json_key:${file.name}:${unexpectedKeys[0]}`);
+      }
+    }
+    if (ALLOWED_CSV_FIXTURES.has(file.name)) {
+      const rows = file.text.trim().split("\n");
+      if (file.name === "police-kd2023.header.csv" && rows.length !== 1) {
+        throw new Error(`non_header_csv:${file.name}`);
+      }
+      if (file.name !== "police-kd2023.header.csv" &&
+        !rows.slice(1).every((row) => row.startsWith("SYN-"))) {
+        throw new Error(`non_synthetic_csv:${file.name}`);
+      }
+    }
+  }
+}
+
+function safetyFixtureTree(): readonly FixtureTreeFile[] {
+  return filesBelow(SAFETY_ROOT).map((name) => ({
+    name,
+    text: readFileSync(`${SAFETY_ROOT}${name}`, "utf8"),
+  }));
+}
+
+function augmentJsonFixture(
+  files: readonly FixtureTreeFile[],
+  name: string,
+  extra: Readonly<Record<string, unknown>>,
+): readonly FixtureTreeFile[] {
+  return files.map((file) => file.name === name
+    ? { ...file, text: JSON.stringify({ ...(JSON.parse(file.text) as object), ...extra }) }
+    : file);
+}
 
 describe("Slovenia city-safety source readiness fixtures", () => {
+  test.each(["raw.bin", "unknown.json", "notes.txt"])("rejects unknown safety fixture %s", (name) => {
+    // Break caught: an allowlist-free extension check permits raw or renamed source payloads.
+    expect(() => assertPrivacySafeFixtureTree([
+      ...safetyFixtureTree(),
+      { name, text: name.endsWith(".json") ? "{}" : "raw" },
+    ])).toThrow("unexpected_safety_fixture");
+  });
+
+  test("rejects person-shaped rows added inside an allowlisted JSON fixture", () => {
+    // Break caught: a filename allowlist alone permits new personal row-shaped schemas.
+    expect(() => assertPrivacySafeFixtureTree(augmentJsonFixture(
+      safetyFixtureTree(),
+      "manifest.json",
+      { persons: [{ id: "P-1", name: "Jane" }] },
+    ))).toThrow("unexpected_json_key");
+  });
+
+  test("rejects search-result rows added inside an allowlisted JSON fixture", () => {
+    // Break caught: generic item/link/description keys can smuggle search-result text under an allowed filename.
+    expect(() => assertPrivacySafeFixtureTree(augmentJsonFixture(
+      safetyFixtureTree(),
+      "manifest.json",
+      { items: [{ link: "https://example.invalid", description: "snippet" }] },
+    ))).toThrow("unexpected_json_key");
+  });
+
   test.each([
     "firstName", "last_name", "full-name", "person name", "offenceId", "event_id",
     "eventDescription", "location", "location_description", "caseIdentifier", "personIdentifier",
@@ -139,18 +273,6 @@ describe("Slovenia city-safety source readiness fixtures", () => {
 
   test("recursively excludes raw documents, sensitive row keys, and non-synthetic CSV data", () => {
     // Break caught: raw reports, search text, or identifiable offence rows enter repository fixtures.
-    const safetyFiles = filesBelow(SAFETY_ROOT);
-    expect(safetyFiles.some((name) => /\.(?:pdf|html?|zip)$/i.test(name))).toBe(false);
-    for (const name of safetyFiles.filter((item) => item.endsWith(".json"))) {
-      const value = readJson(name);
-      expect(nestedKeys(value).map(normalizedPrivacyKey).filter((key) => FORBIDDEN_JSON_KEYS.has(key)))
-        .toEqual([]);
-    }
-    for (const name of safetyFiles.filter((item) => item.endsWith(".csv"))) {
-      expect(ALLOWED_CSV_FIXTURES.has(name)).toBe(true);
-      const rows = readFileSync(`${SAFETY_ROOT}${name}`, "utf8").trim().split("\n");
-      if (name === "police-kd2023.header.csv") expect(rows).toHaveLength(1);
-      else expect(rows.slice(1).every((row) => row.startsWith("SYN-"))).toBe(true);
-    }
+    expect(() => assertPrivacySafeFixtureTree(safetyFixtureTree())).not.toThrow();
   });
 });
