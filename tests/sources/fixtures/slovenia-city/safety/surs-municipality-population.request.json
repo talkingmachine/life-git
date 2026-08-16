@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "city-safety-surs-municipality-request@1",
+  "fixtureClass": "generated-request",
+  "sourceTable": "05C5003S",
+  "endpoint": "https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C5003S.px",
+  "referenceDate": "2025-01-01",
+  "requestedMunicipalityCodes": ["011", "041", "043", "050", "052", "061", "070", "085", "096", "133"],
+  "requestStatus": "not_executed_for_this_fixture",
+  "request": {
+    "query": [
+      {
+        "code": "OBČINA/NASELJE",
+        "selection": {
+          "filter": "item",
+          "values": ["011", "041", "043", "050", "052", "061", "070", "085", "096", "133"]
+        }
+      },
+      {
+        "code": "LETO",
+        "selection": {
+          "filter": "item",
+          "values": ["2025"]
+        }
+      },
+      {
+        "code": "MERITVE",
+        "selection": {
+          "filter": "item",
+          "values": ["0"]
+        }
+      }
+    ],
+    "response": {
+      "format": "json-stat2"
+    }
+  },
+  "provenanceBoundary": "This is a deterministic public request contract only. It was not sent for this fixture and carries no observed municipality population."
+}

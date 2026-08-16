@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "city-safety-discovery-validator-vectors@1",
+  "fixtureClass": "synthetic",
+  "definitionId": "si-municipal-police-offences-per-100000@1",
+  "vectors": [
+    {
+      "id": "synthetic-zero-numerator",
+      "dataAuthority": "police",
+      "publisher": "municipality",
+      "documentMunicipalityCode": "900",
+      "expectedMunicipalityCode": "900",
+      "referenceYear": 2025,
+      "offenceCount": "0",
+      "populationReferenceYear": 2025,
+      "population": "10000",
+      "expectedDisposition": "usable"
+    },
+    {
+      "id": "synthetic-broad-scope",
+      "dataAuthority": "police",
+      "publisher": "municipality",
+      "documentMunicipalityCodes": ["900", "901"],
+      "expectedMunicipalityCode": "900",
+      "referenceYear": 2025,
+      "offenceCount": "25",
+      "populationReferenceYear": 2025,
+      "population": "10000",
+      "expectedDisposition": "rejected",
+      "expectedReason": "scope_mismatch"
+    },
+    {
+      "id": "synthetic-missing-numerator",
+      "dataAuthority": "police",
+      "publisher": "municipality",
+      "documentMunicipalityCode": "900",
+      "expectedMunicipalityCode": "900",
+      "referenceYear": 2025,
+      "offenceCount": null,
+      "populationReferenceYear": 2025,
+      "population": "10000",
+      "expectedDisposition": "rejected",
+      "expectedReason": "missing_numerator"
+    },
+    {
+      "id": "synthetic-wrong-definition",
+      "dataAuthority": "police",
+      "publisher": "municipality",
+      "documentMunicipalityCode": "900",
+      "expectedMunicipalityCode": "900",
+      "referenceYear": 2025,
+      "quantityKind": "selected_categories_only",
+      "offenceCount": "25",
+      "populationReferenceYear": 2025,
+      "population": "10000",
+      "expectedDisposition": "rejected",
+      "expectedReason": "definition_mismatch"
+    },
+    {
+      "id": "synthetic-denominator-period-mismatch",
+      "dataAuthority": "police",
+      "publisher": "municipality",
+      "documentMunicipalityCode": "900",
+      "expectedMunicipalityCode": "900",
+      "referenceYear": 2025,
+      "offenceCount": "25",
+      "populationReferenceYear": 2024,
+      "population": "10000",
+      "expectedDisposition": "rejected",
+      "expectedReason": "denominator_period_mismatch"
+    },
+    {
+      "id": "synthetic-zero-denominator",
+      "dataAuthority": "police",
+      "publisher": "municipality",
+      "documentMunicipalityCode": "900",
+      "expectedMunicipalityCode": "900",
+      "referenceYear": 2025,
+      "offenceCount": "25",
+      "populationReferenceYear": 2025,
+      "population": "0",
+      "expectedDisposition": "rejected",
+      "expectedReason": "denominator_zero"
+    }
+  ],
+  "privacy": "All codes and quantities in this file are invented validator inputs and contain no real offence, location or individual row."
+}

@@ -4,14 +4,15 @@
 | --- | --- |
 | `packageStatus` | `unavailable` |
 | `decision` | `NEEDS_CONTEXT` |
-| `captureDate` | `2026-08-13..2026-08-14` |
-| `evidencePass` | `4` |
-| `fixtureCount` | `22` files including README, manifests and `SHA256SUMS` |
+| `captureDate` | `2026-08-13..2026-08-14`; candidate projections sealed 2026-08-16 |
+| `evidencePass` | `5` |
+| `fixtureCount` | `26` files including README, manifests and `SHA256SUMS` |
 | `scope` | Official-source feasibility and privacy-safe validator evidence only. No installed package, production source adapter, schema, crawler or fixture-backed success. |
 
 The bounded audit found trustworthy official alternatives and materially narrowed every row. It did
-not close one installable Slovenia package: the catalog is now reproducible, while current safety,
-comparable municipal urban transit, and the AKOS reference-period/reuse boundary remain unresolved.
+not close one installable Slovenia package: the catalog is reproducible and safety now has a closed
+official route-plan contract, while its installed plan/current exact positive, comparable municipal urban transit, and the
+AKOS reference-period/reuse boundary remain unresolved.
 A missing row must become evidence-backed `unknown`, never zero or a carried-forward value. Task 3
 must not start from these fixtures.
 
@@ -36,19 +37,19 @@ catalog revision can apply that override.
 
 ## Metric matrix
 
-### `safety` — historical algorithm reproducible; current fact unavailable
+### `safety` — official route-plan contract sealed; current exact fact still unavailable
 
-| Required field | Evidence pass 4 result |
+| Required field | Evidence pass 5 result |
 | --- | --- |
-| `authority` / `navigationUrl` | Slovenian Police open-data catalog and methodology: `https://www.policija.si/o-slovenski-policiji/statistika/kriminaliteta`; denominator from SURS `05C3002S`. |
-| `resolvedEvidenceUrl` / request | The official page lists `https://www.policija.si/baza/kd2024.zip`, but bounded direct attempts timed out before response bytes. A `kd2023.zip` copy came only from Internet Archive at `https://web.archive.org/web/20250430170053id_/https://www.policija.si/baza/kd2023.zip`; it is non-authoritative historical corroboration. SURS denominator uses the committed PxWeb request. |
-| `officialAreaIdentifier` | Police exposes the text label `UpravnaEnotaStoritve`; no official label-to-SURS-code crosswalk was found. The historical `KOPER` → `Koper/Capodistria` join is manual name inference. Scope is administrative unit, not settlement/city. |
-| `metricDefinition` | Distinct police-recorded offences whose concluding complaint/report document is in year Y, divided by SURS population of the same administrative unit at YH1, times 1,000. Count distinct `ZaporednaStevilkaKD`, not person rows. Sentinel areas `NEZNANA OBČ`, `NEZNANA UE`, `NI PODATKA` are excluded and lower coverage. |
-| `referencePeriod` / unit / denominator | Closing-document year `2023`; offences per 1,000 residents; SURS administrative-unit population at `2023H1`. Archived examples: Koper `32.499170494`, Ljubljana `50.667789935`, Maribor `29.967059810`. |
-| cadence / `freshness` | Police methodology says one prior-year export on the second weekend of February. As of 2026-08-14 the newest listed period is 2024, while 2025 was expected in February 2026: `expected_update_missing`. |
-| `validatorOutline` / bound | Bounded current official request plus at most one retry; validate media/encoding/closed header, deduplicate offence IDs, reject missing period/geo/authoritative crosswalk/denominator, seal SURS response, publish `unknown/source_unavailable_or_stale` if any term fails. Never treat a mirror as official live evidence. |
-| deterministic vectors / fixture | Synthetic duplicate-person/known/unknown-area rows; non-authoritative historical-mirror header `174006...5cb`; synthetic projection `db8f3f...57c9`; non-publishable historical aggregate `fa5e2b...b8285`; SURS request/response `8024b9...f828` / `ea8e16...bd3`. Raw mirrored ZIP/member hashes `788ee9...74f` / `4d4a57...021`. |
-| `blockingGap` | Three independent failures: newest listed official bytes unavailable; expected 2025 update missing; official Police-label-to-SURS-code crosswalk absent. Current result is `unknown`, not a 2023/2024 value. |
+| `authority` / `navigationUrl` | Police remains the required data authority; accepted publishers are Police or the official municipality bound by the sealed directory. SURS `05C5003S` is the denominator authority. Every future Police/GOV.SI/OPSI/SURS/municipality directory entry must carry closed HTTPS host/media/redirect/locator/retention policies; no installed directory is claimed by these fixtures. |
+| `resolvedEvidenceUrl` / request | Discovery tries the last accepted link, configured official routes, then three public-name queries. The reviewed Velenje document route is `https://www.velenje.si/app/uploads/2025/04/pp-s-prilogo.pdf`; its raw bytes/hash are not committed and its three-municipality scope is rejection-only. The generated SURS municipality request contract is not an observed response. |
+| `officialAreaIdentifier` | Six-digit catalog settlement code binds the city identity; the first three digits bind its exact SURS municipality. Official city/municipality name arrays and municipality publisher host come only from the versioned authority directory. A source-plan entry cannot introduce a second crosswalk. |
+| `metricDefinition` | Integer total Police-recorded offences explicitly for one exact municipality and complete calendar year, divided by positive SURS municipality population on 1 January of that same year, times 100,000. Police-district aggregates, convictions, selected categories, perceptions and offender-residence counts are non-comparable. |
+| `referencePeriod` / unit / denominator | No publishable current value is committed. The required unit is offences per 100,000 residents; numerator is a complete calendar year and denominator is the same-year SURS municipality population at 1 January. Historical administrative-unit examples remain non-publishable context. |
+| cadence / `freshness` | `municipal-annual-july-boundary@1`: `Y-1` is preferred; from January through June exact `Y-2` may be held as fallback while the full budget searches `Y-1`; from July onward `Y-2` is stale. |
+| `validatorOutline` / bound | Sequential `previous -> configured -> search`, at most `3 queries / 10 canonical candidates / 2 official hops`. Validate exact authority, publisher/redirect/media/retention, municipality, full-year integer total and same-year positive SURS denominator. Candidate failure continues; closed failure produces typed `unknown`, never a carried value. |
+| deterministic vectors / fixture | Candidate manifest plus unavailable broad-scope projection, generated SURS request/unavailable result status and six synthetic boundary vectors. The older administrative-unit fixtures remain clearly historical/non-publishable. No municipal raw PDF/HTML, search text or real offence/individual row is committed. |
+| `blockingGap` | No fresh exact-municipality positive for a current catalog member and no same-year exact municipality SURS result are hash-bound. Criterion status is `candidate_available_with_partial_official_coverage`, not `available`; package installation remains unauthorized. |
 
 ### `long_term_rent` — official definition and current municipality-year aggregate proven
 
@@ -94,7 +95,7 @@ catalog revision can apply that override.
 
 ```text
 official catalog source contract proven
-+ current safety unavailable/stale/crosswalk-unproved
++ safety route-plan contract candidate-only; installed plan/positive/denominator unbound
 + rent definition/aggregate proven
 + municipal urban-transit universe incomplete
 + broadband reference period/license unresolved
@@ -115,7 +116,8 @@ separately bind raw artifacts and transformations.
 - `fixture_unavailable`: no minimal hash-bound validator evidence exists.
 - `bounded_attempt_exhausted`: documented official attempt bound ended without closing the fact.
 
-Safest next evidence: an official current Police annual payload plus authoritative area crosswalk;
+Safest next evidence: a fresh official exact-municipality Police total for a catalog member plus the
+same-year exact SURS municipality denominator result;
 an approved NAP NeTEx feasibility capture (or another complete comparable municipal source); and
 AKOS reference-period/license clarification. Until then every affected fact is `unknown` and Task 3
 remains blocked.

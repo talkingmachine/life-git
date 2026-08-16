@@ -1,9 +1,13 @@
 {
   "schemaVersion": "slovenia-city-source-fixture@1",
   "sourceId": "si-city-safety",
-  "status": "current_fact_unavailable_expected_update_missing",
+  "status": "candidate_available_with_partial_official_coverage",
   "captureDate": "2026-08-14",
-  "authority": "Policija and Statistični urad Republike Slovenije",
+  "verifiedCatalogMemberPositive": null,
+  "installationAuthorized": false,
+  "installedAuthorityDirectoryId": null,
+  "installedSourcePlanId": null,
+  "authority": "Policija, official municipalities, and Statistični urad Republike Slovenije",
   "navigationUrls": [
     "https://www.policija.si/o-slovenski-policiji/statistika/kriminaliteta",
     "https://www.policija.si/o-slovenski-policiji/statistika/kriminaliteta/kriminaliteta-statistika-navodila",
@@ -38,6 +42,22 @@
       "responseFixture": "surs-05C3002S-2023H1.response.json",
       "rawRequestSha256": "c4c78c1b0713d37e4c536b799aa18eaecc20b7eab26b79774d3f698b2dcbc779",
       "rawResponseSha256": "65c4f9df598fb54c47d822a50b22a78dc730421b81d9a02453e1e92a0a2c92b3"
+    },
+    {
+      "role": "municipal-broad-scope-negative",
+      "url": "https://www.velenje.si/app/uploads/2025/04/pp-s-prilogo.pdf",
+      "projectionFixture": "municipal-broad-scope.expected.json",
+      "captured": false,
+      "rawSha256": null,
+      "disposition": "rejected_scope_mismatch"
+    },
+    {
+      "role": "same-year-municipality-denominator",
+      "url": "https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C5003S.px",
+      "requestFixture": "surs-municipality-population.request.json",
+      "resultStatusFixture": "surs-municipality-population.expected.json",
+      "captured": false,
+      "rawSha256": null
     }
   ],
   "fixtureClasses": {
@@ -45,7 +65,11 @@
     "police-kd2023.synthetic-projection.csv": "synthetic boundary rows; no official case or person data",
     "police-kd2023.expected-aggregate.json": "redacted derived non-publishable historical-mirror aggregate",
     "surs-05C3002S-2023H1.request.json": "generated deterministic request",
-    "surs-05C3002S-2023H1.response.json": "exact official public aggregate, newline added"
+    "surs-05C3002S-2023H1.response.json": "exact official public aggregate, newline added",
+    "municipal-broad-scope.expected.json": "unavailable projection; reviewed official route and fail-closed scope decision, without committed raw bytes",
+    "surs-municipality-population.request.json": "generated deterministic request contract; not executed for this fixture",
+    "surs-municipality-population.expected.json": "unavailable projection; explicitly contains no observed population result",
+    "discovery-validator-vectors.synthetic.json": "synthetic boundary inputs; no real offence or individual row"
   },
   "syntheticExpectation": {
     "rows": 6,
@@ -56,10 +80,17 @@
   },
   "unknownAdministrativeUnitSentinels": ["NEZNANA OBČ", "NEZNANA UE", "NI PODATKA"],
   "freshness": {
-    "newestOfficiallyListedPeriod": "2024",
-    "expectedPeriod": "2025",
-    "cadence": "one prior-year export on the second weekend of February",
-    "status": "expected_update_missing"
+    "rulesVersion": "municipal-annual-july-boundary@1",
+    "assessmentDate": "2026-08-14",
+    "preferredReferenceYear": 2025,
+    "fallbackReferenceYear": null,
+    "status": "no_eligible_exact_municipality_positive_bound",
+    "nationwideContext": {
+      "newestOfficiallyListedPeriod": "2024",
+      "expectedPeriod": "2025",
+      "cadence": "one prior-year export on the second weekend of February",
+      "status": "expected_update_missing"
+    }
   },
   "areaCrosswalk": {
     "authority": null,
@@ -68,5 +99,5 @@
     "example": "Police KOPER versus SURS Koper/Capodistria"
   },
   "privacy": "No real offense row, person row, case description, location description or case identifier is committed.",
-  "blockingReason": "The newest listed kd2024 bytes could not be captured, the expected 2025 update is missing, and no authoritative Police-label-to-SURS-code crosswalk was found. The archived mirror is historical corroboration only and cannot publish a verified safety fact."
+  "blockingReason": "The official municipal route cascade is now specified, but no fresh exact-municipality positive for a current catalog member and no same-year SURS municipality result are hash-bound in the repository. The criterion remains candidate-only; every unresolved live city check must publish unknown rather than reuse the historical administrative-unit aggregate."
 }

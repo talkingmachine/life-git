@@ -18,10 +18,13 @@ Large archives, geometries, addresses, free-text notes, case descriptions, perso
 credentials are intentionally excluded. Source URLs, capture dates, raw artifact hashes and
 transformations are recorded beside each fixture.
 
-The package remains `unavailable`: the official catalog source contract is now reproducible, but
-the current Police numerator was not captured and is overdue; AKOS does not expose a proven source
-reference period and its production reuse license is unproved; and the nationwide DUJPP feed alone
-cannot prove complete coverage of the approved municipal urban-transit definition.
+The package remains `unavailable`. Safety now has a closed contract for an official
+municipality/Police/SURS source plan and therefore reaches
+`candidate_available_with_partial_official_coverage`, but no installed plan, fresh exact
+catalog-member numerator or same-year municipality denominator result is hash-bound here. The new
+broad-scope and SURS files are explicitly unavailable projections or generated validator contracts,
+not verified facts. AKOS still lacks a proven source reference period/reuse license, and nationwide
+DUJPP alone cannot prove complete coverage of the municipal urban-transit definition.
 
 `SHA256SUMS` binds every committed fixture byte except itself. Each manifest separately records raw
 transport or source-artifact hashes and transformations, so normalized/derived bytes are never
