@@ -728,6 +728,51 @@ describe("city-safety trusted trace, artifacts and denominator", () => {
       .toThrow("integrity_mismatch");
   });
 
+  test("binds an extra retained navigation to the last trusted URL", async () => {
+    // Break caught: a fully captured page can be rebound after its confirmed next link is rejected.
+    const fixture = buildContext();
+    const officialDocuments = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({
+        artifact: capturedArtifact(
+          request.url.endsWith("safety") ? "navigation-first" : "navigation-extra",
+          request.url,
+        ),
+        redirectChain: [request.url],
+      }),
+      analyze: async ({ artifact }) => ({
+        kind: "navigate",
+        confirmedDocumentUrl: artifact.url.endsWith("safety")
+          ? "https://ljubljana.si/report.pdf"
+          : "https://mirror.example/rejected.pdf",
+      }),
+      loadPopulation: async () => { throw new Error("navigation rejection must suppress SURS"); },
+    });
+    const produced = await runCitySafetyDiscovery(discoveryInput(fixture), {
+      officialDocuments,
+      search: { search: async () => ({ kind: "completed", providerId: "provider-a", urls: [] }) },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+    const valid = mutableClone(produced.ledger);
+    const candidate = valid.candidates[0];
+    if (candidate?.disposition !== "rejected") throw new Error("expected rejected fixture");
+    expect(candidate.officialTrace.edges.filter(({ kind }) => kind === "confirmed_document_link"))
+      .toHaveLength(1);
+    expect(candidate.artifactRefs.filter((ref) => ref.role === "municipal_source" &&
+      ref.documentRole === "navigation")).toHaveLength(2);
+    expect(reconstructCitySafetyAttemptLedger(valid, fixture.reconstruction)).toEqual(valid);
+
+    const forged = mutableClone(valid);
+    const forgedCandidate = forged.candidates[0];
+    const extraNavigation = forgedCandidate?.artifactRefs[1];
+    if (forgedCandidate?.disposition !== "rejected" ||
+      extraNavigation?.role !== "municipal_source" || extraNavigation.documentRole !== "navigation") {
+      throw new Error("expected extra navigation fixture");
+    }
+    extraNavigation.locator = "https://ljubljana.si/other.pdf";
+    expect(() => reconstructCitySafetyAttemptLedger(forged, fixture.reconstruction))
+      .toThrow("integrity_mismatch");
+  });
+
   test.each([
     ["candidate extra field", (candidate: Record<string, unknown>) => { candidate.userCopy = "forbidden"; }],
     ["trace hop count", (candidate: Record<string, unknown>) => {

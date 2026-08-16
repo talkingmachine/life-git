@@ -655,13 +655,13 @@ function validateArtifactOrder(
   const navigation = refs.filter((ref) => ref.role === "municipal_source" && ref.documentRole === "navigation");
   const terminal = refs.filter((ref) => ref.role === "municipal_source" && ref.documentRole === "terminal_claim");
   const denominators = refs.filter((ref) => ref.role === "surs_denominator");
-  if (navigation.length < confirmedLinks.length || navigation.length > confirmedLinks.length +
-    (requiresTerminal ? 0 : 1) || navigation.some((ref, index) => index < confirmedLinks.length &&
+  if (navigation.length < confirmedLinks.length || navigation.length > confirmedLinks.length + (requiresTerminal ? 0 : 1) ||
+    navigation.some((ref, index) => index < confirmedLinks.length &&
       ref.locator !== confirmedLinks[index]!.fromUrl) || terminal.length !== (requiresTerminal ? 1 : 0) ||
+    navigation.length === confirmedLinks.length + 1 && navigation.at(-1)?.locator !== trace.lastTrustedUrl ||
     terminal[0] !== undefined && terminal[0].locator !== trace.lastTrustedUrl ||
     denominators.length !== (requiresDenominator ? 1 : 0)) mismatch();
-  const expected = [...navigation, ...terminal, ...denominators];
-  if (expected.some((ref, index) => ref !== refs[index])) mismatch();
+  if ([...navigation, ...terminal, ...denominators].some((ref, index) => ref !== refs[index])) mismatch();
 }
 
 function decodeReviewedOfficial(value: unknown): NonNullable<CitySafetyRejectedCandidateAttempt["reviewedOfficial"]> {
