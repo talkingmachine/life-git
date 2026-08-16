@@ -215,10 +215,11 @@ municipal PDF/HTML не коммитятся и не распространяю�
 
 ## 8. Source readiness и граница slice
 
-До hash-bound fresh positive exact-municipality fixture safety имеет статус
-`candidate_available_with_partial_official_coverage`. После такого fixture, negative broad-scope
-fixture, SURS denominator vector и trust/search-budget tests source contract готов закрывать city
-facts как `verified | unknown`; fresh positive value для каждого city не является prerequisite.
+Safety source-contract readiness требует complete deterministic per-member contract и validator
+vectors, доказывающих оба terminal пути: `verified` и bounded `unknown`, включая negative
+broad-scope, SURS denominator и trust/search-budget cases. Hash-bound fresh positive
+exact-municipality observation не является prerequisite; ни для одного city fresh positive value не
+обязателен для readiness.
 
 Это criterion-level status. Для artifact installability требуются sealed `city-catalog@2` и complete
 deterministic plans для всех четырёх facts; unknown для части catalog cities допустим и не блокирует

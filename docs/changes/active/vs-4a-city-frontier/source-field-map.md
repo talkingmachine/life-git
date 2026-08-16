@@ -17,10 +17,11 @@ complete source contract deterministically closes one city fact as `verified | u
 official attempts; it does not require a current positive value for every city. The fresh
 `city-catalog@2` 100-member summary, all 104 Registry point-on-surface projections and selected-member
 per-fact source-plan artifacts are not sealed. The legacy ten-member catalog and candidate-only safety
-fixtures are not those artifacts and must never be relabelled as them. A missing row becomes
-evidence-backed `unknown`, never zero or a carried-forward value. Artifact installability remains
-blocked by the unsealed artifacts; current fixtures do not administratively install or publish a
-Slovenia package.
+fixtures are not those artifacts and must never be relabelled as them. Only a missing comparable value
+after its complete bounded official-attempt plan finishes becomes evidence-backed `unknown`, never
+zero or a carried-forward value. A missing or malformed plan-policy/artifact row is not a domain
+unknown; it blocks artifact installability and publication. Current fixtures do not administratively
+install or publish a Slovenia package.
 
 ## Catalog matrix
 
