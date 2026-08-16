@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,7 +46,10 @@ const INTEGRITY: CityDecisionIntegrity = {
   hash(value) { return `hash:${value}`; },
 };
 
-function buildContext(): {
+function buildContext(
+  retentionMode: "seal_raw_artifact" | "seal_hash_locator_then_delete_transient" =
+  "seal_raw_artifact",
+): {
   readonly catalog: CityCatalogRevision;
   readonly directory: OfficialAuthorityDirectory;
   readonly plan: CitySafetySourcePlan;
@@ -97,7 +101,7 @@ function buildContext(): {
     redirectPolicyVersion: "official-chain@1" as const,
     documentLocatorPolicyId: `${publisherId}-locator@1`,
     retentionPolicyId: `${publisherId}-retention@1`,
-    retentionMode: "seal_hash_locator_then_delete_transient" as const,
+    retentionMode,
   });
   const directory = buildOfficialAuthorityDirectory({
     schemaVersion: "official-authority-directory@1",
@@ -143,14 +147,15 @@ function buildContext(): {
 
 function artifact(id: string, url: string): LiveCapturedArtifact<"si-city-safety"> {
   const bytes = new TextEncoder().encode(id);
+  const digest = createHash("sha256").update(bytes).digest("hex");
   return {
     artifactId: id,
     runId: "run-1",
     sourceId: "si-city-safety",
     role: id.startsWith("surs") ? "surs_denominator" : "municipal_source",
     url,
-    mediaType: "application/json",
-    sha256: `${id}-sha`,
+    mediaType: "application/pdf",
+    sha256: digest,
     bytes,
     origin: "live",
     capturedAt: "2026-03-01T12:00:00.000Z",
@@ -165,7 +170,8 @@ function usable(
   referenceYear: number,
   quantity: CitySafetyQuantity,
 ): CitySafetyCandidateInspection {
-  const municipal = artifact(`municipal-${referenceYear}-${quantity.offenceCount}`, input.candidateUrl);
+  const urlTag = createHash("sha256").update(input.candidateUrl).digest("hex").slice(0, 8);
+  const municipal = artifact(`municipal-${referenceYear}-${quantity.offenceCount}-${urlTag}`, input.candidateUrl);
   const denominator = artifact(`surs-${referenceYear}-${quantity.population}`, "https://pxweb.stat.si/population");
   return {
     kind: "usable",
@@ -182,7 +188,7 @@ function usable(
       },
       mediaType: "application/pdf",
       retentionPolicyId: `${input.publisherContext?.publisherId ?? "police"}-retention@1`,
-      transientRawDeleted: true,
+      transientRawDeleted: false,
       artifactRefs: [
         {
           role: "municipal_source",
@@ -212,7 +218,7 @@ function usable(
         artifactId: denominator.artifactId,
         mediaType: denominator.mediaType,
         retentionPolicyId: "surs-retention@1",
-        transientRawDeleted: true,
+        transientRawDeleted: false,
       },
     },
     artifacts: [municipal, denominator],
@@ -233,6 +239,25 @@ function input(context = buildContext()) {
 }
 
 describe("runCitySafetyDiscovery", () => {
+  function missingAt(candidate: CitySafetyCandidateInspectionInput): CitySafetyCandidateInspection {
+    return {
+      kind: "rejected",
+      detail: {
+        officialTrace: {
+          initialUrl: candidate.candidateUrl,
+          edges: [],
+          lastTrustedUrl: candidate.candidateUrl,
+          officialHops: 0,
+          failure: { captureKind: "http_error", responseStatus: 404, responseUrl: candidate.candidateUrl },
+        },
+        artifactRefs: [],
+        disposition: "rejected",
+        reason: "http_not_found",
+      },
+      artifacts: [],
+    };
+  }
+
   test("stops before search when configured inspection returns preferred Y-1", async () => {
     // Break caught: bounded discovery spends queries after an exact preferred official result is closed.
     const context = buildContext();
@@ -407,10 +432,435 @@ describe("runCitySafetyDiscovery", () => {
       clock: () => new Date("2026-03-01T12:00:00.000Z"),
     })).rejects.toThrow("invalid_city_safety_inspection");
   });
+
+  test.each([
+    ["extra detail key", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      detail: { ...inspection.detail, unexpected: true },
+    })],
+    ["extra trace key", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      detail: {
+        ...inspection.detail,
+        officialTrace: { ...inspection.detail.officialTrace, unexpected: true },
+      },
+    })],
+    ["failure on usable detail", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      detail: {
+        ...inspection.detail,
+        officialTrace: {
+          ...inspection.detail.officialTrace,
+          failure: { captureKind: "http_error" },
+        },
+      },
+    })],
+    ["extra artifact key", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      artifacts: inspection.artifacts.map((item, index) => index === 0
+        ? { ...item, unexpected: true }
+        : item),
+    })],
+    ["forged live artifact role", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      artifacts: inspection.artifacts.map((item, index) => index === 1
+        ? { ...item, role: "municipal_source" }
+        : item),
+    })],
+    ["forged reference source hash", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      detail: {
+        ...inspection.detail,
+        artifactRefs: inspection.detail.artifactRefs.map((ref, index) => index === 0
+          ? { ...ref, sourceSha256: "forged-source-sha" }
+          : ref),
+      },
+    })],
+    ["mutated bytes under unchanged artifact hash", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      artifacts: inspection.artifacts.map((item, index) => index === 0
+        ? { ...item, bytes: new TextEncoder().encode("mutated-after-hash") }
+        : item),
+    })],
+    ["extra denominator key", (inspection: CitySafetyCandidateInspection) => inspection.kind === "usable"
+      ? { ...inspection, detail: {
+          ...inspection.detail,
+          denominator: { ...inspection.detail.denominator, unexpected: true },
+        } }
+      : inspection],
+    ["forged detail media type", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      detail: { ...inspection.detail, mediaType: "text/html" },
+    })],
+    ["extra quantity key", (inspection: CitySafetyCandidateInspection) => inspection.kind === "usable"
+      ? { ...inspection, detail: {
+          ...inspection.detail,
+          quantity: { ...inspection.detail.quantity, unexpected: true },
+        } }
+      : inspection],
+    ["forged denominator response provenance", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      artifacts: inspection.artifacts.map((item, index) => index === 1
+        ? { ...item, responseUrl: "https://mirror.example/population" }
+        : item),
+    })],
+    ["missing terminal artifact and reference", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      artifacts: inspection.artifacts.slice(1),
+      detail: { ...inspection.detail, artifactRefs: inspection.detail.artifactRefs.slice(1) },
+    })],
+    ["reversed terminal and denominator order", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      artifacts: [...inspection.artifacts].reverse(),
+      detail: { ...inspection.detail, artifactRefs: [...inspection.detail.artifactRefs].reverse() },
+    })],
+    ["duplicate artifact identity", (inspection: CitySafetyCandidateInspection) => ({
+      ...inspection,
+      artifacts: [...inspection.artifacts, inspection.artifacts[0]!],
+      detail: { ...inspection.detail, artifactRefs: [...inspection.detail.artifactRefs, inspection.detail.artifactRefs[0]!] },
+    })],
+  ] as const)("fails closed for usable inspection with %s", async (_name, mutate) => {
+    // Break caught: an outer adapter-controlled field crosses into the immutable ledger unsanitized.
+    const context = buildContext();
+    const officialDocuments: CitySafetyOfficialDocumentPort = {
+      inspect: async (candidate) => mutate(usable(candidate, 2025, {
+        offenceCount: "1200",
+        population: "300000",
+        rateBasis: "offences_per_100000_residents",
+      })) as CitySafetyCandidateInspection,
+    };
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: { search: vi.fn() },
+      officialDocuments,
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("rejects a semantic conclusion without reviewed official provenance", async () => {
+    // Break caught: terminal semantic data is accepted without a closed publisher/Police review context.
+    const context = buildContext();
+    const officialDocuments: CitySafetyOfficialDocumentPort = {
+      inspect: async (candidate) => {
+        const base = usable(candidate, 2025, {
+          offenceCount: "1200",
+          population: "300000",
+          rateBasis: "offences_per_100000_residents",
+        });
+        if (base.kind !== "usable") throw new Error("expected usable fixture");
+        return {
+          kind: "rejected",
+          detail: {
+            officialTrace: base.detail.officialTrace,
+            mediaType: base.detail.mediaType,
+            retentionPolicyId: base.detail.retentionPolicyId,
+            transientRawDeleted: base.detail.transientRawDeleted,
+            artifactRefs: [base.detail.artifactRefs[0]!],
+            disposition: "rejected",
+            reason: "scope_mismatch",
+          },
+          artifacts: [base.artifacts[0]!],
+        };
+      },
+    };
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: { search: vi.fn() },
+      officialDocuments,
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("rejects a semantic conclusion whose unreviewed edge leaves the configured publisher", async () => {
+    // Break caught: omitting reviewedOfficial bypasses publisher-policy validation for trusted edges.
+    const context = buildContext();
+    const terminal = artifact("semantic-terminal", "https://mirror.example/report.pdf");
+    const officialDocuments: CitySafetyOfficialDocumentPort = {
+      inspect: async (candidate) => ({
+        kind: "rejected",
+        detail: {
+          officialTrace: {
+            initialUrl: candidate.candidateUrl,
+            edges: [{
+              kind: "confirmed_document_link",
+              fromUrl: candidate.candidateUrl,
+              toUrl: terminal.url,
+            }],
+            lastTrustedUrl: terminal.url,
+            officialHops: 1,
+          },
+          mediaType: "application/pdf",
+          retentionPolicyId: "municipality-ljubljana-retention@1",
+          transientRawDeleted: true,
+          artifactRefs: [{
+            role: "municipal_source",
+            documentRole: "terminal_claim",
+            artifactId: terminal.artifactId,
+            artifactSha256: terminal.sha256,
+            sourceSha256: terminal.sha256,
+            locator: terminal.url,
+          }],
+          disposition: "rejected",
+          reason: "scope_mismatch",
+        },
+        artifacts: [terminal],
+      }),
+    };
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: { search: vi.fn() },
+      officialDocuments,
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("rejects malformed internal conflict quantities and denominator provenance", async () => {
+    // Break caught: an unsorted/duplicate conflict basis becomes replay-significant ledger truth.
+    const context = buildContext();
+    const officialDocuments: CitySafetyOfficialDocumentPort = {
+      inspect: async (candidate) => {
+        const base = usable(candidate, 2025, {
+          offenceCount: "1200",
+          population: "300000",
+          rateBasis: "offences_per_100000_residents",
+        });
+        if (base.kind !== "usable") throw new Error("expected usable fixture");
+        return {
+          kind: "rejected",
+          detail: {
+            officialTrace: base.detail.officialTrace,
+            reviewedOfficial: {
+              publisherId: base.detail.publisherId,
+              dataAuthorityId: "police",
+              publisherNavigationUrl: base.detail.publisherNavigationUrl,
+              resolvedEvidenceUrl: base.detail.resolvedEvidenceUrl,
+              referenceYear: 2025,
+            },
+            mediaType: base.detail.mediaType,
+            retentionPolicyId: base.detail.retentionPolicyId,
+            transientRawDeleted: base.detail.transientRawDeleted,
+            artifactRefs: base.detail.artifactRefs,
+            disposition: "rejected",
+            reason: "conflict",
+            conflictBasis: {
+              referenceYear: 2025,
+              quantities: [base.detail.quantity, base.detail.quantity],
+              denominator: { ...base.detail.denominator, artifactId: "forged-denominator" },
+            },
+          },
+          artifacts: base.artifacts,
+        };
+      },
+    };
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: { search: vi.fn() },
+      officialDocuments,
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("rejects a canonically rehashed retained projection with forged city and outcome", async () => {
+    // Break caught: projection envelope provenance is valid, but its semantic payload is not bound to the attempt.
+    const context = buildContext("seal_hash_locator_then_delete_transient");
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({
+        artifact: artifact("projection-terminal-source", request.url),
+        redirectChain: [request.url],
+      }),
+      analyze: async () => ({
+        kind: "terminal",
+        dataAuthorityId: "police",
+        municipalityCodes: ["061"],
+        definitionId: "si-municipal-police-offences-per-100000@1",
+        referenceYear: 2025,
+        offenceCounts: ["1200"],
+      }),
+      loadPopulation: async ({ runId, referenceYear }) => ({
+        kind: "captured",
+        publisherId: "surs",
+        municipalityCode: "061",
+        referenceDate: `${referenceYear}-01-01`,
+        population: "300000",
+        artifact: { ...artifact("projection-surs-source", "https://pxweb.stat.si/population"), runId },
+      }),
+    });
+    const officialDocuments: CitySafetyOfficialDocumentPort = {
+      inspect: async (candidate) => {
+        const inspected = await adapter.inspect(candidate);
+        if (inspected.kind !== "usable") return inspected;
+        const projection = JSON.parse(new TextDecoder().decode(inspected.artifacts[0]!.bytes)) as Record<string, unknown>;
+        projection.cityId = "forged-city";
+        projection.outcome = { kind: "rejected", basis: { kind: "missing_numerator" } };
+        const bytes = new TextEncoder().encode(INTEGRITY.canonical(projection));
+        const digest = createHash("sha256").update(bytes).digest("hex");
+        return {
+          ...inspected,
+          artifacts: inspected.artifacts.map((item, index) => index === 0
+            ? { ...item, bytes, sha256: digest, artifactId: `forged:${digest}` }
+            : item),
+          detail: {
+            ...inspected.detail,
+            artifactRefs: inspected.detail.artifactRefs.map((ref, index) => index === 0
+              ? { ...ref, artifactId: `forged:${digest}`, artifactSha256: digest }
+              : ref),
+          },
+        };
+      },
+    };
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: { search: vi.fn() },
+      officialDocuments,
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("accepts a bound retained navigation projection before an untrusted confirmed link", async () => {
+    const context = buildContext("seal_hash_locator_then_delete_transient");
+    const officialDocuments = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({
+        artifact: artifact("application-rejected-navigation", request.url),
+        redirectChain: [request.url],
+      }),
+      analyze: async () => ({ kind: "navigate", confirmedDocumentUrl: "https://mirror.example/report.pdf" }),
+      loadPopulation: async () => ({ kind: "missing" }),
+    });
+
+    const result = await runCitySafetyDiscovery(input(context), {
+      officialDocuments,
+      search: {
+        search: async () => ({
+          kind: "unavailable",
+          providerId: "provider-a",
+          reason: "provider_unavailable",
+        }),
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(result.ledger.candidates[0]).toEqual(expect.objectContaining({
+      disposition: "rejected",
+      reason: "untrusted_redirect",
+      artifactRefs: [expect.objectContaining({ documentRole: "navigation" })],
+    }));
+  });
+
+  test("closes the exact three-query, ten-candidate and two-hop budgets sequentially", async () => {
+    const context = buildContext();
+    const inspected: CitySafetyCandidateInspectionInput[] = [];
+    const limits: number[] = [];
+    let query = 0;
+    const result = await runCitySafetyDiscovery(input(context), {
+      officialDocuments: {
+        inspect: async (candidate) => {
+          inspected.push(candidate);
+          return missingAt(candidate);
+        },
+      },
+      search: {
+        search: async ({ resultLimit }) => {
+          limits.push(resultLimit);
+          query += 1;
+          return {
+            kind: "completed",
+            providerId: "provider-a",
+            urls: Array.from({ length: 3 }, (_item, index) =>
+              `https://policija.si/query-${query}-${index}.pdf`),
+          };
+        },
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(result.ledger.counters).toEqual({ queries: 3, candidates: 10, maxOfficialHops: 0 });
+    expect(limits).toEqual([9, 6, 3]);
+    expect(inspected).toHaveLength(10);
+    expect(inspected.every(({ officialHopLimit }) => officialHopLimit === 2)).toBe(true);
+  });
+
+  test.each([
+    { name: "compatible", laterCount: "1100", expected: "verified" },
+    { name: "conflicting", laterCount: "1200", expected: "unknown" },
+  ] as const)("keeps exact $name same-year fallback claims and deduplicates the SURS artifact", async (scenario) => {
+    const context = buildContext();
+    let inspection = 0;
+    let query = 0;
+    const result = await runCitySafetyDiscovery(input(context), {
+      officialDocuments: {
+        inspect: async (candidate) => {
+          inspection += 1;
+          return usable(candidate, 2024, {
+            offenceCount: inspection === 1 ? "1100" : scenario.laterCount,
+            population: "299000",
+            rateBasis: "offences_per_100000_residents",
+          });
+        },
+      },
+      search: {
+        search: async () => ({
+          kind: "completed",
+          providerId: "provider-a",
+          urls: query++ === 0 ? ["https://policija.si/fallback.pdf"] : [],
+        }),
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(result.ledger.result.kind).toBe(scenario.expected);
+    if (scenario.expected === "unknown") {
+      expect(result.ledger.result).toEqual({ kind: "unknown", reason: "conflict" });
+    }
+    expect(result.ledger.candidates.filter(({ disposition }) => disposition === "usable")).toHaveLength(2);
+    expect(result.artifacts.filter(({ role }) => role === "surs_denominator")).toHaveLength(1);
+  });
+
+  test("aborts when a repeated artifact identity carries divergent valid bytes and provenance", async () => {
+    const context = buildContext();
+    let inspection = 0;
+    let query = 0;
+    await expect(runCitySafetyDiscovery(input(context), {
+      officialDocuments: {
+        inspect: async (candidate) => {
+          inspection += 1;
+          const base = usable(candidate, 2024, {
+            offenceCount: "1100",
+            population: "299000",
+            rateBasis: "offences_per_100000_residents",
+          });
+          if (inspection === 1 || base.kind !== "usable") return base;
+          const bytes = new TextEncoder().encode("divergent-surs-bytes");
+          const digest = createHash("sha256").update(bytes).digest("hex");
+          return {
+            ...base,
+            artifacts: base.artifacts.map((item) => item.role === "surs_denominator"
+              ? { ...item, bytes, sha256: digest }
+              : item),
+            detail: {
+              ...base.detail,
+              artifactRefs: base.detail.artifactRefs.map((ref) => ref.role === "surs_denominator"
+                ? { ...ref, artifactSha256: digest, sourceSha256: digest }
+                : ref),
+            },
+          };
+        },
+      },
+      search: {
+        search: async () => ({
+          kind: "completed",
+          providerId: "provider-a",
+          urls: query++ === 0 ? ["https://policija.si/fallback.pdf"] : [],
+        }),
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("city_safety_artifact_conflict");
+  });
 });
 
 describe("Slovenia city-safety official adapter", () => {
-  function inspectionInput(context = buildContext()): CitySafetyCandidateInspectionInput {
+  function inspectionInput(
+    context = buildContext("seal_hash_locator_then_delete_transient"),
+  ): CitySafetyCandidateInspectionInput {
     return {
       runId: "run-1",
       cityId: "ljubljana",
@@ -529,6 +979,122 @@ describe("Slovenia city-safety official adapter", () => {
     expect(loadPopulation).not.toHaveBeenCalled();
   });
 
+  test.each([
+    { name: "definition", analysis: { definitionId: "wrong-definition@1" }, population: "300000", reason: "definition_mismatch", surs: false },
+    { name: "numerator", analysis: { offenceCounts: [] }, population: "300000", reason: "missing_numerator", surs: false },
+    { name: "stale", analysis: { referenceYear: 2023 }, population: "300000", reason: "stale", surs: true },
+    { name: "zero denominator", analysis: {}, population: "0", reason: "denominator_zero", surs: true },
+  ] as const)("retains the class-sensitive terminal basis for $name rejection", async (scenario) => {
+    const loadPopulation = populationLoader(scenario.population);
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({ artifact: artifact(`semantic-${scenario.name}`, request.url), redirectChain: [request.url] }),
+      analyze: async () => ({ ...terminalAnalysis, ...scenario.analysis }),
+      loadPopulation,
+    });
+
+    const result = await adapter.inspect(inspectionInput());
+
+    expect(result.kind).toBe("rejected");
+    expect(result.detail).toEqual(expect.objectContaining({
+      reason: scenario.reason,
+      reviewedOfficial: expect.objectContaining({ dataAuthorityId: "police" }),
+    }));
+    expect(result.detail.artifactRefs.map((ref) => ref.role)).toEqual(
+      scenario.surs ? ["municipal_source", "surs_denominator"] : ["municipal_source"],
+    );
+  });
+
+  test.each([
+    { name: "missing", result: { kind: "missing" as const }, reason: "denominator_missing" },
+    {
+      name: "year",
+      result: {
+        kind: "captured" as const, publisherId: "surs", municipalityCode: "061",
+        referenceDate: "2024-01-01", population: "300000",
+      },
+      reason: "denominator_period_mismatch",
+    },
+    {
+      name: "scope",
+      result: {
+        kind: "captured" as const, publisherId: "surs", municipalityCode: "999",
+        referenceDate: "2025-01-01", population: "300000",
+      },
+      reason: "denominator_scope_mismatch",
+    },
+  ] as const)("closes $name denominator failure with exact SURS cardinality", async (scenario) => {
+    const loadPopulation: CitySafetyPopulationLoader = async ({ runId }) => scenario.result.kind === "missing"
+      ? scenario.result
+      : {
+          ...scenario.result,
+          artifact: { ...artifact(`surs-${scenario.name}`, "https://pxweb.stat.si/population"), runId },
+        };
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({ artifact: artifact(`denominator-${scenario.name}`, request.url), redirectChain: [request.url] }),
+      analyze: async () => terminalAnalysis,
+      loadPopulation,
+    });
+
+    const result = await adapter.inspect(inspectionInput());
+
+    expect(result.kind).toBe("rejected");
+    if (result.kind !== "rejected") throw new Error("expected rejected");
+    expect(result.detail.reason).toBe(scenario.reason);
+    expect(result.detail.artifactRefs.map((ref) => ref.role)).toEqual(scenario.result.kind === "missing"
+      ? ["municipal_source"]
+      : ["municipal_source", "surs_denominator"]);
+  });
+
+  test.each([
+    { kind: "http_error", status: 404, reason: "http_not_found" },
+    { kind: "timeout", status: undefined, reason: "transport_unavailable" },
+    { kind: "wrong_media_type", status: 200, reason: "wrong_media_type" },
+    { kind: "too_large", status: 200, reason: "too_large" },
+  ] as const)("maps $kind capture failure to $reason without a terminal artifact", async (scenario) => {
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async (request) => {
+        throw new SourceCaptureError(scenario.kind, scenario.kind, undefined, {
+          redirectChain: [request.url],
+          ...(scenario.status === undefined ? {} : { responseStatus: scenario.status }),
+          responseUrl: request.url,
+          ...(scenario.kind === "wrong_media_type" ? { mediaType: "text/html" } : {}),
+        });
+      },
+      analyze: async () => terminalAnalysis,
+      loadPopulation: populationLoader(),
+    });
+
+    const result = await adapter.inspect(inspectionInput());
+
+    expect(result.kind).toBe("rejected");
+    if (result.kind !== "rejected") throw new Error("expected rejected");
+    expect(result.detail.reason).toBe(scenario.reason);
+    expect(result.detail.artifactRefs).toEqual([]);
+    expect(result.artifacts).toEqual([]);
+  });
+
+  test("retains raw navigation, terminal and SURS bytes under raw retention", async () => {
+    const context = buildContext("seal_raw_artifact");
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({
+        artifact: artifact(request.url.endsWith("safety") ? "raw-navigation" : "raw-terminal", request.url),
+        redirectChain: [request.url],
+      }),
+      analyze: async ({ artifact: captured }) => captured.url.endsWith("safety")
+        ? { kind: "navigate", confirmedDocumentUrl: "https://ljubljana.si/report.pdf" }
+        : terminalAnalysis,
+      loadPopulation: populationLoader(),
+    });
+
+    const result = await adapter.inspect(inspectionInput(context));
+
+    expect(result.kind).toBe("usable");
+    expect(result.artifacts.map(({ mediaType }) => mediaType)).toEqual([
+      "application/pdf", "application/pdf", "application/pdf",
+    ]);
+    expect(result.detail.artifactRefs.every((ref) => ref.artifactSha256 === ref.sourceSha256)).toBe(true);
+  });
+
   test("preserves an untrusted redirect target outside official edges", async () => {
     // Break caught: rejected redirect targets become reviewed official links or disappear from trace truth.
     const adapter = createSloveniaCitySafetyAdapter({
@@ -587,6 +1153,115 @@ describe("Slovenia city-safety official adapter", () => {
       }),
     }));
     expect(result.artifacts).toEqual([]);
+  });
+
+  test("retains an earlier complete navigation page before rejecting terminal authority", async () => {
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({
+        artifact: artifact(request.url.endsWith("safety") ? "authority-navigation" : "authority-terminal", request.url),
+        redirectChain: [request.url],
+      }),
+      analyze: async ({ artifact: captured }) => captured.url.endsWith("safety")
+        ? { kind: "navigate", confirmedDocumentUrl: "https://ljubljana.si/report.pdf" }
+        : { ...terminalAnalysis, dataAuthorityId: "gov" },
+      loadPopulation: populationLoader(),
+    });
+
+    const result = await adapter.inspect(inspectionInput());
+
+    expect(result.kind).toBe("rejected");
+    expect(result.detail.artifactRefs).toEqual([
+      expect.objectContaining({ role: "municipal_source", documentRole: "navigation" }),
+    ]);
+    expect(result.artifacts).toHaveLength(1);
+  });
+
+  test.each([
+    {
+      name: "untrusted target",
+      target: "https://mirror.example/report.pdf",
+      redirectChain: ["https://ljubljana.si/safety"],
+      terminalUrl: "https://ljubljana.si/safety",
+      rejectedKind: "untrusted_target",
+    },
+    {
+      name: "redirect plus confirmed-link hop limit",
+      target: "https://ljubljana.si/third.pdf",
+      redirectChain: [
+        "https://ljubljana.si/safety",
+        "https://ljubljana.si/one",
+        "https://ljubljana.si/two",
+      ],
+      terminalUrl: "https://ljubljana.si/two",
+      rejectedKind: "hop_limit",
+    },
+  ] as const)("retains a fully captured navigation page before rejecting $name", async (scenario) => {
+    // Break caught: complete official navigation bytes disappear when their proposed next link is rejected.
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async () => ({
+        artifact: artifact("rejected-navigation-source", scenario.terminalUrl),
+        redirectChain: scenario.redirectChain,
+      }),
+      analyze: async () => ({ kind: "navigate", confirmedDocumentUrl: scenario.target }),
+      loadPopulation: populationLoader(),
+    });
+
+    const result = await adapter.inspect(inspectionInput());
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: "rejected",
+      detail: expect.objectContaining({
+        reason: "untrusted_redirect",
+        officialTrace: expect.objectContaining({
+          failure: expect.objectContaining({
+            rejectedTarget: { kind: scenario.rejectedKind, url: scenario.target },
+          }),
+        }),
+        artifactRefs: [expect.objectContaining({
+          role: "municipal_source",
+          documentRole: "navigation",
+        })],
+      }),
+      artifacts: [expect.objectContaining({ role: "municipal_source" })],
+    }));
+    expect(JSON.parse(new TextDecoder().decode(result.artifacts[0]!.bytes)).schemaVersion)
+      .toBe("city-safety-retained-navigation@1");
+  });
+
+  test("retains a captured page and rejects a confirmed-link loop without following it", async () => {
+    // Break caught: analyzer-confirmed self-links are appended as trusted edges and requested again.
+    const capture = vi.fn(async (request: { readonly url: string }) => ({
+      artifact: artifact("loop-navigation-source", request.url),
+      redirectChain: [request.url],
+    }));
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture,
+      analyze: async () => ({
+        kind: "navigate",
+        confirmedDocumentUrl: "https://ljubljana.si/safety",
+      }),
+      loadPopulation: populationLoader(),
+    });
+
+    const result = await adapter.inspect(inspectionInput());
+
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(expect.objectContaining({
+      kind: "rejected",
+      detail: expect.objectContaining({
+        reason: "untrusted_redirect",
+        officialTrace: expect.objectContaining({
+          edges: [],
+          failure: expect.objectContaining({
+            rejectedTarget: {
+              kind: "redirect_loop",
+              url: "https://ljubljana.si/safety",
+            },
+          }),
+        }),
+        artifactRefs: [expect.objectContaining({ documentRole: "navigation" })],
+      }),
+    }));
   });
 
   test("closes incompatible totals in one Police chain as an ordinal conflict basis", async () => {

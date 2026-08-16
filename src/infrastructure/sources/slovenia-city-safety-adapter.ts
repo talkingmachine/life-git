@@ -71,6 +71,7 @@ export type CitySafetyTracedCapture = (
 interface RetainedArtifact {
   readonly artifact: LiveCapturedArtifact<"si-city-safety">;
   readonly reference: CitySafetyArtifactReference;
+  readonly sourceMediaType: string;
 }
 
 interface PopulationResolution {
@@ -135,6 +136,7 @@ function retainedArtifact(
   };
   return {
     artifact,
+    sourceMediaType: source.mediaType,
     reference: role === "municipal_source"
       ? { role, documentRole: documentRole!, ...common }
       : { role, ...common },
@@ -179,10 +181,11 @@ function captureRejectionReason(error: SourceCaptureError): CitySafetyRejectedCa
 function rejectedTarget(
   error: SourceCaptureError,
   policy: OfficialPublisherPolicy,
+  trustedUrls: readonly string[],
 ): NonNullable<NonNullable<CitySafetyOfficialInspectionTrace["failure"]>["rejectedTarget"]> | undefined {
   const url = error.trace?.rejectedRedirectUrl;
   if (url === undefined) return undefined;
-  if (error.trace?.redirectChain.includes(url)) return { kind: "redirect_loop", url };
+  if (trustedUrls.includes(url)) return { kind: "redirect_loop", url };
   if (!policyAllowsUrl(policy, url)) return { kind: "untrusted_target", url };
   return { kind: "hop_limit", url };
 }
@@ -211,9 +214,15 @@ function captureFailureDetail(
           ...(error.trace?.responseStatus === undefined ? {} : { responseStatus: error.trace.responseStatus }),
           ...(error.trace?.responseUrl === undefined ? {} : { responseUrl: error.trace.responseUrl }),
           ...(error.trace?.mediaType === undefined ? {} : { mediaType: error.trace.mediaType }),
-          ...(rejectedTarget(error, policy) === undefined
+          ...(rejectedTarget(error, policy, [input.candidateUrl, ...edges.map(({ toUrl }) => toUrl)]) === undefined
             ? {}
-            : { rejectedTarget: rejectedTarget(error, policy) }),
+            : {
+                rejectedTarget: rejectedTarget(
+                  error,
+                  policy,
+                  [input.candidateUrl, ...edges.map(({ toUrl }) => toUrl)],
+                ),
+              }),
         },
       },
       reviewedOfficial: {
@@ -221,6 +230,11 @@ function captureFailureDetail(
         dataAuthorityId: input.authorityDirectory.requiredPublisherIds.police,
         publisherNavigationUrl,
       },
+      ...(artifacts.length === 0 ? {} : {
+        mediaType: artifacts.at(-1)!.sourceMediaType,
+        retentionPolicyId: policy.retentionPolicyId,
+        transientRawDeleted: policy.retentionMode === "seal_hash_locator_then_delete_transient",
+      }),
       artifactRefs: artifacts.map(({ reference }) => reference),
       disposition: "rejected",
       reason,
@@ -407,7 +421,33 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
         }
         const fromUrl = captured.artifact.url;
         const toUrl = canonicalizeCitySafetyCandidateUrl(analysis.confirmedDocumentUrl);
-        if (!policyAllowsUrl(policy, toUrl) || edges.length >= input.officialHopLimit) {
+        const retainNavigation = (officialTrace: CitySafetyOfficialInspectionTrace): RetainedArtifact =>
+          retainedArtifact(
+            captured.artifact,
+            "municipal_source",
+            "navigation",
+            policy,
+            {
+              schemaVersion: "city-safety-retained-navigation@1",
+              cityId: input.cityId,
+              municipalityCode: input.municipalityCode,
+              publisherId: policy.publisherId,
+              publisherNavigationUrl,
+              resolvedNavigationUrl: fromUrl,
+              officialTrace,
+              confirmedDocumentUrl: toUrl,
+              documentLocatorPolicyId: policy.documentLocatorPolicyId,
+              sourceSha256: captured.artifact.sha256,
+              sourceLocator: captured.artifact.url,
+              sourceMediaType: captured.artifact.mediaType,
+              retentionPolicyId: policy.retentionPolicyId,
+              transientRawDeleted: true,
+            },
+          );
+        const trustedUrls = [input.candidateUrl, ...edges.map(({ toUrl: trustedUrl }) => trustedUrl)];
+        if (!policyAllowsUrl(policy, toUrl) || edges.length >= input.officialHopLimit ||
+          trustedUrls.includes(toUrl)) {
+          navigationArtifacts.push(retainNavigation(traceFromEdges(input.candidateUrl, edges)));
           const error = new SourceCaptureError("navigation_mismatch", "Confirmed document link rejected", undefined, {
             redirectChain: [fromUrl],
             rejectedRedirectUrl: toUrl,
@@ -421,28 +461,7 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
         }
         edges.push({ kind: "confirmed_document_link", fromUrl, toUrl });
         const navigationTrace = traceFromEdges(input.candidateUrl, edges);
-        navigationArtifacts.push(retainedArtifact(
-          captured.artifact,
-          "municipal_source",
-          "navigation",
-          policy,
-          {
-            schemaVersion: "city-safety-retained-navigation@1",
-            cityId: input.cityId,
-            municipalityCode: input.municipalityCode,
-            publisherId: policy.publisherId,
-            publisherNavigationUrl,
-            resolvedNavigationUrl: fromUrl,
-            officialTrace: navigationTrace,
-            confirmedDocumentUrl: toUrl,
-            documentLocatorPolicyId: policy.documentLocatorPolicyId,
-            sourceSha256: captured.artifact.sha256,
-            sourceLocator: captured.artifact.url,
-            sourceMediaType: captured.artifact.mediaType,
-            retentionPolicyId: policy.retentionPolicyId,
-            transientRawDeleted: true,
-          },
-        ));
+        navigationArtifacts.push(retainNavigation(navigationTrace));
         currentUrl = toUrl;
       }
 
@@ -496,6 +515,7 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
       };
 
       if (terminalAnalysis.dataAuthorityId !== input.authorityDirectory.requiredPublisherIds.police) {
+        const retainedNavigation = navigationArtifacts.map(({ artifact }) => artifact);
         return {
           kind: "rejected",
           detail: {
@@ -510,11 +530,16 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
               resolvedEvidenceUrl,
               terminalAnalysis.referenceYear,
             ),
-            artifactRefs: [],
+            ...(navigationArtifacts.length === 0 ? {} : {
+              mediaType: navigationArtifacts.at(-1)!.sourceMediaType,
+              retentionPolicyId: policy.retentionPolicyId,
+              transientRawDeleted: policy.retentionMode === "seal_hash_locator_then_delete_transient",
+            }),
+            artifactRefs: navigationArtifacts.map(({ reference }) => reference),
             disposition: "rejected",
             reason: "authority_untrusted",
           },
-          artifacts: [],
+          artifacts: retainedNavigation,
         };
       }
       const municipalityCodes = [...new Set(terminalAnalysis.municipalityCodes)].sort();
