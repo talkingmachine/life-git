@@ -3,8 +3,11 @@ import { describe, expect, test } from "vitest";
 import {
   buildCityCatalogRevision,
   buildCityRegistryRevision,
+  CITY_CATALOG_RULES_VERSION,
   CityCatalogNeedsContextError,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
   reconstructCityCatalog,
+  reconstructVerifiedCityCatalog,
   type CityCatalogCandidateBasis,
   type CityCatalogRevision,
   type CityRegistryEntry,
@@ -323,5 +326,186 @@ describe("city registry and catalog policy", () => {
     expect(Object.isFrozen(projection.registry.entries)).toBe(true);
     expect(Object.isFrozen(projection.catalog.members[0]?.inclusionReasons)).toBe(true);
     expect(JSON.stringify(projection)).not.toMatch(/target|score|raw/i);
+  });
+
+  test.each([
+    LEGACY_CITY_CATALOG_RULES_VERSION,
+    CITY_CATALOG_RULES_VERSION,
+  ] as const)("cryptographically reconstructs a complete %s Registry and catalog root", (rulesVersion) => {
+    // Break caught: accepting visible catalog semantics without recomputing both hash-derived root IDs.
+    const entries = [city("capital", ["national"]), city("ordinary")];
+    const cityRegistry = registry(entries);
+    const current = catalog(entries, [basis("capital", "1"), basis("ordinary", "2")]);
+    const catalogPayload = rulesVersion === CITY_CATALOG_RULES_VERSION
+      ? Object.fromEntries(Object.entries(current).filter(([key]) => key !== "id"))
+      : {
+          schemaVersion: "city-catalog@1" as const,
+          packageId: cityRegistry.packageId,
+          packageSchemaVersion: cityRegistry.packageSchemaVersion,
+          countryCode: cityRegistry.countryCode,
+          registryRevisionId: cityRegistry.id,
+          evidenceSnapshotId: "evidence-snapshot-1",
+          populationDefinition: {
+            definitionId: "synthetic-population@1",
+            geoScope: "municipality",
+            unit: "people" as const,
+          },
+          candidateBasis: [basis("capital", "1"), basis("ordinary", "2")],
+          members: [
+            { cityId: "capital", inclusionReasons: ["national_capital"] as const },
+            { cityId: "ordinary", inclusionReasons: ["top_ten_fill"] as const },
+          ],
+          coverage: { status: "complete" as const },
+          rulesVersion,
+          createdAt: "2026-08-13T12:00:00.000Z",
+        };
+    const cityCatalog = {
+      id: `city-catalog:${INTEGRITY.hash(INTEGRITY.canonical(catalogPayload))}`,
+      ...catalogPayload,
+    } as CityCatalogRevision;
+
+    const projection = reconstructVerifiedCityCatalog(
+      { registry: cityRegistry, catalog: cityCatalog },
+      INTEGRITY,
+    );
+
+    expect(projection).toEqual({ registry: cityRegistry, catalog: cityCatalog });
+    expect(Object.isFrozen(projection)).toBe(true);
+    expect(Object.isFrozen(projection.registry.entries)).toBe(true);
+    expect(Object.isFrozen(projection.catalog.members)).toBe(true);
+  });
+
+  test("rejects forged or internally stale verified catalog roots while accepting another self-consistent root", () => {
+    // Break caught: turning pure self-consistency reconstruction into a latest-root lookup or trusting stale IDs.
+    const firstRegistry = registry([city("first", ["national"])]);
+    const firstCatalog = catalog([city("first", ["national"])], [basis("first", "10")]);
+    expect(() => reconstructVerifiedCityCatalog({
+      registry: { ...firstRegistry, id: "city-registry:forged" },
+      catalog: firstCatalog,
+    }, INTEGRITY)).toThrow("integrity_mismatch");
+    expect(() => reconstructVerifiedCityCatalog({
+      registry: firstRegistry,
+      catalog: { ...firstCatalog, id: "city-catalog:forged" },
+    }, INTEGRITY)).toThrow("integrity_mismatch");
+    expect(() => reconstructVerifiedCityCatalog({
+      registry: firstRegistry,
+      catalog: { ...firstCatalog, members: [] },
+    }, INTEGRITY)).toThrow("integrity_mismatch");
+
+    const alternateEntries = [city("alternate", ["national"])];
+    const alternateRegistry = registry(alternateEntries);
+    const alternateCatalog = catalog(alternateEntries, [basis("alternate", "11")]);
+    expect(reconstructVerifiedCityCatalog({
+      registry: alternateRegistry,
+      catalog: alternateCatalog,
+    }, INTEGRITY)).toEqual({ registry: alternateRegistry, catalog: alternateCatalog });
+  });
+
+  test("rejects descriptor-open verified catalog graphs before integrity callbacks", () => {
+    // Break caught: Object.keys/structuredClone silently dropping hidden data or invoking a borrowed accessor.
+    const entries = [city("capital", ["national"]), city("ordinary")];
+    const base = {
+      registry: registry(entries),
+      catalog: catalog(entries, [basis("capital", "1"), basis("ordinary", "2")]),
+    };
+    const cases: readonly [
+      string,
+      (value: typeof base, accessorRead: () => void) => void,
+    ][] = [
+      ["symbol key", (value) => {
+        Object.defineProperty(value.catalog, Symbol("hidden"), { value: true, enumerable: true });
+      }],
+      ["nested symbol key", (value) => {
+        Object.defineProperty(value.registry.entries[0]!.coordinate, Symbol("hidden"), {
+          value: true,
+          enumerable: true,
+        });
+      }],
+      ["non-enumerable key", (value) => {
+        Object.defineProperty(value.catalog, "hidden", { value: true, enumerable: false });
+      }],
+      ["accessor", (value, accessorRead) => {
+        Object.defineProperty(value.catalog, "countryCode", {
+          configurable: true,
+          enumerable: true,
+          get() {
+            accessorRead();
+            return "ZZ";
+          },
+        });
+      }],
+      ["custom prototype", (value) => {
+        Object.setPrototypeOf(value.catalog, { inherited: true });
+      }],
+      ["sparse array", (value) => {
+        const members = [...value.catalog.members];
+        delete members[0];
+        (value.catalog as unknown as { members: typeof members }).members = members;
+      }],
+      ["extra array property", (value) => {
+        const members = value.catalog.members as unknown as Record<string, unknown>;
+        Object.defineProperty(members, "extra", { value: true, enumerable: true });
+      }],
+      ["cycle", (value) => {
+        (value.catalog as unknown as { populationDefinition: unknown }).populationDefinition =
+          value.catalog;
+      }],
+    ];
+
+    for (const [name, mutate] of cases) {
+      const borrowed = structuredClone(base);
+      let accessorReads = 0;
+      let integrityCalls = 0;
+      mutate(borrowed, () => { accessorReads += 1; });
+      const guardedIntegrity: CityDecisionIntegrity = {
+        canonical(value) {
+          integrityCalls += 1;
+          return INTEGRITY.canonical(value);
+        },
+        hash(value) {
+          integrityCalls += 1;
+          return INTEGRITY.hash(value);
+        },
+      };
+
+      expect(
+        () => reconstructVerifiedCityCatalog(borrowed, guardedIntegrity),
+        name,
+      ).toThrow("integrity_mismatch");
+      expect(accessorReads, name).toBe(0);
+      expect(integrityCalls, name).toBe(0);
+    }
+  });
+
+  test("uses one owned verified catalog graph across reentrant canonicalization", () => {
+    // Break caught: rereading the caller's catalog after the first integrity callback creates a TOCTOU seam.
+    const entries = [city("capital", ["national"]), city("ordinary")];
+    for (const mutationCall of [1, 3]) {
+      const borrowed = structuredClone({
+        registry: registry(entries),
+        catalog: catalog(entries, [basis("capital", "1"), basis("ordinary", "2")]),
+      });
+      const expected = structuredClone(borrowed);
+      let canonicalCalls = 0;
+      const reentrantIntegrity: CityDecisionIntegrity = {
+        canonical(value) {
+          canonicalCalls += 1;
+          if (canonicalCalls === mutationCall) {
+            (borrowed.catalog as unknown as { countryCode: string }).countryCode = "YY";
+            (borrowed.catalog as unknown as { members: readonly [] }).members = [];
+          }
+          return INTEGRITY.canonical(value);
+        },
+        hash: INTEGRITY.hash,
+      };
+
+      const reconstructed = reconstructVerifiedCityCatalog(borrowed, reentrantIntegrity);
+
+      expect(reconstructed, `canonical call ${mutationCall}`).toEqual(expected);
+      expect(borrowed.catalog.countryCode, `canonical call ${mutationCall}`).toBe("YY");
+      expect(Object.isFrozen(reconstructed)).toBe(true);
+      expect(Object.isFrozen(reconstructed.registry.entries[0]?.coordinate)).toBe(true);
+      expect(Object.isFrozen(reconstructed.catalog.members[0]?.inclusionReasons)).toBe(true);
+    }
   });
 });

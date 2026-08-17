@@ -15,6 +15,14 @@ export interface CityResearchPackageDefinition {
   readonly sourceIds: readonly SloveniaCityFactSourceId[];
 }
 
+export interface InstalledCityPackageExactKey {
+  readonly countryCode: string;
+  readonly packageId: string;
+  readonly packageSchemaVersion: string;
+  readonly catalogRevisionId: string;
+  readonly evidenceRulesVersion: string;
+}
+
 export interface CityResearchPackageCandidate {
   readonly definition: CityResearchPackageDefinition;
   readonly sourceContractStatus: "bounded_verified_or_unknown";

@@ -16,10 +16,7 @@ import {
 } from "../../src/infrastructure/composition-root";
 import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
-import {
-  SqliteEvidenceStore,
-  type VerifiedLoadExpectations,
-} from "../../src/infrastructure/sqlite/evidence-store";
+import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
 import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-store";
 import { SqliteRunStore } from "../../src/infrastructure/sqlite/run-store";
 import type {
@@ -32,6 +29,7 @@ import type {
   EvidenceSnapshot,
   SourceId,
 } from "../../src/research/contracts";
+import type { VerifiedLoadExpectations } from "../../src/research/research-plan";
 import {
   EVIDENCE_SOURCE_IDS,
   EVIDENCE_PARSER_VERSIONS,
@@ -722,6 +720,7 @@ describe("confirmed-life orchestration", () => {
     ).all()).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "city_evidence_snapshots" },
       { name: "country_knowledge_revisions" },
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },

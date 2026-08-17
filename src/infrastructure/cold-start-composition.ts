@@ -6,7 +6,10 @@ import {
   createColdStartApplication,
   type ColdStartApplication,
 } from "../application/cold-start";
-import { replayEvidenceByRules } from "../application/replay-evidence";
+import {
+  replayEvidenceByRules,
+  type EvidenceReplayIntegrityFactoryPort,
+} from "../application/replay-evidence";
 import type {
   ColdStartEvidenceClaim,
   CountrySourceIndexPort,
@@ -42,6 +45,9 @@ export function createColdStartComposition(
   const knowledgeStore = new SqliteCountryKnowledgeStore(options.database, options.hmacKey);
   const profileStore = new SqliteProfileStore(options.database);
   const integrity = createEvidenceIntegrity(options.hmacKey);
+  const integrityFactory = Object.freeze({
+    create: createEvidenceIntegrity,
+  }) satisfies EvidenceReplayIntegrityFactoryPort;
   const requestStep = options.requestStep ?? captureHttpOnce;
   const countrySourceIndex = options.countrySourceIndex ?? createInstalledCountrySourceIndex();
 
@@ -74,7 +80,7 @@ export function createColdStartComposition(
       loadVerifiedBundle: (id) => evidenceStore.loadVerifiedBundle(id, options.hmacKey),
       replay: (id) => replayEvidenceByRules(
         { snapshotId: id, hmacKey: options.hmacKey },
-        { store: evidenceStore },
+        { store: evidenceStore, integrityFactory },
       ),
     },
     dossiers: dossierStore,

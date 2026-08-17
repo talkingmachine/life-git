@@ -63,6 +63,7 @@ import {
 } from "../../src/research/research-plan";
 
 const KEY = "task-3-cold-start-key-at-least-32-bytes";
+const REPLAY_INTEGRITY_FACTORY = Object.freeze({ create: createEvidenceIntegrity });
 const ASSESSMENT_DATE = "2026-08-11";
 const PUBLISHED_AT = "2026-08-11T10:30:00.000Z";
 const SOURCE_IDS = [
@@ -1023,7 +1024,7 @@ function coldStartHarness(options: {
       loadVerifiedBundle: (id) => evidenceStore.loadVerifiedBundle(id, KEY),
       replay: (id) => replayEvidenceByRules(
         { snapshotId: id, hmacKey: KEY },
-        { store: evidenceStore },
+        { store: evidenceStore, integrityFactory: REPLAY_INTEGRITY_FACTORY },
       ),
     },
     dossiers: {
@@ -2697,7 +2698,7 @@ describe("plan-aware offline evidence replay", () => {
 
     await expect(replayEvidenceByRules(
       { snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY },
-      { store },
+      { store, integrityFactory: REPLAY_INTEGRITY_FACTORY },
     )).rejects.toThrow("integrity_mismatch");
   });
 
@@ -2708,8 +2709,14 @@ describe("plan-aware offline evidence replay", () => {
     for (const sourceArtifact of fixture.artifacts) await store.appendArtifact(sourceArtifact);
     await store.seal(fixture.prepared);
 
-    const first = await replayEvidenceByRules({ snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY }, { store });
-    const second = await replayEvidenceByRules({ snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY }, { store });
+    const first = await replayEvidenceByRules(
+      { snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY },
+      { store, integrityFactory: REPLAY_INTEGRITY_FACTORY },
+    );
+    const second = await replayEvidenceByRules(
+      { snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY },
+      { store, integrityFactory: REPLAY_INTEGRITY_FACTORY },
+    );
 
     expect(fixture.artifacts).toHaveLength(11);
     expect(fixture.prepared.snapshot.claims.filter((claim) => "claimKind" in claim)).toHaveLength(9);
@@ -2729,7 +2736,7 @@ describe("plan-aware offline evidence replay", () => {
 
     await expect(replayEvidenceByRules(
       { snapshotId: fixture.prepared.snapshot.id, hmacKey: KEY },
-      { store },
+      { store, integrityFactory: REPLAY_INTEGRITY_FACTORY },
     )).rejects.toThrow("integrity_mismatch");
   });
 });

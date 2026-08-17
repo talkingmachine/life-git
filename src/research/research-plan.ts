@@ -95,6 +95,28 @@ export interface EvidenceIntegrity {
   sign(value: string): string;
 }
 
+export interface VerifiedLoadExpectations<S extends string = SourceId> {
+  readonly assessmentDate?: string;
+  readonly parserVersions?: Readonly<Record<S, string>>;
+  readonly rulesVersion?: string;
+}
+
+export interface VerifiedEvidenceBundle<
+  S extends string = SourceId,
+  C extends Claim<unknown, S> = Claim<unknown, S>,
+> {
+  readonly snapshot: EvidenceSnapshot<S, C>;
+  readonly entries: readonly ParserEntry<S>[];
+}
+
+export function evidenceCanonicalEqual(
+  left: unknown,
+  right: unknown,
+  integrity: Pick<EvidenceIntegrity, "canonical">,
+): boolean {
+  return integrity.canonical(left) === integrity.canonical(right);
+}
+
 export interface EvidenceWriteStore<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
@@ -286,6 +308,29 @@ function exactRecordKeys(value: object, sourceIds: readonly string[]): boolean {
   return sameOrderedStrings(keys, expected);
 }
 
+const EVIDENCE_SNAPSHOT_PAYLOAD_KEYS = [
+  "id",
+  "assessmentDate",
+  "artifactIds",
+  "claims",
+  "blockers",
+  "coverage",
+  "parserVersions",
+  "rulesVersion",
+] as const;
+
+function hasExactEvidenceSnapshotKeys(value: object, includeSignatureFields: boolean): boolean {
+  const expected = [
+    ...EVIDENCE_SNAPSHOT_PAYLOAD_KEYS,
+    ...(Object.prototype.hasOwnProperty.call(value, "contextHash") ? ["contextHash"] : []),
+    ...(Object.prototype.hasOwnProperty.call(value, "knowledgeBaselineRevisionId")
+      ? ["knowledgeBaselineRevisionId"]
+      : []),
+    ...(includeSignatureFields ? ["manifestHash", "hmac"] : []),
+  ].sort();
+  return sameOrderedStrings(Object.keys(value).sort(), expected);
+}
+
 export function assertSealedEvidenceStructure<
   S extends string,
   C extends Claim<unknown, S>,
@@ -310,6 +355,11 @@ export function assertSealedEvidenceStructure<
     !Array.isArray(manifest.artifacts) || !manifest.artifacts.every(isRecord) ||
     !snapshot.claims.every((claim) => isRecord(claim) && isRecord(claim.anchor)) ||
     !snapshot.blockers.every((blocker) => isRecord(blocker) && Array.isArray(blocker.artifactIds)) ||
+    !hasExactEvidenceSnapshotKeys(snapshot, true) ||
+    !hasExactEvidenceSnapshotKeys(manifest.snapshot, false) ||
+    (snapshot.contextHash !== undefined && typeof snapshot.contextHash !== "string") ||
+    (manifest.snapshot.contextHash !== undefined &&
+      typeof manifest.snapshot.contextHash !== "string") ||
     (snapshot.knowledgeBaselineRevisionId !== undefined &&
       typeof snapshot.knowledgeBaselineRevisionId !== "string") ||
     (manifest.snapshot.knowledgeBaselineRevisionId !== undefined &&

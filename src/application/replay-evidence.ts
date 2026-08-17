@@ -1,8 +1,3 @@
-import { canonicalJson, createEvidenceIntegrity } from "../infrastructure/integrity";
-import type {
-  VerifiedEvidenceBundle,
-  VerifiedLoadExpectations,
-} from "../infrastructure/sqlite/evidence-store";
 import type {
   Claim,
   EvidenceSnapshot,
@@ -14,9 +9,13 @@ import type {
   SloveniaSourceId,
 } from "../research/cold-start-contracts";
 import {
+  evidenceCanonicalEqual,
   sealEvidencePlan,
+  type EvidenceIntegrity,
   type ResearchPlan,
   type TerminalEvidenceEntry,
+  type VerifiedEvidenceBundle,
+  type VerifiedLoadExpectations,
 } from "../research/research-plan";
 import {
   STANDARD_EVIDENCE_PARSERS,
@@ -42,8 +41,19 @@ export interface ReplayEvidenceStore<
   ): Promise<VerifiedEvidenceBundle<S, C>>;
 }
 
-export interface ReplayEvidencePorts {
-  readonly store: ReplayEvidenceStore;
+export interface EvidenceReplayIntegrityFactoryPort {
+  create(hmacKey: string): EvidenceIntegrity;
+}
+
+export interface ReplayEvidenceRuntimePorts<
+  S extends string = SourceId,
+  C extends Claim<unknown, S> = Claim<unknown, S>,
+> {
+  readonly store: ReplayEvidenceStore<S, C>;
+  readonly integrityFactory: EvidenceReplayIntegrityFactoryPort;
+}
+
+export interface ReplayEvidencePorts extends ReplayEvidenceRuntimePorts {
   readonly parsers?: EvidenceParsers;
 }
 
@@ -84,15 +94,19 @@ function validationUnavailable<S extends string, C extends Claim<unknown, S>>(
 export async function replayEvidencePlan<S extends string, C extends Claim<unknown, S>>(
   input: ReplayEvidenceInput,
   plan: ResearchPlan<S, C>,
-  ports: { readonly store: ReplayEvidenceStore<S, C> },
+  ports: ReplayEvidenceRuntimePorts<S, C>,
 ): Promise<EvidenceSnapshot<S, C>> {
+  const integrity = ports.integrityFactory.create(input.hmacKey);
+  const comparisonIntegrity: Pick<EvidenceIntegrity, "canonical"> = Object.freeze({
+    canonical: integrity.canonical,
+  });
   const bundle = await ports.store.loadVerifiedBundle(input.snapshotId, input.hmacKey, {
     parserVersions: plan.parserVersions,
     rulesVersion: plan.rulesVersion,
   });
   if (
     bundle.snapshot.rulesVersion !== plan.rulesVersion ||
-    canonicalJson(bundle.snapshot.parserVersions) !== canonicalJson(plan.parserVersions)
+    !evidenceCanonicalEqual(bundle.snapshot.parserVersions, plan.parserVersions, comparisonIntegrity)
   ) {
     throw new Error("integrity_mismatch");
   }
@@ -131,8 +145,8 @@ export async function replayEvidencePlan<S extends string, C extends Claim<unkno
     ...(bundle.snapshot.knowledgeBaselineRevisionId === undefined
       ? {}
       : { knowledgeBaselineRevisionId: bundle.snapshot.knowledgeBaselineRevisionId }),
-  }, createEvidenceIntegrity(input.hmacKey));
-  if (canonicalJson(replayed.snapshot) !== canonicalJson(bundle.snapshot)) {
+  }, integrity);
+  if (!evidenceCanonicalEqual(replayed.snapshot, bundle.snapshot, comparisonIntegrity)) {
     throw new Error("integrity_mismatch");
   }
   return replayed.snapshot;
@@ -145,7 +159,7 @@ export async function replayEvidence(
   const plan = ports.parsers === undefined
     ? VS1_RESEARCH_PLAN
     : createVs1ResearchPlan(ports.parsers ?? STANDARD_EVIDENCE_PARSERS);
-  return replayEvidencePlan(input, plan, { store: ports.store });
+  return replayEvidencePlan(input, plan, ports);
 }
 
 export async function replayEvidenceByRules<
@@ -153,14 +167,17 @@ export async function replayEvidenceByRules<
   C extends Claim<unknown, S>,
 >(
   input: ReplayEvidenceInput,
-  ports: { readonly store: ReplayEvidenceStore<S, C> },
+  ports: ReplayEvidenceRuntimePorts<S, C>,
 ): Promise<EvidenceSnapshot<S, C>> {
   const verified = await ports.store.loadVerifiedBundle(input.snapshotId, input.hmacKey);
   if (verified.snapshot.rulesVersion === "vs1-evidence@1") {
     return replayEvidencePlan(
       input,
       VS1_RESEARCH_PLAN,
-      { store: ports.store as unknown as ReplayEvidenceStore },
+      {
+        store: ports.store as unknown as ReplayEvidenceStore,
+        integrityFactory: ports.integrityFactory,
+      },
     ) as unknown as Promise<EvidenceSnapshot<S, C>>;
   }
   if (verified.snapshot.rulesVersion !== "vs2-si-evidence@2") {
@@ -198,6 +215,7 @@ export async function replayEvidenceByRules<
         SloveniaSourceId,
         ColdStartEvidenceClaim
       >,
+      integrityFactory: ports.integrityFactory,
     },
   ) as unknown as Promise<EvidenceSnapshot<S, C>>;
 }

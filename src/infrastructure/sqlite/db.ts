@@ -43,6 +43,28 @@ const CURRENT_COUNTRY_KNOWLEDGE_TABLE = normalizeSchemaSql(`
   );
 `);
 
+const CURRENT_CITY_EVIDENCE_TABLE = normalizeSchemaSql(`
+  CREATE TABLE IF NOT EXISTS city_evidence_snapshots (
+    id TEXT PRIMARY KEY REFERENCES evidence_snapshots(id),
+    city_check_run_id TEXT NOT NULL UNIQUE,
+    frontier_run_id TEXT NOT NULL,
+    city_id TEXT NOT NULL,
+    country_code TEXT NOT NULL,
+    package_id TEXT NOT NULL,
+    package_schema_version TEXT NOT NULL,
+    catalog_revision_id TEXT NOT NULL,
+    criteria_snapshot_id TEXT NOT NULL,
+    ranking_snapshot_id TEXT NOT NULL,
+    evidence_rules_version TEXT NOT NULL,
+    context_hash TEXT NOT NULL CHECK (length(context_hash) = 64),
+    assessment_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    canonical_payload TEXT NOT NULL,
+    payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+    hmac TEXT NOT NULL CHECK (length(hmac) = 64)
+  );
+`);
+
 const CURRENT_COUNTRY_RESOLUTION_TABLE = normalizeSchemaSql(`
   CREATE TABLE IF NOT EXISTS country_resolution_revisions (
     id TEXT PRIMARY KEY,
@@ -125,6 +147,19 @@ function preflightExistingCountryKnowledge(database: Database.Database): void {
   }
 }
 
+function preflightExistingCityEvidence(database: Database.Database): void {
+  const entry = database.prepare(`
+    SELECT type, sql FROM sqlite_master WHERE name = 'city_evidence_snapshots'
+  `).get() as SchemaEntry | undefined;
+  if (entry === undefined) return;
+  if (
+    entry.type !== "table" || entry.sql === null ||
+    normalizeSchemaSql(entry.sql) !== CURRENT_CITY_EVIDENCE_TABLE
+  ) {
+    throw new Error("database_schema_reset_required");
+  }
+}
+
 function preflightExistingCountryResolution(database: Database.Database): void {
   const entry = database.prepare(`
     SELECT type, sql FROM sqlite_master WHERE name = 'country_resolution_revisions'
@@ -143,6 +178,7 @@ export function openEvidenceDatabase(path: string): Database.Database {
   try {
     database.pragma("foreign_keys = ON");
     preflightExistingRunRevisions(database);
+    preflightExistingCityEvidence(database);
     preflightExistingCountryKnowledge(database);
     preflightExistingCountryResolution(database);
     database.exec(schema);

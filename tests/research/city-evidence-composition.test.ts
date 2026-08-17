@@ -12,6 +12,7 @@ import type {
 import {
   citySafetyTerminalEntry,
   reconstructCityFixedAttemptLedger,
+  reconstructCityFixedSourcePlan,
   runCityFixedSourcePlan,
   SLOVENIA_CITY_FACT_SOURCE_IDS,
   SLOVENIA_CITY_FIXED_CRITERION_BY_SOURCE,
@@ -243,6 +244,108 @@ function fixedPlan<S extends SloveniaCityFixedSourceId>(
     rulesVersion: "rules@1",
   } as CityFixedSourcePlan<S>;
 }
+
+describe("fixed City source-plan reconstruction", () => {
+  test.each([
+    "si-city-long-term-rent",
+    "si-city-urban-transit",
+    "si-city-fixed-broadband",
+  ] as const)("returns a fresh deeply frozen exact %s plan", (sourceId) => {
+    // Break caught: retaining caller aliases or returning a merely shape-compatible cross-source plan.
+    const borrowed = fixedPlan(sourceId);
+    const reconstructed = reconstructCityFixedSourcePlan(borrowed, sourceId);
+
+    expect(reconstructed).toEqual(borrowed);
+    expect(reconstructed).not.toBe(borrowed);
+    expect(reconstructed.routes).not.toBe(borrowed.routes);
+    expect(Object.isFrozen(reconstructed)).toBe(true);
+    expect(Object.isFrozen(reconstructed.claimContract)).toBe(true);
+    expect(Object.isFrozen(reconstructed.routes)).toBe(true);
+  });
+
+  test("rejects a valid plan paired with a different expected source and every open plan surface", () => {
+    // Break caught: allowing the caller's generic parameter to launder an unchecked runtime source ID.
+    const rent = fixedPlan("si-city-long-term-rent");
+    expect(() => reconstructCityFixedSourcePlan(rent, "si-city-urban-transit"))
+      .toThrow("invalid_city_fixed_plan");
+    expect(() => reconstructCityFixedSourcePlan({ ...rent, extra: true }, rent.sourceId))
+      .toThrow("invalid_city_fixed_plan");
+    expect(() => reconstructCityFixedSourcePlan({
+      ...rent,
+      routes: [rent.routes[0]!, rent.routes[0]!],
+    }, rent.sourceId)).toThrow("invalid_city_fixed_plan");
+    expect(() => reconstructCityFixedSourcePlan({
+      ...rent,
+      claimContract: { ...rent.claimContract, valueKind: "free_text" },
+    }, rent.sourceId)).toThrow("invalid_city_fixed_plan");
+  });
+
+  test("preserves literal-source return narrowing at compile time", () => {
+    // Break caught: widening the return type so fixed-source callers lose their tuple proof.
+    const rent: CityFixedSourcePlan<"si-city-long-term-rent"> =
+      reconstructCityFixedSourcePlan(fixedPlan("si-city-long-term-rent"), "si-city-long-term-rent");
+    expect(rent.sourceId).toBe("si-city-long-term-rent");
+  });
+
+  test("rejects descriptor-open source plans without invoking borrowed accessors", () => {
+    // Break caught: Object.entries/Array.map dropping hidden data or invoking a borrowed accessor before validation.
+    const base = fixedPlan("si-city-long-term-rent");
+    const cases: readonly [
+      string,
+      (value: CityFixedSourcePlan<"si-city-long-term-rent">, accessorRead: () => void) => void,
+    ][] = [
+      ["symbol key", (value) => {
+        Object.defineProperty(value, Symbol("hidden"), { value: true, enumerable: true });
+      }],
+      ["nested symbol key", (value) => {
+        Object.defineProperty(value.routes[0]!, Symbol("hidden"), {
+          value: true,
+          enumerable: true,
+        });
+      }],
+      ["non-enumerable key", (value) => {
+        Object.defineProperty(value, "hidden", { value: true, enumerable: false });
+      }],
+      ["accessor", (value, accessorRead) => {
+        Object.defineProperty(value, "cityId", {
+          configurable: true,
+          enumerable: true,
+          get() {
+            accessorRead();
+            return CITY_ID;
+          },
+        });
+      }],
+      ["custom prototype", (value) => {
+        Object.setPrototypeOf(value, { inherited: true });
+      }],
+      ["sparse routes", (value) => {
+        const routes = [...value.routes];
+        delete routes[0];
+        (value as unknown as { routes: typeof routes }).routes = routes;
+      }],
+      ["extra array property", (value) => {
+        const routes = value.routes as unknown as Record<string, unknown>;
+        Object.defineProperty(routes, "extra", { value: true, enumerable: true });
+      }],
+      ["cycle", (value) => {
+        (value.claimContract as unknown as { scope: unknown }).scope = value.claimContract;
+      }],
+    ];
+
+    for (const [name, mutate] of cases) {
+      const borrowed = structuredClone(base);
+      let accessorReads = 0;
+      mutate(borrowed, () => { accessorReads += 1; });
+
+      expect(
+        () => reconstructCityFixedSourcePlan(borrowed, "si-city-long-term-rent"),
+        name,
+      ).toThrow("invalid_city_fixed_plan");
+      expect(accessorReads, name).toBe(0);
+    }
+  });
+});
 
 class ManualDeadlineScheduler implements CityFixedDeadlineScheduler {
   callback: (() => void) | undefined;
@@ -626,6 +729,35 @@ describe("terminal City Evidence composition", () => {
 });
 
 describe("strict fixed-source City Evidence runner", () => {
+  test("rejects a descriptor-open plan before scheduler or route-port effects", async () => {
+    const plan = structuredClone(fixedPlan("si-city-long-term-rent", [
+      { routeId: "only", navigationUrl: "https://official.example/rent/only" },
+    ]));
+    Object.defineProperty(plan, Symbol("hidden"), {
+      value: true,
+      enumerable: true,
+    });
+    const scheduler = new ManualDeadlineScheduler();
+    let portCalls = 0;
+
+    await expect(runCityFixedSourcePlan(
+      fixedRunInput(
+        plan,
+        clock("2026-08-16T10:00:00.100Z"),
+        scheduler,
+      ),
+      plan,
+      {
+        inspect: async () => {
+          portCalls += 1;
+          throw new Error("route_port_called");
+        },
+      },
+    )).rejects.toThrow("invalid_city_fixed_plan");
+    expect(scheduler.scheduledAt).toBeUndefined();
+    expect(portCalls).toBe(0);
+  });
+
   test("rejects a port claim forged from plan fields mutated during inspection", async () => {
     // Break caught: post-validation caller-plan mutation retargets the accepted claim contract.
     const plan = fixedPlan("si-city-long-term-rent", [

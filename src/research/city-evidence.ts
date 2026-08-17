@@ -3,6 +3,7 @@ import type {
   CityUnknownReason,
   CityVerifiedFactBasis,
 } from "../decision/city-criteria";
+import type { CityDecisionIntegrity } from "../decision/city-integrity";
 import type {
   Claim,
   LiveCapturedArtifact,
@@ -37,6 +38,10 @@ export type SloveniaCityFixedSourceId = Exclude<
   SloveniaCityFactSourceId,
   "si-city-safety"
 >;
+
+export interface CityEvidenceReplayIntegrity extends CityDecisionIntegrity {
+  hashBytes(bytes: Uint8Array): string;
+}
 
 export const SLOVENIA_CITY_FIXED_CRITERION_BY_SOURCE = Object.freeze({
   "si-city-long-term-rent": "long_term_rent",
@@ -482,6 +487,67 @@ function cloneFrozen<T>(value: T): T {
   return value;
 }
 
+function descriptorSafeFrozenPlanCopy<T>(borrowed: T): T {
+  const active = new Set<object>();
+
+  const copy = (value: unknown): unknown => {
+    if (value instanceof Uint8Array) return new Uint8Array(value);
+    if (value === null || typeof value !== "object") return value;
+    if (active.has(value) || Object.getOwnPropertySymbols(value).length !== 0) {
+      fail("invalid_city_fixed_plan");
+    }
+
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) fail("invalid_city_fixed_plan");
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (lengthDescriptor === undefined || !("value" in lengthDescriptor) ||
+        typeof lengthDescriptor.value !== "number" || !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0) {
+        fail("invalid_city_fixed_plan");
+      }
+      const length = lengthDescriptor.value;
+      if (Object.getOwnPropertyNames(value).length !== length + 1) {
+        fail("invalid_city_fixed_plan");
+      }
+
+      active.add(value);
+      try {
+        const owned: unknown[] = [];
+        for (let index = 0; index < length; index += 1) {
+          const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+          if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+            fail("invalid_city_fixed_plan");
+          }
+          owned.push(copy(descriptor.value));
+        }
+        return Object.freeze(owned);
+      } finally {
+        active.delete(value);
+      }
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      fail("invalid_city_fixed_plan");
+    }
+    active.add(value);
+    try {
+      const entries = Object.getOwnPropertyNames(value).map((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+          fail("invalid_city_fixed_plan");
+        }
+        return [key, copy(descriptor.value)] as const;
+      });
+      return Object.freeze(Object.fromEntries(entries));
+    } finally {
+      active.delete(value);
+    }
+  };
+
+  return copy(borrowed) as T;
+}
+
 function validateRoutes(value: unknown): readonly CityFixedRoute[] {
   if (!denseArray(value) || value.length === 0) fail("invalid_city_fixed_plan");
   const routes = value.map((candidate) => {
@@ -523,6 +589,19 @@ function validateFixedPlan<S extends SloveniaCityFixedSourceId>(
   }
   validateRoutes(value.routes);
   return value;
+}
+
+export function reconstructCityFixedSourcePlan<
+  S extends SloveniaCityFixedSourceId,
+>(value: unknown, expectedSourceId: S): CityFixedSourcePlan<S> {
+  if (!Object.hasOwn(SLOVENIA_CITY_FIXED_CRITERION_BY_SOURCE, expectedSourceId)) {
+    fail("invalid_city_fixed_plan");
+  }
+  const owned = descriptorSafeFrozenPlanCopy(value);
+  if (!record(owned) || owned.sourceId !== expectedSourceId) {
+    fail("invalid_city_fixed_plan");
+  }
+  return validateFixedPlan(owned as unknown as CityFixedSourcePlan<S>);
 }
 
 function validateRunBinding<S extends SloveniaCityFixedSourceId>(
@@ -827,8 +906,7 @@ export async function runCityFixedSourcePlan<
   port: CityFixedRoutePort<S, C>,
 ): Promise<CityFixedSourceRunResult<S, C>> {
   const input = snapshotRunInput(callerInput);
-  const plan = cloneFrozen(callerPlan);
-  validateFixedPlan(plan);
+  const plan = reconstructCityFixedSourcePlan(callerPlan, input.sourceId);
   validateRunBinding(input, plan);
   if (input.signal.aborted) throw new Error("city_fixed_operation_aborted");
 

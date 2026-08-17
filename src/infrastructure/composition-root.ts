@@ -6,7 +6,10 @@ import { createConfirmedLife } from "../application/confirmed-life";
 import { createHousingBranchApplication } from "../application/fork-housing";
 import { createJourneyPresentation } from "../application/present-journey";
 import { createReplayApplication } from "../application/replay";
-import { replayEvidence as replayVerifiedEvidence } from "../application/replay-evidence";
+import {
+  replayEvidence as replayVerifiedEvidence,
+  type EvidenceReplayIntegrityFactoryPort,
+} from "../application/replay-evidence";
 import {
   projectDecisionEvidence,
   projectVerifiedBudgetFacts,
@@ -54,6 +57,9 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
   const source = options.source ?? new OfficialSourceAdapter();
   const requestStep = options.requestStep ?? captureHttpOnce;
   const integrity = createEvidenceIntegrity(options.hmacKey);
+  const integrityFactory = Object.freeze({
+    create: createEvidenceIntegrity,
+  }) satisfies EvidenceReplayIntegrityFactoryPort;
   const nextId = options.nextId ?? (
     (kind: "run" | "revision" | "assessment") => `${kind}-${randomUUID()}`
   );
@@ -130,6 +136,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
       { snapshotId, hmacKey: options.hmacKey },
       {
         store: evidenceStore,
+        integrityFactory,
         ...(options.parsers === undefined ? {} : { parsers: options.parsers }),
       },
     ),

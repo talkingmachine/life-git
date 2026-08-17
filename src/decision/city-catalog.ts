@@ -174,6 +174,62 @@ function immutableCopy<T>(value: T): T {
   return deepFreeze(structuredClone(value));
 }
 
+function descriptorSafeFrozenCopy<T>(borrowed: T): T {
+  const active = new Set<object>();
+
+  const copy = (value: unknown): unknown => {
+    if (value === null || typeof value !== "object") return value;
+    if (active.has(value) || Object.getOwnPropertySymbols(value).length !== 0) {
+      integrityMismatch();
+    }
+
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) integrityMismatch();
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (lengthDescriptor === undefined || !("value" in lengthDescriptor) ||
+        typeof lengthDescriptor.value !== "number" || !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0) {
+        integrityMismatch();
+      }
+      const length = lengthDescriptor.value;
+      if (Object.getOwnPropertyNames(value).length !== length + 1) integrityMismatch();
+
+      active.add(value);
+      try {
+        const owned: unknown[] = [];
+        for (let index = 0; index < length; index += 1) {
+          const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+          if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+            integrityMismatch();
+          }
+          owned.push(copy(descriptor.value));
+        }
+        return Object.freeze(owned);
+      } finally {
+        active.delete(value);
+      }
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) integrityMismatch();
+    active.add(value);
+    try {
+      const entries = Object.getOwnPropertyNames(value).map((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+          integrityMismatch();
+        }
+        return [key, copy(descriptor.value)] as const;
+      });
+      return Object.freeze(Object.fromEntries(entries));
+    } finally {
+      active.delete(value);
+    }
+  };
+
+  return copy(borrowed) as T;
+}
+
 function ordinalOrder(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -552,4 +608,43 @@ export function reconstructCityCatalog(input: ReconstructCityCatalogInput): City
     integrityMismatch();
   }
   return immutableCopy({ registry, catalog: catalog as CityCatalogRevision });
+}
+
+export function reconstructVerifiedCityCatalog(
+  input: ReconstructCityCatalogInput,
+  integrity: CityDecisionIntegrity,
+): CityCatalogProjection {
+  try {
+    const ownedInput = descriptorSafeFrozenCopy(input);
+    if (!isRecord(ownedInput) || !hasExactKeys(ownedInput, ["registry", "catalog"]) ||
+      integrity === null || typeof integrity !== "object" || typeof integrity.canonical !== "function" ||
+      typeof integrity.hash !== "function") integrityMismatch();
+    const registry = decodeRegistry(ownedInput.registry, integrity);
+    const suppliedCatalog = ownedInput.catalog;
+    if (!isRecord(suppliedCatalog) || !hasExactKeys(suppliedCatalog, [
+      "schemaVersion", "id", "packageId", "packageSchemaVersion", "countryCode",
+      "registryRevisionId", "evidenceSnapshotId", "populationDefinition", "candidateBasis",
+      "members", "coverage", "rulesVersion", "createdAt",
+    ]) || suppliedCatalog.schemaVersion !== "city-catalog@1" ||
+      (suppliedCatalog.rulesVersion !== LEGACY_CITY_CATALOG_RULES_VERSION &&
+        suppliedCatalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) ||
+      suppliedCatalog.registryRevisionId !== registry.id ||
+      suppliedCatalog.packageId !== registry.packageId ||
+      suppliedCatalog.packageSchemaVersion !== registry.packageSchemaVersion ||
+      suppliedCatalog.countryCode !== registry.countryCode) integrityMismatch();
+    const reconstructed = buildCatalog({
+      registry,
+      evidenceSnapshotId: suppliedCatalog.evidenceSnapshotId,
+      populationDefinition: suppliedCatalog.populationDefinition,
+      candidateBasis: suppliedCatalog.candidateBasis,
+      coverage: suppliedCatalog.coverage,
+      createdAt: suppliedCatalog.createdAt,
+    }, integrity, suppliedCatalog.rulesVersion);
+    if (integrity.canonical(reconstructed) !== integrity.canonical(suppliedCatalog)) {
+      integrityMismatch();
+    }
+    return immutableCopy({ registry, catalog: reconstructed });
+  } catch {
+    integrityMismatch();
+  }
 }
