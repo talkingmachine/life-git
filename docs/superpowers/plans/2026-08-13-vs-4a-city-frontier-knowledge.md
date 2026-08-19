@@ -4,7 +4,7 @@
 
 **Goal:** Install one reviewable city research package and publish replayable, append-only City Evidence and full four-fact City Knowledge without carrying stale predecessor values.
 
-**Architecture:** Existing generic artifact/Evidence storage remains the only raw-byte owner. A narrow signed City Evidence overlay binds the generic snapshot to city/frontier context and durable `completedAt`. Research builds each City Knowledge revision entirely from that one verified overlay; SQLite serializes revisions per city and reconstructs every row from sealed Evidence. Country Knowledge remains unchanged.
+**Architecture:** Existing generic artifact/Evidence storage remains the only raw-byte owner. A narrow signed City Evidence overlay binds the generic snapshot to city/frontier context and durable `completedAt`. Research builds every current value/outcome from one structural, already-verified Evidence view and obtains unknown-fact metadata only from the exact reconstructed installed contract tuple, using inward Research DTOs only (never Application DTO imports); SQLite serializes revisions per city and reconstructs every row from sealed Evidence. Country Knowledge remains unchanged.
 
 **Tech Stack:** TypeScript, the existing generic `ResearchPlan`/Evidence store, official source adapters, SQLite immediate transactions, canonical JSON/SHA-256/HMAC and Vitest.
 
@@ -1607,6 +1607,94 @@ export type CityFactOutcome =
   | { readonly kind: "verified"; readonly basis: CityVerifiedFactBasis }
   | { readonly kind: "unknown"; readonly reason: CityUnknownReason };
 
+// Inward Research contract. The structural shape is intentionally satisfied by
+// VerifiedCityEvidence without importing src/application/city-data-contracts.
+export interface CityKnowledgeEvidenceView {
+  readonly snapshot: {
+    readonly id: string;
+    readonly cityId: string;
+    readonly countryCode: string;
+    readonly packageId: string;
+    readonly packageSchemaVersion: string;
+    readonly catalogRevisionId: string;
+    readonly evidenceRulesVersion: string;
+    readonly completedAt: string;
+  };
+  readonly genericEvidence: {
+    readonly snapshot: {
+      readonly id: string;
+      readonly coverage: Readonly<Record<string, "verified" | "unavailable">>;
+      readonly claims: readonly {
+        readonly sourceId: string;
+        readonly criterionId: CityCriterionId;
+        readonly definitionId: string;
+        readonly scope: string;
+        readonly officialAreaId: string;
+        readonly geoScope: string;
+        readonly unit: string;
+        readonly denominator: string;
+        readonly freshnessPolicyVersion: string;
+        readonly sourcePeriod: string;
+        readonly value: CityVerifiedFactBasis;
+        readonly anchor: {
+          readonly artifactId: string;
+          readonly locator: string;
+          readonly excerptSha256: string;
+        };
+      }[];
+      readonly blockers: readonly {
+        readonly sourceId: string;
+        readonly kind: string;
+        readonly navigationUrl: string;
+        readonly resolvedUrl?: string;
+        readonly artifactIds: readonly string[];
+      }[];
+    };
+    readonly manifest: {
+      readonly entries: readonly {
+        readonly sourceId: string;
+        readonly navigationUrl: string;
+        readonly resolvedEvidenceUrl: string;
+        readonly artifactIds: readonly string[];
+      }[];
+      readonly artifacts: readonly {
+        readonly artifactId: string;
+        readonly sourceId: string;
+      }[];
+    };
+    readonly entries: readonly {
+      readonly sourceId: string;
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl: string;
+      readonly artifacts: readonly {
+        readonly artifactId: string;
+        readonly sourceId: string;
+      }[];
+    }[];
+  };
+}
+
+export interface CityKnowledgeFactContract<
+  S extends SloveniaCityFactSourceId = SloveniaCityFactSourceId,
+> {
+  readonly sourceId: S;
+  readonly criterionId: CityCriterionId;
+  readonly definitionId: string;
+  readonly scope: string;
+  readonly geoScope: string;
+  readonly officialAreaId: string;
+  readonly unit: string;
+  readonly denominator: string;
+  readonly freshnessPolicyVersion: string;
+}
+
+export type CityKnowledgeFactContractTuple = readonly [
+  CityKnowledgeFactContract<"si-city-safety">,
+  CityKnowledgeFactContract<"si-city-long-term-rent">,
+  CityKnowledgeFactContract<"si-city-urban-transit">,
+  CityKnowledgeFactContract<"si-city-fixed-broadband">,
+];
+
 export type CityFactEvidenceReference =
   | {
       readonly kind: "claim";
@@ -1631,11 +1719,28 @@ export interface CityKnowledgeFact {
   readonly definitionId: string;
   readonly geoScope: { readonly kind: string; readonly officialAreaId: string };
   readonly referencePeriod: string | null;
-  readonly freshnessBasis: { readonly policyVersion: string; readonly value: string | null };
+  readonly freshnessBasis: { readonly policyVersion: string };
   readonly unit: string;
   readonly denominator: string;
   readonly outcome: CityFactOutcome;
   readonly evidenceRefs: readonly CityFactEvidenceReference[];
+}
+
+export interface BuildCityKnowledgeInput {
+  readonly packageKey: InstalledCityPackageExactKey;
+  readonly evidence: CityKnowledgeEvidenceView;
+  readonly factContracts: CityKnowledgeFactContractTuple;
+  readonly createdAt: string;
+  readonly predecessor?: CityKnowledgeRevision;
+}
+
+export interface ReconstructCityKnowledgeInput {
+  readonly revision: CityKnowledgeRevision;
+  readonly packageKey: InstalledCityPackageExactKey;
+  readonly evidence: CityKnowledgeEvidenceView;
+  readonly factContracts: CityKnowledgeFactContractTuple;
+  // Present iff revision.predecessorRevisionId is present.
+  readonly predecessor?: CityKnowledgeRevision;
 }
 
 export interface CityKnowledgeRevision {
@@ -1661,9 +1766,52 @@ export function projectCityKnowledgeForRanking(
 ): CityKnowledgeRankingProjection;
 ```
 
+`city-knowledge.ts` is an inward Research module: it must not import an Application DTO. It owns the
+structural `CityKnowledgeEvidenceView`, `CityKnowledgeFactContract`, build and reconstruction DTOs above.
+The build/reconstruct entry points accept only that already-verified Evidence view, the exact closed
+`InstalledCityPackageExactKey`, the canonical dense fact-contract tuple and the optional predecessor;
+build also accepts the new revision's `createdAt`. The evidence view's `snapshot` must bind exactly to the key's
+`countryCode/packageId/packageSchemaVersion/catalogRevisionId/evidenceRulesVersion`; the city ID and
+generic snapshot ID are derived only from that verified view and reconstruction binds them to the
+submitted revision. The implementation descriptor-snapshots only the required projection shown above,
+so the larger verified Evidence object remains structurally assignable and its unrelated raw-byte/
+ledger fields are neither copied nor traversed; a missing, noncanonical or mismatched required
+key/view field is `integrity_mismatch` before any integrity callback. Task 9 derives this tuple only
+from exact reconstructed installed-package replay; it must never accept an ad-hoc fact contract.
+
+`CityKnowledgeFactContract` is a closed own-data value with exactly `sourceId`, `criterionId`,
+`definitionId`, `scope`, `geoScope`, `officialAreaId`, `unit`, `denominator` and
+`freshnessPolicyVersion`. Its tuple is dense and exactly four entries in
+`SLOVENIA_CITY_FACT_SOURCE_IDS` order, with the matching canonical criterion order and no duplicate,
+foreign or omitted source/criterion. In particular the safety entry uses the exact literals from
+`SLOVENIA_CITY_SAFETY_FACT_CONTRACT`; fixed entries use their exact reconstructed installed contracts.
+
 - [ ] **Step 1: Write the no-carry-forward RED matrix**
 
-Cover 4/4 verified, every live `CityUnknownReason`, rejection of ranking-only `no_knowledge_revision`, missing/duplicate/foreign criterion, wrong definition/geo/unit/denominator/evidence ownership, known-to-unknown, and absence of profile/target/importance/score/suitability/raw bytes.
+Cover 4/4 verified and every live `CityUnknownReason`; reject ranking-only `no_knowledge_revision`,
+missing/duplicate/foreign tuple entries, all contract definition/scope/area/geo/unit/denominator/
+freshness drift, and all package-key/Evidence bindings. Exercise the real safety evaluator and `rankCities`
+compatibility path from the exact safety contract, not merely a projection smoke test. Assert no
+profile/target/importance/score/suitability/raw bytes, queries, provider results or attempt ledgers enter
+Knowledge.
+
+For each canonical source require exactly one coverage record, manifest entry and captured-entry source;
+the source-local artifacts and manifest artifacts must be exact dense owned sets. `verified` requires
+exactly one same-source claim, no blocker, a matching claim/contract/definition/source/scope/area/geo/
+unit/denominator/freshness binding, a claim anchor owned by that source's manifest and captured entries,
+and the correct basis kind (`municipal_safety` for safety, `canonical_scalar` for every fixed source).
+`unknown` requires no claim and exactly one blocker with one of the five permitted reasons; its metadata
+comes only from the exact reconstructed contract, its `referencePeriod` is `null`, and its one blocker
+reference preserves producer-valid empty `artifactIds` while otherwise requiring exact same-source
+manifest/captured ownership. Require a deterministic nonempty `evidenceRefs` array for every fact.
+Include valid-artifact cross-source ownership rejection, not just nonexistent artifacts.
+
+Cover a full semantic-change/no-carry matrix: unchanged facts with evidence locators/IDs/timestamps and
+accepted/reviewed URLs changed preserve the predecessor update time, while every current-fact semantic
+change (including known-to-unknown) uses the current check time and never copies a predecessor value.
+Cover first revision, successor reconstruction, substituted predecessor ID/value/city/country, all
+predecessor/current timestamp inequalities and the rule that package/rules need not be equal across
+revisions. Cover all revision/key/Evidence bindings and every timestamp/nested-field tamper.
 
 - [ ] **Step 2: Run RED**
 
@@ -1673,11 +1821,41 @@ Cover 4/4 verified, every live `CityUnknownReason`, rejection of ranking-only `n
 
 - [ ] **Step 3: Implement full projection and revision-level time semantics**
 
-Build all four facts only from current sealed Evidence, whether the outcome is verified or unknown, bind its exact `rulesVersion` and seal the revision ID through injected `CityDecisionIntegrity`. Safety verified facts retain `offenceCount`, `population` and the exact rational basis; Knowledge does not copy search queries, provider results or the attempt ledger. For semantic comparison include definition, geo scope, reference period, freshness basis, unit, denominator and outcome; exclude Evidence refs, accepted/reviewed URL changes, IDs and timestamps. First revision sets `knowledgeUpdatedAt = lastCheckedAt`; an unchanged semantic projection preserves only predecessor `knowledgeUpdatedAt`, never a predecessor fact value; known-to-unknown or any changed fact sets it to the new `lastCheckedAt`. Enforce predecessor time `< lastCheckedAt <= createdAt`.
+Descriptor-snapshot every contract, key, predecessor/revision and required Evidence projection as
+own-data plain/dense values with no accessors, symbols, cycles or missing required keys before the first
+`CityDecisionIntegrity` callback; require exact closed keys where this Task owns the schema, while
+allowing unrelated fields on the structurally larger already-verified Evidence input. Callback mutation
+or re-entrant mutation must not affect the private projection. Build all four current facts only from
+this current sealed Evidence snapshot, whether verified or unknown. Verified `referencePeriod` is the exact
+`claim.sourcePeriod`; unknown `referencePeriod` is `null`. `freshnessBasis` is exactly
+`{ policyVersion: contract.freshnessPolicyVersion }`; ranking projection flattens that policy version to
+the existing `CityRankingFactInput.freshnessBasis` string. Safety retains `offenceCount`, `population`
+and the exact rational municipal basis from current Evidence. Knowledge does not copy queries, provider
+results or an attempt ledger.
+
+Set `rulesVersion` from the exact key/Evidence evidence-rules binding. The ID equation is explicit:
+construct a payload that excludes `id`, then set
+`id = "city-knowledge:" + integrity.hash(integrity.canonical(payload))`. Reconstruct by rebuilding
+that exact payload and ID, then comparing the submitted revision structurally.
+
+The first revision has no predecessor and sets `knowledgeUpdatedAt = lastCheckedAt`. A successor has a
+predecessor input iff `predecessorRevisionId` is present; require that ID exactly, same `cityId` and
+`countryCode`, the predecessor's own canonical ID/closed shape/time validity, and
+`predecessor.createdAt < current.lastCheckedAt <= current.createdAt`. Recompute semantic equality only
+from current facts versus predecessor facts, including definition, geo scope, reference period,
+freshness-policy basis, unit, denominator and outcome, while excluding Evidence refs, accepted/reviewed
+URLs, IDs and timestamps. Equality carries only predecessor `knowledgeUpdatedAt`; any semantic change,
+including known-to-unknown, sets it to current `lastCheckedAt` and never carries a predecessor fact
+value. Do not require package or rules equality across revisions.
 
 - [ ] **Step 4: Add reconstruction/tamper and deep-freeze tests**
 
-Change fact order, status/value, reference period, timestamp inequalities, Evidence refs/ownership, package/city/rules binding and extra keys. Verify only Evidence-reference changes do not alter semantic-update time.
+Tamper fact order/status/value/basis, contracts, reference period, policy version, all package-key/
+city/country/Evidence bindings, every revision timestamp, every nested evidence reference and every
+predecessor link. Exercise descriptor getters, symbols, cycles, callback re-entry and mutation to prove
+the snapshot precedes integrity callbacks. Verify returned build/reconstruction values are freshly and
+recursively frozen, never alias each other or caller-owned objects, and reject all extra/missing keys.
+Verify evidence-reference, accepted-URL and reviewed-URL-only changes do not alter semantic-update time.
 
 - [ ] **Step 5: Run GREEN and commit**
 
