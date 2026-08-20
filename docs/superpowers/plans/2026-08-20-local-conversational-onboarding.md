@@ -5,7 +5,10 @@
 > model-download, native-ABI, zero-external-model and byte-equivalence instruction below is stale.
 > The approved successor design is
 > [`2026-08-20-codex-cli-runtime-design.md`](../specs/2026-08-20-codex-cli-runtime-design.md).
-> A replacement implementation plan will be written only after user review of that spec.
+> Execute the replacement plans
+> [`2026-08-21-codex-cli-runtime.md`](2026-08-21-codex-cli-runtime.md) and
+> [`2026-08-21-local-conversational-onboarding.md`](2026-08-21-local-conversational-onboarding.md)
+> instead.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

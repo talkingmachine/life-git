@@ -8,7 +8,7 @@
 | Область | две model-assisted capabilities конкурсного локального приложения: onboarding и `VS-4` film |
 | Зависимости | Local Conversational Onboarding, VS-4 Full Life, установленный Codex CLI и личный ChatGPT/Codex login |
 | Supersedes | local Qwen/GGUF runtime; blanket zero-external-model clauses для двух approved capabilities |
-| Approval | пользователь проекта / 2026-08-20 / Codex CLI вместо локальной модели / approved |
+| Approval | пользователь проекта / 2026-08-20 / Codex CLI вместо локальной модели / approved; exact-build tool-isolation closure / 2026-08-21 |
 
 ## 1. Решение
 
@@ -89,14 +89,25 @@ prompt через stdin, без shell interpolation, и запускает эк�
 
 ```text
 codex exec
+  --strict-config
   --ephemeral
   --ignore-user-config
   --ignore-rules
+  --disable apps
+  --disable auth_elicitation
+  --disable browser_use_full_cdp_access
+  --disable code_mode_host
+  --disable goals
+  --disable plugin_sharing
+  --disable remote_plugin
+  --disable shell_snapshot
+  --disable skill_mcp_dependency_install
+  --disable tool_call_mcp_elicitation
+  --disable tool_suggest
   --disable shell_tool
   --disable unified_exec
   --disable browser_use
   --disable in_app_browser
-  --disable apps
   --disable plugins
   --disable hooks
   --disable skill_search
@@ -112,18 +123,25 @@ codex exec
   -
 ```
 
-Adapter не добавляет workspace/repository directories, images, MCP servers, skills, user rules или
-conversation resume. Child получает новый environment из закрытого allowlist, а не наследует
+Adapter не добавляет workspace/repository directories, images, MCP servers, project-local skills,
+callable skill features, user rules или conversation resume. Общий inert CLI skill catalogue может
+остаться частью pinned base developer text, но он не получает file/shell/project capability. Child
+получает новый environment из закрытого allowlist, а не наследует
 `process.env`: только минимальные locale/temp values и существующий `CODEX_HOME`, необходимый CLI
 для auth. Application secrets и unrelated environment variables не передаются.
 
-Отключение tool features является обязательным hard gate, а не best-effort prompt instruction.
-Перед реализацией synthetic feasibility check обязан подтвердить на exact CLI build, что model
-request не получает shell/browser/app/plugin/workspace/multi-agent tools. Если tool-free invocation
-не подтверждён, этот adapter не реализуется и вопрос возвращается пользователю; tool-enabled Codex
-не является допустимым fallback. Event stream используется только в памяти для protocol
-validation; неожиданный tool-call event остаётся defense-in-depth rejection, а не единственной
-изоляцией.
+Этот exact tuple содержит 22 model-visible tool-related features pinned build. Единый tuple
+используется для local feature inventory и `exec`: inventory обязан найти все 22 имени ровно по
+одному разу с effective state `false`, а любой unknown/missing/enabled member останавливает gate.
+`--strict-config` обязателен для `exec`, чтобы drift имени/конфигурации не был silently ignored.
+Локальный `debug prompt-input` показывает model-visible message inputs, но не отдельный hidden tool
+registry; он используется только для доказательства отсутствия project/workspace path, user/project
+rules, app-specific instructions и project-local skill payload при fresh empty validated cwd и
+закрытом child environment. Изоляция принимается только совокупно: exact inventory, strict exec
+contract, empty cwd, closed env, отсутствие запрещённого project-specific input, выключенные
+`skill_search`/`skill_mcp_dependency_install` и fail-closed rejection любого tool event. Если
+любой элемент не подтверждён, adapter не
+реализуется и вопрос возвращается пользователю; tool-enabled Codex не является допустимым fallback.
 
 `--json` stdout имеет строгий byte/event limit. Adapter извлекает final assistant event только из
 потока в памяти, парсит его как JSON и после JSON Schema запускает capability-specific parser.
@@ -159,8 +177,11 @@ third-party documents и не обещает безопасный hosted service
 эту trust assumption и получает отдельную API/server-isolation спецификацию.
 
 Сетевой аудит допускает только два независимых контура: Codex CLI ↔ OpenAI для двух approved
-capabilities и existing HTTPS к official sources для Research. Иной model/provider traffic и
-application telemetry с questionnaire/film content запрещены.
+capabilities и existing HTTPS к official sources для Research. Для model-runtime eval observer
+семплирует Codex PID и Node/application PID на одном интервале: у Codex должен быть только reviewed
+OpenAI TCP/443 traffic, а у Node/application — ни одного соединения. Пропущенный PID/sample или
+пустой Codex observation не считается доказательством. Иной model/provider traffic и application
+telemetry с questionnaire/film content запрещены.
 
 ## 6. Failure semantics
 
@@ -202,8 +223,10 @@ Runtime contract принят, когда:
 1. preflight на demo Mac подтверждает `codex-cli 0.148.0-alpha.15` и ChatGPT login без API key;
 2. реальный synthetic extraction и review возвращают strict guarded output;
 3. реальная synthetic Full Life projection проходит schema и lineage guards;
-4. exact disabled-feature invocation proves a tool-free model request; prompt injection cannot
-   obtain shell/browser/app/plugin/workspace tools, and any unexpected tool event fails closed;
+4. exact 22-feature inventory reports every member known and false; `--strict-config` exec uses that
+   same tuple, fresh empty validated cwd and closed env; message inputs contain no
+   project/workspace/user-rule/app-specific/project-skill context, both callable skill features are
+   false; prompt injection produces no tool event, and any tool/protocol event fails closed;
 5. unknown field/segment, invented value/ref, malformed/oversize output, abort, timeout, missing CLI
    и logged-out state fail-closed без изменения durable state;
 6. every call uses a fresh `0700` temporary directory/process, passes prompt only through stdin,
@@ -213,8 +236,9 @@ Runtime contract принят, когда:
    supplied to the process;
 8. dependency/file audit finds no Qwen, GGUF, `node-llama-cpp`, model downloader, OpenAI SDK or API-key
    handling in the competition runtime;
-9. network audit observes only allowlisted Codex CLI ↔ OpenAI and official-source traffic, with no
-   questionnaire/film telemetry;
+9. network audit samples both Codex and Node/application PIDs over the same interval, observes only
+   allowlisted Codex CLI ↔ OpenAI traffic, and observes zero Node/application questionnaire/film
+   telemetry;
 10. one user action starts at most one Codex process and Application never performs a second
     invocation automatically;
 11. historical replay makes zero Codex/OpenAI calls;

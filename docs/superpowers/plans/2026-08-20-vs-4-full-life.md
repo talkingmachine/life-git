@@ -3,8 +3,8 @@
 > **SUPERSEDED — DO NOT EXECUTE.** The Qwen/GGUF/`node-llama-cpp`, shared local-model,
 > zero-external-model and byte-equivalence instructions below conflict with the approved
 > [`2026-08-20-codex-cli-runtime-design.md`](../specs/2026-08-20-codex-cli-runtime-design.md).
-> This plan will be replaced after user review of the successor runtime spec; no Full Life task in
-> this document is currently authorized for execution.
+> It is replaced by [`2026-08-21-vs-4-full-life.md`](2026-08-21-vs-4-full-life.md); no Full Life task
+> in this historical document is authorized for execution.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

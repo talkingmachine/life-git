@@ -8,7 +8,7 @@
 | Область | путь после terminal City Selection до первой ветви и одной альтернативы |
 | Зависимости | verified City Selection, Profile/Preference snapshots, Evidence Passport, Life Git, Competition Runtime через Codex CLI |
 | Supersedes | VS-1 housing-only branch как финальную глубину; deterministic-only film projection |
-| Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20 |
+| Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20; installed housing tuple / approved 2026-08-21 |
 
 ## 1. Цель и наблюдаемый результат
 
@@ -98,6 +98,15 @@ Salary signal не является вакансией, job offer или гар�
 есть comparable official long-term-rent reference/range, он остаётся видимым. Если rent fact имеет
 status unknown, UI честно показывает unknown и предлагает только необязательное user assumption;
 официальный диапазон не подразумевается. Пользователь выбирает один тип.
+
+Competition installed housing tuple закрыт и неизменяем в этой версии:
+
+- `room` — «Комната»;
+- `studio` — «Студия»;
+- `one_bedroom` — «Квартира с одной спальней».
+
+Другой тип нельзя добавить свободным текстом или вывести моделью. Общий comparable city rent
+reference не превращается в отдельную цену для каждого типа без собственного official definition.
 
 Стоимость можно изменить вручную. Тогда:
 
@@ -303,3 +312,5 @@ Approval этой спеки разрешает bounded `VS-4` film через �
 [`2026-08-20-codex-cli-runtime-design.md`](2026-08-20-codex-cli-runtime-design.md). `VS-4` остаётся
 границей полного фильма о жизни; `VS-5` остаётся конкурсным end-to-end evidence/presentation gate,
 а не новой продуктовой функциональностью. Direct API integration и local model runtime запрещены.
+Competition housing tuple `room | studio | one_bedroom` отдельно подтверждён пользователем
+2026-08-21 и не требует повторного продуктового вопроса.
