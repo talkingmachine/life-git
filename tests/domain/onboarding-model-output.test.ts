@@ -183,6 +183,8 @@ describe("onboarding model output", () => {
   it.each([
     proposal("current_location", { countryCode: "ZZ", city: "Nowhere" }),
     proposal("savings", { min: "0", max: "1", currency: "ZZZ" }),
+    proposal("savings", { min: "0", max: "1", currency: "SLL" }),
+    proposal("participants.self.monthly_income", { amount: "1", currency: "ZWL", basis: "net" }),
   ])("rejects shaped but unassigned ISO proposal %#", (invalidProposal) => {
     expectExtractionRejected(extraction([invalidProposal]));
   });
