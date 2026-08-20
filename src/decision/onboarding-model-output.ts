@@ -298,7 +298,7 @@ function snapshotRecord(value: unknown): JsonRecord | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   if (Object.getPrototypeOf(value) !== Object.prototype || Object.getOwnPropertySymbols(value).length !== 0) return null;
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  const result: JsonRecord = {};
+  const result = Object.create(null) as JsonRecord;
   for (const [key, descriptor] of Object.entries(descriptors)) {
     if (!("value" in descriptor) || !descriptor.enumerable) return null;
     result[key] = descriptor.value;
@@ -334,7 +334,7 @@ function hasExactKeys(record: JsonRecord, keys: readonly string[]): boolean {
 
 function hasOnlyKeys(record: object, keys: readonly string[]): boolean {
   const actualKeys = Object.keys(record);
-  return actualKeys.length === keys.length && actualKeys.every((key) => keys.includes(key));
+  return actualKeys.every((key) => keys.includes(key));
 }
 
 function assertUnique(values: readonly string[]): void {
