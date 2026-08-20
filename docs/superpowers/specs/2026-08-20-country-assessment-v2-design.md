@@ -341,25 +341,28 @@ The existing `CountryVerifierPort` remains ID-based. `PlaceFrontierApplication` 
 ranking/revision. `createCountryVerifierAdapter` transfers that opaque ID to Cold Start and never
 loads the profile or guesses its schema.
 
-The existing Cold Start profile read port widens only its verified return type:
+Cold Start adds one dedicated verified union loader while the existing V1 loader remains unchanged
+for Place Frontier and historical callers:
 
 ```ts
-loadRelocationVerified(
+loadRelocationAnyVerified(
   id: string,
 ): Promise<RelocationProfileSnapshot | RelocationProfileV2Snapshot>;
 ```
 
-Cold Start owns the exact verified load. Its `prepare`, `run` and `present` ID paths bind the loaded
-snapshot ID to the requested/sealed profile ID and dispatch directly by the reconstructed
+Cold Start alone owns and consumes that exact verified union load. Its `prepareAny`, `runAny` and
+`presentAny` ID paths bind the loaded snapshot ID to the requested/sealed profile ID and dispatch directly by the reconstructed
 `schemaVersion`: `relocation-profile@1 -> assessColdStart`,
 `relocation-profile@2 -> assessColdStartV2`. The direct `{ profile: RelocationProfileDraft }` path
-remains strictly `@1`. There is no adapter dispatch, registry, coercion or fallback. Onboarding
+and the inherited V1 `prepare`, `run` and `present` methods remain strictly `@1`. There is no adapter dispatch, registry, coercion or fallback. Onboarding
 reaches `@2` only through its persisted receipt/profile ID. This preserves the current
 `CountryVerifierPort` surface and keeps schema ownership inside the use case that already loads and
 assesses the profile.
 
 Participant explanations remain in the canonical Country Frontier result instead of disappearing
-after `assessColdStartV2`:
+after `assessColdStartV2`. Cold Start constructs this projection while it still owns both the
+verified profile participant order and reconstructed dossier route order; the outer adapter only
+copies the already checked projection and does not attempt to infer either order from opaque IDs:
 
 ```ts
 export interface CountryAssessmentProjectionV2 {
@@ -402,8 +405,10 @@ export type FrontierMarker =
 they do not create another persisted envelope. `CountryVerifierPort.present` returns
 `CountryVerificationPresentation`, not a non-distributive `Omit` over the whole union.
 
-The `@2` adapter builds the projection from `readModel.comparator.participantAssessments` without
-aggregation or relabeling and binds it to the same profile and Evidence Snapshot IDs.
+Cold Start derives the dense dossier-route × verified-profile-participant order and reconstructs the
+projection from `comparator.participantAssessments` without aggregation or relabeling before it
+returns the `@2` read model. The adapter only checks the same profile and Evidence Snapshot IDs and
+copies that already verified projection; it never infers order from opaque IDs.
 `materializeFrontierMarker`, `countryVerificationReplayExpectation`, marker persistence, stream
 normalization and view-model reconstruction retain that exact dense ordered projection. A pure
 `reconstructCountryAssessmentProjectionV2` checks exact keys, both ID bindings, closed reason codes,
