@@ -4,10 +4,10 @@
 | --- | --- |
 | Статус | `approved` |
 | Владелец решения | пользователь проекта |
-| Последняя проверка | 2026-08-12 |
+| Последняя проверка | 2026-08-20 |
 | Область ответственности | границы, порядок, зависимости и acceptance intent вертикальных срезов MVP |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 2 exact-text baseline; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 2 exact-text baseline; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20 |
 
 ## 1. Назначение
 
@@ -55,24 +55,29 @@ requirements, contracts, recovery design или acceptance/eval checklist кон
 
 | Срез | Наблюдаемый результат | Явная граница | Acceptance intent |
 | --- | --- | --- | --- |
+| `Entry` Local conversational onboarding | Свободное описание проходит guarded local extraction в видимую participant-scoped анкету; одно `Продолжить` подтверждает Profile и country/universal-city preferences, удаляет transcript и запускает Country Frontier. | Не является шестым numbered slice, generic form engine, provider abstraction или official-fact extraction; анкета остаётся source of truth. | Explicit values prefill, пропуски остаются пустыми, unusable required fields блокируют Continue, model overwrite видим и обратим, external model traffic равен нулю. |
 | `VS-1` Одна подтверждённая жизнь и одна альтернатива | Подтверждённый профиль проходит небольшой заявленный набор свежих official claims для одного заранее выбранного country-city candidate. Пользователь видит локальный verdict, простую визуальную ветвь и бюджет, Evidence Passport, commit, изменение одного решения и fork/diff. | Нет top-5, global registry, десяти dossiers, общего cold start и полного набора визуализаций. Результат не называется глобальной рекомендацией. | Один live happy path; source outage даёт yellow; snapshot replay воспроизводим; один выбор создаёт причинный fork/diff. |
 | `VS-2` Честный cold start | Пользователь вводит страну без глубокого dossier. Недостающие официальные источники находятся, claims проходят тот же validation pipeline, а валидированный результат публикует новую версию dossier и показывается отдельным comparator, даже если позднее не войдёт в top-5. | Один cold-start path; без универсального crawler и автоматического восстановления от любого сайта. | Страна без dossier проходит общий pipeline; неподтверждённый источник не публикует новую версию dossier. |
 | `VS-3` Place frontier | Неизменяемый place ranking по установленным country packages, current-run formal verification, persistent planet history и до пяти разных green/yellow стран работают как единый поиск. Красные страны остаются на карте и заменяются следующими по ranking; yellow делает результат preliminary. | Первый implementation slice не включает city fit и десять country packages одним изменением. City frontier следует отдельно и не определяет цвет страны. Top-5 ограничен installed coverage, ranking snapshot и датой. | Green означает хотя бы один verified viable route; red требует complete all-impossible catalog; поиск завершается при пяти non-red либо exhaustion; replay сохраняет exact order и markers. |
 | `VS-3R` Yellow Resolution | После VS-3 пользователь обязательно разрешает каждую formal yellow-страну; accepted yellow получает ordinary effective green, rejected — ordinary effective red и replacement. Terminal Resolved Country Shortlist Snapshot содержит до пяти effective green стран без unresolved yellow. | Не изменяет formal verdict/Evidence/Knowledge/VS-3 snapshots; не реализует City Registry, City Knowledge или city ranking. Automatic Shortlist Snapshot preliminary и не является City Frontier input. | Только verified terminal resolved snapshot с non-empty entries является future City Frontier input; accepted/rejected сохраняют formal-yellow provenance, ordering frozen, empty/exhausted result честен. |
 | `VS-4A` City Frontier | Для одной effective green страны из non-empty Resolved Country Shortlist Snapshot отдельный frozen at-most-100 City Catalog ranking и one-city-at-a-time fresh four-fact verification создают до трёх selectable cities за максимум десять completed checks. | Не принимает automatic shortlist, working resolution revision, empty/tampered terminal или effective-red country; city fit не меняет formal/effective status страны. | Catalog priority: national capital, explicit first-level regional capitals, population fill; >100 mandatory даёт `NEEDS_CONTEXT`; unknown остаётся selectable warning; stop — `three_selectable`/`catalog_exhausted`/`live_candidate_limit_reached`; selection atomically creates sibling City Branch Commit. |
-| `VS-4` Полный фильм о жизни | Выбор города, работы и жилья формирует один согласованный сценарий: бюджет, запас накоплений, типичный день, timeline и осторожные projections. Passport разделяет типы информации, а Life Git показывает причинный visual diff. | Нет пятнадцати полных ветвей, точных вероятностей жизненных событий и окончательной юридической или налоговой консультации. | Расчёт воспроизводим; missing input не выдумывается; projection отделён от факта; diff показывает причинную lineage. |
-| `VS-5` Конкурсное доказательство | Чистый canonical run показывает Input, Process, Evals и Output за подтверждённый после spike narrative budget. Есть live verification, cold start, один fork/diff, eval artifact, snapshot replay и один injected outage. | Recorded fallback маркируется датой и не подменяет работающий live end-to-end MVP. | Пройден чистый timed run, один injected outage и отдельно маркированный fallback. |
+| `VS-4` Полный фильм о жизни | После City Selection пользователь выбирает route basis и на одном экране собирает работу, жильё, расходы и накопления; deterministic budget и guarded local model создают saved film, Passport и одну Life Git alternative. | Нет пятнадцати ветвей, route auto-selection, точных вероятностей, provider abstraction или окончательной юридической/налоговой консультации. | FX/basis/unknown честны; validate → generate → optional edit → atomic commit; replay не regenerates; narrative causal только после same-input control. |
+| `VS-5` Конкурсное доказательство | Чистый canonical run показывает Input, Process, Evals и Output за подтверждённый narrative budget. Есть live verification, cold start, один fork/diff, eval artifact, snapshot replay и один injected outage. | Запись всего demo может быть presentation backup, но recorded model/evidence response никогда не является runtime fallback. | Пройден чистый 3–5-minute run, отдельно показан честный outage и подтверждено отсутствие runtime fallback. |
 
 ## 5. Архитектурные границы
 
 ### Pre-defense external-provider boundary
 
-Для `VS-1..VS-5` runtime model/API calls равны нулю: в продукте нет provider SDK, credential,
-feature flag или provider abstraction. Поддерживаемые страны получают только reviewable navigation
-seeds из Country Registry/Country Source Index, после чего каждый новый run заново захватывает
-official HTTPS bytes и применяет deterministic validators. Возможная внешняя LLM-assisted discovery
-отложена в `BACKLOG-EXT-LLM-01` после защиты и до монетизации; её будущие предложения остаются
-untrusted и проходят authority/schema gates, не создавая факт, provenance, расчёт или verdict.
+Для `Entry` и `VS-1..VS-5` external model/provider/API calls равны нулю: в продукте нет provider
+SDK, credential, feature flag или provider abstraction. Разрешены ровно две local capabilities:
+guarded onboarding extraction/review и bounded `VS-4` film projection. Они получают закрытые
+session/branch inputs, проходят deterministic guards и не создают official fact, provenance,
+calculation, marker или verdict.
+
+Поддерживаемые страны получают только reviewable navigation seeds из Country Registry/Country
+Source Index, после чего каждый новый run заново захватывает official HTTPS bytes и применяет
+deterministic validators. Возможная внешняя LLM-assisted discovery отложена в
+`BACKLOG-EXT-LLM-01` после защиты и до монетизации.
 
 ### Research
 
@@ -84,16 +89,21 @@ Revision`; только Research публикует verified claim или eviden
 
 ### Decision
 
-Владеет подтверждённым Profile Snapshot, `PreferenceProfile`, required/weighted criteria,
-детерминированным `PlaceRanker`, factor projections и formal country verdict над typed route
-outcomes и catalog completeness. Для VS-4A Decision владеет immutable City Catalog/Criteria/Ranking
-Snapshots, four criterion normalizers, required selectability и frozen rank order. Decision получает
-от Research проверенные claims, unknown или conflict, но не сырой HTML; количество маршрутов не
-является ranking factor. Для `VS-3R` Decision
+Владеет `onboarding-fields@1`, field/cross-field guards, подтверждёнными Profile и extended
+Preference Profile Snapshots, required/weighted criteria, детерминированным `PlaceRanker`, factor
+projections и formal country verdict над typed route outcomes и catalog completeness. Для VS-4A
+Decision владеет exact mapping universal city values в immutable City Criteria Snapshot,
+City Catalog/Ranking Snapshots, four criterion normalizers, required selectability и frozen rank
+order. Decision получает от Research проверенные claims, unknown или conflict, но не сырой HTML;
+количество маршрутов не является ranking factor. Для `VS-3R` Decision
 `CountryResolutionPolicy` детерминированно выводит effective status, unresolved queue, slots,
 cursor и terminal condition из immutable formal markers и Yellow decisions.
 
 ### Application
+
+`Onboarding` владеет ephemeral session, guarded proposal/review coordination, единственным
+`Продолжить`, atomic Profile/Preference confirmation и transcript purge. Он не позволяет model
+output обойти field/schema/cross-field guards.
 
 `CountryFrontier` владеет activation, persistent marker history, red replacement, automatic-phase
 stop и публикацией Ranking/Automatic Shortlist Snapshots. Он не ранжирует и не интерпретирует
@@ -104,6 +114,10 @@ City Shortlist и atomic Select; только Continue запускает fresh 
 replacement continuation may invoke CountryVerifierPort or make network calls. Start, yellow decision,
 presentation, and reload must make zero network calls.
 
+`FullLife` владеет последовательностью route selection → validate branch draft → local film
+generation/guard → optional user edits → atomic branch/film/Passport commit. Model outage оставляет
+только draft.
+
 ### Infrastructure
 
 SQLite хранит append-only resolution и City Frontier revision chains, проверяемые по immutable source
@@ -112,22 +126,29 @@ VS-4A добавляет canonical City Catalog/Criteria/Knowledge/Ranking/Selec
 selection и City Branch Commit пишет одной transaction. Нового capture pipeline, event store, queue,
 worker или mutable head table нет.
 
+Один local model adapter реализует только две inward capabilities без external endpoint, provider
+registry или switch. Onboarding transcript и source spans являются session-only; persistence хранит
+только закрытый structured whitelist.
+
 ### Branch
 
-Владеет выбранными городом, работой, жильём и допущениями, детерминированными расчётами,
-projections и причинной lineage. Для VS-4A Branch создаёт `PreCityBranchCommit` до выбора и
+Владеет выбранными городом, route basis, работой, жильём и допущениями, deterministic FX/budget/
+runway calculations, saved film, versioned inputRefs и причинной lineage. Branch/film/Passport
+публикуются атомарно; replay не запускает модель. Для VS-4A Branch создаёт `PreCityBranchCommit` до выбора и
 атомарный City Branch Commit при выборе; альтернативы одного terminal являются siblings от общего
 pre-city parent. Life Git является глубоким модулем Branch и единолично владеет commit, rewind,
 fork, replay и diff.
 
 ### Experience
 
-Карта, карточки, бюджет, timeline, Evidence Passport и visual diff являются read models поверх
+Анкета сверху и local chat снизу образуют onboarding read/write view; UI показывает
+`model_overwrite_unreviewed`, но не создаёт requiredness или model verdict. Карта, карточки, бюджет,
+timeline, Evidence Passport и visual diff являются read models поверх
 опубликованных состояний. Experience выводит effective status и resolution prompt только из
 verified projection: accepted formal yellow рендерится ordinary green, rejected — ordinary red с
 правдивым detail. Для VS-4A card показывает frozen `rank/score на момент старта` отдельно от fresh
 facts/`coverage после проверки`; selectable unknown — green с amber warning ring и explicit text.
-UI не создаёт факты, не повторяет формулы и не выносит verdict.
+UI не создаёт факты, не повторяет формулы, не regenerates film и не выносит verdict.
 
 ## 6. Направление зависимостей и cross-slice flow
 
@@ -147,7 +168,8 @@ JIT-спецификация первого среза, которому они 
 Поток направлен так:
 
 ```text
-confirmed profile + preferences
+free text -> guarded local proposals -> visible questionnaire
+  -> confirmed Profile + extended Preference Profile + transcript purge
   -> current Country Knowledge revision set
   -> sealed Ranking Snapshot
   -> CountryFrontier + current-run formal verification
@@ -155,17 +177,21 @@ confirmed profile + preferences
   -> persistent marker history + red replacement
   -> immutable Automatic Shortlist Snapshot (preliminary)
   -> CountryResolution / effective status / Resolved Country Shortlist Snapshot
-  -> City Criteria Snapshot -> frozen full City Catalog ranking
+  -> exact installed City Criteria mapping -> frozen full City Catalog ranking
   -> one-city fresh four-fact verification -> terminal City Shortlist
   -> atomic City Selection Snapshot + sibling City Branch Commit
-  -> coherent life branch and commit
-  -> Passport, visual output and fork/diff
+  -> user-selected route basis -> full-life draft
+  -> deterministic calculations + guarded local film
+  -> atomic branch/film/Passport commit -> one fork/diff
 ```
 
 ## 7. Cross-slice инварианты
 
 - Run-local assessment не становится durable verdict до sealing Evidence Snapshot; после sealing он
   обязан ссылаться на точные Profile Snapshot, Evidence Snapshot, coverage и дату.
+- Model proposals и film segments проходят closed schema/lineage guards и никогда не создают
+  official fact, evidence, calculation, marker или verdict; external model traffic равен нулю.
+- Onboarding transcript, source spans, prompts и raw model output не входят в durable journey.
 - Gray существует только пока bounded verification реально выполняется.
 - Green требует хотя бы одного verified viable long-term `ResidenceRoute`; city verification и fit
   не входят в формальный цвет.
@@ -190,12 +216,15 @@ confirmed profile + preferences
   unselectable.
 - City selection atomically публикует City Selection Snapshot и sibling City Branch Commit от общего
   `PreCityBranchCommit`; city fit не изменяет formal/effective status страны.
+- Route basis сохраняет trust class: accepted-yellow unresolved basis не становится verified, а
+  route-dependent missing values остаются unknown.
 - Current-run Knowledge update не меняет порядок и применяется только в новом run.
 - Evidence Snapshot после sealing не изменяется; продолжение frontier создаёт новую revision.
 - Исторический snapshot разрешён для replay, но не является current-run verification.
 - Branch commit неизменно связывает решение с resulting Life Branch Snapshot и версиями profile,
-  evidence, правил и формул.
-- Diff различает изменение решения, профиля, evidence и версии правил.
+  evidence, правил, формул и saved film; replay не regenerates local model output.
+- Diff различает изменение решения, профиля, evidence и версии правил; narrative change causal
+  только после byte-equivalent same-input control.
 - UI не может обойти evidence, constraint или calculation rules.
 
 Формальные `INV-*` присваиваются в доменной спецификации первого среза, который реализует правило.
@@ -207,18 +236,23 @@ confirmed profile + preferences
   cache не превращает старый claim в fresh evidence.
 - Decision владеет missing profile input, required filtering, place ranking и formal verdict rules.
 - Application `CountryFrontier` владеет red replacement, exhaustion и `run_incomplete`.
+- Application `Onboarding`/`FullLife` владеет local model outage: затронутое действие блокируется,
+  draft сохраняется, runtime fallback/retry loop отсутствует; после восстановления пользователь
+  повторяет обычное `Продолжить` или сохранение ветви.
 - Branch владеет missing calculation input, projection classification и commit invariants. Он
   сохраняет unknown либо явное assumption и не создаёт invalid commit.
 - Experience только показывает состояние владельца и не реализует собственный fallback verdict.
 
-Точные retry, recovery и unsupported cases определяются в JIT-спеке затронутого среза. Bounded
-source-attempt limits являются recovery boundary: их исчерпание превращает затронутый formal fact в
+Точные failure и unsupported cases определяются в JIT-спеке затронутого среза. Отдельные retry-loop,
+retry-state и recovery-действия в продуктовом flow не создаются. Bounded source-attempt limits
+являются research boundary: их исчерпание превращает затронутый formal fact в
 explicit unknown/yellow, а не создаёт отдельный shortlist budget stop или параллельный pipeline.
 
 ## 9. Порядок спецификации и реализации
 
 ```text
 feasibility spike
+  -> Entry Local Conversational Onboarding
   -> VS-1
   -> VS-2
   -> VS-3
@@ -228,9 +262,10 @@ feasibility spike
   -> VS-5
 ```
 
-После approval этого документа полностью специфицируется только `VS-1`. До его реализации должны
-быть утверждены наблюдаемый результат, scope и non-goals, основной и один значимый recovery
-scenario, затронутые invariants, contracts, acceptance/eval checklist и implementation tasks.
+Этот документ задаёт порядок срезов, но не заменяет их approved product specs и implementation
+plans. Перед реализацией каждого среза должны быть утверждены наблюдаемый результат, scope и
+non-goals, основной и один значимый failure scenario, затронутые invariants, contracts,
+acceptance/eval checklist и implementation tasks.
 
 Acceptance/eval checklist каждого среза содержит black-box happy path и по одному
 репрезентативному failure class, способному нарушить truthfulness, данные или canonical demo.
@@ -245,7 +280,7 @@ Source fixtures не считаются fresh evidence пользователь�
 
 - микросервисы, event bus, CQRS/event sourcing и graph database только из-за Life Git;
 - generic workflow/rules engine, adapter SDK и автоматический self-healing crawler;
-- runtime provider SDK, multi-agent orchestration и plugin ecosystem;
+- external provider SDK, provider registry/switch, multi-agent orchestration и plugin ecosystem;
 - отдельные observability, knowledge-base и eval platforms;
 - production auth, billing, multi-tenancy и mobile clients;
 - universal legal/travel ontology и exhaustive country-specific prompts;
@@ -253,8 +288,7 @@ Source fixtures не считаются fresh evidence пользователь�
 
 ## 11. Exit gate Stage 2
 
-Stage 2 может стать approved, когда пользователь подтверждает точную редакцию этого документа и
-проверено, что:
+Stage 2 approved: пользователь подтвердил точную редакцию документа, и проверено, что:
 
 - каждый срез имеет самостоятельный visual output и acceptance intent;
 - scope и acceptance intent VS-1 требуют реальный-source end-to-end path без фиктивного внешнего

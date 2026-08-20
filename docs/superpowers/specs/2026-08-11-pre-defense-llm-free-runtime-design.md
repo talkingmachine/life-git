@@ -6,9 +6,9 @@
 | Владелец решения | пользователь проекта |
 | Дата решения | 2026-08-11 |
 | Область | все конкурсные срезы до защиты, включая `VS-1..VS-5` |
-| Выбранный подход | installed country source index + live official-source verification |
+| Выбранный подход | installed country source index + live official-source verification + two bounded local model capabilities |
 | Supersedes | runtime OpenAI/Responses integration, API-key gate и зависимый `VS-2` live eval |
-| Approval | пользователь проекта / 2026-08-11 / exact-text / approved |
+| Approval | пользователь проекта / 2026-08-11 / exact-text / approved; local onboarding + VS-4 Full Life amendment / approved 2026-08-20 |
 
 ## 1. Решение и граница этапа
 
@@ -16,6 +16,12 @@
 отдельный API-биллинг или программный вызов Codex. Подписка Codex используется только как
 инструмент разработки: разработчик с её помощью исследует страну, записывает навигационные
 источники, реализует валидаторы и проверяет код. Codex не является runtime dependency продукта.
+
+Разрешены ровно две локальные runtime capabilities: conversational onboarding и bounded `VS-4`
+film projection. Они работают без external endpoint/telemetry, получают только закрытые
+session/branch inputs, возвращают allowlisted structured output и проходят deterministic
+schema/lineage guards. Они не участвуют в official-source discovery и не создают evidence, official
+facts, eligibility, ranking, markers, calculations или verdict.
 
 Запрет не распространяется на HTTPS-запросы к официальным государственным и статистическим
 источникам. Они остаются обязательными: каждый новый пользовательский run заново получает
@@ -28,6 +34,8 @@ Responses API считается одним из возможных будущи
 
 ## 2. Выбранная архитектура
 
+Research path остаётся прежним:
+
 ```text
 country input
   -> Country Registry
@@ -39,6 +47,16 @@ country input
   -> deterministic assessment/comparator
   -> visual progress and source details
 ```
+
+Две локальные capabilities проходят отдельными узкими путями:
+
+```text
+message -> local proposal -> span/normalizer/schema guard -> questionnaire
+structured branch -> local film -> schema/lineage guard -> atomic branch commit
+```
+
+Onboarding transcript/source spans остаются session-only. Historical branch replay использует
+сохранённый film и не запускает модель повторно.
 
 `Country Registry` отвечает за поддерживаемые страны и official authority roots. `Country Source
 Index` возвращает установленный, ревьюируемый список навигационных кандидатов для страны.
@@ -86,8 +104,9 @@ index или неполный набор required source roles завершаю�
 redirect chain. Изменившаяся структура, неполный listing, stale/future period, semantic mismatch,
 конфликт или недоступность critical source дают blocker/yellow и не создают dossier version.
 
-Historical replay остаётся полностью offline. Оно воспроизводит claims, dossier и comparator из
-sealed bytes и versioned validators без сети, Codex или LLM.
+Historical replay остаётся полностью offline. Оно воспроизводит claims, dossier, comparator и
+saved film из sealed bytes/versioned outputs без сети, Codex, external provider или model
+regeneration.
 
 ## 5. Детерминированный narrative
 
@@ -99,6 +118,10 @@ sealed bytes и versioned validators без сети, Codex или LLM.
 детерминированный presentation path, поэтому отсутствие ключа или провайдера не является
 пользовательским состоянием и не требует обходного пути.
 
+Эта граница относится к `VS-1` supporting copy и не запрещает approved bounded `VS-4` film.
+Локальный film имеет closed schema/inputRefs и никогда не заменяет deterministic calculation или
+official-source result.
+
 ## 6. Удаляемая поверхность
 
 Реализация этого решения обязана удалить, а не оставить dormant:
@@ -106,13 +129,14 @@ sealed bytes и versioned validators без сети, Codex или LLM.
 - runtime imports и dependency `openai`, включая lockfile entries;
 - `OPENAI_API_KEY`, `OPENAI_MODEL` и `openAiApiKey` composition options;
 - Responses API discovery и narrative adapters;
-- model-specific result kinds, refusal/timeout paths, payload assertions и call budgets;
+- external-provider-specific result kinds, refusal/timeout paths, payload assertions и call budgets;
 - незакоммиченный `evals/vs2-live.ts`, `eval:vs2` и credential-dependent artifact contract;
 - tests, которые проверяют `gpt-5.6`, `responses.parse` или model payload вместо продуктового
   поведения.
 
 Удаление не затрагивает official HTTP gateway, source adapters, raw artifact store, deterministic
-parsers, Evidence HMAC, dossier publication, replay, comparator или визуальный stream.
+parsers, Evidence HMAC, dossier publication, replay, comparator, local model schemas/guards или
+визуальный stream.
 
 ## 7. Проверка до защиты
 
@@ -120,8 +144,10 @@ parsers, Evidence HMAC, dossier publication, replay, comparator или визу�
 
 - все domain/integration/experience tests;
 - отдельные tests для exact installed candidates, immutable index и unsupported country;
-- zero-LLM audit: в production dependency graph, env example и runtime composition нет SDK, API key,
-  provider name или model call;
+- zero-external-provider audit: в production dependency graph, env example и runtime composition
+  нет external SDK, API key, provider endpoint или model/telemetry traffic;
+- local model golden/adversarial checks, onboarding privacy purge, pinned-device same-input
+  reproducibility и полный 3–5-minute demo gate;
 - typecheck, lint и production build;
 - offline replay, tamper, idempotency и version-chain проверки.
 
@@ -154,7 +180,7 @@ marker или verdict. Его возможный результат — толь
 Решение выполнено, когда:
 
 1. поиск по production source и package graph не находит OpenAI SDK, Responses API,
-   `OPENAI_API_KEY`, model ID или runtime LLM adapter;
+   `OPENAI_API_KEY`, external endpoint/provider adapter или external model traffic;
 2. Словения без dossier запускается без ключа, а один обязательный black-box current-source run
    перед защитой проходит прежний official capture pipeline либо честно фиксирует blocking drift;
 3. index supplies navigation only, exact navigation входит в sealed manifest, а source drift
@@ -162,11 +188,14 @@ marker или verdict. Его возможный результат — толь
 4. `VS-1` narrative полностью детерминирован;
 5. незакоммиченный credential-dependent live eval удалён и не создаёт artifact;
 6. active specs явно относят external LLM integration к `BACKLOG-EXT-LLM-01`;
-7. полный local gate проходит без сети к LLM provider и без отдельного API-биллинга.
+7. runtime composition предоставляет ровно две allowlisted local capabilities — onboarding и
+   `VS-4` film — с closed output guards, zero external traffic и без отдельного API-биллинга;
+8. полный canonical demo проходит за 3–5 минут, а same-input film output byte-equivalent на
+   закреплённой build/device pair.
 
 ## 10. Не-цели
 
-- локальная модель внутри приложения;
+- любые local-model capabilities вне onboarding и bounded `VS-4` film;
 - вызов Codex CLI/desktop из runtime;
 - генератор manifests или prompts;
 - multi-provider abstraction, provider registry или feature flags «на будущее»;
@@ -180,6 +209,10 @@ marker или verdict. Его возможный результат — толь
 части, official capture topology, validators, evidence integrity, replay, UI и исторические отчёты
 остаются действительными.
 
+Approved local onboarding и `VS-4` Full Life specs supersede только прежний запрет local model и
+deterministic-only film projection. Source discovery, evidence, ranking, verdict, calculations и
+`VS-1` narrative остаются deterministic и provider-free.
+
 Старые task reports не переписываются: они честно фиксируют ранее реализованный OpenAI path и
-отсутствовавший ключ. После approval этого точного текста missing API key перестаёт быть blocker, а
-новый узкий implementation plan становится единственным планом удаления и миграции.
+отсутствовавший ключ. С approval этой редакции missing API key больше не является blocker, а новые
+узкие implementation plans становятся единственным планом удаления и миграции.

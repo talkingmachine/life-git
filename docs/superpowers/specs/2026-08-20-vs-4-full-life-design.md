@@ -2,12 +2,13 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `proposed` — conversational baseline approved, written review pending |
+| Статус | `approved` |
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-20 |
 | Область | путь после terminal City Selection до первой ветви и одной альтернативы |
 | Зависимости | verified City Selection, Profile/Preference snapshots, Evidence Passport, Life Git |
-| Supersedes | VS-1 housing-only branch как финальную глубину; после written approval — deterministic-only projection |
+| Supersedes | VS-1 housing-only branch как финальную глубину; deterministic-only film projection |
+| Approval | пользователь проекта / 2026-08-20 / exact-text / approved |
 
 ## 1. Цель и наблюдаемый результат
 
@@ -293,10 +294,10 @@ Rewind не переписывает baseline. Альтернатива не у�
 - универсальный decision graph или generic workflow engine;
 - внешний LLM API, provider switch или monetization infrastructure в конкурсной версии.
 
-## 14. Canonical amendment после written approval
+## 14. Утверждённая canonical amendment
 
-Written approval этой спеки непосредственно заменяет прежние deterministic-only projection и
-запрет local runtime model только для bounded `VS-4` film. Узкий change package затем обновляет
+Approval этой спеки непосредственно заменяет прежние deterministic-only projection и
+запрет local runtime model только для bounded `VS-4` film. Этот change package обновляет
 Product Charter, Demo Story, Glossary, Spec of Specs и pre-defense runtime design. `VS-4` становится
 точной границей полного фильма о жизни; `VS-5` остаётся отдельным конкурсным end-to-end evidence и
 presentation gate, а не новой продуктовой функциональностью. Внешняя модель остаётся запрещённой.

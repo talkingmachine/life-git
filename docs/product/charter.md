@@ -4,10 +4,10 @@
 | --- | --- |
 | Статус | `approved` |
 | Владелец решения | пользователь проекта |
-| Последняя проверка | 2026-08-12 |
+| Последняя проверка | 2026-08-20 |
 | Область ответственности | аудитория, обещание, ключевая семантика, границы и цели MVP |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20 |
 
 `Life Branches` — рабочее название, а не утверждённый бренд.
 
@@ -67,11 +67,12 @@ Life Branches не является:
 - предсказателем точного будущего;
 - доказательством того, что показанные страны объективно лучшие в мире.
 
-До защиты варианты для поддерживаемых стран строятся из Country Registry и установленного
-Country Source Index, а поясняющий текст является детерминированной проекцией typed read model.
-Внешняя LLM-assisted discovery отложена до периода после защиты и до монетизации
-(`BACKLOG-EXT-LLM-01`); она не является runtime-зависимостью MVP. Финальный выбор всегда делает
-пользователь.
+До защиты Research, ranking, eligibility, markers, official facts и calculations остаются
+deterministic и official-only. Конкурсный runtime разрешает ровно две локальные model capabilities:
+guarded conversational onboarding и bounded `VS-4` film projection. Они не создают official fact,
+verdict или calculation и не передают input/output внешнему provider. Внешняя LLM-assisted
+discovery отложена до периода после защиты и до монетизации (`BACKLOG-EXT-LLM-01`); она не является
+runtime-зависимостью MVP. Финальный выбор всегда делает пользователь.
 
 ## 6. Продуктовые принципы
 
@@ -87,11 +88,16 @@ Country Source Index, а поясняющий текст является дет
 
 ## 7. Основной пользовательский цикл
 
-Пользователь подтверждает профиль, наблюдает automatic country frontier на карте, обязательно
-разрешает каждую formal yellow-страну, получает Resolved Country Shortlist Snapshot и только затем
-в будущем выбирает страну для city research. После выбора города он собирает одну ветвь из работы
-и жилья, изучает её визуально с Evidence Passport, затем меняет решение и сравнивает fork. Точная
-последовательность зафиксирована в [`demo-story.md`](demo-story.md).
+Пользователь начинает со свободного описания. Guarded local model переносит только явно сообщённые
+значения в видимую анкету, которая остаётся source of truth. Одно `Продолжить` подтверждает Profile
+Snapshot и Preference Profile Snapshot с country/universal-city preferences, удаляет session
+transcript и запускает automatic country frontier.
+
+После Yellow Resolution пользователь выбирает страну, проходит City Frontier и выбирает город.
+Затем он сам выбирает route basis, собирает одну ветвь из работы, жилья, расходов и накоплений,
+получает guarded local film с Evidence Passport, после чего меняет город, работу или жильё и
+сравнивает одну альтернативу. Точная последовательность зафиксирована в
+[`demo-story.md`](demo-story.md).
 
 ## 8. Поиск стран и городов
 
@@ -138,13 +144,15 @@ research. Для выбранной effective green страны immutable `City
 `NEEDS_CONTEXT`; silent truncation запрещён. Missing population не угадывается и оставляет coverage
 incomplete.
 
-Пользователь подтверждает `City Criteria Snapshot` ровно из четырёх independently configurable
-criteria: безопасность, долгосрочная аренда, городской транспорт и fixed broadband. Полный
-установленный catalog получает frozen ranking; карточка всегда различает `rank/score на момент
-старта` и fresh facts/`coverage после проверки`. City Frontier проверяет по одному городу в этом
-frozen order и закрывает все четыре facts каждого активированного города. Только fresh comparable
-verified mismatch критерия `required` делает город red `Исключён`; unknown не блокирует выбор,
-а оставляет city green `Доступен для выбора` с amber warning ring и exact warning list.
+`City Criteria Snapshot` создаётся exact installed mapping из уже подтверждённых universal city
+preferences без второго confirmation screen. Unmappable target возвращает пользователя к
+конкретной preference и не запускает City Frontier. Snapshot содержит ровно четыре independently
+configurable criteria: безопасность, долгосрочная аренда, городской транспорт и fixed broadband.
+Полный установленный catalog получает frozen ranking; карточка всегда различает `rank/score на
+момент старта` и fresh facts/`coverage после проверки`. City Frontier проверяет по одному городу в
+этом frozen order и закрывает все четыре facts каждого активированного города. Только fresh
+comparable verified mismatch критерия `required` делает город red `Исключён`; unknown не блокирует
+выбор, а оставляет city green `Доступен для выбора` с amber warning ring и exact warning list.
 
 Frontier останавливается при `three_selectable`, `catalog_exhausted` или после десяти completed city
 checks с `live_candidate_limit_reached`; честный terminal result `0..2` разрешён, а выбор доступен
@@ -179,14 +187,26 @@ application readiness или соответствие места предпоч�
 
 Карточки человека, места и занятости показывают соответственно profile snapshot, сравнение с
 текущей жизнью и применимые форматы работы с официальными сигналами дохода. Жизненная ветвь
-объединяет эти карточки с жильём, расходами, допущениями и projections.
+объединяет route basis, работу, жильё, расходы, накопления, допущения и projections.
+
+Пользователь сам выбирает route basis после City Selection. Для formal-green страны это verified
+available residence route. Для accepted formal-yellow это явно unresolved basis; route-dependent
+значения остаются unknown и не называются verified. Единый constructor показывает work, housing,
+monthly/one-time expenses, savings/runway и adjacent preview.
+
+Budget использует одну destination calculation currency, dated official FX и совместимые
+net/gross и person/household basis. Несопоставимое значение остаётся unknown либо становится
+явной user assumption. Branch, versioned local film, lineage, Passport и commit сохраняются
+атомарно только после validation, generation guard и optional edits пользователя.
 
 ## 11. Life Git
 
 Life Git — append-only история решений, а не копия интерфейса Git. Решение создаёт commit, rewind
 не переписывает историю, новый выбор создаёт fork, а diff связывает изменённое решение с
-последствиями. Ветка хранит profile и evidence snapshots. Смена города создаёт ветвь, но может
-переиспользовать применимое country evidence.
+последствиями. Competition scope содержит baseline и одну альтернативу, меняющую город, работу или
+жильё; route после baseline фиксирован. Ветка хранит profile и evidence snapshots. Смена города
+создаёт ветвь, но может переиспользовать применимое country evidence. Narrative change называется
+causal только после byte-equivalent same-input control; иначе это новая projection.
 
 ## 12. Evidence Passport
 
@@ -210,9 +230,12 @@ frontier создаёт новую ревизию run и новый snapshot; ж
 
 ## 13. Семантика симуляции
 
-Бюджетные и календарные результаты вычисляются из видимых входов и формул. Сон, стресс, социальная
-жизнь, карьерная траектория и выгорание показываются как сценарные диапазоны и факторы риска, а не
-как точные предсказания.
+Бюджетные и календарные результаты вычисляются детерминированно из видимых входов, dated FX и
+versioned formulas. Локальная модель получает только закрытую structured branch projection и
+создаёт versioned типичный день и 12-месячную timeline. Каждый segment хранит input lineage;
+historical replay использует сохранённый output и не regenerates model response. Сон, стресс,
+социальная жизнь, карьерная траектория и выгорание показываются как сценарные диапазоны и факторы
+риска, а не как точные предсказания.
 
 Числовая вероятность жизненного события запрещена без отдельно валидированной модели, способной
 обосновать число. Неизвестный вход остаётся неизвестным либо становится явно редактируемым
@@ -222,14 +245,14 @@ frontier создаёт новую ревизию run и новый snapshot; ж
 
 MVP охватывает один канонический end-to-end journey:
 
-- профиль и необязательных сопровождающих;
+- conversational onboarding с видимой анкетой, participant-scoped profile и preferences;
 - глобальный screening, десять starter dossiers и один cold start;
 - progressive verification и карту состояний;
 - automatic frontier с до пятью formal non-red странами либо честным preliminary result;
 - обязательную Yellow Resolution и до пяти effective green стран в Resolved Country Shortlist Snapshot;
 - будущий отдельный city frontier с одним–тремя городами только после resolved country input;
-- выбор города, работы и жилья;
-- одну визуальную жизненную ветвь;
+- выбор города, явного route basis, работы и жилья;
+- одну визуальную жизненную ветвь с budget/runway и guarded local film;
 - Evidence Passport;
 - один rewind, fork и visual diff;
 - воспроизводимый конкурсный demo harness и минимальные evals.
@@ -241,7 +264,8 @@ MVP охватывает один канонический end-to-end journey:
 - пятнадцать одновременно рассчитанных подробных сценариев;
 - бронирование, найм, подача документов или исполнение решения;
 - production auth, billing, multi-tenancy, mobile apps и plugin ecosystem;
-- микросервисы, универсальный workflow engine и runtime LLM-provider;
+- микросервисы, универсальный workflow engine, external runtime LLM-provider, provider registry
+  или provider switch;
 - автоматическое восстановление после любого изменения внешнего сайта;
 - исчерпывающий набор edge-case тестов и prompts для отдельных стран.
 
@@ -271,6 +295,11 @@ demo story, целевые метрики и список открытых ре�
 - Неподтверждённый claim не используется как подтверждение или опровержение маршрута; red требует
   complete all-impossible catalog, а green — хотя бы один verified viable route.
 - Одинаковые профиль и evidence snapshot воспроизводят расчёты и граф ветвей.
+- Competition fixture завершает local conversational onboarding в 35-секундном narrative budget
+  на закреплённом demo-устройстве.
+- Один и тот же structured film input на закреплённой build/device pair даёт byte-equivalent output.
+- Сетевой аудит показывает zero external model/provider/telemetry traffic; official-source HTTPS
+  остаётся отдельным разрешённым контуром.
 - Канонический сценарий работает end-to-end и укладывается в 3–5 минут.
 - Демо явно показывает `Input -> Process -> Evals -> Output`.
 

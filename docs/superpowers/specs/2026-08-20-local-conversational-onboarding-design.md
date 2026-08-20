@@ -2,12 +2,13 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `proposed` — conversational baseline approved, written review pending |
+| Статус | `approved` |
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-20 |
 | Область | единый вход в полный Life Branches journey до запуска Country Frontier |
 | Зависимости | Product Charter, Demo Story, Preference Profile, City Criteria |
-| Supersedes | structured-only start UI; после written approval — запрет локальной модели в конкурсном runtime |
+| Supersedes | structured-only start UI; запрет локальной модели в конкурсном runtime для approved capabilities |
+| Approval | пользователь проекта / 2026-08-20 / exact-text / approved |
 
 ## 1. Цель и наблюдаемый результат
 
@@ -268,11 +269,11 @@ state, фонового повторения или специальной recov
 - сбор работы, жилья и распорядка до выбора города;
 - свободное создание новых ranking criteria моделью.
 
-## 12. Canonical amendment после written approval
+## 12. Утверждённая canonical amendment
 
-Written approval этой спеки непосредственно заменяет только прежний запрет локальной модели и
-deterministic-only explanatory projection для двух названных capabilities. Узкий change package
-затем синхронизирует Product Charter, Demo Story, Glossary, Spec of Specs и pre-defense runtime
+Approval этой спеки непосредственно заменяет только прежний запрет локальной модели и
+deterministic-only explanatory projection для двух названных capabilities. Этот change package
+синхронизирует Product Charter, Demo Story, Glossary, Spec of Specs и pre-defense runtime
 design: конкурсный runtime остаётся без внешнего LLM, но получает conversational onboarding и
 bounded `VS-4` projection. External-provider backlog и official-only evidence boundary сохраняются.
 Canonical flow также заменяет отдельное post-country подтверждение City Criteria на уже
