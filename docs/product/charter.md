@@ -67,8 +67,8 @@ Life Branches не является:
 - предсказателем точного будущего;
 - доказательством того, что показанные страны объективно лучшие в мире.
 
-До защиты Research, ranking, eligibility, markers, official facts и calculations остаются
-deterministic и official-only. Конкурсный runtime разрешает ровно две локальные model capabilities:
+До защиты Research inputs и external facts остаются official-only, а ranking, eligibility, markers
+и calculations — deterministic. Конкурсный runtime разрешает ровно две локальные model capabilities:
 guarded conversational onboarding и bounded `VS-4` film projection. Они не создают official fact,
 verdict или calculation и не передают input/output внешнему provider. Внешняя LLM-assisted
 discovery отложена до периода после защиты и до монетизации (`BACKLOG-EXT-LLM-01`); она не является

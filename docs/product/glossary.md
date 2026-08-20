@@ -79,7 +79,8 @@
 | **Карточка занятости** | применимые форматы работы, профессии, официальные сигналы дохода и их роль в ветви |
 | **Жизненная ветвь** | согласованный пакет человека, места, route basis, работы, жилья, расходов, накоплений, допущений и projections |
 | **Life Git** | append-only механизм baseline и одной competition alternative через изменение города, работы или жилья; история не переписывается |
-| **Commit** | атомарно зафиксированные решение, branch snapshot, saved film projection, lineage и Evidence Passport |
+| **Commit** | атомарно зафиксированное versioned решение и его lineage; конкретный тип commit определяет собственный закрытый payload |
+| **Full Life commit** | атомарная публикация full-life branch snapshot, original/edited saved film projection, lineage и Evidence Passport после успешного guard |
 | **Rewind** | возврат к предыдущему решению без удаления последующей истории |
 | **Fork** | новая ветвь, созданная другим решением после rewind или из существующего commit |
 | **Diff** | объяснимое сравнение решений и последствий; narrative change называется causal только после byte-equivalent same-input control |

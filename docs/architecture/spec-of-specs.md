@@ -177,6 +177,7 @@ free text -> guarded local proposals -> visible questionnaire
   -> persistent marker history + red replacement
   -> immutable Automatic Shortlist Snapshot (preliminary)
   -> CountryResolution / effective status / Resolved Country Shortlist Snapshot
+  -> user selects one effective-green country
   -> exact installed City Criteria mapping -> frozen full City Catalog ranking
   -> one-city fresh four-fact verification -> terminal City Shortlist
   -> atomic City Selection Snapshot + sibling City Branch Commit
@@ -243,10 +244,11 @@ free text -> guarded local proposals -> visible questionnaire
   сохраняет unknown либо явное assumption и не создаёт invalid commit.
 - Experience только показывает состояние владельца и не реализует собственный fallback verdict.
 
-Точные failure и unsupported cases определяются в JIT-спеке затронутого среза. Отдельные retry-loop,
-retry-state и recovery-действия в продуктовом flow не создаются. Bounded source-attempt limits
-являются research boundary: их исчерпание превращает затронутый formal fact в
-explicit unknown/yellow, а не создаёт отдельный shortlist budget stop или параллельный pipeline.
+Точные failure, bounded research recovery и unsupported cases определяются в JIT-спеке затронутого
+среза. Для local-model шагов Onboarding/FullLife отдельные retry-loop, retry-state и
+recovery-действия не создаются. Bounded source-attempt limits остаются research boundary: их
+исчерпание превращает затронутый formal fact в explicit unknown/yellow, а не создаёт отдельный
+shortlist budget stop или параллельный pipeline.
 
 ## 9. Порядок спецификации и реализации
 
