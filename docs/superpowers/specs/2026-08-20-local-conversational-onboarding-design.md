@@ -6,14 +6,14 @@
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-20 |
 | Область | единый вход в полный Life Branches journey до запуска Country Frontier |
-| Зависимости | Product Charter, Demo Story, Preference Profile, City Criteria |
-| Supersedes | structured-only start UI; запрет локальной модели в конкурсном runtime для approved capabilities |
-| Approval | пользователь проекта / 2026-08-20 / exact-text / approved |
+| Зависимости | Product Charter, Demo Story, Preference Profile, City Criteria, Competition Runtime через Codex CLI |
+| Supersedes | structured-only start UI; прежний запрет model-assisted onboarding в конкурсном runtime |
+| Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20 |
 
 ## 1. Цель и наблюдаемый результат
 
 Пользователь начинает не с пустой технической формы, а со свободного описания своей ситуации и
-цели. Локальная модель переносит только явно сообщённые сведения в видимую анкету, помогает собрать
+цели. Установленный Codex CLI переносит только явно сообщённые сведения в видимую анкету, помогает собрать
 недостающие обязательные ответы и проверяет целостность результата. Пользователь всегда видит и
 может редактировать структурированное состояние, которое будет использовано продуктом.
 
@@ -34,10 +34,12 @@ Country Frontier. Отдельного экрана повторного под�
 8. Перед переходом выполняется полное ревью обязательных полей и межполевых противоречий.
 9. Необычное, но корректное и непротиворечивое значение не отклоняется.
 10. Модель не создаёт official facts, eligibility, ranking, marker, calculation или verdict.
-11. Конкурсная версия использует только локальную модель. Текст пользователя и model input не
-    передаются внешнему LLM API.
-12. Подключение внешней модели после конкурса и перед интернет-монетизацией является отдельным
-    будущим change package; provider abstraction сейчас не создаётся.
+11. Конкурсная версия является локальным Next.js-приложением и вызывает установленный Codex CLI,
+    уже авторизованный личным ChatGPT/Codex login. Questionnaire payloads могут передаваться OpenAI
+    через Codex CLI; пользователь явно разрешил это для своей анкеты и тестовых данных.
+12. Приложение не вызывает LLM API напрямую, не запрашивает API key, не скачивает model weights и
+    не создаёт provider abstraction. Internet/monetization API integration является отдельным
+    будущим change package.
 13. Competition questionnaire имеет один закрытый versioned field catalog. Установленный country
     package не может незаметно добавлять в onboarding новые обязательные поля.
 
@@ -134,7 +136,7 @@ post-country подтверждение City Criteria, а не добавляе�
 ## 5. Chat → questionnaire flow
 
 1. Пользователь отправляет свободное описание.
-2. Локальная модель возвращает структурированные предложения только для явно присутствующих
+2. Codex CLI возвращает структурированные предложения только для явно присутствующих
    сведений и краткий следующий вопрос.
 3. Валидные предложения заполняют соответствующие поля; остальные поля остаются пустыми.
 4. Модель спрашивает о недостающих применимых обязательных полях.
@@ -144,7 +146,7 @@ post-country подтверждение City Criteria, а не добавляе�
 Чат не обязан задавать по одному вопросу, если несколько тесно связанных коротких значений удобнее
 уточнить вместе, но не должен превращаться в длинную повторную анкету поверх формы.
 
-### Закрытый contract локальной модели
+### Закрытый contract Codex CLI invocation
 
 Модель не изменяет draft напрямую. Extraction возвращает только allowlisted предложения
 `fieldId + typedValue + messageId + sourceSpan`; `sourceSpan` существует лишь в текущей session.
@@ -157,7 +159,8 @@ field schema и allowlist. Если однозначная нормализац�
 свободный model verdict, а только issue, подтверждённый соответствующим parser/schema или
 детерминированным cross-field rule. Необычное значение, прошедшее эти правила, не блокируется.
 
-Контракт фиксирует версии local model, prompt/template, output schema и parameters. Перед приёмкой
+Контракт фиксирует версию Codex CLI invocation, prompt/template, output schema и parameters;
+observed model/runtime metadata сохраняется в eval artifact, только если CLI сообщает её. Перед приёмкой
 он проходит небольшой golden/adversarial набор: явные значения извлекаются, пропуски и `не знаю`
 не заполняются, prompt injection не создаёт неизвестных field IDs, необычные валидные значения не
 получают blocker. Это ограниченный acceptance set, а не общий model framework.
@@ -185,7 +188,7 @@ field schema и allowlist. Если однозначная нормализац�
 
 ## 7. Финальное ревью по `Продолжить`
 
-Нажатие `Продолжить` не запускает поиск немедленно. Сначала локальная модель и закрытые правила
+Нажатие `Продолжить` не запускает поиск немедленно. Сначала ответ Codex CLI и закрытые правила
 формы проверяют весь применимый draft.
 
 Блокирующими являются:
@@ -210,18 +213,20 @@ chat и сразу запускает Country Frontier.
 - Полный transcript существует только во время onboarding.
 - После успешного перехода transcript не сохраняется в journey history.
 - Durable whitelist ограничен подтверждёнными structured snapshots, field IDs, typed old/new
-  values, origin enum, closed reason codes, review state и версиями model/schema.
+  values, origin enum, closed reason codes, review state и версиями Codex invocation/schema.
 - Краткие объяснения отрисовываются из reason code и не сохраняются отдельным свободным текстом.
 - Transcript, message excerpts, source spans, prompts, raw model output, embeddings и session/temp
   caches удаляются при завершении session. Application/crash/telemetry logs не содержат их content.
-- Локальная модель получает только данные текущей onboarding session.
-- Model runtime не отправляет telemetry, prompts или ответы внешнему провайдеру.
-- Official-source HTTPS research после onboarding остаётся разрешённым и не является model traffic.
+- Codex CLI получает только данные текущей onboarding session либо явно выбранные
+  golden/adversarial fixtures. Они могут передаваться OpenAI через личный Codex login.
+- Приложение не отправляет questionnaire content иным providers и не включает его в
+  application/crash/telemetry logs.
+- Official-source HTTPS research после onboarding остаётся отдельным разрешённым контуром.
 
 ## 9. Отказ модели
 
-Локальная модель является обязательной частью этого flow. Если она недоступна при extraction или
-финальном review:
+Установленный и авторизованный Codex CLI является обязательной частью этого flow. Если CLI
+отсутствует, не авторизован или OpenAI недоступен при extraction либо финальном review:
 
 - переход блокируется;
 - пользователь видит явную ошибку модели;
@@ -231,7 +236,7 @@ chat и сразу запускает Country Frontier.
 После восстановления модели пользователь снова нажимает обычное `Продолжить`; отдельного retry
 state, фонового повторения или специальной recovery-кнопки нет.
 
-Та же граница применяется к обязательной model generation в `VS-4`.
+Та же граница применяется к обязательной Codex generation в `VS-4`.
 
 ## 10. Acceptance scenarios
 
@@ -246,10 +251,10 @@ state, фонового повторения или специальной recov
    проходит.
 7. Успешный review сразу запускает Country Frontier и не показывает второй confirmation screen.
 8. После перехода transcript отсутствует в persisted journey, а structured snapshots остаются.
-9. Сетевой аудит подтверждает отсутствие внешнего model/API traffic; official-source traffic
-   остаётся отдельным разрешённым контуром.
-10. Недоступная локальная модель блокирует переход без fallback/retry-механизма и без потери draft.
-11. Competition fixture с preloaded local model завершает onboarding в исходном 35-секундном
+9. Сетевой аудит допускает только Codex CLI ↔ OpenAI model traffic и подтверждает отсутствие иных
+   model/provider/application-telemetry передач; official-source traffic остаётся отдельным контуром.
+10. Недоступный или неавторизованный Codex CLI блокирует переход без fallback/retry-механизма и без потери draft.
+11. Competition fixture с установленным, авторизованным и прошедшим preflight Codex CLI завершает onboarding в исходном 35-секундном
     narrative budget на закреплённом demo-устройстве; весь canonical demo остаётся в пределах
     3–5 минут.
 12. Golden/adversarial model checks подтверждают allowlist, отсутствие invented values и то, что
@@ -261,9 +266,10 @@ state, фонового повторения или специальной recov
 
 ## 11. Не-цели
 
-- внешний LLM API в конкурсной версии;
-- выбор между локальным и внешним provider;
-- provider registry или model framework на будущее;
+- прямой вызов LLM API из Next.js-приложения;
+- provider registry/switch вместо установленного Codex CLI;
+- Qwen, GGUF, bundled/downloaded model weights или model downloader;
+- запрос, ввод или хранение API key приложением;
 - хранение полного chat transcript;
 - модельный official-source discovery, fact extraction или verdict;
 - сбор работы, жилья и распорядка до выбора города;
@@ -271,10 +277,11 @@ state, фонового повторения или специальной recov
 
 ## 12. Утверждённая canonical amendment
 
-Approval этой спеки непосредственно заменяет только прежний запрет локальной модели и
-deterministic-only explanatory projection для двух названных capabilities. Этот change package
-синхронизирует Product Charter, Demo Story, Glossary, Spec of Specs и pre-defense runtime
-design: конкурсный runtime остаётся без внешнего LLM, но получает conversational onboarding и
-bounded `VS-4` projection. External-provider backlog и official-only evidence boundary сохраняются.
+Конкурсный runtime остаётся локальным Next.js-приложением, но onboarding и bounded `VS-4`
+projection выполняются через установленный и авторизованный Codex CLI/OpenAI. Direct API
+integration, provider abstraction, Qwen/GGUF, model downloads и API keys не входят в runtime.
+Точный общий process/privacy/failure contract задаёт
+[`2026-08-20-codex-cli-runtime-design.md`](2026-08-20-codex-cli-runtime-design.md).
+Official-only evidence boundary сохраняется.
 Canonical flow также заменяет отдельное post-country подтверждение City Criteria на уже
 подтверждённые onboarding values и exact installed mapping.

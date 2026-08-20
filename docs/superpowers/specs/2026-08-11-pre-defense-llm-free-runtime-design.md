@@ -1,14 +1,21 @@
-# Pre-defense runtime without external LLM providers
+# Superseded: Pre-defense runtime without external LLM providers
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `approved` |
+| Статус | `superseded` |
 | Владелец решения | пользователь проекта |
 | Дата решения | 2026-08-11 |
 | Область | все конкурсные срезы до защиты, включая `VS-1..VS-5` |
 | Выбранный подход | installed country source index + live official-source verification + two bounded local model capabilities |
 | Supersedes | runtime OpenAI/Responses integration, API-key gate и зависимый `VS-2` live eval |
-| Approval | пользователь проекта / 2026-08-11 / exact-text / approved; local onboarding + VS-4 Full Life amendment / approved 2026-08-20 |
+| Superseded by | [`2026-08-20-codex-cli-runtime-design.md`](2026-08-20-codex-cli-runtime-design.md) |
+| Approval | пользователь проекта / 2026-08-11 / exact-text / approved; superseded by Codex CLI runtime amendment / approved 2026-08-20 |
+
+> Этот документ сохраняется как историческая фиксация прежней provider-free границы. Его запреты
+> на Codex runtime, local-model clauses и zero-external-model acceptance больше не нормативны.
+> Новый runtime contract разрешает только две guarded Codex CLI capabilities. Official-only
+> Research/Evidence, deterministic rules/calculations и offline replay clauses ниже сохраняются в
+> силе в той мере, в которой не противоречат successor spec.
 
 ## 1. Решение и граница этапа
 

@@ -1,5 +1,12 @@
 # Local Conversational Onboarding Implementation Plan
 
+> **SUPERSEDED AFTER TASK 0 — DO NOT EXECUTE TASK 1 OR LATER.** Task 0's closed onboarding
+> vocabulary/parsers remain valid and are already implemented. Every Qwen/GGUF/`node-llama-cpp`,
+> model-download, native-ABI, zero-external-model and byte-equivalence instruction below is stale.
+> The approved successor design is
+> [`2026-08-20-codex-cli-runtime-design.md`](../specs/2026-08-20-codex-cli-runtime-design.md).
+> A replacement implementation plan will be written only after user review of that spec.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the structured-only start screen with a fully local conversational onboarding that produces verified Profile and Preference snapshots, purges chat content, and immediately hands one successful Continue request to the existing Country Frontier stream.

@@ -103,8 +103,9 @@ Preference criterion имеет mode `required | weighted`: verified mismatch re
 
 - `NFR-PF-01 Official-only`: внешний fact, route condition и marker verdict требуют official source,
   exact capture, validator и sealed lineage.
-- `NFR-PF-02 Provider-free`: до защиты runtime не использует внешний LLM, Codex API, provider SDK,
-  API credential или отдельный billing.
+- `NFR-PF-02 Provider-free within Place Frontier`: сам VS-3 не вызывает LLM/API и не получает
+  provider SDK, credential или billing surface. Утверждённые Entry и VS-4 вызовы Codex CLI находятся
+  вне этого среза и регулируются `2026-08-20-codex-cli-runtime-design.md`.
 - `NFR-PF-03 Truthful ranking`: score не скрывает unknown, не сравнивает несовместимые определения и
   не заявляет глобальный оптимум.
 - `NFR-PF-04 Minimum sufficient complexity`: нет universal crawler, route ontology platform, event

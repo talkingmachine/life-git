@@ -6,9 +6,9 @@
 | Владелец решения | пользователь проекта |
 | Дата | 2026-08-20 |
 | Область | путь после terminal City Selection до первой ветви и одной альтернативы |
-| Зависимости | verified City Selection, Profile/Preference snapshots, Evidence Passport, Life Git |
+| Зависимости | verified City Selection, Profile/Preference snapshots, Evidence Passport, Life Git, Competition Runtime через Codex CLI |
 | Supersedes | VS-1 housing-only branch как финальную глубину; deterministic-only film projection |
-| Approval | пользователь проекта / 2026-08-20 / exact-text / approved |
+| Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20 |
 
 ## 1. Цель и наблюдаемый результат
 
@@ -62,7 +62,7 @@ editable блока и расположенный рядом единый previe
 4. Запас накоплений.
 
 Изменение входа обновляет только текущий draft preview. Сохранение проходит одной ограниченной
-последовательностью: проверить draft → локально сгенерировать и проверить film → дать пользователю
+последовательностью: проверить draft → сгенерировать через Codex CLI и проверить film → дать пользователю
 возможность внести правки → одним явным действием атомарно сохранить branch, film, lineage,
 Passport и commit. До этого существует только draft. Ошибка генерации не создаёт частичный commit.
 Продукт не строит пятнадцать ветвей заранее.
@@ -172,7 +172,7 @@ household values масштабируются только когда source def
 
 ## 8. Фильм о возможной жизни
 
-Локальная модель получает закрытую структурированную projection ветви и создаёт:
+Codex CLI получает закрытую структурированную projection ветви и создаёт:
 
 - типичный будний день;
 - 12-месячную шкалу переезда и адаптации;
@@ -194,18 +194,18 @@ timeline. Изменённые части становятся user assumptions;
 
 Model output является versioned closed document. Каждый segment содержит стабильный `segmentId`,
 тип и exact `inputRefs` на route, facts, calculations, assumptions или unknown, из которых он
-получен. Сохраняются версии local model, prompt/template, output schema и parameters. Competition
-runtime обязан поддерживать один controlled seed/settings contract: одинаковый structured input
-даёт byte-equivalent structured output на закреплённой build/device pair. Output проходит
+получен. Сохраняются версии Codex CLI invocation, prompt/template, output schema и parameters;
+observed model/runtime metadata сохраняется, только если CLI сообщает её. Output проходит
 schema/lineage guard и небольшой golden/adversarial acceptance set до показа.
 
-Replay использует сохранённый output и никогда не запускает модель повторно. Alternative использует
-ту же model/template/schema/parameters/seed; controlled check сначала воспроизводит baseline input
-без изменения. В causal diff изменение текста считается следствием решения только если baseline
-control byte-equivalent, изменился ровно заявленный decision input и `inputRefs` segment включают
-его. Иначе UI называет результат новой projection, а не причинным эффектом.
+Replay использует сохранённый output и никогда не запускает Codex повторно. Alternative использует
+тот же invocation/prompt/schema contract, но remote generation не считается byte-deterministic.
+Детерминированные изменения facts и calculations связываются с изменённым решением causal diff.
+Baseline и alternative narrative показываются как две versioned projections; различие их текста
+само по себе не называется причинным эффектом и не требует same-input regeneration.
 
-Если локальная модель недоступна, обязательная генерация блокируется с явной ошибкой. Draft ветви
+Если Codex CLI отсутствует, не авторизован или OpenAI недоступен, обязательная генерация блокируется
+с явной ошибкой. Draft ветви
 сохраняется, но deterministic/recorded fallback, retry loop и отдельное retry-действие не используются.
 После восстановления модели пользователь снова использует обычное действие сохранения ветви;
 отдельного retry state, фонового повтора или recovery-кнопки нет.
@@ -260,7 +260,7 @@ Rewind не переписывает baseline. Альтернатива не у�
 3. Housing override остаётся assumption рядом с official rent reference.
 4. Unknown expense не становится нулём; known residual и incomplete list видимы одновременно.
 5. Savings выводится диапазоном без midpoint; unknown ограничивает формулировку.
-6. Local model создаёт day/timeline только из structured projection и не добавляет facts или
+6. Codex CLI создаёт day/timeline только из structured projection и не добавляет facts или
    probabilities.
 7. Ручная правка film сохраняется как assumption и не уничтожает исходную projection.
 8. Passport показывает все шесть классов и lineage.
@@ -273,14 +273,15 @@ Rewind не переписывает baseline. Альтернатива не у�
 13. RUB и destination-currency inputs используют закреплённый official FX date; gross/per-person
     incompatibility остаётся unknown без verified rule или user assumption.
 14. City с unknown rent показывает unknown и optional assumption, а не фиктивный official range.
-15. Сетевой аудит подтверждает отсутствие external model/telemetry traffic; canonical end-to-end
-    demo с preloaded local model укладывается в 3–5 минут на закреплённом demo-устройстве.
+15. Сетевой аудит допускает только Codex CLI ↔ OpenAI traffic и подтверждает отсутствие иных
+    model/provider/application-telemetry передач; canonical end-to-end demo с установленным,
+    авторизованным Codex CLI укладывается в 3–5 минут на закреплённом demo-устройстве.
 16. Commit появляется только после валидной generation и optional user edits; любой сбой оставляет
     draft без частично сохранённой ветви.
 17. Accepted formal-yellow country не заводит в тупик: VS-4 остаётся доступным, но не называет route
     или route-dependent unknown подтверждёнными.
-18. Same-input control воспроизводит byte-equivalent structured film; иначе narrative diff не
-    называется причинным.
+18. Replay использует exact saved structured film без Codex call; новый narrative всегда называется
+    новой projection, а causal diff ограничен deterministic facts/calculations.
 
 ## 13. Не-цели
 
@@ -292,12 +293,13 @@ Rewind не переписывает baseline. Альтернатива не у�
 - десятки бюджетных категорий;
 - автоматический перебор сценариев;
 - универсальный decision graph или generic workflow engine;
-- внешний LLM API, provider switch или monetization infrastructure в конкурсной версии.
+- прямой LLM API, provider switch, Qwen/GGUF, model download, API-key handling или monetization
+  infrastructure в конкурсной версии.
 
 ## 14. Утверждённая canonical amendment
 
-Approval этой спеки непосредственно заменяет прежние deterministic-only projection и
-запрет local runtime model только для bounded `VS-4` film. Этот change package обновляет
-Product Charter, Demo Story, Glossary, Spec of Specs и pre-defense runtime design. `VS-4` становится
-точной границей полного фильма о жизни; `VS-5` остаётся отдельным конкурсным end-to-end evidence и
-presentation gate, а не новой продуктовой функциональностью. Внешняя модель остаётся запрещённой.
+Approval этой спеки разрешает bounded `VS-4` film через установленный и авторизованный Codex CLI.
+Точный общий process/privacy/failure contract задаёт
+[`2026-08-20-codex-cli-runtime-design.md`](2026-08-20-codex-cli-runtime-design.md). `VS-4` остаётся
+границей полного фильма о жизни; `VS-5` остаётся конкурсным end-to-end evidence/presentation gate,
+а не новой продуктовой функциональностью. Direct API integration и local model runtime запрещены.

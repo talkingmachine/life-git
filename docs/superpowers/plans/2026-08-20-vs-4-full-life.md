@@ -1,5 +1,11 @@
 # VS-4 Full Life Implementation Plan
 
+> **SUPERSEDED — DO NOT EXECUTE.** The Qwen/GGUF/`node-llama-cpp`, shared local-model,
+> zero-external-model and byte-equivalence instructions below conflict with the approved
+> [`2026-08-20-codex-cli-runtime-design.md`](../specs/2026-08-20-codex-cli-runtime-design.md).
+> This plan will be replaced after user review of the successor runtime spec; no Full Life task in
+> this document is currently authorized for execution.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn one verified City Selection into one route-bound, budgeted and locally generated Full Life baseline, then let the user save at most one city/work/housing alternative without inventing facts.

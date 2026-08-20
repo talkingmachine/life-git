@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-20 |
 | Область ответственности | аудитория, обещание, ключевая семантика, границы и цели MVP |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20; Codex CLI runtime amendment / approved 2026-08-20 |
 
 `Life Branches` — рабочее название, а не утверждённый бренд.
 
@@ -68,11 +68,12 @@ Life Branches не является:
 - доказательством того, что показанные страны объективно лучшие в мире.
 
 До защиты Research inputs и external facts остаются official-only, а ranking, eligibility, markers
-и calculations — deterministic. Конкурсный runtime разрешает ровно две локальные model capabilities:
-guarded conversational onboarding и bounded `VS-4` film projection. Они не создают official fact,
-verdict или calculation и не передают input/output внешнему provider. Внешняя LLM-assisted
-discovery отложена до периода после защиты и до монетизации (`BACKLOG-EXT-LLM-01`); она не является
-runtime-зависимостью MVP. Финальный выбор всегда делает пользователь.
+и calculations — deterministic. Конкурсный runtime разрешает ровно две model capabilities через
+установленный и авторизованный Codex CLI: guarded conversational onboarding и bounded `VS-4` film
+projection. Они не создают official fact, verdict или calculation. Их закрытые payloads могут
+передаваться OpenAI через личный Codex login; приложение не вызывает LLM API напрямую, не работает
+с API key и не скачивает model weights. LLM-assisted discovery отложен до периода после защиты и
+до монетизации (`BACKLOG-EXT-LLM-01`). Финальный выбор всегда делает пользователь.
 
 ## 6. Продуктовые принципы
 
@@ -88,14 +89,14 @@ runtime-зависимостью MVP. Финальный выбор всегда
 
 ## 7. Основной пользовательский цикл
 
-Пользователь начинает со свободного описания. Guarded local model переносит только явно сообщённые
+Пользователь начинает со свободного описания. Guarded Codex CLI invocation переносит только явно сообщённые
 значения в видимую анкету, которая остаётся source of truth. Одно `Продолжить` подтверждает Profile
 Snapshot и Preference Profile Snapshot с country/universal-city preferences, удаляет session
 transcript и запускает automatic country frontier.
 
 После Yellow Resolution пользователь выбирает страну, проходит City Frontier и выбирает город.
 Затем он сам выбирает route basis, собирает одну ветвь из работы, жилья, расходов и накоплений,
-получает guarded local film с Evidence Passport, после чего меняет город, работу или жильё и
+получает guarded Codex-generated film с Evidence Passport, после чего меняет город, работу или жильё и
 сравнивает одну альтернативу. Точная последовательность зафиксирована в
 [`demo-story.md`](demo-story.md).
 
@@ -196,7 +197,7 @@ monthly/one-time expenses, savings/runway и adjacent preview.
 
 Budget использует одну destination calculation currency, dated official FX и совместимые
 net/gross и person/household basis. Несопоставимое значение остаётся unknown либо становится
-явной user assumption. Branch, versioned local film, lineage, Passport и commit сохраняются
+явной user assumption. Branch, versioned Codex-generated film, lineage, Passport и commit сохраняются
 атомарно только после validation, generation guard и optional edits пользователя.
 
 ## 11. Life Git
@@ -205,8 +206,8 @@ Life Git — append-only история решений, а не копия ин�
 не переписывает историю, новый выбор создаёт fork, а diff связывает изменённое решение с
 последствиями. Competition scope содержит baseline и одну альтернативу, меняющую город, работу или
 жильё; route после baseline фиксирован. Ветка хранит profile и evidence snapshots. Смена города
-создаёт ветвь, но может переиспользовать применимое country evidence. Narrative change называется
-causal только после byte-equivalent same-input control; иначе это новая projection.
+создаёт ветвь, но может переиспользовать применимое country evidence. Causal diff относится к
+детерминированным facts/calculations; новый narrative всегда остаётся отдельной projection.
 
 ## 12. Evidence Passport
 
@@ -231,7 +232,7 @@ frontier создаёт новую ревизию run и новый snapshot; ж
 ## 13. Семантика симуляции
 
 Бюджетные и календарные результаты вычисляются детерминированно из видимых входов, dated FX и
-versioned formulas. Локальная модель получает только закрытую structured branch projection и
+versioned formulas. Codex CLI получает только закрытую structured branch projection и
 создаёт versioned типичный день и 12-месячную timeline. Каждый segment хранит input lineage;
 historical replay использует сохранённый output и не regenerates model response. Сон, стресс,
 социальная жизнь, карьерная траектория и выгорание показываются как сценарные диапазоны и факторы
@@ -252,7 +253,7 @@ MVP охватывает один канонический end-to-end journey:
 - обязательную Yellow Resolution и до пяти effective green стран в Resolved Country Shortlist Snapshot;
 - будущий отдельный city frontier с одним–тремя городами только после resolved country input;
 - выбор города, явного route basis, работы и жилья;
-- одну визуальную жизненную ветвь с budget/runway и guarded local film;
+- одну визуальную жизненную ветвь с budget/runway и guarded Codex-generated film;
 - Evidence Passport;
 - один rewind, fork и visual diff;
 - воспроизводимый конкурсный demo harness и минимальные evals.
@@ -264,8 +265,9 @@ MVP охватывает один канонический end-to-end journey:
 - пятнадцать одновременно рассчитанных подробных сценариев;
 - бронирование, найм, подача документов или исполнение решения;
 - production auth, billing, multi-tenancy, mobile apps и plugin ecosystem;
-- микросервисы, универсальный workflow engine, external runtime LLM-provider, provider registry
+- микросервисы, универсальный workflow engine, direct runtime LLM API integration, provider registry
   или provider switch;
+- Qwen/GGUF, model download, local-model SDK и API-key handling;
 - автоматическое восстановление после любого изменения внешнего сайта;
 - исчерпывающий набор edge-case тестов и prompts для отдельных стран.
 
@@ -295,11 +297,12 @@ demo story, целевые метрики и список открытых ре�
 - Неподтверждённый claim не используется как подтверждение или опровержение маршрута; red требует
   complete all-impossible catalog, а green — хотя бы один verified viable route.
 - Одинаковые профиль и evidence snapshot воспроизводят расчёты и граф ветвей.
-- Competition fixture завершает local conversational onboarding в 35-секундном narrative budget
+- Competition fixture завершает Codex-backed conversational onboarding в 35-секундном narrative budget
   на закреплённом demo-устройстве.
-- Один и тот же structured film input на закреплённой build/device pair даёт byte-equivalent output.
-- Сетевой аудит показывает zero external model/provider/telemetry traffic; official-source HTTPS
-  остаётся отдельным разрешённым контуром.
+- Один structured film input при записанной CLI/prompt/schema configuration проходит schema и
+  approved semantic regression checks; byte equivalence remote output не требуется.
+- Сетевой аудит допускает Codex CLI ↔ OpenAI model traffic и подтверждает zero other
+  model/provider/application-telemetry traffic; official-source HTTPS остаётся отдельным контуром.
 - Канонический сценарий работает end-to-end и укладывается в 3–5 минут.
 - Демо явно показывает `Input -> Process -> Evals -> Output`.
 

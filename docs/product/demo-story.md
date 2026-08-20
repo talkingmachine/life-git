@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-20 |
 | Область ответственности | конкурсная драматургия и наблюдаемый end-to-end результат |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20; Codex CLI runtime amendment / approved 2026-08-20 |
 
 ## 1. Цель демо
 
@@ -45,7 +45,7 @@ fixture; bullets ниже являются human-readable summary:
 ### 0:00–0:35 — «Это я»
 
 Слева видна компактная анкета сверху и local chat снизу; справа медленно вращается планета без
-меток. Пользователь вводит цель естественным языком. Guarded local model переносит только явно
+меток. Пользователь вводит цель естественным языком. Установленный Codex CLI переносит только явно
 сообщённые participant-scoped данные и country/universal-city preferences. Пропуски остаются
 пустыми, а анкета остаётся source of truth.
 
@@ -139,8 +139,8 @@ available route. Для accepted formal-yellow UI показывает отде�
 
 ### 3:20–4:15 — «Фильм о возможном будущем»
 
-Deterministic calculations и guarded local model используют одну closed structured branch.
-Локальная модель создаёт только versioned film projection; official facts, verdict и budget она не
+Deterministic calculations и guarded Codex CLI invocation используют одну closed structured branch.
+Codex CLI создаёт только versioned film projection; official facts, verdict и budget он не
 меняет. Ветка раскрывается визуально:
 
 - поток месячного бюджета;
@@ -163,10 +163,9 @@ original projection сохраняется. Branch, film, lineage и Passport ф
 Пользователь возвращается к выбору города, работы или жилья и меняет его. История не стирается:
 Life Git создаёт fork и показывает visual diff.
 
-Зритель видит не только новые цифры, но и причинную связь: какое решение изменилось, какие расходы,
-распорядок и риски пересчитались, какое evidence осталось общим. Narrative difference называется
-causal только если same-input control воспроизвёл byte-equivalent baseline; иначе UI честно называет
-его новой projection.
+Зритель видит не только новые цифры, но и причинную связь: какое решение изменилось, какие расходы
+и deterministic outputs пересчитались, какое evidence осталось общим. Новый narrative всегда
+маркируется отдельной projection и сам по себе causal не называется.
 
 Финальная реплика:
 
@@ -178,8 +177,8 @@ causal только если same-input control воспроизвёл byte-equi
 | Часть | Что показывается в демо |
 | --- | --- |
 | Input | guarded conversational onboarding, participant-scoped профиль, цель, ограничения, country/universal-city preferences и unknown |
-| Process | local extraction/review guards, frozen place ranking, current-run official verification, Yellow Resolution, City Criteria mapping, fresh City Frontier, route selector, deterministic calculations и guarded local film generation |
-| Evals | provenance/constraint/fail-closed, model schema/lineage, zero-external-traffic, same-input film reproducibility и snapshot replay checks |
+| Process | Codex-backed extraction/review with local deterministic guards, frozen place ranking, current-run official verification, Yellow Resolution, City Criteria mapping, fresh City Frontier, route selector, deterministic calculations и guarded Codex film generation |
+| Evals | provenance/constraint/fail-closed, model schema/lineage, allowlisted Codex CLI → OpenAI traffic, zero other provider/telemetry traffic, semantic regression и snapshot replay checks |
 | Output | confirmed Profile/Preference, Resolved Country Shortlist, terminal City Shortlist, route-bound atomic life branch, saved film projection, Evidence Passport и Life Git diff |
 
 ## 5. Demo readiness gate
@@ -188,6 +187,8 @@ causal только если same-input control воспроизвёл byte-equi
 - Итоговая репетиция должна укладываться в 3–5 минут.
 - Пользовательски значимый результат должен появиться не позднее 90-й секунды.
 - Перед выступлением выполняется preflight доступности нужных официальных источников.
+- Preflight подтверждает, что Codex CLI установлен и авторизован личным ChatGPT/Codex login;
+  приложение не запрашивает API key и не скачивает модели.
 - Отдельно маркированная запись всего demo допустима только как presentation backup.
 - Приложение никогда не подставляет recorded model response или recorded evidence как runtime
   fallback; готовность требует работающий end-to-end MVP.

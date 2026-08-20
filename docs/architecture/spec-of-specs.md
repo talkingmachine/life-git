@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-20 |
 | Область ответственности | границы, порядок, зависимости и acceptance intent вертикальных срезов MVP |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 2 exact-text baseline; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 2 exact-text baseline; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20; Codex CLI runtime amendment / approved 2026-08-20 |
 
 ## 1. Назначение
 
@@ -55,24 +55,27 @@ requirements, contracts, recovery design или acceptance/eval checklist кон
 
 | Срез | Наблюдаемый результат | Явная граница | Acceptance intent |
 | --- | --- | --- | --- |
-| `Entry` Local conversational onboarding | Свободное описание проходит guarded local extraction в видимую participant-scoped анкету; одно `Продолжить` подтверждает Profile и country/universal-city preferences, удаляет transcript и запускает Country Frontier. | Не является шестым numbered slice, generic form engine, provider abstraction или official-fact extraction; анкета остаётся source of truth. | Explicit values prefill, пропуски остаются пустыми, unusable required fields блокируют Continue, model overwrite видим и обратим, external model traffic равен нулю. |
+| `Entry` Local conversational onboarding | Свободное описание проходит guarded Codex CLI extraction в видимую participant-scoped анкету; одно `Продолжить` подтверждает Profile и country/universal-city preferences, удаляет transcript и запускает Country Frontier. | Не является шестым numbered slice, generic form engine, provider abstraction или official-fact extraction; анкета остаётся source of truth. | Explicit values prefill, пропуски остаются пустыми, unusable required fields блокируют Continue, model overwrite видим и обратим, разрешён только Codex CLI ↔ OpenAI model traffic. |
 | `VS-1` Одна подтверждённая жизнь и одна альтернатива | Подтверждённый профиль проходит небольшой заявленный набор свежих official claims для одного заранее выбранного country-city candidate. Пользователь видит локальный verdict, простую визуальную ветвь и бюджет, Evidence Passport, commit, изменение одного решения и fork/diff. | Нет top-5, global registry, десяти dossiers, общего cold start и полного набора визуализаций. Результат не называется глобальной рекомендацией. | Один live happy path; source outage даёт yellow; snapshot replay воспроизводим; один выбор создаёт причинный fork/diff. |
 | `VS-2` Честный cold start | Пользователь вводит страну без глубокого dossier. Недостающие официальные источники находятся, claims проходят тот же validation pipeline, а валидированный результат публикует новую версию dossier и показывается отдельным comparator, даже если позднее не войдёт в top-5. | Один cold-start path; без универсального crawler и автоматического восстановления от любого сайта. | Страна без dossier проходит общий pipeline; неподтверждённый источник не публикует новую версию dossier. |
 | `VS-3` Place frontier | Неизменяемый place ranking по установленным country packages, current-run formal verification, persistent planet history и до пяти разных green/yellow стран работают как единый поиск. Красные страны остаются на карте и заменяются следующими по ranking; yellow делает результат preliminary. | Первый implementation slice не включает city fit и десять country packages одним изменением. City frontier следует отдельно и не определяет цвет страны. Top-5 ограничен installed coverage, ranking snapshot и датой. | Green означает хотя бы один verified viable route; red требует complete all-impossible catalog; поиск завершается при пяти non-red либо exhaustion; replay сохраняет exact order и markers. |
 | `VS-3R` Yellow Resolution | После VS-3 пользователь обязательно разрешает каждую formal yellow-страну; accepted yellow получает ordinary effective green, rejected — ordinary effective red и replacement. Terminal Resolved Country Shortlist Snapshot содержит до пяти effective green стран без unresolved yellow. | Не изменяет formal verdict/Evidence/Knowledge/VS-3 snapshots; не реализует City Registry, City Knowledge или city ranking. Automatic Shortlist Snapshot preliminary и не является City Frontier input. | Только verified terminal resolved snapshot с non-empty entries является future City Frontier input; accepted/rejected сохраняют formal-yellow provenance, ordering frozen, empty/exhausted result честен. |
 | `VS-4A` City Frontier | Для одной effective green страны из non-empty Resolved Country Shortlist Snapshot отдельный frozen at-most-100 City Catalog ranking и one-city-at-a-time fresh four-fact verification создают до трёх selectable cities за максимум десять completed checks. | Не принимает automatic shortlist, working resolution revision, empty/tampered terminal или effective-red country; city fit не меняет formal/effective status страны. | Catalog priority: national capital, explicit first-level regional capitals, population fill; >100 mandatory даёт `NEEDS_CONTEXT`; unknown остаётся selectable warning; stop — `three_selectable`/`catalog_exhausted`/`live_candidate_limit_reached`; selection atomically creates sibling City Branch Commit. |
-| `VS-4` Полный фильм о жизни | После City Selection пользователь выбирает route basis и на одном экране собирает работу, жильё, расходы и накопления; deterministic budget и guarded local model создают saved film, Passport и одну Life Git alternative. | Нет пятнадцати ветвей, route auto-selection, точных вероятностей, provider abstraction или окончательной юридической/налоговой консультации. | FX/basis/unknown честны; validate → generate → optional edit → atomic commit; replay не regenerates; narrative causal только после same-input control. |
+| `VS-4` Полный фильм о жизни | После City Selection пользователь выбирает route basis и на одном экране собирает работу, жильё, расходы и накопления; deterministic budget и guarded Codex CLI создают saved film, Passport и одну Life Git alternative. | Нет пятнадцати ветвей, route auto-selection, точных вероятностей, provider abstraction или окончательной юридической/налоговой консультации. | FX/basis/unknown честны; validate → generate → optional edit → atomic commit; replay не regenerates; causal diff ограничен deterministic facts/calculations. |
 | `VS-5` Конкурсное доказательство | Чистый canonical run показывает Input, Process, Evals и Output за подтверждённый narrative budget. Есть live verification, cold start, один fork/diff, eval artifact, snapshot replay и один injected outage. | Запись всего demo может быть presentation backup, но recorded model/evidence response никогда не является runtime fallback. | Пройден чистый 3–5-minute run, отдельно показан честный outage и подтверждено отсутствие runtime fallback. |
 
 ## 5. Архитектурные границы
 
-### Pre-defense external-provider boundary
+### Competition Codex boundary
 
-Для `Entry` и `VS-1..VS-5` external model/provider/API calls равны нулю: в продукте нет provider
-SDK, credential, feature flag или provider abstraction. Разрешены ровно две local capabilities:
-guarded onboarding extraction/review и bounded `VS-4` film projection. Они получают закрытые
-session/branch inputs, проходят deterministic guards и не создают official fact, provenance,
-calculation, marker или verdict.
+Для `Entry` и bounded `VS-4` film разрешены ровно две model capabilities через установленный и
+авторизованный Codex CLI. Закрытые session/branch inputs могут передаваться OpenAI через личный
+Codex login. Next.js не вызывает LLM API напрямую, не работает с API key, не скачивает model
+weights и не создаёт provider abstraction. Model outputs проходят deterministic guards и не
+создают official fact, provenance, calculation, marker или verdict.
+
+Exact process, privacy, failure и replay contract задан в
+[`Competition Runtime через установленный Codex CLI`](../superpowers/specs/2026-08-20-codex-cli-runtime-design.md).
 
 Поддерживаемые страны получают только reviewable navigation seeds из Country Registry/Country
 Source Index, после чего каждый новый run заново захватывает official HTTPS bytes и применяет
@@ -114,7 +117,7 @@ City Shortlist и atomic Select; только Continue запускает fresh 
 replacement continuation may invoke CountryVerifierPort or make network calls. Start, yellow decision,
 presentation, and reload must make zero network calls.
 
-`FullLife` владеет последовательностью route selection → validate branch draft → local film
+`FullLife` владеет последовательностью route selection → validate branch draft → Codex film
 generation/guard → optional user edits → atomic branch/film/Passport commit. Model outage оставляет
 только draft.
 
@@ -126,9 +129,9 @@ VS-4A добавляет canonical City Catalog/Criteria/Knowledge/Ranking/Selec
 selection и City Branch Commit пишет одной transaction. Нового capture pipeline, event store, queue,
 worker или mutable head table нет.
 
-Один local model adapter реализует только две inward capabilities без external endpoint, provider
-registry или switch. Onboarding transcript и source spans являются session-only; persistence хранит
-только закрытый structured whitelist.
+Один Infrastructure `CodexCliModelAdapter` реализует только две inward capabilities без direct API,
+provider registry или switch. Onboarding transcript и source spans являются session-only;
+persistence хранит только закрытый structured whitelist.
 
 ### Branch
 
@@ -182,7 +185,7 @@ free text -> guarded local proposals -> visible questionnaire
   -> one-city fresh four-fact verification -> terminal City Shortlist
   -> atomic City Selection Snapshot + sibling City Branch Commit
   -> user-selected route basis -> full-life draft
-  -> deterministic calculations + guarded local film
+  -> deterministic calculations + guarded Codex film
   -> atomic branch/film/Passport commit -> one fork/diff
 ```
 
@@ -191,7 +194,8 @@ free text -> guarded local proposals -> visible questionnaire
 - Run-local assessment не становится durable verdict до sealing Evidence Snapshot; после sealing он
   обязан ссылаться на точные Profile Snapshot, Evidence Snapshot, coverage и дату.
 - Model proposals и film segments проходят closed schema/lineage guards и никогда не создают
-  official fact, evidence, calculation, marker или verdict; external model traffic равен нулю.
+  official fact, evidence, calculation, marker или verdict; разрешён только allowlisted Codex CLI ↔
+  OpenAI traffic, без иных providers или application telemetry с content.
 - Onboarding transcript, source spans, prompts и raw model output не входят в durable journey.
 - Gray существует только пока bounded verification реально выполняется.
 - Green требует хотя бы одного verified viable long-term `ResidenceRoute`; city verification и fit
@@ -223,9 +227,9 @@ free text -> guarded local proposals -> visible questionnaire
 - Evidence Snapshot после sealing не изменяется; продолжение frontier создаёт новую revision.
 - Исторический snapshot разрешён для replay, но не является current-run verification.
 - Branch commit неизменно связывает решение с resulting Life Branch Snapshot и версиями profile,
-  evidence, правил, формул и saved film; replay не regenerates local model output.
-- Diff различает изменение решения, профиля, evidence и версии правил; narrative change causal
-  только после byte-equivalent same-input control.
+  evidence, правил, формул и saved film; replay не regenerates Codex output.
+- Diff различает изменение решения, профиля, evidence и версии правил; narrative остаётся новой
+  projection, а causal classification ограничен deterministic facts/calculations.
 - UI не может обойти evidence, constraint или calculation rules.
 
 Формальные `INV-*` присваиваются в доменной спецификации первого среза, который реализует правило.
@@ -237,7 +241,7 @@ free text -> guarded local proposals -> visible questionnaire
   cache не превращает старый claim в fresh evidence.
 - Decision владеет missing profile input, required filtering, place ranking и formal verdict rules.
 - Application `CountryFrontier` владеет red replacement, exhaustion и `run_incomplete`.
-- Application `Onboarding`/`FullLife` владеет local model outage: затронутое действие блокируется,
+- Application `Onboarding`/`FullLife` владеет Codex CLI/auth/OpenAI outage: затронутое действие блокируется,
   draft сохраняется, runtime fallback/retry loop отсутствует; после восстановления пользователь
   повторяет обычное `Продолжить` или сохранение ветви.
 - Branch владеет missing calculation input, projection classification и commit invariants. Он
@@ -245,7 +249,7 @@ free text -> guarded local proposals -> visible questionnaire
 - Experience только показывает состояние владельца и не реализует собственный fallback verdict.
 
 Точные failure, bounded research recovery и unsupported cases определяются в JIT-спеке затронутого
-среза. Для local-model шагов Onboarding/FullLife отдельные retry-loop, retry-state и
+среза. Для Codex-backed шагов Onboarding/FullLife отдельные retry-loop, retry-state и
 recovery-действия не создаются. Bounded source-attempt limits остаются research boundary: их
 исчерпание превращает затронутый formal fact в explicit unknown/yellow, а не создаёт отдельный
 shortlist budget stop или параллельный pipeline.
