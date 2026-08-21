@@ -21,6 +21,7 @@ export const CODEX_DISABLED_FEATURES = Object.freeze([
   "auth_elicitation",
   "browser_use",
   "browser_use_full_cdp_access",
+  "code_mode",
   "code_mode_host",
   "goals",
   "hooks",

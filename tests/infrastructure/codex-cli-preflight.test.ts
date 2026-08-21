@@ -23,6 +23,7 @@ const EXPECTED_DISABLED_FEATURES = [
   "auth_elicitation",
   "browser_use",
   "browser_use_full_cdp_access",
+  "code_mode",
   "code_mode_host",
   "goals",
   "hooks",
@@ -48,6 +49,7 @@ const EXPECTED_FEATURE_INVENTORY_ARGS = [
   "--disable", "auth_elicitation",
   "--disable", "browser_use",
   "--disable", "browser_use_full_cdp_access",
+  "--disable", "code_mode",
   "--disable", "code_mode_host",
   "--disable", "goals",
   "--disable", "hooks",
@@ -75,7 +77,7 @@ function exactDisabledInventory(overrides: Readonly<Record<string, boolean>> = {
 }
 
 function realisticFullFeatureInventory(): string {
-  const unrelated = Array.from({ length: 91 }, (_, index) => {
+  const unrelated = Array.from({ length: 90 }, (_, index) => {
     const maturity = index === 0 ? "under development" : "stable";
     return `known_registry_feature_${String(index).padStart(3, "0")}`.padEnd(41) +
       `${maturity.padEnd(19)}false`;
@@ -348,8 +350,9 @@ describe("preflightCodexCli", () => {
 });
 
 describe("readDisabledFeatureInventory", () => {
-  test("pins the exhaustive ordered 22-feature tuple", () => {
+  test("pins the exhaustive ordered 23-feature tuple", () => {
     expect(CODEX_DISABLED_FEATURES).toEqual(EXPECTED_DISABLED_FEATURES);
+    expect(CODEX_DISABLED_FEATURES).toHaveLength(23);
   });
 
   test("runs the exact non-strict inventory command and accepts every disabled feature as false", async () => {
@@ -375,6 +378,7 @@ describe("readDisabledFeatureInventory", () => {
       auth_elicitation: false,
       browser_use: false,
       browser_use_full_cdp_access: false,
+      code_mode: false,
       code_mode_host: false,
       goals: false,
       hooks: false,
@@ -395,6 +399,8 @@ describe("readDisabledFeatureInventory", () => {
       workspace_dependencies: false,
     });
     expect(spawner.spawn.mock.calls[0]?.[0].args).toEqual(EXPECTED_FEATURE_INVENTORY_ARGS);
+    expect(spawner.spawn.mock.calls[0]?.[0].args.filter((arg: string) => arg === "code_mode_host"))
+      .toHaveLength(1);
     expect(spawner.spawn.mock.calls[0]?.[0].env).toEqual({ LANG: "C" });
     expect(EXPECTED_FEATURE_INVENTORY_ARGS).not.toContain("--strict-config");
   });

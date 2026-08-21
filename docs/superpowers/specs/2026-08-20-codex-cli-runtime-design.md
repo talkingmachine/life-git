@@ -102,6 +102,7 @@ codex exec
   --disable apps
   --disable auth_elicitation
   --disable browser_use_full_cdp_access
+  --disable code_mode
   --disable code_mode_host
   --disable goals
   --disable plugin_sharing
@@ -136,13 +137,17 @@ callable skill features, user rules или conversation resume. Общий inert
 `process.env`: только минимальные locale/temp values и существующий `CODEX_HOME`, необходимый CLI
 для auth. Application secrets и unrelated environment variables не передаются.
 
-Этот exact tuple содержит 22 model-visible tool-related features pinned build. Единый tuple
-используется для local feature inventory и `exec`: inventory обязан найти все 22 имени ровно по
+Этот exact tuple содержит 23 model-visible tool-related features pinned build. Единый tuple
+используется для local feature inventory и `exec`: inventory обязан найти все 23 имени ровно по
 одному разу с effective state `false`. Полный registry принадлежит CLI и содержит другие известные
 features, поэтому unrelated registry entries допускаются; missing/duplicate/enabled pinned member
 или malformed/duplicate registry line останавливает gate. Реальный inventory больше 4 KiB, поэтому
 ему выделен отдельный bounded stdout limit, не расширяющий limits остальных preflight probes.
 `--strict-config` обязателен для `exec`, чтобы drift имени/конфигурации не был silently ignored.
+Approval-policy override не передаётся: наблюдаемый override не изменяет managed startup behavior
+и поэтому создавал бы misleading contract.
+Tuple выключает и actual capability `code_mode`, и отдельный host-support feature
+`code_mode_host`; inventory обязан подтвердить effective `false` для обоих.
 Локальный `debug prompt-input` показывает model-visible message inputs, но не отдельный hidden tool
 registry; он используется только для доказательства отсутствия project/workspace path, user/project
 rules, app-specific instructions и project-local skill payload при fresh empty validated cwd и
@@ -151,6 +156,17 @@ contract, empty cwd, closed env, отсутствие запрещённого p
 `skill_search`/`skill_mcp_dependency_install` и fail-closed rejection любого tool event. Если
 любой элемент не подтверждён, adapter не
 реализуется и вопрос возвращается пользователю; tool-enabled Codex не является допустимым fallback.
+
+Generic JSONL parser по-прежнему reject-ит любой error notice. Только proof-producing feasibility
+seam требует ровно два consecutive notice после sole `thread.started` и непосредственно перед
+`turn.started`: сначала `item_0` policy notice с unordered exact event/item key sets, UTF-8 length
+277 и raw decoded-message SHA-256 `dc04a3e848ff580847de6950e6415fe72d1daab7d83336461b55b6fc8355e177`,
+затем `item_1` с теми же exact key/type constraints и exact 157-byte `code_mode_host` disabled
+message. Нормализация не выполняется. Seam возвращает только fixed enum tuple
+`["approval_policy_never_to_unless_trusted","code_mode_host_disabled"]`, final message и event types
+из одного parse. Omission, extra, reorder, mutation, wrong key/ID/position и любой later error остаются
+protocol failure. Raw policy text не доступен unit tests: они pin-ят UTF-8/SHA mechanics, host positive
+и exhaustive negatives; единственный real gate является sole positive policy-hash integration.
 
 `--json` stdout имеет строгий byte/event limit. Adapter извлекает final assistant event только из
 потока в памяти, парсит его как JSON и после JSON Schema запускает capability-specific parser.
@@ -232,7 +248,7 @@ Runtime contract принят, когда:
 1. preflight на demo Mac подтверждает `codex-cli 0.148.0-alpha.15` и ChatGPT login без API key;
 2. реальный synthetic extraction и review возвращают strict guarded output;
 3. реальная synthetic Full Life projection проходит schema и lineage guards;
-4. exact 22-feature inventory reports every member known and false; `--strict-config` exec uses that
+4. exact 23-feature inventory reports every member known and false; `--strict-config` exec uses that
    same tuple, fresh empty validated cwd and closed env; message inputs contain no
    project/workspace/user-rule/app-specific/project-skill context, both callable skill features are
    false; the diagnostic's exact own fresh cwd is expected plumbing rather than project context;

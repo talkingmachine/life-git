@@ -2,11 +2,13 @@ import { rm } from "node:fs/promises";
 
 import {
   CodexRuntimeError,
-  MAX_CODEX_EVENTS,
   MAX_CODEX_STDOUT_BYTES,
   type CodexJsonInvocation,
 } from "./contracts";
-import { parseCodexEventStream } from "./event-stream";
+import {
+  parseCodexEventStreamWithProof,
+  type CodexStartupNotices,
+} from "./event-stream";
 import {
   createClosedCodexEnvironment,
   CODEX_DISABLED_FEATURES,
@@ -47,7 +49,12 @@ export async function runCodexJsonProbe(input: {
   readonly spawner: CodexProcessSpawner;
   readonly tempRoot: ValidatedCodexTempRoot;
   readonly childEnv: Readonly<Record<string, string>>;
-}): Promise<{ readonly pid: number; readonly finalMessage: string; readonly eventTypes: readonly string[] }> {
+}): Promise<{
+  readonly pid: number;
+  readonly finalMessage: string;
+  readonly startupNotices: CodexStartupNotices;
+  readonly eventTypes: readonly string[];
+}> {
   return withCodexTempDirectory({
     root: input.tempRoot,
     outputSchema: input.invocation.outputSchema,
@@ -69,14 +76,13 @@ export async function runCodexJsonProbe(input: {
         maxStderrBytes: input.invocation.limits.maxStderrBytes,
         signal: input.invocation.signal,
       }, input.spawner);
-      const finalMessage = await parseCodexEventStream(streamChunks(result.stdout), {
+      const proof = await parseCodexEventStreamWithProof(streamChunks(result.stdout), {
         maxStdoutBytes: input.invocation.limits.maxStdoutBytes,
         maxEvents: input.invocation.limits.maxEvents,
       });
       return {
         pid: result.pid,
-        finalMessage,
-        eventTypes: readEventTypes(result.stdout),
+        ...proof,
       };
     },
   });
@@ -115,24 +121,6 @@ export async function inspectModelVisibleInputs(input: {
 
 async function* streamChunks(chunks: readonly Uint8Array[]): AsyncGenerator<Uint8Array> {
   yield* chunks;
-}
-
-function readEventTypes(chunks: readonly Uint8Array[]): readonly string[] {
-  const text = decodeChunks(chunks);
-  const eventTypes: string[] = [];
-  for (const line of text.split("\n")) {
-    if (line.length === 0) continue;
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      throw new CodexRuntimeError("codex_protocol_invalid");
-    }
-    if (!isObject(event) || typeof event.type !== "string") throw new CodexRuntimeError("codex_protocol_invalid");
-    eventTypes.push(event.type);
-    if (eventTypes.length > MAX_CODEX_EVENTS) throw new CodexRuntimeError("codex_event_limit");
-  }
-  return eventTypes;
 }
 
 function inspectMessageList(stdout: string, isolatedCwd: string): {

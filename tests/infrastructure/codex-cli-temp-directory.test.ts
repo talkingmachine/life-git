@@ -31,6 +31,8 @@ import {
 
 const temporaryPaths: string[] = [];
 const encoder = new TextEncoder();
+const CODE_MODE_HOST_DISABLED_MESSAGE =
+  "Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.";
 
 const EXPECTED_EXEC_ARGS = [
   "exec",
@@ -42,6 +44,7 @@ const EXPECTED_EXEC_ARGS = [
   "--disable", "auth_elicitation",
   "--disable", "browser_use",
   "--disable", "browser_use_full_cdp_access",
+  "--disable", "code_mode",
   "--disable", "code_mode_host",
   "--disable", "goals",
   "--disable", "hooks",
@@ -69,6 +72,7 @@ const EXPECTED_MESSAGE_INPUT_INSPECTION_ARGS = [
   "--disable", "auth_elicitation",
   "--disable", "browser_use",
   "--disable", "browser_use_full_cdp_access",
+  "--disable", "code_mode",
   "--disable", "code_mode_host",
   "--disable", "goals",
   "--disable", "hooks",
@@ -366,10 +370,14 @@ const preflight = {
 };
 
 describe("runCodexJsonProbe", () => {
-  test("uses exact isolated exec args, a closed environment, schema file, and prompt stdin", async () => {
+  test("uses the exact isolated exec request before rejecting an incomplete startup proof", async () => {
     const root = await validatedRoot();
     const stdout = [
       { type: "thread.started", thread_id: "thread-1" },
+      {
+        type: "item.completed",
+        item: { type: "error", id: "item_1", message: CODE_MODE_HOST_DISABLED_MESSAGE },
+      },
       { type: "turn.started" },
       { type: "item.completed", item: { type: "agent_message", text: "answer" } },
       { type: "turn.completed" },
@@ -385,7 +393,7 @@ describe("runCodexJsonProbe", () => {
       signal: new AbortController().signal,
     });
 
-    const result = await runCodexJsonProbe({
+    const running = runCodexJsonProbe({
       invocation,
       preflight,
       spawner,
@@ -398,12 +406,7 @@ describe("runCodexJsonProbe", () => {
         PATH: "/must-not-leak",
       },
     });
-
-    expect(result).toEqual({
-      pid: 83,
-      finalMessage: "answer",
-      eventTypes: ["thread.started", "turn.started", "item.completed", "turn.completed"],
-    });
+    await expect(running).rejects.toMatchObject({ code: "codex_protocol_invalid" });
     const request = spawner.spawn.mock.calls[0]?.[0];
     expect(request.args).toEqual([
       ...EXPECTED_EXEC_ARGS,
@@ -413,6 +416,7 @@ describe("runCodexJsonProbe", () => {
       "-",
     ]);
     expect(request.args.filter((arg: string) => arg === "--strict-config")).toHaveLength(1);
+    expect(request.args.filter((arg: string) => arg === "code_mode_host")).toHaveLength(1);
     expect(request.env).toEqual({
       CODEX_HOME: "/codex-home",
       TMPDIR: "/configured-tmp",
