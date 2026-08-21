@@ -1,0 +1,5 @@
+{
+  "schemaVersion": "codex-cli-network-allowlist@1",
+  "exactHosts": ["chatgpt.com"],
+  "remotePorts": [443]
+}

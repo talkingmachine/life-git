@@ -698,16 +698,22 @@ export interface CodexRuntimeStaticAudit {
 export interface CodexCliNetworkPrivacyAuditArtifact {
   readonly schemaVersion: "codex-cli-network-privacy-audit@1";
   readonly cliVersion: typeof CODEX_CLI_VERSION;
-  readonly executable: string;
-  readonly codexProcessCount: 1;
+  readonly executableKind: "chatgpt_app_bundled";
+  readonly allowlistVersion: "codex-cli-network-allowlist@1";
+  readonly allowlistDigest: string;
+  readonly dnsSnapshotDigest: string;
+  readonly syntheticFixtureDigest: string;
+  readonly codexExecProcessCount: 1;
+  readonly sameIntervalObserved: true;
   readonly sampledProcesses: readonly [
-    { readonly kind: "application"; readonly processId: number },
-    { readonly kind: "codex"; readonly processId: number },
+    { readonly kind: "application"; readonly processId: number; readonly sampleCount: number },
+    { readonly kind: "codex"; readonly processId: number; readonly sampleCount: number },
   ];
+  readonly approvedEndpoints: readonly ["chatgpt.com:443"];
   readonly observedConnections: readonly {
     readonly processId: number;
     readonly processKind: "codex";
-    readonly remoteHost: string;
+    readonly remoteEndpoint: "chatgpt.com";
     readonly remotePort: 443;
     readonly classification: "openai";
   }[];
@@ -723,11 +729,17 @@ export interface CodexCliNetworkPrivacyAuditArtifact {
 }
 ```
 
-`scripts/audit-codex-runtime.ts` scans the production package graph and runtime files, not historical specs/plans/tests. It fails on Qwen, GGUF, Ollama, LM Studio, `node-llama-cpp`, OpenAI SDK dependency/import, downloader/model weights, `OPENAI_API_KEY`, API-key input/storage/billing, `--model`, resume/session, fallback provider, or retry/background surface. Exact approved `Codex CLI`/`OpenAI` boundary copy is not an SDK match.
+`scripts/audit-codex-runtime.ts` has two closed scopes and never scans historical specs/plans/tests/evals or itself. Across the complete installed production dependency graph resolved from `package.json` and every real owner manifest, all production `src` files and checked-in environment templates it rejects Qwen, GGUF, Ollama, LM Studio, `node-llama-cpp`, OpenAI SDK dependency/import, downloader/model weights, `OPENAI_API_KEY` and API-key input/storage/billing. Across only the exact Codex runtime import closure rooted at Node instrumentation it additionally rejects `--model`, resume/session, fallback provider and retry/background surface, without false-positive scanning legitimate official-source Research retry code. Dependency traversal resolves each required package from the real owner-manifest location (including pnpm virtual-store symlinks), validates both requested and declared manifest names to close npm aliases, fails closed on missing required manifests and permits only genuinely absent optional/platform packages. Exact approved `Codex CLI`/`OpenAI` boundary copy is not an SDK match.
 
-`evals/codex-cli-network-privacy.ts` wraps the one synthetic runtime invocation with a prepared-Mac observer that samples both `/usr/sbin/lsof -P -a -p <codex-pid> -iTCP` and `/usr/sbin/lsof -P -a -p <node-application-pid> -iTCP` over the same interval from Codex spawn until exit. Both PIDs must be observed at least once; the application sample may contain zero connections, while the Codex sample must contain at least one. Omitting `-n` allows hostnames to be checked against the reviewed rules; an unresolved numeric address fails closed. The observer records only process kind, PID, remote host/address, and port; never payload bytes. `network-allowlist.json` contains reviewed exact host/suffix rules for OpenAI endpoints and no other provider. Any Node/application connection, unknown/unresolved Codex destination, non-443 connection, another model/provider, missed process sample, empty Codex observation set, or synthetic sensitive sentinel in artifact/log/temp files fails the gate and requires user review; the script never auto-expands the allowlist.
+`network-allowlist.json` is the closed value `{ "schemaVersion": "codex-cli-network-allowlist@1", "exactHosts": ["chatgpt.com"], "remotePorts": [443] }`. The pinned ChatGPT-login binary names `https://chatgpt.com/backend-api/`; generic API-key, auth, metrics, staging, suffix and wildcard hosts are not approved. Immediately before the model child is spawned, the gate resolves both A and AAAA records for that exact hostname into a bounded, non-empty, frozen DNS snapshot: five-second total timeout, at most 16 addresses per family and 32 total, and one missing family permitted. A pure closed public-address classifier allows only global-unicast addresses and rejects the pinned IPv4/IPv6 special-use ranges, including unspecified, loopback, private/unique-local, link-local, CGNAT, protocol/benchmarking/documentation/reserved and multicast space. A wholly empty, malformed, non-public, over-cap or failed snapshot stops before the model call. The child must be spawned within one second of completing the snapshot. The gate never learns or approves a destination from observed traffic.
 
-The JSON artifact is written under ignored `data/evals/`. It contains only the closed fields above. The test fixture uses unique sentinels and proves none appear in serialized artifacts, process errors, or test-captured logs.
+`evals/codex-cli-network-privacy.ts` wraps the production `CodexProcessSpawner` at spawn time and observes only the one child whose exact argv begins with `exec`; version/login/inventory children remain ordinary preflight and are not counted as model invocations. The same wrapper is installed during runtime initialization, then receives its frozen DNS snapshot immediately before the action. From model spawn until its `exit` settles, the wrapper runs non-overlapping paired samples of the child PID and `process.pid` using `/usr/sbin/lsof -nP -w -a -p <pid> -i -F0pcfnPT`, starting immediately and repeating about every 25 ms. The single `-i` selector is deliberate: on prepared macOS `lsof 4.91` it covers TCP and UDP with a reliable status, while separate `-iTCP -iUDP` selectors can return status 1 despite emitted records. The wrapped `exit` does not settle until observer completion. `-nP` is mandatory: PTR/reverse DNS is not accepted as hostname evidence. A strict bounded parser first separates newline process/file records and then their NUL-terminated fields; it uses `p` process and `f` file boundaries, accepts numeric IPv4, bracketed IPv6 and IPv4-mapped IPv6, and extracts remote address/port only from exactly one `local->remote`. It requires one `TST` field while permitting the prepared-Mac `TQR`/`TQS` fields exactly once; duplicate semantic fields fail. It compares only canonical numeric addresses to the pre-spawn DNS snapshot and never writes raw IPs to the artifact. At least one Codex record must be `TCP`, `TST=ESTABLISHED`, port 443 and map uniquely to exact `chatgpt.com`; every other connected/listening TCP record, every UDP record, unknown/ambiguous address, non-443 port, hostname, scope ID, duplicate/missing field or malformed stream fails closed.
+
+Before emitting `executableKind: "chatgpt_app_bundled"`, the gate canonicalizes the preflight executable and requires the exact prepared-Mac path `/Applications/ChatGPT.app/Contents/Resources/codex`; a configured, PATH-resolved, symlinked or alternate binary that canonicalizes elsewhere stops without an artifact. The lsof result is explicitly sampled evidence, not a claim that polling can observe a socket whose entire lifetime falls between samples. `applicationTelemetryConnections: []` and `otherModelProviderConnections: []` mean none were observed in the required paired samples.
+
+PID liveness is proved independently with the POSIX zero-signal check immediately before and after each paired sample; `lsof` exit `1` plus empty stdout/stderr is a valid connection-free sample only while that PID is proven live on both sides. Each `lsof` call has a bounded timeout and 64 KiB output cap. Both PIDs require at least one paired live sample in the same interval. A final sweep that began while both PIDs were live but overlaps the independently observed normal child exit cannot supply the first live sample or the required approved Codex connection; only its empty/dead result may be discarded. Every complete record parsed from that sweep is still classified, and any forbidden/unknown record fails the gate. Any earlier liveness loss remains a failure. The application may have zero sockets, while Codex requires at least one approved connected record. A missed/dead PID, malformed/non-machine output, unexpected `lsof` status/stderr, empty Codex observation set, any Node/application socket, another provider, or synthetic sensitive sentinel in artifact/error/temp files fails the gate and requires user review. The artifact records only a fixed bundled-executable classification, process kind/PID/sample count and the projected approved endpoint/port/classification; never executable path, DNS addresses, payload bytes, raw process output or warning text. `allowlistDigest`, `dnsSnapshotDigest`, `syntheticFixtureDigest` and the self-excluding `artifactDigest` are full SHA-256 of canonical closed inputs; arrays are deduplicated and sorted before hashing. The script never auto-expands the allowlist.
+
+The JSON artifact is written under ignored `data/evals/`. Before any validation, DNS or process call, the gate removes a prior passing artifact; every failure leaves it absent. A passing artifact is written atomically with mode `0600`, newline termination and only the closed fields above. The test fixture uses unique sentinels and proves none appear in serialized artifacts, process errors, or test-captured logs.
 
 - [ ] **Step 1: Write static-audit RED tests.** Use temporary package/runtime fixtures with one forbidden case each and one clean current-tree case.
 
@@ -741,7 +753,7 @@ test.each(["node-llama-cpp", "OPENAI_API_KEY", "--model", "resume(", "retryProvi
 );
 ```
 
-- [ ] **Step 2: Write network/privacy artifact RED tests.** Inject allowed, unknown, empty Codex, wrong-port, other-process, other-provider, Node/application telemetry, missed Codex sample, missed Node sample, sentinel, and raw-output observations; only exact allowed Codex child observations plus an explicitly sampled connection-free Node/application PID pass.
+- [ ] **Step 2: Write network/privacy artifact RED tests.** Cover stale-artifact removal before all callbacks and absence after failure; exact bundled executable realpath; exact allowlist reconstruction; bounded A/AAAA snapshot with one family absent; DNS timeout/failure/empty/over-cap/non-public address; spawn-after-one-second; strict bounded NUL `lsof -nP` parsing for IPv4, compressed/expanded IPv6 and IPv4-mapped IPv6; wrong PID, duplicate/missing fields, hostname/scope drift, listener, UDP and TCP-state cases; independent before/after liveness; live empty exit-1 application sample; dead/missed PID; malformed/status/stderr/timeout/overflow; allowed, unknown, ambiguous, empty Codex, wrong-port, Node/application telemetry, second exec, sentinel, and raw-output observations. Only one exact DNS-mapped Codex child observation plus an explicitly live, paired, connection-free Node/application PID passes. A test wrapper must start observation synchronously from the production spawner's `spawn` return and make the wrapped `exit` await observer completion, proving there is no post-exit PID race. Exact artifact-key/mode/atomic-write and digest-recomputation tests prove no path, raw IP, prompt/result/stdout/stderr or sentinel is retained.
 - [ ] **Step 3: Run RED.** Run `pnpm exec vitest run tests/integration/codex-cli-audit.test.ts tests/integration/codex-cli-network-privacy-contract.test.ts`; expect missing modules/scripts.
 - [ ] **Step 4: Implement the static audit and prepared-Mac observer/artifact.** Add these scripts without dependencies:
 
@@ -770,11 +782,11 @@ git diff --check
 - [ ] **Step 6: Obtain explicit authorization for the synthetic prepared-Mac network call, then run the network/privacy gate.**
 
 ```bash
-pnpm run eval:codex-network-privacy -- \
+pnpm run eval:codex-network-privacy \
   --artifact data/evals/codex-cli-network-privacy.json
 ```
 
-Expected: one Codex child and one explicitly sampled Node/application process over the same interval; at least one observed reviewed Codex→OpenAI TCP/443 destination; zero Node/application, other-provider or telemetry connections; zero sensitive sentinel hits; no raw output fields; and no temp residue. If either PID was not sampled, Codex endpoint attribution is absent/unresolved/outside the reviewed allowlist, or any Node connection appears, stop for user review; never accept an empty observation as proof and never auto-add a destination.
+Expected: one Codex child and one explicitly live/sampled Node application process over the same spawn-to-exit interval; a non-empty DNS snapshot resolved before spawn; at least one numeric Codex TCP/443 remote mapped to the exact reviewed `chatgpt.com` endpoint; no Node/application, other-provider or telemetry connection observed in any paired sample; zero sensitive sentinel hits; no raw IP/output fields; and no temp residue. If either PID was not sampled alive, endpoint attribution is absent/ambiguous/outside the reviewed snapshot, or any Node connection appears, stop for user review; never accept an empty observation as proof and never add a destination from observed traffic.
 
 - [ ] **Step 7: Run full regression gates.**
 
@@ -793,7 +805,9 @@ git add scripts/audit-codex-runtime.ts \
   evals/codex-cli-network-privacy.ts \
   evals/fixtures/codex-cli/network-allowlist.json \
   tests/integration/codex-cli-audit.test.ts \
-  tests/integration/codex-cli-network-privacy-contract.test.ts package.json
+  tests/integration/codex-cli-network-privacy-contract.test.ts package.json \
+  docs/superpowers/plans/2026-08-21-codex-cli-runtime.md \
+  docs/superpowers/specs/2026-08-20-codex-cli-runtime-design.md
 git commit -m "test: audit Codex runtime boundaries"
 ```
 
@@ -806,7 +820,7 @@ The shared runtime is complete only when:
 3. startup initialization validates/scavenges/preflights once and installs one process-local adapter with no reset/reconfigure or action-time preflight;
 4. owned JSON/schema snapshot tests prove getters, symbols, custom prototypes, sparse/decorated arrays, cycles, typed arrays, and non-JSON values never cross the boundary;
 5. the static audit finds no local model/model SDK/downloader/API-key/model-selector/session/retry/provider surface;
-6. the prepared-Mac network/privacy artifact samples both Codex and Node/application PIDs over the same interval, observes only the Codex child connecting to reviewed OpenAI TCP/443 destinations, proves zero Node/application and other model/provider telemetry connections, and finds zero sensitive content, raw output or temp residue;
+6. the prepared-Mac network/privacy artifact binds numeric `lsof -nP` observations to a bounded pre-spawn A/AAAA snapshot of exact `chatgpt.com`, samples both live Codex and Node/application PIDs over the same spawn-to-exit interval, observes only the Codex child connecting to that TCP/443 endpoint, observes no Node/application or other model/provider connection in those samples, and finds zero sensitive content, raw IP/output or temp residue;
 7. full test/typecheck/lint/build and `git diff --check` pass.
 
 This plan creates no user-facing feature. Onboarding is the first consumer and owns its extraction/review prompts, schemas, semantic evals, privacy projection, and inward port. Full Life separately owns its film prompt/schema/lineage guard. Historical replay and presentation receive neither the adapter nor a model port and therefore make zero Codex/OpenAI calls.

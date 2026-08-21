@@ -202,10 +202,17 @@ third-party documents и не обещает безопасный hosted service
 эту trust assumption и получает отдельную API/server-isolation спецификацию.
 
 Сетевой аудит допускает только два независимых контура: Codex CLI ↔ OpenAI для двух approved
-capabilities и existing HTTPS к official sources для Research. Для model-runtime eval observer
-семплирует Codex PID и Node/application PID на одном интервале: у Codex должен быть только reviewed
-OpenAI TCP/443 traffic, а у Node/application — ни одного соединения. Пропущенный PID/sample или
-пустой Codex observation не считается доказательством. Иной model/provider traffic и application
+capabilities и existing HTTPS к official sources для Research. Для model-runtime eval exact
+allowlist содержит только `chatgpt.com:443`. Непосредственно перед spawn gate строит bounded
+non-empty A/AAAA snapshot этого exact hostname; observed traffic никогда не расширяет allowlist.
+Observer использует только numeric machine output `lsof -nP`, canonical-сравнивает IPv4/IPv6 с
+этим snapshot и не доверяет PTR/reverse DNS. Он отдельно доказывает liveness Codex PID и
+Node/application PID и семплирует их на одном spawn-to-exit интервале: у Codex должен быть только
+reviewed `chatgpt.com` established TCP/443 traffic, а у Node/application — ни одного socket; любой
+UDP и любой иной TCP socket у обоих процессов fail-closed.
+Пропущенный/dead PID, malformed sample, пустой Codex observation, unknown/ambiguous IP или сырой IP
+в artifact не считается доказательством. Это bounded sampled evidence, а не обещание увидеть socket,
+который целиком возник и исчез между samples. Иной observed model/provider traffic и application
 telemetry с questionnaire/film content запрещены.
 
 ## 6. Failure semantics
@@ -262,9 +269,10 @@ Runtime contract принят, когда:
    supplied to the process;
 8. dependency/file audit finds no Qwen, GGUF, `node-llama-cpp`, model downloader, OpenAI SDK or API-key
    handling in the competition runtime;
-9. network audit samples both Codex and Node/application PIDs over the same interval, observes only
-   allowlisted Codex CLI ↔ OpenAI traffic, and observes zero Node/application questionnaire/film
-   telemetry;
+9. network audit maps numeric connections through a bounded pre-spawn DNS snapshot of exact
+   `chatgpt.com`, samples both live Codex and Node/application PIDs over the same spawn-to-exit
+   interval, observes only allowlisted Codex CLI ↔ OpenAI TCP/443 traffic, and observes zero
+   Node/application questionnaire/film telemetry;
 10. one user action starts at most one Codex process and Application never performs a second
     invocation automatically;
 11. historical replay makes zero Codex/OpenAI calls;
