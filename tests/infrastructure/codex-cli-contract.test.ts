@@ -1,6 +1,9 @@
+import { getEventListeners, getMaxListeners, setMaxListeners } from "node:events";
+
 import { describe, expect, test, vi } from "vitest";
 
 import {
+  CodexRuntimeError,
   MAX_CODEX_EVENTS,
   MAX_CODEX_PROMPT_BYTES,
   MAX_CODEX_STDERR_BYTES,
@@ -9,6 +12,13 @@ import {
   createCodexJsonInvocation,
 } from "../../src/infrastructure/codex-cli/contracts";
 import { snapshotOwnedJson } from "../../src/infrastructure/codex-cli/owned-json";
+
+const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
+
+function readNativeAborted(signal: AbortSignal): boolean {
+  if (NATIVE_ABORTED_GETTER === undefined) throw new Error("missing native AbortSignal aborted getter");
+  return NATIVE_ABORTED_GETTER.call(signal) as boolean;
+}
 
 function validInvocation(
   overrides: Record<string, unknown> = {},
@@ -141,7 +151,7 @@ describe("createCodexJsonInvocation", () => {
     } }))).toThrowError("codex_protocol_invalid");
   });
 
-  test("does not invoke or expose caller decorations on a genuine AbortSignal", () => {
+  test("validates a genuine decorated AbortSignal without invoking caller accessors", () => {
     const stringGetter = vi.fn(() => "caller-owned");
     const symbolGetter = vi.fn(() => "caller-owned");
     const decoration = Symbol("decoration");
@@ -153,23 +163,24 @@ describe("createCodexJsonInvocation", () => {
 
     expect(stringGetter).not.toHaveBeenCalled();
     expect(symbolGetter).not.toHaveBeenCalled();
-    expect(Object.hasOwn(invocation.signal, "aborted")).toBe(false);
-    expect(Object.hasOwn(invocation.signal, decoration)).toBe(false);
+    expect(readNativeAborted(invocation.signal)).toBe(false);
   });
 
-  test("does not expose a caller-added symbol stolen from a native signal variant", () => {
-    const signal = new AbortController().signal;
-    const controllerSymbols = new Set(Object.getOwnPropertySymbols(signal));
-    const stolenNativeSymbol = Object.getOwnPropertySymbols(AbortSignal.timeout(60_000))
-      .find((symbol) => !controllerSymbols.has(symbol));
-    expect(stolenNativeSymbol).toBeDefined();
-    if (stolenNativeSymbol === undefined) throw new Error("missing native variant symbol");
-    Object.defineProperty(signal, stolenNativeSymbol, { value: "caller-owned" });
+  test("normalizes AbortSignal brand-check failures without invoking caller accessors", () => {
+    const getter = vi.fn(() => false);
+    const lookalike = Object.create(AbortSignal.prototype) as AbortSignal;
+    Object.defineProperty(lookalike, "aborted", { enumerable: true, get: getter });
 
-    const invocation = createCodexJsonInvocation(validInvocation({ signal }));
+    let thrown: unknown;
+    try {
+      createCodexJsonInvocation(validInvocation({ signal: lookalike }));
+    } catch (error) {
+      thrown = error;
+    }
 
-    expect(invocation.signal).not.toBe(signal);
-    expect(Object.hasOwn(invocation.signal, stolenNativeSymbol)).toBe(false);
+    expect(thrown).toBeInstanceOf(CodexRuntimeError);
+    expect(thrown).toMatchObject({ code: "codex_protocol_invalid", message: "codex_protocol_invalid" });
+    expect(getter).not.toHaveBeenCalled();
   });
 
   test.each([
@@ -180,13 +191,56 @@ describe("createCodexJsonInvocation", () => {
     expect(() => createCodexJsonInvocation(validInvocation({ signal }))).not.toThrow();
   });
 
-  test("propagates a later source abort to the owned invocation signal", () => {
+  test("preserves a later source abort on the invocation signal", () => {
     const controller = new AbortController();
     const invocation = createCodexJsonInvocation(validInvocation({ signal: controller.signal }));
 
-    expect(invocation.signal.aborted).toBe(false);
+    expect(readNativeAborted(invocation.signal)).toBe(false);
     controller.abort();
-    expect(invocation.signal.aborted).toBe(true);
+    expect(readNativeAborted(invocation.signal)).toBe(true);
+  });
+
+  test("preserves a real abort after a synthetic abort event", () => {
+    const controller = new AbortController();
+    const invocation = createCodexJsonInvocation(validInvocation({ signal: controller.signal }));
+
+    controller.signal.dispatchEvent(new Event("abort"));
+    expect(readNativeAborted(invocation.signal)).toBe(false);
+
+    controller.abort();
+    expect(readNativeAborted(invocation.signal)).toBe(true);
+  });
+
+  test("retains no listeners or warnings for repeated use of one active signal", async () => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const originalMaxListeners = getMaxListeners(signal);
+    const warnings: Error[] = [];
+    const recordWarning = (warning: Error): void => {
+      if (warning.name === "MaxListenersExceededWarning" && warning.message.includes("AbortSignal")) {
+        warnings.push(warning);
+      }
+    };
+    let retainedListenerCount = -1;
+    let warningCount = -1;
+
+    setMaxListeners(10, signal);
+    process.on("warning", recordWarning);
+    try {
+      for (let index = 0; index < 11; index += 1) {
+        createCodexJsonInvocation(validInvocation({ signal }));
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      retainedListenerCount = getEventListeners(signal, "abort").length;
+      warningCount = warnings.length;
+    } finally {
+      process.off("warning", recordWarning);
+      controller.abort();
+      setMaxListeners(originalMaxListeners, signal);
+    }
+
+    expect(retainedListenerCount).toBe(0);
+    expect(warningCount).toBe(0);
   });
 
   test("rejects a pre-aborted signal without invoking a caller accessor", () => {
