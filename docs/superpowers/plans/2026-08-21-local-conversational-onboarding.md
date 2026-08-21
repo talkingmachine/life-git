@@ -325,6 +325,9 @@ raw/normalized data nor overwrite history. A guarded model update may enter Deci
 `guarded_model_set`; the reducer alone assigns `explicit_new_information`. Confirmed and unresolved
 overwrites use the proposed value, while Revert restores the previous manual value. The closed
 provenance union preserves exact applicability and typed old/new values without raw input or spans.
+`createOnboardingDraft` allocates the structural `self` participant immediately; because the approved
+origin union intentionally has no `system` member, this single user-owned form default is represented
+as `origin: "manual"` with `rawInput: null`, never as a model proposal.
 
 Applicability is the closed approved table: `citizenships` and `passport` are required for every
 participant; all other participant leaves are `not_applicable` for `minor_child`; for every other
