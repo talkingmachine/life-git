@@ -584,6 +584,7 @@ git commit -m "test: prove Codex CLI tool isolation"
 - Create: `src/infrastructure/codex-cli/model-adapter.ts`
 - Create: `src/infrastructure/codex-cli/runtime.ts`
 - Create: `src/instrumentation.ts`
+- Create: `src/instrumentation-node.ts`
 - Create: `tests/integration/codex-cli-runtime.test.ts`
 
 **Interfaces:**
@@ -631,9 +632,9 @@ export async function initializeCodexCliRuntime(
 export function getCodexCliModelAdapter(): CodexCliModelAdapter;
 ```
 
-Initialization validates the temp root, scavenges exact stale owned directories, performs bounded version/login preflight, verifies the pinned feature inventory again, and installs one adapter. Concurrent initialization shares one promise. Failure installs nothing; `getCodexCliModelAdapter` throws `codex_process_failed` before/after failed initialization. Production exports no reset/reconfigure function.
+Initialization validates the temp root, scavenges exact stale owned directories, performs bounded version/login preflight, verifies the pinned feature inventory again, and installs one adapter. A process-global state keyed by `Symbol.for("confirmed-life.codex-cli-runtime@1")` shares the same terminal promise and adapter across separately bundled Next instrumentation and route entries. Concurrent initialization shares one promise. Failure installs nothing; `getCodexCliModelAdapter` throws `codex_process_failed` before/after failed initialization. Production exports no reset/reconfigure function.
 
-`src/instrumentation.ts` calls `initializeCodexCliRuntime` exactly once for the Node server runtime before a request can reach model-assisted actions. It builds `childEnv` from individually selected defined `CODEX_HOME`, `TMPDIR`, `LANG`, and `LC_ALL` values; it never spreads `process.env`. Future onboarding/Full Life compositions call only `getCodexCliModelAdapter`, so one user action starts one `codex exec`, not version/login children.
+`src/instrumentation.ts` dynamically imports the Node-only `src/instrumentation-node.ts` helper only for the Node server runtime and never during `next build`; the Edge bundle therefore never imports Node process/filesystem modules. The helper awaits `initializeCodexCliRuntime` exactly once before a request can reach model-assisted actions. It builds `childEnv` from individually selected defined `CODEX_HOME`, `TMPDIR`, `LANG`, and `LC_ALL` values; it never spreads `process.env`. Future onboarding/Full Life compositions call only `getCodexCliModelAdapter`, so one user action starts one `codex exec`, not version/login children.
 
 - [ ] **Step 1: Write adapter/runtime RED tests.** Include recursive owned output and single initialization/action tests.
 
@@ -664,6 +665,7 @@ test("one action starts one exec process and never retries", async () => {
 ```bash
 git add src/infrastructure/codex-cli/model-adapter.ts \
   src/infrastructure/codex-cli/runtime.ts src/instrumentation.ts \
+  src/instrumentation-node.ts \
   tests/integration/codex-cli-runtime.test.ts
 git commit -m "feat: install Codex CLI runtime"
 ```
