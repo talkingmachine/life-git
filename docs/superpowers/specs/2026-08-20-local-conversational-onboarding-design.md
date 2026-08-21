@@ -8,7 +8,7 @@
 | Область | единый вход в полный Life Branches journey до запуска Country Frontier |
 | Зависимости | Product Charter, Demo Story, Preference Profile, City Criteria, Competition Runtime через Codex CLI |
 | Supersedes | structured-only start UI; прежний запрет model-assisted onboarding в конкурсном runtime |
-| Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20 |
+| Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20; source-evidence guard amendment / approved 2026-08-22 |
 
 ## 1. Цель и наблюдаемый результат
 
@@ -150,10 +150,13 @@ post-country подтверждение City Criteria, а не добавляе�
 
 Модель не изменяет draft напрямую. Extraction возвращает только allowlisted предложения
 `fieldId + typedValue + messageId + sourceSpan`; `sourceSpan` существует лишь в текущей session.
-До изменения формы guard проверяет границы span в exact сообщении, затем field-specific normalizer
-независимо получает из этого span тот же typed value. Предложение также обязано пройти versioned
-field schema и allowlist. Если однозначная нормализация невозможна, значение не подставляется:
-модель задаёт уточняющий вопрос, а не просит пользователя подтверждать придуманную догадку.
+Codex отвечает за смысловую интерпретацию обычного русского или английского текста. До изменения
+формы deterministic guard требует exact текущий user-message ID, корректные UTF-16 границы,
+непустой фрагмент с буквой или цифрой и отклоняет exact placeholder `-`, `не знаю`, `неизвестно`,
+`unknown`, `n/a` или `na` после NFKC/case/whitespace normalization. Предложение отдельно проходит
+versioned field schema и allowlist. Guard не пытается строить второй естественно-языковой parser,
+не сравнивает `typedValue` с JSON/substring-представлением и не принимает неизвестный field ID.
+Если Codex не видит явной информации, он не возвращает предложение и задаёт уточняющий вопрос.
 
 Финальное model review возвращает только `fieldIds + closed reasonCode`. Блокером становится не
 свободный model verdict, а только issue, подтверждённый соответствующим parser/schema или

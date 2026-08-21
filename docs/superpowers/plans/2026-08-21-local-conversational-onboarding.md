@@ -391,6 +391,7 @@ export interface OnboardingSessionState {
 export const ONBOARDING_SESSION_LIMITS = Object.freeze({
   maxMessages: 64,
   maxMessageUtf8Bytes: 8_192,
+  maxSessionUtf8Bytes: 114_688,
   maxParticipants: 20,
   maxFields: 172, // 5 base + 20 * 7 participant + 5 * 3 country + 4 * 3 city
   maxNextQuestionUtf8Bytes: 2_048,
@@ -416,9 +417,13 @@ export type GuardedParticipantLeafProposal = {
 
 export type GuardedExtractionProposal =
   | {
+      readonly kind: "participant_roster";
+      readonly roster: readonly ParticipantRosterProposal[];
+    }
+  | {
       readonly kind: "non_participant_field";
       readonly fieldId:
-        | OnboardingBaseFieldId
+        | Exclude<OnboardingBaseFieldId, "participants">
         | CountryPreferenceFieldId
         | CityPreferenceFieldId;
       readonly normalizedValue: OnboardingFieldValue;
@@ -444,6 +449,7 @@ export function applyGuardedExtraction(input: {
   readonly userMessage: SessionMessage;
   readonly extraction: GuardedExtraction;
   readonly nextParticipantId: () => string;
+  readonly nextAssistantMessageId: () => string;
   readonly nextCompletionCommandId: () => string;
 }): OnboardingSessionState;
 export function applySessionFieldChange(input: {
@@ -460,14 +466,25 @@ export function reconstructOnboardingSessionState(value: unknown): OnboardingSes
 ```
 
 For each proposal, `guardExtraction` requires the exact current user `messageId`, treats spans as
-UTF-16 code-unit offsets, rejects a boundary that splits a surrogate pair, extracts that substring,
-and independently normalizes it to the same typed value.
+UTF-16 code-unit offsets, rejects an empty/out-of-range span or a boundary that splits a surrogate
+pair, and extracts that exact substring. Codex owns semantic interpretation; the deterministic guard
+requires a span containing at least one Unicode letter or number, drops a proposal whose whole span
+normalizes by NFKC/case/whitespace to `-`, `не знаю`, `неизвестно`, `unknown`, `n/a` or `na`, and
+accepts `typedValue` only through Task 0's exact field-specific schema and allowlist. It does not add
+a second natural-language grammar, JSON-span convention, substring comparison, confidence score or
+heuristic inference layer. Structural output errors, wrong message IDs and malformed spans reject the
+whole extraction; a well-formed placeholder proposal alone is omitted so other explicit facts in the
+same message remain usable.
 Participant descriptors `self`/`companion.N` remain descriptor + typed leaf proposals through
 `guardExtraction`; model output never chooses durable participant IDs. `applyGuardedExtraction`
-applies a roster proposal first, retains existing one-to-one descriptor bindings, allocates UUIDs
-only for new descriptors, removes bindings for removed descriptors, and only then maps participant
-leaves to `participants.<uuid>.<leaf>` field IDs. An absent, duplicate, gapped or rebound descriptor
-is rejected before any draft mutation. A descriptor string itself can never be used as a
+applies the explicit `participant_roster` arm first and then applies participant leaves in canonical
+field order, so a first-message `remote_continuation` is evaluated after that participant's
+`current_work` regardless of model proposal order. Model roster reconciliation retains IDs only for
+an unchanged relationship prefix and permits unambiguous tail add/remove; middle removal, reorder or
+relationship rebinding rejects before callbacks or draft mutation. Manual roster edits already carry
+durable IDs, preserve the remaining participant values, and rebuild ordinal descriptor bindings from
+their new order. New descriptors receive UUIDs only inside apply, after validation. An absent,
+duplicate, gapped or rebound descriptor is rejected before any draft mutation. A descriptor string itself can never be used as a
 `ParticipantId`, written into `OnboardingDraft.fields`, or passed to the field reducer. A model issue survives only when its
 reason code is corroborated by the matching field parser or deterministic cross-field rule.
 `corroborateModelReview` resolves every `self`/`companion.N` issue through the session's exact
@@ -480,14 +497,17 @@ failure. A user or assistant message that leaves authoritative values/provenance
 rotate it. Any roster/applicability/value/provenance change, including a guarded model update,
 manual edit, Confirm, or Revert, rotates it once to a fresh UUID before the next Continue, making the
 changed questionnaire a new explicit completion command.
+`applyGuardedExtraction` obtains the appended assistant question ID only from
+`nextAssistantMessageId`; message IDs and completion command IDs are distinct lowercase UUIDs.
 `reconstructOnboardingSessionState` validates the lowercase UUID, exact message and draft shapes, and
 one-to-one bindings for the current roster. It rejects before projection when any exact
-`ONBOARDING_SESSION_LIMITS` count or UTF-8 limit is exceeded; arrays must be dense and every retained
+`ONBOARDING_SESSION_LIMITS` count, per-message UTF-8 limit or whole serialized-session UTF-8 limit is
+exceeded; arrays must be dense and every retained
 field must belong to the bounded roster-derived catalog. Model projections exclude the command ID, internal
 participant IDs, raw invalid input, overwrite history, and unrelated transcript text.
 
-- [ ] **Step 1: Write RED model-contract tests.** Include wrong message/span, valid non-ASCII UTF-16 offsets, split-surrogate boundaries, invented/ambiguous value, `не знаю`, descriptor gaps, unknown field, prompt injection, deterministic value equality, spouse review issue mapping, and ignored review issues for removed/rebound/unknown companion descriptors.
-- [ ] **Step 2: Write RED reducer tests.** Include complete `self + spouse` roster and companion leaves in one message, descriptor proposals retained until roster reconciliation, UUID allocation before leaf mapping, an assertion that no draft field ID or participant ID contains `self`/`companion.`, stable descriptor bindings, companion add/remove/reorder, absent/duplicate/gapped/rebound descriptor rejection before mutation, new value, ordinary model replacement, manual replacement yellow state, Confirm/Revert, applicability clearing, command-ID rotation after every mutation, stable ID after blocked/ambiguous failure, next-question append, immutability, and hostile session reconstruction.
+- [ ] **Step 1: Write RED model-contract tests.** Include an ordinary Russian multi-fact message, wrong message/span, valid non-ASCII UTF-16 offsets, split-surrogate boundaries, empty/punctuation-only spans, exact `не знаю`/`-` omission while retaining sibling facts, descriptor gaps, unknown field, prompt injection, strict typed-value schema enforcement, spouse review issue mapping, and ignored review issues for removed/rebound/unknown companion descriptors. Do not require a JSON-shaped span or a second natural-language parser.
+- [ ] **Step 2: Write RED reducer tests.** Include complete `self + spouse` roster and companion leaves in one message with leaves before roster and remote before work, the explicit descriptor-roster arm, UUID allocation only inside apply, an assertion that no draft field ID or participant ID contains `self`/`companion.`, stable descriptor bindings, allowed tail add/remove, rejected model middle removal/reorder/rebind before callbacks, manual middle removal/reorder preserving durable participant data and rebuilding descriptors, new value, ordinary model replacement, manual replacement yellow state, Confirm/Revert, applicability clearing, command-ID rotation exactly once per authoritative mutation, stable ID after message-only/no-op/blocked failure, unique user/assistant message IDs, per-message/aggregate byte limits, next-question append, immutability, and hostile session reconstruction.
 - [ ] **Step 3: Run RED, implement, and run GREEN.** Run `pnpm exec vitest run tests/domain/onboarding-model-contract.test.ts tests/domain/onboarding-session.test.ts`; expect missing modules, implement the minimum pure functions, and re-run it.
 - [ ] **Step 4: Run static gates.** Run `pnpm run typecheck`, `pnpm exec eslint src/decision/onboarding-model-contract.ts src/decision/onboarding-session.ts tests/domain/onboarding-model-contract.test.ts tests/domain/onboarding-session.test.ts`, and `git diff --check`.
 - [ ] **Step 5: Commit.**
