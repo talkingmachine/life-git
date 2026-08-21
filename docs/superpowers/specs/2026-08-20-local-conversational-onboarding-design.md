@@ -151,9 +151,10 @@ post-country подтверждение City Criteria, а не добавляе�
 Модель не изменяет draft напрямую. Extraction возвращает только allowlisted предложения
 `fieldId + typedValue + messageId + sourceSpan`; `sourceSpan` существует лишь в текущей session.
 Codex отвечает за смысловую интерпретацию обычного русского или английского текста. До изменения
-формы deterministic guard требует exact текущий user-message ID, корректные UTF-16 границы,
-непустой фрагмент с буквой или цифрой и отклоняет exact placeholder `-`, `не знаю`, `неизвестно`,
-`unknown`, `n/a` или `na` после NFKC/case/whitespace normalization. Предложение отдельно проходит
+формы deterministic guard требует exact текущий user-message ID и корректные UTF-16 границы.
+Сначала он пропускает без изменения анкеты exact placeholder `-`, `не знаю`, `неизвестно`,
+`unknown`, `n/a` или `na` после NFKC/case/whitespace normalization; любой другой фрагмент обязан
+быть непустым и содержать букву или цифру. Предложение отдельно проходит
 versioned field schema и allowlist. Guard не пытается строить второй естественно-языковой parser,
 не сравнивает `typedValue` с JSON/substring-представлением и не принимает неизвестный field ID.
 Если Codex не видит явной информации, он не возвращает предложение и задаёт уточняющий вопрос.

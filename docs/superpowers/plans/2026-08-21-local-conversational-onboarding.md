@@ -467,10 +467,11 @@ export function reconstructOnboardingSessionState(value: unknown): OnboardingSes
 
 For each proposal, `guardExtraction` requires the exact current user `messageId`, treats spans as
 UTF-16 code-unit offsets, rejects an empty/out-of-range span or a boundary that splits a surrogate
-pair, and extracts that exact substring. Codex owns semantic interpretation; the deterministic guard
-requires a span containing at least one Unicode letter or number, drops a proposal whose whole span
-normalizes by NFKC/case/whitespace to `-`, `не знаю`, `неизвестно`, `unknown`, `n/a` or `na`, and
-accepts `typedValue` only through Task 0's exact field-specific schema and allowlist. It does not add
+pair, and extracts that exact substring. Codex owns semantic interpretation. After UTF-16 structural
+validation, the guard first drops a proposal whose whole span normalizes by NFKC/case/whitespace to
+`-`, `не знаю`, `неизвестно`, `unknown`, `n/a` or `na`; only a non-placeholder span must contain at
+least one Unicode letter or number, otherwise the whole extraction is rejected. It accepts
+`typedValue` only through Task 0's exact field-specific schema and allowlist. It does not add
 a second natural-language grammar, JSON-span convention, substring comparison, confidence score or
 heuristic inference layer. Structural output errors, wrong message IDs and malformed spans reject the
 whole extraction; a well-formed placeholder proposal alone is omitted so other explicit facts in the
@@ -702,6 +703,7 @@ export async function extractMessage(
   ports: {
     readonly model: OnboardingModelPort;
     readonly nextParticipantId: () => string;
+    readonly nextAssistantMessageId: () => string;
     readonly nextCompletionCommandId: () => string;
   },
   signal: AbortSignal,
@@ -727,7 +729,7 @@ later Frontier handoff fails; a later ordinary Continue with the unchanged comma
 the same fixed run. Model errors are closed service errors; the caller session remains unchanged.
 Both command reconstructors accept exact top-level keys/schema literals and a bounded session only.
 
-- [ ] **Step 1: Write RED use-case tests.** Cover exact command reconstruction, extraction and one command-ID rotation, blocked deterministic/model review, unsupported model issue ignored, launched receipt/prepared result, unresolved yellow publication, one model call, zero writes/frontier calls on review failure, durable receipt plus surfaced handoff error, same-command replay, abort, and no retry surface.
+- [ ] **Step 1: Write RED use-case tests.** Cover exact command reconstruction, extraction and one command-ID rotation, a distinct injected lowercase UUID for the assistant question, rejection of duplicate/invalid assistant IDs without reusing a completion/participant ID, blocked deterministic/model review, unsupported model issue ignored, launched receipt/prepared result, unresolved yellow publication, one model call, zero writes/frontier calls on review failure, durable receipt plus surfaced handoff error, same-command replay, abort, and no retry surface.
 - [ ] **Step 2: Run RED, implement, and run GREEN.** Run `pnpm exec vitest run tests/integration/onboarding.test.ts`; expect the use-case module to be absent, implement both use cases, and re-run it.
 - [ ] **Step 3: Run static gates and commit.** Run `pnpm run typecheck`, `pnpm exec eslint src/application/onboarding-contracts.ts src/application/onboarding.ts tests/integration/onboarding.test.ts`, and `git diff --check`.
 
@@ -898,7 +900,9 @@ or writer calls. Historical direct `/api/place-frontier` requests and `@1` strea
 
 Composition obtains the already preflighted process-local adapter through
 `getCodexCliModelAdapter`, wraps it once with `createCodexOnboardingModel`, injects the onboarding
-store and V2-capable Frontier, and exports the two use cases. Routes only delegate; they never
+store and V2-capable Frontier, and exports the two use cases. The composition root supplies distinct
+`crypto.randomUUID()` callbacks for participant IDs, assistant message IDs and completion command
+IDs; a transport test proves that none is reused across those roles. Routes only delegate; they never
 construct a model, run preflight, read auth, or retry.
 
 - [ ] **Step 1: Write RED composition/transport tests.** Cover one runtime instance, exact command schemas/keys, closed JSON, an exact 131,072-byte body accepted, 131,073 bytes rejected before `JSON.parse`/command reconstruction/model calls, chunked overflow, the exact session count/UTF-8 limits from Task 2, abort, blocked response, same-POST NDJSON handoff, verified receipt/snapshot/version binding, fixed run/time, concurrent exact preparation, V2 dispatch, completed replay with zero model/verifier/research/writes, zero duplicate browser launch, historical route bytes, and no raw request/error content.
