@@ -659,8 +659,15 @@ The fixture is one exact plain object
 `{fixtureVersion:"onboarding-cases@1", cases:[...]}` with this fixed order:
 `extract_self_ru`, `extract_companion`, `extract_zero_unusual_iso`, `extract_unknown`,
 `extract_correction`, `extract_prompt_injection`, `review_final_blockers`. Extraction cases contain
-only `{caseId,kind:"extract",session,userMessage,expectedProposals}`; review contains only
-`{caseId,kind:"review",session,expectedIssues}`. `expectedProposals` is the exact canonical guarded
+only `{caseId,kind:"extract",sessionSeed,userMessage,expectedProposals}`; review contains only
+`{caseId,kind:"review",sessionSeed,expectedIssues}`. `sessionSeed` is the compact exact object
+`{schemaVersion:"onboarding-feasibility-session-seed@1",initialParticipantId,
+initialCompletionCommandId,nextCompletionCommandIds,changes}`; every change is an exact
+`manual_set` `{kind,fieldId,rawInput,normalizedValue}`. The gate reconstructs it only through
+`createOnboardingSession`, ordered `applySessionFieldChange`, exact consumption of all completion
+IDs, and final `reconstructOnboardingSessionState`; roster values carry companion UUIDs. The fixture
+reader rejects extra/missing/accessor/symbol/sparse/decorated graphs before any callback.
+`expectedProposals` is the exact canonical guarded
 proposal projection without `nextQuestion`; the gate additionally requires a non-empty bounded
 `nextQuestion`. `expectedIssues` is the exact canonical deterministic issue sequence returned after
 `corroborateModelReview`. The cases cover self facts, a spouse roster/leaves, explicit zero, assigned
