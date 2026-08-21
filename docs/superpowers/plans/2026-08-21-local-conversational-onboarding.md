@@ -526,9 +526,14 @@ git commit -m "feat: guard onboarding session"
 **Prerequisite:** Codex runtime Tasks 1–4 and the passing real feasibility artifact are complete. Runtime Task 5 remains a recorded deferred audit and is not a product dependency.
 
 **Files:**
+- Modify: `src/decision/onboarding-catalog.ts`
+- Modify: `src/decision/onboarding-model-output.ts`
+- Modify: `src/decision/onboarding-model-contract.ts`
 - Create: `src/application/onboarding-contracts.ts`
 - Create: `src/infrastructure/codex-cli/onboarding-schema.ts`
 - Create: `src/infrastructure/codex-cli/onboarding-model.ts`
+- Modify: `tests/domain/onboarding-model-output.test.ts`
+- Modify: `tests/domain/onboarding-model-contract.test.ts`
 - Create: `tests/domain/onboarding-schema.test.ts`
 - Create: `tests/integration/codex-onboarding-model.test.ts`
 - Create: `evals/onboarding-feasibility.ts`
@@ -537,6 +542,24 @@ git commit -m "feat: guard onboarding session"
 **Interfaces:**
 - Consumes: Task 0 parsers, Task 2 model projections, and the shared `CodexCliModelAdapter`.
 - Produces: the only `OnboardingModelPort` consumed by Task 4.
+
+Before writing the schemas, finish the Task 0 single-source-of-truth seam. Export readonly tuples
+for every closed runtime vocabulary already owned by `onboarding-catalog.ts`: base field IDs,
+participant leaf IDs and relationships, move horizons, moving-party values, work statuses, remote
+continuation values, income bases, education levels, preference modes/importances, country target
+values, and questionnaire issue codes. `onboarding-model-output.ts` must build its Sets from those
+tuples; the schema module consumes the same tuples and the existing country/city criterion tuples.
+ISO country/currency and canonical decimal/day values remain pattern-constrained in JSON Schema and
+are finally accepted only by the existing strict Task 0 parser. Do not create a second literal
+allowlist in Infrastructure.
+
+Task 2 also exports a closed `OnboardingQuestionnaireProjection` and
+`reconstructOnboardingQuestionnaireProjection(value: unknown)`. The reconstructor owns and freezes
+exactly `{schemaVersion:"onboarding-questionnaire-projection@1", fields:[{fieldId, applicability,
+normalizedValue}]}` in canonical questionnaire order, rejects extra/missing/symbol/accessor/sparse/
+cyclic/decorated values, and validates every field/value/applicability pair. The model wrapper calls
+this reconstructor before measuring or serializing either prompt; untrusted `questionnaire: unknown`
+is never passed directly to `JSON.stringify`.
 
 ```ts
 export interface OnboardingModelVersions {
@@ -576,6 +599,17 @@ export interface OnboardingModelPort {
   }): Promise<LocalReviewResult>;
 }
 
+export type OnboardingModelErrorCode =
+  | "onboarding_model_aborted"
+  | "onboarding_model_invalid"
+  | "onboarding_model_runtime_failed";
+
+export class OnboardingModelError extends Error {
+  readonly name: "OnboardingModelError";
+  readonly code: OnboardingModelErrorCode;
+  readonly runtimeCode?: CodexRuntimeErrorCode;
+}
+
 export function createCodexOnboardingModel(
   runtime: CodexCliModelAdapter,
 ): OnboardingModelPort;
@@ -583,7 +617,19 @@ export function createCodexOnboardingModel(
 export interface OnboardingModelFeasibilityArtifact {
   readonly schemaVersion: "onboarding-model-feasibility@1";
   readonly fixtureVersion: "onboarding-cases@1";
+  readonly fixtureDigest: string;
+  readonly invocationVersion: "codex-cli-invocation@1";
   readonly cliVersion: "codex-cli 0.148.0-alpha.15";
+  readonly extractionPromptVersion: "onboarding-extract@1";
+  readonly reviewPromptVersion: "onboarding-review@1";
+  readonly extractionSchemaVersion: "onboarding-model-output@1";
+  readonly reviewSchemaVersion: "onboarding-review-output@1";
+  readonly extractionPromptDigest: string;
+  readonly reviewPromptDigest: string;
+  readonly extractionSchemaDigest: string;
+  readonly reviewSchemaDigest: string;
+  readonly extractionLimits: typeof ONBOARDING_EXTRACTION_LIMITS;
+  readonly reviewLimits: typeof ONBOARDING_REVIEW_LIMITS;
   readonly caseResults: readonly {
     readonly caseId: string;
     readonly status: "passed";
@@ -601,18 +647,49 @@ all below the shared runtime maxima. It rejects an oversized UTF-8 prompt before
 `invokeJson` per method, requires the returned invocation/template/schema metadata to match the
 request and fixed version tuple, and applies Task 0's strict parser only to `CodexJsonResult.value`.
 It has no retry method, conversation resume, provider switch, fallback, or raw-output accessor.
+Before any asynchronous work it rejects an inactive signal as
+`OnboardingModelError("onboarding_model_aborted")`. It never rethrows the caller's abort reason.
+After the single adapter call it checks the signal again. A `CodexRuntimeError` becomes a new
+content-free `OnboardingModelError("onboarding_model_runtime_failed", runtimeCode)`; metadata
+mismatch, projection/schema/parser failure, non-Codex rejection, or invalid owned result becomes a
+new content-free `OnboardingModelError("onboarding_model_invalid")`. The error has no `cause`, raw
+message, prompt, result, stdout or stderr. `message === code`.
 
+The fixture is one exact plain object
+`{fixtureVersion:"onboarding-cases@1", cases:[...]}` with this fixed order:
+`extract_self_ru`, `extract_companion`, `extract_zero_unusual_iso`, `extract_unknown`,
+`extract_correction`, `extract_prompt_injection`, `review_final_blockers`. Extraction cases contain
+only `{caseId,kind:"extract",session,userMessage,expectedProposals}`; review contains only
+`{caseId,kind:"review",session,expectedIssues}`. `expectedProposals` is the exact canonical guarded
+proposal projection without `nextQuestion`; the gate additionally requires a non-empty bounded
+`nextQuestion`. `expectedIssues` is the exact canonical deterministic issue sequence returned after
+`corroborateModelReview`. The cases cover self facts, a spouse roster/leaves, explicit zero, assigned
+unusual ISO/currency, placeholders omitted while sibling facts survive, a correction, an injection
+near legitimate text, and a fully populated questionnaire with only the pinned final blockers.
+Malformed schema/output belongs only to the fake adapter/parser RED tests because a real strict-schema
+invocation cannot be required to emit malformed output.
+
+`fixtureDigest` is SHA-256 over the exact fixture bytes. Prompt/schema digests are SHA-256 over their
+canonical UTF-8 bytes. `artifactDigest` is SHA-256 over canonical JSON of every artifact member except
+`artifactDigest`, including all four version labels, both fixed limit objects, all five binding
+digests and ordered case results. Digests are integrity bindings, not anonymization; raw prompt,
+output and transcript remain absent.
+
+- [ ] **Step 0: Close the vocabulary and projection prerequisites.** Export the Task 0 tuples, make the parser consume them, add the exact Task 2 projection reconstructor, and prove tuple/parser/schema parity plus hostile projection rejection before any serialization callback.
 - [ ] **Step 1: Write RED schema tests.** Generate schemas only from Task 0 constants; verify every allowed field/reason and rejection of unknown keys/values.
 - [ ] **Step 2: Write RED adapter tests with a fake shared runtime.** Assert exact capability/template/schema versions and every pinned prompt/timeout/stdout/stderr/event limit, metadata binding, parsing of owned `.value`, minimal questionnaire projection, one call, pre-adapter rejection at each prompt byte boundary, parser enforcement, abort/error mapping, and no raw content in errors.
 - [ ] **Step 3: Run RED, implement, and run fake GREEN.** Run `pnpm exec vitest run tests/domain/onboarding-schema.test.ts tests/integration/codex-onboarding-model.test.ts`; expect missing capability modules, implement both wrappers, and re-run it.
-- [ ] **Step 4: Add the synthetic eval fixture.** Cover Russian self-only and companion messages, explicit zero, `не знаю`, correction, unusual valid ISO/currency, prompt injection, malformed output, and final review issues.
-- [ ] **Step 5: Obtain explicit authorization for the prepared-Mac OpenAI calls, then run the real gate once.** Run `pnpm exec tsx evals/onboarding-feasibility.ts --artifact data/evals/onboarding-model-feasibility.json`; require guarded semantic acceptance and an exact closed `onboarding-model-feasibility@1` artifact containing only case IDs/status/timing plus its digest. If authorization is absent or any case fails, stop without writing a passing artifact, fallback, or prompt weakening that expands authority.
+- [ ] **Step 4: Add the exact synthetic eval fixture and a fake eval contract test.** Prove the fixed case order and guarded semantic oracles, exact one call per case, canonical digest recomputation, and that any failure leaves no passing artifact. Before validation or a model call, remove any stale target artifact. Write the final newline-terminated artifact atomically with mode `0600` only after every case passes; never write a partial/passing artifact on failure.
+- [ ] **Step 5: Obtain explicit authorization for the prepared-Mac OpenAI calls, then run the real gate once.** Run `pnpm exec tsx evals/onboarding-feasibility.ts --artifact data/evals/onboarding-model-feasibility.json`. The direct CLI entrypoint first calls the existing `registerNodeCodexRuntime()` (the same bundled-executable, preflight, feature-inventory, validated temp-root, closed-environment and process wiring used by Node instrumentation), then obtains the singleton only through `getCodexCliModelAdapter()`; it must not assume Next instrumentation ran under `tsx`. Require guarded semantic acceptance and the exact closed artifact above. There is exactly one `invokeJson` per ordered fixture case and no retry. If authorization is absent or any case fails, stop with the target artifact absent and without fallback or prompt weakening that expands authority.
 - [ ] **Step 6: Run static gates and commit.** Run `pnpm run typecheck`, `pnpm exec eslint src/application/onboarding-contracts.ts src/infrastructure/codex-cli/onboarding-schema.ts src/infrastructure/codex-cli/onboarding-model.ts tests/domain/onboarding-schema.test.ts tests/integration/codex-onboarding-model.test.ts evals/onboarding-feasibility.ts`, and `git diff --check`.
 
 ```bash
 git add src/application/onboarding-contracts.ts \
+  src/decision/onboarding-catalog.ts src/decision/onboarding-model-output.ts \
+  src/decision/onboarding-model-contract.ts \
   src/infrastructure/codex-cli/onboarding-schema.ts \
   src/infrastructure/codex-cli/onboarding-model.ts \
+  tests/domain/onboarding-model-output.test.ts tests/domain/onboarding-model-contract.test.ts \
   tests/domain/onboarding-schema.test.ts tests/integration/codex-onboarding-model.test.ts \
   evals/onboarding-feasibility.ts evals/fixtures/onboarding/cases.json
 git commit -m "feat: extract onboarding with Codex"
