@@ -210,6 +210,72 @@ export interface QuestionnaireProvenance {
   readonly fields: readonly QuestionnaireProvenanceEntry[];
 }
 
+export type ApplicableValue<T> =
+  | { readonly applicability: "required"; readonly value: T }
+  | { readonly applicability: "not_applicable" };
+export interface RelocationParticipantV2 {
+  readonly participantId: ParticipantId;
+  readonly relationship: ParticipantRelationship;
+  readonly citizenships: readonly IsoCountryCode[];
+  readonly passport: PassportValue;
+  readonly currentWork: ApplicableValue<CurrentWorkValue>;
+  readonly remoteContinuation: ApplicableValue<RemoteContinuationValue>;
+  readonly monthlyIncome: ApplicableValue<MonthlyIncomeValue>;
+  readonly education: ApplicableValue<EducationValue>;
+  readonly relevantExperienceYears: ApplicableValue<number>;
+}
+export interface RelocationProfileV2Snapshot {
+  readonly schemaVersion: "relocation-profile@2";
+  readonly id: string;
+  readonly confirmedAt: string;
+  readonly profile: {
+    readonly currentLocation: CurrentLocationValue;
+    readonly moveHorizon: MoveHorizonValue;
+    readonly movingParty: MovingPartyValue;
+    readonly participants: readonly [RelocationParticipantV2, ...RelocationParticipantV2[]];
+    readonly savings: SavingsValue;
+  };
+}
+export type CountryPreferenceCriterionV2<I extends CountryPreferenceId> =
+  | {
+      readonly id: I;
+      readonly mode: "required";
+      readonly importance: PreferenceImportance;
+      readonly target: "required_true";
+    }
+  | {
+      readonly id: I;
+      readonly mode: "weighted";
+      readonly importance: PreferenceImportance;
+      readonly target: "maximize";
+    };
+export interface UniversalCityPreferenceCriterionV2<I extends UniversalCityPreferenceId> {
+  readonly id: I;
+  readonly mode: PreferenceMode;
+  readonly importance: PreferenceImportance;
+  readonly target: string;
+}
+export type CountryPreferenceTupleV2 = readonly [
+  CountryPreferenceCriterionV2<"outside_cis">,
+  CountryPreferenceCriterionV2<"europe">,
+  CountryPreferenceCriterionV2<"personal_safety">,
+  CountryPreferenceCriterionV2<"infrastructure">,
+  CountryPreferenceCriterionV2<"peace_and_stability">,
+];
+export type UniversalCityPreferenceTupleV2 = readonly [
+  UniversalCityPreferenceCriterionV2<"safety">,
+  UniversalCityPreferenceCriterionV2<"long_term_rent">,
+  UniversalCityPreferenceCriterionV2<"urban_transit">,
+  UniversalCityPreferenceCriterionV2<"fixed_broadband">,
+];
+export interface PreferenceProfileV2Snapshot {
+  readonly schemaVersion: "preference-profile@2";
+  readonly id: string;
+  readonly confirmedAt: string;
+  readonly countryCriteria: CountryPreferenceTupleV2;
+  readonly cityCriteria: UniversalCityPreferenceTupleV2;
+}
+
 export interface ConfirmedOnboardingValues {
   readonly schemaVersion: "confirmed-onboarding-values@1";
   readonly profile: Omit<RelocationProfileV2Snapshot, "id" | "confirmedAt">;
