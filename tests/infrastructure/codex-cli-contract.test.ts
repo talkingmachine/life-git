@@ -111,6 +111,46 @@ describe("createCodexJsonInvocation", () => {
     expect(getter).not.toHaveBeenCalled();
   });
 
+  test("rejects a top-level accessor without executing it", () => {
+    const getter = vi.fn(() => "onboarding_extract");
+    const input = validInvocation();
+    Object.defineProperty(input, "capability", { enumerable: true, get: getter });
+
+    expect(() => createCodexJsonInvocation(input)).toThrowError("codex_protocol_invalid");
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  test("rejects a top-level extra key", () => {
+    expect(() => createCodexJsonInvocation(validInvocation({ unexpected: true })))
+      .toThrowError("codex_protocol_invalid");
+  });
+
+  test("rejects a limits accessor without executing it", () => {
+    const getter = vi.fn(() => 15_000);
+    const input = validInvocation();
+    Object.defineProperty(input.limits, "timeoutMs", { enumerable: true, get: getter });
+
+    expect(() => createCodexJsonInvocation(input)).toThrowError("codex_protocol_invalid");
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  test("rejects a limits extra key", () => {
+    expect(() => createCodexJsonInvocation(validInvocation({ limits: {
+      ...validInvocation().limits,
+      unexpected: true,
+    } }))).toThrowError("codex_protocol_invalid");
+  });
+
+  test("rejects a decorated AbortSignal without executing its accessor", () => {
+    const getter = vi.fn(() => false);
+    const signal = new AbortController().signal;
+    Object.defineProperty(signal, "aborted", { enumerable: true, get: getter });
+
+    expect(() => createCodexJsonInvocation(validInvocation({ signal })))
+      .toThrowError("codex_protocol_invalid");
+    expect(getter).not.toHaveBeenCalled();
+  });
+
   test("accepts an empty prompt and version strings at the UTF-8 byte limit", () => {
     const boundaryText = "x".repeat(MAX_CODEX_PROMPT_BYTES);
 

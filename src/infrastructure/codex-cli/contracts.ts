@@ -157,7 +157,12 @@ function requireBoundedInteger(value: unknown, maximum: number): number {
 }
 
 function requireSignal(value: unknown): AbortSignal {
-  if (!(value instanceof AbortSignal) || value.aborted) throw protocolInvalid();
+  if (!(value instanceof AbortSignal) || Object.getPrototypeOf(value) !== AbortSignal.prototype ||
+    Object.getOwnPropertyNames(value).length > 0) {
+    throw protocolInvalid();
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted");
+  if (descriptor?.get?.call(value) === true) throw protocolInvalid();
   return value;
 }
 

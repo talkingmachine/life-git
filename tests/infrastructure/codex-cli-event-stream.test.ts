@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
+import { MAX_CODEX_EVENTS, MAX_CODEX_STDOUT_BYTES } from "../../src/infrastructure/codex-cli/contracts";
 import { parseCodexEventStream } from "../../src/infrastructure/codex-cli/event-stream";
 
 function line(value: unknown): Uint8Array {
@@ -27,6 +28,17 @@ describe("parseCodexEventStream", () => {
   test("returns the sole completed assistant message", async () => {
     await expect(parseCodexEventStream(streamOf(...completedMessageEvents()), LIMITS))
       .resolves.toBe("completed answer");
+  });
+
+  test("rejects a decorated Uint8Array subclass without executing its accessor", async () => {
+    const getter = vi.fn(() => 1);
+    class DecoratedChunk extends Uint8Array {}
+    const chunk = new DecoratedChunk(line({ type: "thread.started" }));
+    Object.defineProperty(chunk, "byteLength", { enumerable: true, get: getter });
+
+    await expect(parseCodexEventStream(streamOf(chunk), LIMITS))
+      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
+    expect(getter).not.toHaveBeenCalled();
   });
 
   test("accepts the terminal message without reasoning progress", async () => {
@@ -80,6 +92,40 @@ describe("parseCodexEventStream", () => {
       maxStdoutBytes: 65_536,
       maxEvents: 4,
     })).rejects.toMatchObject({ code: "codex_event_limit" });
+  });
+
+  test("rejects a completed reasoning item with a different ID", async () => {
+    const events = [
+      line({ type: "thread.started", thread_id: "thread-1" }),
+      line({ type: "turn.started" }),
+      line({ type: "item.started", item: { type: "reasoning", id: "reasoning-a" } }),
+      line({ type: "item.completed", item: { type: "reasoning", id: "reasoning-b" } }),
+      line({ type: "item.completed", item: { type: "agent_message", text: "completed answer" } }),
+      line({ type: "turn.completed" }),
+    ];
+
+    await expect(parseCodexEventStream(streamOf(...events), LIMITS))
+      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  });
+
+  test("rejects reasoning progress after the terminal assistant message", async () => {
+    const events = [
+      ...completedMessageEvents().slice(0, 5),
+      line({ type: "item.started", item: { type: "reasoning", id: "late" } }),
+      line({ type: "item.completed", item: { type: "reasoning", id: "late" } }),
+      line({ type: "turn.completed" }),
+    ];
+
+    await expect(parseCodexEventStream(streamOf(...events), LIMITS))
+      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  });
+
+  test.each([
+    ["stdout", { maxStdoutBytes: MAX_CODEX_STDOUT_BYTES + 1, maxEvents: 16 }],
+    ["events", { maxStdoutBytes: 65_536, maxEvents: MAX_CODEX_EVENTS + 1 }],
+  ])("rejects a %s limit above the global cap", async (_name, limits) => {
+    await expect(parseCodexEventStream(streamOf(...completedMessageEvents()), limits))
+      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
   test("counts UTF-8 bytes before retaining a line", async () => {

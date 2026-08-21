@@ -1,4 +1,4 @@
-import { CodexRuntimeError } from "./contracts";
+import { CodexRuntimeError, MAX_CODEX_EVENTS, MAX_CODEX_STDOUT_BYTES } from "./contracts";
 
 export async function parseCodexEventStream(
   chunks: AsyncIterable<Uint8Array>,
@@ -15,10 +15,10 @@ export async function parseCodexEventStream(
 
   try {
     for await (const chunk of chunks) {
-      if (!(chunk instanceof Uint8Array)) throw protocolInvalid();
-      stdoutBytes += chunk.byteLength;
+      const ownedChunk = copyExactUint8Array(chunk);
+      stdoutBytes += ownedChunk.byteLength;
       if (stdoutBytes > maxStdoutBytes) throw new CodexRuntimeError("codex_output_too_large");
-      pending += decoder.decode(chunk, { stream: true });
+      pending += decoder.decode(ownedChunk, { stream: true });
       pending = consumeLines(pending, state, maxEvents);
     }
     pending += decoder.decode();
@@ -28,7 +28,8 @@ export async function parseCodexEventStream(
   }
 
   if (pending.length > 0) throw protocolInvalid();
-  if (!state.threadStarted || !state.turnStarted || !state.turnCompleted || state.reasoningOpen || state.message === undefined) {
+  if (!state.threadStarted || !state.turnStarted || !state.turnCompleted || state.reasoningId !== undefined ||
+    state.message === undefined) {
     throw protocolInvalid();
   }
   return state.message;
@@ -38,7 +39,7 @@ interface StreamState {
   threadStarted: boolean;
   turnStarted: boolean;
   turnCompleted: boolean;
-  reasoningOpen: boolean;
+  reasoningId: string | undefined;
   eventCount: number;
   message: string | undefined;
 }
@@ -48,7 +49,7 @@ function createStreamState(): StreamState {
     threadStarted: false,
     turnStarted: false,
     turnCompleted: false,
-    reasoningOpen: false,
+    reasoningId: undefined,
     eventCount: 0,
     message: undefined,
   };
@@ -88,15 +89,15 @@ function parseEvent(line: string, state: StreamState): void {
       return;
     case "item.started":
       requireActiveTurn(state);
-      if (state.reasoningOpen || itemType(event) !== "reasoning") throwItemError(event);
-      state.reasoningOpen = true;
+      if (state.reasoningId !== undefined || itemType(event) !== "reasoning") throwItemError(event);
+      state.reasoningId = requireItemId(event);
       return;
     case "item.completed":
       requireActiveTurn(state);
       completeItem(event, state);
       return;
     case "turn.completed":
-      if (!state.turnStarted || state.reasoningOpen || state.message === undefined) throw protocolInvalid();
+      if (!state.turnStarted || state.reasoningId !== undefined || state.message === undefined) throw protocolInvalid();
       state.turnCompleted = true;
       return;
     case "turn.failed":
@@ -109,11 +110,11 @@ function parseEvent(line: string, state: StreamState): void {
 function completeItem(event: Record<string, unknown>, state: StreamState): void {
   const type = itemType(event);
   if (type === "reasoning") {
-    if (!state.reasoningOpen) throw protocolInvalid();
-    state.reasoningOpen = false;
+    if (state.reasoningId === undefined || requireItemId(event) !== state.reasoningId) throw protocolInvalid();
+    state.reasoningId = undefined;
     return;
   }
-  if (type !== "agent_message" || state.reasoningOpen || state.message !== undefined) throwItemError(event);
+  if (type !== "agent_message" || state.reasoningId !== undefined || state.message !== undefined) throwItemError(event);
 
   const item = event.item;
   if (!isObject(item) || typeof item.text !== "string") throw protocolInvalid();
@@ -121,11 +122,17 @@ function completeItem(event: Record<string, unknown>, state: StreamState): void 
 }
 
 function requireActiveTurn(state: StreamState): void {
-  if (!state.threadStarted || !state.turnStarted || state.turnCompleted) throw protocolInvalid();
+  if (!state.threadStarted || !state.turnStarted || state.turnCompleted || state.message !== undefined) throw protocolInvalid();
 }
 
 function itemType(event: Record<string, unknown>): string | undefined {
   return isObject(event.item) && typeof event.item.type === "string" ? event.item.type : undefined;
+}
+
+function requireItemId(event: Record<string, unknown>): string {
+  const item = event.item;
+  if (!isObject(item) || typeof item.id !== "string" || item.id.length === 0) throw protocolInvalid();
+  return item.id;
 }
 
 function throwItemError(event: Record<string, unknown>): never {
@@ -147,8 +154,35 @@ function readLimits(value: unknown): { maxStdoutBytes: number; maxEvents: number
   const stdout = Object.getOwnPropertyDescriptor(value, "maxStdoutBytes");
   const events = Object.getOwnPropertyDescriptor(value, "maxEvents");
   if (!isEnumerableDataDescriptor(stdout) || !isEnumerableDataDescriptor(events)) throw protocolInvalid();
-  if (!isPositiveInteger(stdout.value) || !isPositiveInteger(events.value)) throw protocolInvalid();
+  if (!isPositiveInteger(stdout.value) || !isPositiveInteger(events.value) ||
+    stdout.value > MAX_CODEX_STDOUT_BYTES || events.value > MAX_CODEX_EVENTS) {
+    throw protocolInvalid();
+  }
   return { maxStdoutBytes: stdout.value, maxEvents: events.value };
+}
+
+function copyExactUint8Array(value: unknown): Uint8Array {
+  if (!ArrayBuffer.isView(value) || Object.getPrototypeOf(value) !== Uint8Array.prototype) {
+    throw protocolInvalid();
+  }
+  const exact = value as Uint8Array;
+  const byteLength = trustedUint8ByteLength(exact);
+  const keys = Reflect.ownKeys(exact);
+  if (keys.length !== byteLength) throw protocolInvalid();
+  for (let index = 0; index < byteLength; index += 1) {
+    if (!keys.includes(String(index))) throw protocolInvalid();
+  }
+  const copy = new Uint8Array(byteLength);
+  Uint8Array.prototype.set.call(copy, exact);
+  return copy;
+}
+
+function trustedUint8ByteLength(value: ArrayBufferView): number {
+  const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+  const descriptor = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength");
+  const byteLength = descriptor?.get?.call(value);
+  if (!isPositiveInteger(byteLength) && byteLength !== 0) throw protocolInvalid();
+  return byteLength;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
