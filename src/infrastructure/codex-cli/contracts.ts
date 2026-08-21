@@ -8,6 +8,8 @@ export const MAX_CODEX_STDERR_BYTES = 65_536;
 export const MAX_CODEX_EVENTS = 256;
 export const MAX_CODEX_PROMPT_BYTES = 262_144;
 
+const NATIVE_ABORT_SIGNAL_OWN_KEYS = new Set(Reflect.ownKeys(new AbortController().signal));
+
 export type CodexCapabilityId =
   | "onboarding_extract"
   | "onboarding_review"
@@ -158,7 +160,7 @@ function requireBoundedInteger(value: unknown, maximum: number): number {
 
 function requireSignal(value: unknown): AbortSignal {
   if (!(value instanceof AbortSignal) || Object.getPrototypeOf(value) !== AbortSignal.prototype ||
-    Object.getOwnPropertyNames(value).length > 0) {
+    Reflect.ownKeys(value).some((key) => !NATIVE_ABORT_SIGNAL_OWN_KEYS.has(key))) {
     throw protocolInvalid();
   }
   const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted");

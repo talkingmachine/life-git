@@ -151,6 +151,14 @@ describe("createCodexJsonInvocation", () => {
     expect(getter).not.toHaveBeenCalled();
   });
 
+  test("rejects a real AbortSignal decorated with an own symbol", () => {
+    const signal = new AbortController().signal;
+    Object.defineProperty(signal, Symbol("decoration"), { value: true });
+
+    expect(() => createCodexJsonInvocation(validInvocation({ signal })))
+      .toThrowError("codex_protocol_invalid");
+  });
+
   test("accepts an empty prompt and version strings at the UTF-8 byte limit", () => {
     const boundaryText = "x".repeat(MAX_CODEX_PROMPT_BYTES);
 
