@@ -233,6 +233,28 @@ describe("runBoundedProcess", () => {
     await expect(running).rejects.toBe(reason);
   });
 
+  test("gives an abort fired during TERM teardown precedence over the stream failure", async () => {
+    const controller = new AbortController();
+    const exit = deferred<{ code: number | null; signal: string | null }>();
+    const reason = new DOMException("cancelled during teardown", "AbortError");
+    const kill = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
+      if (signal === "SIGTERM") {
+        controller.abort(reason);
+        exit.resolve({ code: null, signal });
+      }
+    });
+    const spawner = fakeSpawner(processWith({
+      stdout: failingStream(new Error("stream failed first")),
+      stderr: failingStream(new Error("late stderr rejection")),
+      exit: exit.promise,
+      kill,
+    }));
+
+    await expect(runBoundedProcess(validBoundedRequest({ signal: controller.signal }), spawner))
+      .rejects.toBe(reason);
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
   test("observes stream and exit rejections that arrive after termination", async () => {
     const controller = new AbortController();
     const lateExit = deferred<{ code: number | null; signal: string | null }>();

@@ -12,11 +12,35 @@ export const CODEX_PREFLIGHT_LIMITS = Object.freeze({
 } as const);
 
 export const CODEX_DISABLED_FEATURES = Object.freeze([
-  "skill_search",
+  "apps",
+  "auth_elicitation",
+  "browser_use",
+  "browser_use_full_cdp_access",
+  "code_mode_host",
+  "goals",
+  "hooks",
+  "image_generation",
+  "in_app_browser",
+  "multi_agent",
+  "plugin_sharing",
+  "plugins",
+  "remote_plugin",
+  "shell_snapshot",
+  "shell_tool",
   "skill_mcp_dependency_install",
+  "skill_search",
+  "tool_call_mcp_elicitation",
+  "tool_suggest",
+  "unified_exec",
+  "view_image",
+  "workspace_dependencies",
 ] as const);
 
-export const CODEX_FEATURE_INVENTORY_ARGS = Object.freeze(["features", "list"] as const);
+export const CODEX_FEATURE_INVENTORY_ARGS = Object.freeze([
+  ...CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
+  "features",
+  "list",
+] as const);
 
 const CHATGPT_APP_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex";
 
@@ -53,6 +77,10 @@ export async function readDisabledFeatureInventory(input: {
 }): Promise<Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>> {
   const stdout = await runTextProbe(input.preflight.executable, CODEX_FEATURE_INVENTORY_ARGS, input);
   const inventory = parseFeatureInventory(stdout);
+  if (inventory.size !== CODEX_DISABLED_FEATURES.length ||
+    [...inventory.keys()].some((feature) => !isDisabledFeature(feature))) {
+    throw new CodexRuntimeError("codex_tool_isolation_unproven");
+  }
   const disabled = Object.create(null) as Record<(typeof CODEX_DISABLED_FEATURES)[number], false>;
   for (const feature of CODEX_DISABLED_FEATURES) {
     if (inventory.get(feature) !== false) throw new CodexRuntimeError("codex_tool_isolation_unproven");
@@ -107,12 +135,23 @@ async function runTextProbe(
     executable,
     args,
     cwd: dirname(executable),
-    env: input.childEnv,
+    env: createClosedCodexEnvironment(input.childEnv),
     stdin: new Uint8Array(),
     ...CODEX_PREFLIGHT_LIMITS,
     signal: input.signal,
   }, input.spawner);
   return decodeChunks(result.stdout);
+}
+
+export function createClosedCodexEnvironment(
+  source: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  const environment: Record<string, string> = {};
+  for (const name of ["CODEX_HOME", "TMPDIR", "LANG", "LC_ALL"] as const) {
+    const value = source[name];
+    if (value !== undefined) environment[name] = value;
+  }
+  return environment;
 }
 
 function decodeChunks(chunks: readonly Uint8Array[]): string {
@@ -137,4 +176,8 @@ function parseFeatureInventory(stdout: string): ReadonlyMap<string, boolean> {
     inventory.set(match[1], match[3] === "true");
   }
   return inventory;
+}
+
+function isDisabledFeature(value: string): value is (typeof CODEX_DISABLED_FEATURES)[number] {
+  return CODEX_DISABLED_FEATURES.some((feature) => feature === value);
 }

@@ -115,8 +115,8 @@ export async function runBoundedProcess(
     if (exit.code !== 0) throw processFailed();
     return { pid: process.pid, stdout: stdoutChunks, stderrByteCount };
   } catch (error) {
-    const callerAbort = abortReason(request.signal);
     await terminateProcess(process, () => hasExited);
+    const callerAbort = abortReason(request.signal);
     if (callerAbort !== undefined) throw callerAbort;
     if (error instanceof CodexRuntimeError) throw error;
     throw processFailed();

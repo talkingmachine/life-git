@@ -18,8 +18,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { createCodexJsonInvocation } from "../../src/infrastructure/codex-cli/contracts";
 import {
-  CODEX_EXEC_ARGS,
-  CODEX_MESSAGE_INPUT_INSPECTION_ARGS,
   inspectModelVisibleInputs,
   runCodexJsonProbe,
 } from "../../src/infrastructure/codex-cli/feasibility-probe";
@@ -33,6 +31,64 @@ import {
 
 const temporaryPaths: string[] = [];
 const encoder = new TextEncoder();
+
+const EXPECTED_EXEC_ARGS = [
+  "exec",
+  "--strict-config",
+  "--ephemeral",
+  "--ignore-user-config",
+  "--ignore-rules",
+  "--disable", "apps",
+  "--disable", "auth_elicitation",
+  "--disable", "browser_use",
+  "--disable", "browser_use_full_cdp_access",
+  "--disable", "code_mode_host",
+  "--disable", "goals",
+  "--disable", "hooks",
+  "--disable", "image_generation",
+  "--disable", "in_app_browser",
+  "--disable", "multi_agent",
+  "--disable", "plugin_sharing",
+  "--disable", "plugins",
+  "--disable", "remote_plugin",
+  "--disable", "shell_snapshot",
+  "--disable", "shell_tool",
+  "--disable", "skill_mcp_dependency_install",
+  "--disable", "skill_search",
+  "--disable", "tool_call_mcp_elicitation",
+  "--disable", "tool_suggest",
+  "--disable", "unified_exec",
+  "--disable", "view_image",
+  "--disable", "workspace_dependencies",
+  "--sandbox", "read-only",
+  "--skip-git-repo-check",
+] as const;
+
+const EXPECTED_MESSAGE_INPUT_INSPECTION_ARGS = [
+  "--disable", "apps",
+  "--disable", "auth_elicitation",
+  "--disable", "browser_use",
+  "--disable", "browser_use_full_cdp_access",
+  "--disable", "code_mode_host",
+  "--disable", "goals",
+  "--disable", "hooks",
+  "--disable", "image_generation",
+  "--disable", "in_app_browser",
+  "--disable", "multi_agent",
+  "--disable", "plugin_sharing",
+  "--disable", "plugins",
+  "--disable", "remote_plugin",
+  "--disable", "shell_snapshot",
+  "--disable", "shell_tool",
+  "--disable", "skill_mcp_dependency_install",
+  "--disable", "skill_search",
+  "--disable", "tool_call_mcp_elicitation",
+  "--disable", "tool_suggest",
+  "--disable", "unified_exec",
+  "--disable", "view_image",
+  "--disable", "workspace_dependencies",
+  "debug", "prompt-input", "synthetic capability audit",
+] as const;
 
 afterEach(async () => {
   await Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -80,6 +136,36 @@ describe("validateCodexTempRoot", () => {
         workspacePath: workspace,
       })).rejects.toMatchObject({ code: "codex_temp_root_invalid" });
     }
+  });
+
+  test("canonicalizes a symlinked user home before excluding the temp root", async () => {
+    const actualHome = await tempRoot();
+    const aliasContainer = await tempRoot();
+    const homeAlias = join(aliasContainer.path, "home-alias");
+    await symlink(actualHome.path, homeAlias);
+
+    await expect(validateCodexTempRoot({
+      path: actualHome.path,
+      currentUid: actualHome.uid,
+      userHomePath: homeAlias,
+      workspacePath: aliasContainer.path,
+    })).rejects.toMatchObject({ code: "codex_temp_root_invalid" });
+  });
+
+  test("canonicalizes a symlinked workspace before excluding its real parent", async () => {
+    const parent = await tempRoot();
+    const workspace = join(parent.path, "workspace");
+    const aliasContainer = await tempRoot();
+    const workspaceAlias = join(aliasContainer.path, "workspace-alias");
+    await mkdir(workspace);
+    await symlink(workspace, workspaceAlias);
+
+    await expect(validateCodexTempRoot({
+      path: parent.path,
+      currentUid: parent.uid,
+      userHomePath: aliasContainer.path,
+      workspacePath: workspaceAlias,
+    })).rejects.toMatchObject({ code: "codex_temp_root_invalid" });
   });
 
   test("rejects a symlink, wrong owner, and non-directory", async () => {
@@ -292,7 +378,7 @@ describe("runCodexJsonProbe", () => {
     });
     const request = spawner.spawn.mock.calls[0]?.[0];
     expect(request.args).toEqual([
-      ...CODEX_EXEC_ARGS,
+      ...EXPECTED_EXEC_ARGS,
       "--cd", request.cwd,
       "--output-schema", join(request.cwd, "schema.json"),
       "--json",
@@ -339,7 +425,7 @@ describe("inspectModelVisibleInputs", () => {
 
     const request = spawner.spawn.mock.calls[0]?.[0];
     expect(entriesAtSpawn).toEqual([]);
-    expect(request.args).toEqual(CODEX_MESSAGE_INPUT_INSPECTION_ARGS);
+    expect(request.args).toEqual(EXPECTED_MESSAGE_INPUT_INSPECTION_ARGS);
     expect(request.cwd).toContain(join(root.path, "confirmed-life-codex-"));
     expect(request.env).toEqual({ CODEX_HOME: "/home", LANG: "C" });
     expect(request.stdin).toEqual(new Uint8Array());
@@ -357,6 +443,7 @@ describe("inspectModelVisibleInputs", () => {
     const projectPath = "/workspace/herring-8";
     const spawner = fakeSpawner(JSON.stringify({ messages: [
       { role: "developer", content: `# AGENTS.md instructions for ${projectPath}\n<INSTRUCTIONS>project rules</INSTRUCTIONS>` },
+      { role: "developer", content: "<app-context>application-owned instructions</app-context>" },
       { role: "developer", content: `Project skill payload: ${projectPath}/.agents/skills/local/SKILL.md` },
     ] }));
 
@@ -371,6 +458,73 @@ describe("inspectModelVisibleInputs", () => {
       projectContextPaths: [projectPath],
       projectRuleInputsObserved: true,
       projectSkillPayloadsObserved: true,
+    });
+  });
+
+  test("keeps inert generic catalogue prose and unanchored skill paths non-project", async () => {
+    const root = await validatedRoot();
+    const spawner = fakeSpawner(JSON.stringify({ messages: [
+      {
+        role: "developer",
+        content: [
+          "The generic catalogue may discuss confirmed-life and herring-8 as ordinary words.",
+          "It may quote <INSTRUCTIONS> and the phrase project skill payload as inert documentation.",
+          "Generic skill path: /Users/person/.codex/skills/catalogue/SKILL.md",
+        ].join("\n"),
+      },
+    ] }));
+
+    await expect(inspectModelVisibleInputs({
+      preflight,
+      spawner,
+      tempRoot: root,
+      childEnv: {},
+      signal: new AbortController().signal,
+    })).resolves.toEqual({
+      messageInputsObserved: true,
+      projectContextPaths: [],
+      projectRuleInputsObserved: false,
+      projectSkillPayloadsObserved: false,
+    });
+  });
+
+  test("recognizes the exact app instruction sentinel without repository-name heuristics", async () => {
+    const root = await validatedRoot();
+    const spawner = fakeSpawner(JSON.stringify({ messages: [
+      { role: "developer", content: "<app-context>synthetic app instruction</app-context>" },
+    ] }));
+
+    await expect(inspectModelVisibleInputs({
+      preflight,
+      spawner,
+      tempRoot: root,
+      childEnv: {},
+      signal: new AbortController().signal,
+    })).resolves.toEqual({
+      messageInputsObserved: true,
+      projectContextPaths: [],
+      projectRuleInputsObserved: true,
+      projectSkillPayloadsObserved: false,
+    });
+  });
+
+  test("reports an exact cwd path without misclassifying it as a project rule", async () => {
+    const root = await validatedRoot();
+    const spawner = fakeSpawner(JSON.stringify({ messages: [
+      { role: "developer", content: "<cwd>/workspace/synthetic-project</cwd>" },
+    ] }));
+
+    await expect(inspectModelVisibleInputs({
+      preflight,
+      spawner,
+      tempRoot: root,
+      childEnv: {},
+      signal: new AbortController().signal,
+    })).resolves.toEqual({
+      messageInputsObserved: true,
+      projectContextPaths: ["/workspace/synthetic-project"],
+      projectRuleInputsObserved: false,
+      projectSkillPayloadsObserved: false,
     });
   });
 

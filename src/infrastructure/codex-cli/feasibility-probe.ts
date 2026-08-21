@@ -8,6 +8,7 @@ import {
 } from "./contracts";
 import { parseCodexEventStream } from "./event-stream";
 import {
+  createClosedCodexEnvironment,
   CODEX_DISABLED_FEATURES,
   CODEX_PREFLIGHT_LIMITS,
   type CodexPreflightResult,
@@ -22,9 +23,12 @@ import {
 const DISABLED_FEATURE_ARGS = CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature] as const);
 
 export const CODEX_EXEC_ARGS = Object.freeze([
-  ...DISABLED_FEATURE_ARGS,
   "exec",
   "--strict-config",
+  "--ephemeral",
+  "--ignore-user-config",
+  "--ignore-rules",
+  ...DISABLED_FEATURE_ARGS,
   "--sandbox",
   "read-only",
   "--skip-git-repo-check",
@@ -34,7 +38,7 @@ export const CODEX_MESSAGE_INPUT_INSPECTION_ARGS = Object.freeze([
   ...DISABLED_FEATURE_ARGS,
   "debug",
   "prompt-input",
-  "--json",
+  "synthetic capability audit",
 ] as const);
 
 export async function runCodexJsonProbe(input: {
@@ -58,7 +62,7 @@ export async function runCodexJsonProbe(input: {
           "-",
         ],
         cwd: directoryPath,
-        env: closedCodexEnvironment(input.childEnv),
+        env: createClosedCodexEnvironment(input.childEnv),
         stdin: new TextEncoder().encode(input.invocation.prompt),
         timeoutMs: input.invocation.limits.timeoutMs,
         maxStdoutBytes: input.invocation.limits.maxStdoutBytes,
@@ -96,7 +100,7 @@ export async function inspectModelVisibleInputs(input: {
       executable: input.preflight.executable,
       args: CODEX_MESSAGE_INPUT_INSPECTION_ARGS,
       cwd: directoryPath,
-      env: closedCodexEnvironment(input.childEnv),
+      env: createClosedCodexEnvironment(input.childEnv),
       stdin: new Uint8Array(),
       timeoutMs: CODEX_PREFLIGHT_LIMITS.timeoutMs,
       maxStdoutBytes: MAX_CODEX_STDOUT_BYTES,
@@ -107,15 +111,6 @@ export async function inspectModelVisibleInputs(input: {
   } finally {
     await rm(directoryPath, { recursive: true });
   }
-}
-
-function closedCodexEnvironment(source: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
-  const environment: Record<string, string> = {};
-  for (const name of ["CODEX_HOME", "TMPDIR", "LANG", "LC_ALL"] as const) {
-    const value = source[name];
-    if (value !== undefined) environment[name] = value;
-  }
-  return environment;
 }
 
 async function* streamChunks(chunks: readonly Uint8Array[]): AsyncGenerator<Uint8Array> {
@@ -155,7 +150,8 @@ function inspectMessageList(stdout: string): {
     return {
       messageInputsObserved: true,
       projectContextPaths,
-      projectRuleInputsObserved: /AGENTS\.md instructions for|<INSTRUCTIONS>|app-specific instruction|confirmed-life|herring-8/i.test(text),
+      projectRuleInputsObserved: /# AGENTS\.md instructions for\s+\/[^\n<>]+/.test(text) ||
+        text.includes("<app-context>"),
       projectSkillPayloadsObserved: hasProjectSkillPayload(text, projectContextPaths),
     };
   } catch (error) {
@@ -177,7 +173,7 @@ function readMessageText(message: unknown): string {
 function extractProjectContextPaths(text: string): readonly string[] {
   const paths: string[] = [];
   for (const pattern of [
-    /AGENTS\.md instructions for\s+([^\n<>]+)/g,
+    /# AGENTS\.md instructions for\s+([^\n<>]+)/g,
     /<(?:cwd|workspace_path)>(\/[^<>]+)<\/(?:cwd|workspace_path)>/g,
   ]) {
     for (const match of text.matchAll(pattern)) {
@@ -189,7 +185,6 @@ function extractProjectContextPaths(text: string): readonly string[] {
 }
 
 function hasProjectSkillPayload(text: string, projectPaths: readonly string[]): boolean {
-  if (/project(?:-local)? skill payload/i.test(text)) return true;
   return projectPaths.some((path) =>
     text.includes(`${path}/.agents/skills/`) || text.includes(`${path}/.codex/skills/`));
 }

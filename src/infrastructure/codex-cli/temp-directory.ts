@@ -25,9 +25,12 @@ export async function validateCodexTempRoot(input: {
   try {
     if (!isAbsolute(input.path)) throw invalidTempRoot();
     const canonicalPath = await realpath(input.path);
+    const canonicalHomePath = await canonicalizeReferencePath(input.userHomePath);
+    const canonicalWorkspacePath = await canonicalizeReferencePath(input.workspacePath);
     const metadata = await lstat(input.path);
     if (canonicalPath !== resolve(input.path) || metadata.isSymbolicLink() || !metadata.isDirectory() ||
-      metadata.uid !== input.currentUid || isForbiddenRoot(canonicalPath, input.userHomePath, input.workspacePath)) {
+      metadata.uid !== input.currentUid ||
+      isForbiddenRoot(canonicalPath, canonicalHomePath, canonicalWorkspacePath)) {
       throw invalidTempRoot();
     }
     return Object.freeze({ path: canonicalPath, uid: input.currentUid });
@@ -89,10 +92,17 @@ async function createDirectTempDirectory(root: ValidatedCodexTempRoot): Promise<
   return path;
 }
 
-function isForbiddenRoot(path: string, userHomePath: string, workspacePath: string): boolean {
-  const home = resolve(userHomePath);
-  const workspace = resolve(workspacePath);
-  return path === "/" || path === home || path === workspace || isParentOf(path, workspace);
+async function canonicalizeReferencePath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function isForbiddenRoot(path: string, canonicalHomePath: string, canonicalWorkspacePath: string): boolean {
+  return path === "/" || path === canonicalHomePath || path === canonicalWorkspacePath ||
+    isParentOf(path, canonicalWorkspacePath);
 }
 
 function isParentOf(candidate: string, child: string): boolean {

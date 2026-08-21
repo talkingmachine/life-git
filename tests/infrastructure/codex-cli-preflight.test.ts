@@ -6,7 +6,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   CODEX_DISABLED_FEATURES,
-  CODEX_FEATURE_INVENTORY_ARGS,
   CODEX_PREFLIGHT_LIMITS,
   preflightCodexCli,
   readDisabledFeatureInventory,
@@ -15,6 +14,62 @@ import type { CodexProcessSpawner, SpawnedCodexProcess } from "../../src/infrast
 
 const encoder = new TextEncoder();
 const temporaryPaths: string[] = [];
+
+const EXPECTED_DISABLED_FEATURES = [
+  "apps",
+  "auth_elicitation",
+  "browser_use",
+  "browser_use_full_cdp_access",
+  "code_mode_host",
+  "goals",
+  "hooks",
+  "image_generation",
+  "in_app_browser",
+  "multi_agent",
+  "plugin_sharing",
+  "plugins",
+  "remote_plugin",
+  "shell_snapshot",
+  "shell_tool",
+  "skill_mcp_dependency_install",
+  "skill_search",
+  "tool_call_mcp_elicitation",
+  "tool_suggest",
+  "unified_exec",
+  "view_image",
+  "workspace_dependencies",
+] as const;
+
+const EXPECTED_FEATURE_INVENTORY_ARGS = [
+  "--disable", "apps",
+  "--disable", "auth_elicitation",
+  "--disable", "browser_use",
+  "--disable", "browser_use_full_cdp_access",
+  "--disable", "code_mode_host",
+  "--disable", "goals",
+  "--disable", "hooks",
+  "--disable", "image_generation",
+  "--disable", "in_app_browser",
+  "--disable", "multi_agent",
+  "--disable", "plugin_sharing",
+  "--disable", "plugins",
+  "--disable", "remote_plugin",
+  "--disable", "shell_snapshot",
+  "--disable", "shell_tool",
+  "--disable", "skill_mcp_dependency_install",
+  "--disable", "skill_search",
+  "--disable", "tool_call_mcp_elicitation",
+  "--disable", "tool_suggest",
+  "--disable", "unified_exec",
+  "--disable", "view_image",
+  "--disable", "workspace_dependencies",
+  "features", "list",
+] as const;
+
+function exactDisabledInventory(overrides: Readonly<Record<string, boolean>> = {}): string {
+  return EXPECTED_DISABLED_FEATURES.map((feature) =>
+    `${feature}\texperimental\t${String(overrides[feature] ?? false)}`).join("\n") + "\n";
+}
 
 afterEach(async () => {
   vi.useRealTimers();
@@ -63,7 +118,13 @@ describe("preflightCodexCli", () => {
     const result = await preflightCodexCli({
       configuredExecutable: fixture.executable,
       spawner,
-      childEnv: { LANG: "C.UTF-8" },
+      childEnv: {
+        CODEX_HOME: "/codex-home",
+        TMPDIR: "/configured-tmp",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+        APPLICATION_SECRET: "must-not-leak",
+      },
       signal,
     });
 
@@ -79,8 +140,18 @@ describe("preflightCodexCli", () => {
       env: request.env,
       stdin: request.stdin,
     }))).toEqual([
-      { executable: fixture.executable, args: ["--version"], env: { LANG: "C.UTF-8" }, stdin: new Uint8Array() },
-      { executable: fixture.executable, args: ["login", "status"], env: { LANG: "C.UTF-8" }, stdin: new Uint8Array() },
+      {
+        executable: fixture.executable,
+        args: ["--version"],
+        env: { CODEX_HOME: "/codex-home", TMPDIR: "/configured-tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
+        stdin: new Uint8Array(),
+      },
+      {
+        executable: fixture.executable,
+        args: ["login", "status"],
+        env: { CODEX_HOME: "/codex-home", TMPDIR: "/configured-tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
+        stdin: new Uint8Array(),
+      },
     ]);
   });
 
@@ -190,10 +261,13 @@ describe("preflightCodexCli", () => {
 });
 
 describe("readDisabledFeatureInventory", () => {
+  test("pins the exhaustive ordered 22-feature tuple", () => {
+    expect(CODEX_DISABLED_FEATURES).toEqual(EXPECTED_DISABLED_FEATURES);
+  });
+
   test("runs the exact non-strict inventory command and accepts every disabled feature as false", async () => {
     const fixture = await executableFixture();
-    const lines = CODEX_DISABLED_FEATURES.map((feature) => `${feature}\texperimental\tfalse`).join("\n");
-    const spawner = sequenceSpawner([spawned(`${lines}\n`)]);
+    const spawner = sequenceSpawner([spawned(exactDisabledInventory())]);
 
     const result = await readDisabledFeatureInventory({
       preflight: {
@@ -202,19 +276,44 @@ describe("readDisabledFeatureInventory", () => {
         authenticatedWith: "ChatGPT",
       },
       spawner,
-      childEnv: {},
+      childEnv: { LANG: "C", APPLICATION_SECRET: "must-not-leak" },
       signal: new AbortController().signal,
     });
 
-    expect(result).toEqual(Object.fromEntries(CODEX_DISABLED_FEATURES.map((feature) => [feature, false])));
-    expect(spawner.spawn.mock.calls[0]?.[0].args).toEqual(CODEX_FEATURE_INVENTORY_ARGS);
-    expect(CODEX_FEATURE_INVENTORY_ARGS).not.toContain("--strict-config");
+    expect(result).toEqual({
+      apps: false,
+      auth_elicitation: false,
+      browser_use: false,
+      browser_use_full_cdp_access: false,
+      code_mode_host: false,
+      goals: false,
+      hooks: false,
+      image_generation: false,
+      in_app_browser: false,
+      multi_agent: false,
+      plugin_sharing: false,
+      plugins: false,
+      remote_plugin: false,
+      shell_snapshot: false,
+      shell_tool: false,
+      skill_mcp_dependency_install: false,
+      skill_search: false,
+      tool_call_mcp_elicitation: false,
+      tool_suggest: false,
+      unified_exec: false,
+      view_image: false,
+      workspace_dependencies: false,
+    });
+    expect(spawner.spawn.mock.calls[0]?.[0].args).toEqual(EXPECTED_FEATURE_INVENTORY_ARGS);
+    expect(spawner.spawn.mock.calls[0]?.[0].env).toEqual({ LANG: "C" });
+    expect(EXPECTED_FEATURE_INVENTORY_ARGS).not.toContain("--strict-config");
   });
 
   test.each([
-    ["an unknown feature", "unknown_feature\texperimental\tfalse\n"],
-    ["a missing shared feature", "skill_search\texperimental\tfalse\n"],
-    ["an enabled shared feature", "skill_search\texperimental\ttrue\nskill_mcp_dependency_install\texperimental\tfalse\n"],
+    ["an unknown feature", `${exactDisabledInventory()}unknown_feature\texperimental\tfalse\n`],
+    ["a missing shared feature", exactDisabledInventory().replace("shell_tool\texperimental\tfalse\n", "")],
+    ["a duplicate shared feature", `${exactDisabledInventory()}shell_tool\texperimental\tfalse\n`],
+    ["an enabled shared feature", exactDisabledInventory({ shell_tool: true })],
     ["malformed output", "not an inventory"],
   ])("rejects %s", async (_name, stdout) => {
     const fixture = await executableFixture();
