@@ -14,6 +14,9 @@ import type { CodexProcessSpawner, SpawnedCodexProcess } from "../../src/infrast
 
 const encoder = new TextEncoder();
 const temporaryPaths: string[] = [];
+const KNOWN_PATH_ALIAS_WARNING =
+  "WARNING: proceeding, even though we could not create PATH aliases: Operation not permitted (os error 1)\n";
+const CHATGPT_LOGIN_STATUS = "Logged in using ChatGPT\n";
 
 const EXPECTED_DISABLED_FEATURES = [
   "apps",
@@ -71,6 +74,17 @@ function exactDisabledInventory(overrides: Readonly<Record<string, boolean>> = {
     `${feature}\texperimental\t${String(overrides[feature] ?? false)}`).join("\n") + "\n";
 }
 
+function realisticFullFeatureInventory(): string {
+  const unrelated = Array.from({ length: 91 }, (_, index) => {
+    const maturity = index === 0 ? "under development" : "stable";
+    return `known_registry_feature_${String(index).padStart(3, "0")}`.padEnd(41) +
+      `${maturity.padEnd(19)}false`;
+  });
+  const pinned = EXPECTED_DISABLED_FEATURES.map((feature) =>
+    feature.padEnd(41) + "experimental       false");
+  return [...unrelated.slice(0, 37), ...pinned, ...unrelated.slice(37)].join("\n") + "\n";
+}
+
 afterEach(async () => {
   vi.useRealTimers();
   await Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -107,11 +121,31 @@ CodexProcessSpawner & { spawn: ReturnType<typeof vi.fn> } {
 }
 
 describe("preflightCodexCli", () => {
+  test("accepts the exact unsandboxed version and ChatGPT authentication streams", async () => {
+    const fixture = await executableFixture();
+    const spawner = sequenceSpawner([
+      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output("") }),
+      spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }),
+    ]);
+
+    await expect(preflightCodexCli({
+      configuredExecutable: fixture.executable,
+      spawner,
+      childEnv: {},
+      signal: new AbortController().signal,
+    })).resolves.toEqual({
+      executable: fixture.executable,
+      cliVersion: "codex-cli 0.148.0-alpha.15",
+      authenticatedWith: "ChatGPT",
+    });
+    expect(spawner.spawn).toHaveBeenCalledTimes(2);
+  });
+
   test("requires exact pinned version and ChatGPT authentication for the configured executable", async () => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15"),
-      spawned("Logged in using ChatGPT"),
+      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("", { stderr: output(KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS) }),
     ]);
     const signal = new AbortController().signal;
 
@@ -159,8 +193,8 @@ describe("preflightCodexCli", () => {
     const explicit = await executableFixture();
     const pathFixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15"),
-      spawned("Logged in using ChatGPT"),
+      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("", { stderr: output(KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS) }),
     ]);
 
     await preflightCodexCli({
@@ -204,9 +238,13 @@ describe("preflightCodexCli", () => {
     expect(spawner.spawn).not.toHaveBeenCalled();
   });
 
-  test("stops after one version spawn when stdout does not exactly match", async () => {
+  test.each([
+    ["a missing line ending", "codex-cli 0.148.0-alpha.15"],
+    ["an extra line ending", "codex-cli 0.148.0-alpha.15\n\n"],
+    ["a different version", "codex-cli 0.148.0-alpha.14\n"],
+  ])("stops after one version spawn for %s", async (_name, versionStdout) => {
     const fixture = await executableFixture();
-    const spawner = sequenceSpawner([spawned("codex-cli 0.148.0-alpha.15\n")]);
+    const spawner = sequenceSpawner([spawned(versionStdout, { stderr: output(KNOWN_PATH_ALIAS_WARNING) })]);
 
     await expect(preflightCodexCli({
       configuredExecutable: fixture.executable,
@@ -217,11 +255,29 @@ describe("preflightCodexCli", () => {
     expect(spawner.spawn).toHaveBeenCalledTimes(1);
   });
 
+  test.each([
+    ["an unknown warning", "WARNING: unrelated warning\n"],
+    ["a duplicate known warning", KNOWN_PATH_ALIAS_WARNING + KNOWN_PATH_ALIAS_WARNING],
+  ])("rejects version stderr containing %s", async (_name, versionStderr) => {
+    const fixture = await executableFixture();
+    const spawner = sequenceSpawner([
+      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(versionStderr) }),
+    ]);
+
+    await expect(preflightCodexCli({
+      configuredExecutable: fixture.executable,
+      spawner,
+      childEnv: {},
+      signal: new AbortController().signal,
+    })).rejects.toMatchObject({ code: "codex_version_mismatch", message: "codex_version_mismatch" });
+    expect(spawner.spawn).toHaveBeenCalledTimes(1);
+  });
+
   test("rejects a non-ChatGPT login status after exactly two spawns", async () => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15"),
-      spawned("Not logged in"),
+      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("", { stderr: output(`${KNOWN_PATH_ALIAS_WARNING}Not logged in\n`) }),
     ]);
 
     await expect(preflightCodexCli({
@@ -233,6 +289,37 @@ describe("preflightCodexCli", () => {
     expect(spawner.spawn).toHaveBeenCalledTimes(2);
     expect(spawner.spawn.mock.calls.some(([request]) => request.args.includes("login") && request.args.length > 2))
       .toBe(false);
+  });
+
+  test.each([
+    ["missing auth", KNOWN_PATH_ALIAS_WARNING, ""],
+    ["ambiguous auth", KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS + CHATGPT_LOGIN_STATUS, ""],
+    ["duplicate warning", KNOWN_PATH_ALIAS_WARNING + KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS, ""],
+    ["unknown warning", `WARNING: unrelated warning\n${CHATGPT_LOGIN_STATUS}`, ""],
+    ["non-empty stdout", KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS, "unexpected stdout\n"],
+  ])("strictly rejects %s without exposing stderr", async (_name, loginStderr, loginStdout) => {
+    const fixture = await executableFixture();
+    const spawner = sequenceSpawner([
+      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned(loginStdout, { stderr: output(loginStderr) }),
+    ]);
+
+    let thrown: unknown;
+    try {
+      await preflightCodexCli({
+        configuredExecutable: fixture.executable,
+        spawner,
+        childEnv: {},
+        signal: new AbortController().signal,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({ code: "codex_not_authenticated", message: "codex_not_authenticated" });
+    expect(String(thrown)).not.toContain("Logged in using ChatGPT");
+    expect(String(thrown)).not.toContain("WARNING:");
+    expect(String(thrown)).not.toContain("Not logged in");
   });
 
   test("bounds a hung version probe and never starts the login probe", async () => {
@@ -267,7 +354,10 @@ describe("readDisabledFeatureInventory", () => {
 
   test("runs the exact non-strict inventory command and accepts every disabled feature as false", async () => {
     const fixture = await executableFixture();
-    const spawner = sequenceSpawner([spawned(exactDisabledInventory())]);
+    const inventory = realisticFullFeatureInventory();
+    expect(inventory.split("\n")).toHaveLength(114);
+    expect(encoder.encode(inventory).byteLength).toBeGreaterThan(4_096);
+    const spawner = sequenceSpawner([spawned(inventory)]);
 
     const result = await readDisabledFeatureInventory({
       preflight: {
@@ -309,8 +399,23 @@ describe("readDisabledFeatureInventory", () => {
     expect(EXPECTED_FEATURE_INVENTORY_ARGS).not.toContain("--strict-config");
   });
 
+  test("accepts unrelated known CLI registry entries outside the pinned tuple", async () => {
+    const fixture = await executableFixture();
+    const spawner = sequenceSpawner([spawned(`${exactDisabledInventory()}unrelated_known_feature\tstable\ttrue\n`)]);
+
+    await expect(readDisabledFeatureInventory({
+      preflight: {
+        executable: fixture.executable,
+        cliVersion: "codex-cli 0.148.0-alpha.15",
+        authenticatedWith: "ChatGPT",
+      },
+      spawner,
+      childEnv: {},
+      signal: new AbortController().signal,
+    })).resolves.toMatchObject({ shell_tool: false, skill_search: false });
+  });
+
   test.each([
-    ["an unknown feature", `${exactDisabledInventory()}unknown_feature\texperimental\tfalse\n`],
     ["a missing shared feature", exactDisabledInventory().replace("shell_tool\texperimental\tfalse\n", "")],
     ["a duplicate shared feature", `${exactDisabledInventory()}shell_tool\texperimental\tfalse\n`],
     ["an enabled shared feature", exactDisabledInventory({ shell_tool: true })],

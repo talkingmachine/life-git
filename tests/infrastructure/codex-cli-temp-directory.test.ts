@@ -196,6 +196,20 @@ describe("validateCodexTempRoot", () => {
     })).rejects.toMatchObject({ code: "codex_temp_root_invalid" });
   });
 
+  test("rejects a final symlink even when the input has a trailing slash", async () => {
+    const root = await tempRoot();
+    const link = `${root.path}-trailing-link`;
+    temporaryPaths.push(link);
+    await symlink(root.path, link);
+
+    await expect(validateCodexTempRoot({
+      path: `${link}/`,
+      currentUid: root.uid,
+      userHomePath: "/users/person",
+      workspacePath: "/workspace/project",
+    })).rejects.toMatchObject({ code: "codex_temp_root_invalid" });
+  });
+
   test("returns the canonical owned directory", async () => {
     const root = await tempRoot();
 
@@ -205,6 +219,20 @@ describe("validateCodexTempRoot", () => {
       userHomePath: "/users/person",
       workspacePath: "/workspace/project",
     })).resolves.toEqual(root);
+  });
+
+  test("accepts the standard macOS /var alias while returning its canonical /private/var path", async () => {
+    const aliasPath = await mkdtemp(join(tmpdir(), "codex-aliased-root-test-"));
+    const canonicalPath = await realpath(aliasPath);
+    temporaryPaths.push(canonicalPath);
+    const uid = (await stat(aliasPath)).uid;
+
+    await expect(validateCodexTempRoot({
+      path: aliasPath,
+      currentUid: uid,
+      userHomePath: "/Users/synthetic-user",
+      workspacePath: "/workspace/synthetic-project",
+    })).resolves.toEqual({ path: canonicalPath, uid });
   });
 });
 
@@ -399,7 +427,7 @@ describe("runCodexJsonProbe", () => {
 describe("inspectModelVisibleInputs", () => {
   test("uses a fresh initially empty cwd, exact diagnostic args, closed env, and removes the cwd", async () => {
     const root = await validatedRoot();
-    const spawner = fakeSpawner(JSON.stringify({ messages: [] }));
+    const spawner = fakeSpawner("");
     let entriesAtSpawn: string[] = ["not-observed"];
     spawner.spawn.mockImplementation((request): SpawnedCodexProcess => {
       const checked = readdir(request.cwd).then((entries) => { entriesAtSpawn = entries; });
@@ -407,7 +435,9 @@ describe("inspectModelVisibleInputs", () => {
         pid: 84,
         stdout: (async function* (): AsyncGenerator<Uint8Array> {
           await checked;
-          yield encoder.encode(JSON.stringify({ messages: [] }));
+          yield encoder.encode(JSON.stringify({ messages: [
+            { role: "developer", content: `<cwd>${request.cwd}</cwd>` },
+          ] }));
         })(),
         stderr: output(""),
         exit: checked.then(() => ({ code: 0, signal: null })),

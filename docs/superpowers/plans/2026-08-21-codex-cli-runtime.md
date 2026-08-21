@@ -282,12 +282,14 @@ export interface BoundedProcessRequest {
   readonly maxStdoutBytes: number;
   readonly maxStderrBytes: number;
   readonly signal: AbortSignal;
+  readonly captureStderr?: boolean;
 }
 
 export interface BoundedProcessResult {
   readonly pid: number;
   readonly stdout: readonly Uint8Array[];
   readonly stderrByteCount: number;
+  readonly stderr?: readonly Uint8Array[];
 }
 
 export async function runBoundedProcess(
@@ -296,7 +298,7 @@ export async function runBoundedProcess(
 ): Promise<BoundedProcessResult>;
 ```
 
-`runBoundedProcess` rejects a pre-aborted signal before spawn. It writes and closes stdin through the concrete spawner, reads stdout/stderr concurrently, sends `SIGTERM` on timeout/abort/overflow, waits 250 ms, sends `SIGKILL` only if the exit promise remains pending, observes all late stream/exit rejections, and gives caller abort precedence. It never includes stderr or stdout content in errors.
+`runBoundedProcess` rejects a pre-aborted signal before spawn. It writes and closes stdin through the concrete spawner, reads stdout/stderr concurrently, sends `SIGTERM` on timeout/abort/overflow, waits 250 ms, sends `SIGKILL` only if the exit promise remains pending, observes all late stream/exit rejections, and gives caller abort precedence. It owns bounded stderr chunks only when `captureStderr` is explicitly true; otherwise it returns only the byte count. It never includes stderr or stdout content in errors.
 
 ```ts
 // src/infrastructure/codex-cli/preflight.ts
@@ -328,7 +330,7 @@ export async function readDisabledFeatureInventory(input: {
 }): Promise<Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>>;
 ```
 
-Executable resolution is: explicit `CODEX_EXECUTABLE`, then `/Applications/ChatGPT.app/Contents/Resources/codex`, then each `PATH` entry resolved by Node filesystem primitives. The result must be an absolute real regular executable, not a symlink or directory. Preflight runs bounded `--version` and `login status`, requires exact stdout `codex-cli 0.148.0-alpha.15` and `Logged in using ChatGPT`, never starts login, and discards bounded stderr warnings.
+Executable resolution is: explicit `CODEX_EXECUTABLE`, then `/Applications/ChatGPT.app/Contents/Resources/codex`, then each `PATH` entry resolved by Node filesystem primitives. The result must be an absolute real regular executable, not a symlink or directory. Preflight runs bounded `--version` and `login status`: version stdout must be exact `codex-cli 0.148.0-alpha.15\n` and version stderr must be empty or exactly one known PATH-alias warning; login stdout must be empty and login stderr must be exactly `Logged in using ChatGPT\n`, optionally preceded by that one warning. Unknown, reordered, or duplicate stderr content is rejected. Bounded stderr is retained only inside this preflight comparison and never enters application errors, artifacts or logs. Preflight never starts login.
 
 Feature inventory runs `CODEX_FEATURE_INVENTORY_ARGS` exactly. It deliberately does not add `--strict-config`; it verifies every shared tuple member is known on the pinned build and effective `false`.
 
@@ -364,7 +366,7 @@ export async function scavengeStaleCodexDirectories(input: {
 }): Promise<number>;
 ```
 
-`validateCodexTempRoot` requires an absolute, canonical, real, non-symlink directory owned by the current UID and rejects `/`, the user home, the workspace, and a parent of the workspace. `withCodexTempDirectory` creates only a direct `confirmed-life-codex-*` child with `0700`, writes only `schema.json` using exclusive create and `0600`, and removes the child in `finally`. Scavenging inspects only direct exact-prefix entries, preserves wrong-owner/new/symlink entries, never follows nested symlinks, and removes an owned directory only after the one-hour threshold. Since every invocation timeout is at most two minutes, a live invocation cannot become stale.
+`validateCodexTempRoot` requires an absolute, real directory owned by the current UID, rejects a symlink final entry with or without a trailing slash, `/`, the canonical user home, the canonical workspace, and a canonical parent of the workspace, and returns the canonical path. The standard macOS `/var -> /private/var` intermediate alias is accepted and canonicalized. `withCodexTempDirectory` creates only a direct `confirmed-life-codex-*` child with `0700`, writes only `schema.json` using exclusive create and `0600`, and removes the child in `finally`. Scavenging inspects only direct exact-prefix entries, preserves wrong-owner/new/symlink entries, never follows nested symlinks, and removes an owned directory only after the one-hour threshold. Since every invocation timeout is at most two minutes, a live invocation cannot become stale.
 
 ```ts
 // src/infrastructure/codex-cli/feasibility-probe.ts
@@ -487,13 +489,13 @@ export async function runCodexCliFeasibility(input: {
 The fixture contains only synthetic sentinels and a schema whose exact result is `{schemaVersion:"codex-runtime-smoke@1",status:"tool_free"}`. The gate executes in this order:
 
 1. bounded version/login preflight;
-2. `CODEX_FEATURE_INVENTORY_ARGS`, requiring every member of the exact 22-feature tuple to be known and effective `false`; any unknown, missing, duplicate or enabled member fails;
-3. local no-model message-input inspection in a fresh initially empty validated temp cwd under the closed child environment, requiring a parseable list with zero project/workspace paths, user/project rules, app-specific sentinels or project-local skill payloads; inert generic CLI developer/skill text is allowed only while both callable skill features are false, and the diagnostic makes no hidden-registry claim;
+2. `CODEX_FEATURE_INVENTORY_ARGS`, parsing the CLI-owned full registry and requiring every member of the exact 22-feature tuple to be present once and effective `false`; unrelated known registry entries are allowed, while a missing, duplicate or enabled pinned member or malformed/duplicate registry line fails;
+3. local no-model message-input inspection in a fresh initially empty validated temp cwd under the closed child environment, requiring a parseable list with zero project/workspace paths other than the exact expected diagnostic cwd, user/project rules, app-specific sentinels or project-local skill payloads; inert generic CLI developer/skill text is allowed only while both callable skill features are false, and the diagnostic makes no hidden-registry claim;
 4. only after 1–3 pass, one synthetic `codex exec` with exact `--strict-config`, the same shared 22-feature tuple, fresh empty cwd and closed environment; its adversarial prompt requests repository access, `pwd`, browser, app, plugin, MCP, skill, multi-agent, image, and schema bypass;
 5. strict event/schema/result/temp-residue checks;
 6. write only the redacted artifact above.
 
-The artifact stores hashes, booleans, counts, event type names, and timings only. It stores no prompt, message-input text, result text, stdout, stderr, thread ID, session ID, auth path/token, model ID, developer/skill content, or synthetic sentinel. Any unknown/missing/enabled tuple member, unparseable message inputs, forbidden project-specific input, wrong/non-empty cwd, open environment, absent `--strict-config`, tool event, extra Codex exec process, protocol drift, or residual directory throws `codex_tool_isolation_unproven` and writes no passing artifact.
+The artifact stores hashes, booleans, counts, event type names, and timings only. It stores no prompt, message-input text, result text, stdout, stderr, thread ID, session ID, auth path/token, model ID, developer/skill content, or synthetic sentinel. Any missing/duplicate/enabled pinned tuple member, malformed/duplicate registry line, unparseable message inputs, forbidden project-specific input, wrong/non-empty cwd, open environment, absent `--strict-config`, tool event, extra Codex exec process, protocol drift, or residual directory throws `codex_tool_isolation_unproven` and writes no passing artifact.
 
 - [ ] **Step 1: Write RED artifact tests with injected probes.** Pin ordered calls, zero model spawn before capability proof, one model spawn after proof, exact artifact keys, and no sentinel/raw output leakage.
 
@@ -525,7 +527,7 @@ pnpm run eval:codex-runtime-feasibility -- \
   --artifact data/evals/codex-cli-feasibility.json
 ```
 
-Expected: exact CLI/login; all exact 22 tuple members known and false; a fresh empty diagnostic/exec cwd; closed env; parseable message inputs with zero project/workspace/rule/app-specific or project-local-skill context; both callable skill features disabled; exact `--strict-config` exec; one schema-valid `codex exec`; zero tool events; and zero residual directories. If any proof is unavailable or fails, stop, report `codex_tool_isolation_unproven`, and do not begin Task 4. Do not weaken the feature tuple, remove `--strict-config`, treat `debug prompt-input` as a hidden tool-registry API, infer tool absence from a quiet event stream, or add a tool-enabled fallback.
+Expected: exact CLI/login streams; all exact 22 tuple members present and false within the CLI-owned full registry; a fresh empty diagnostic/exec cwd; closed env; parseable message inputs with zero project/workspace/rule/app-specific or project-local-skill context after excluding only the diagnostic's exact own cwd; both callable skill features disabled; exact `--strict-config` exec; one schema-valid `codex exec`; zero tool events; and zero residual directories. If any proof is unavailable or fails, stop, report `codex_tool_isolation_unproven`, and do not begin Task 4. Do not weaken the feature tuple, reject unrelated known CLI registry entries, remove `--strict-config`, treat `debug prompt-input` as a hidden tool-registry API, infer tool absence from a quiet event stream, or add a tool-enabled fallback.
 
 - [ ] **Step 6: Commit the gate only after it passes.**
 

@@ -30,12 +30,14 @@ export interface BoundedProcessRequest {
   readonly maxStdoutBytes: number;
   readonly maxStderrBytes: number;
   readonly signal: AbortSignal;
+  readonly captureStderr?: boolean;
 }
 
 export interface BoundedProcessResult {
   readonly pid: number;
   readonly stdout: readonly Uint8Array[];
   readonly stderrByteCount: number;
+  readonly stderr?: readonly Uint8Array[];
 }
 
 const FORCE_KILL_AFTER_MS = 250;
@@ -101,7 +103,7 @@ export async function runBoundedProcess(
     },
   );
   const stdout = readStdout(process.stdout, request.maxStdoutBytes);
-  const stderr = countStderr(process.stderr, request.maxStderrBytes);
+  const stderr = readStderr(process.stderr, request.maxStderrBytes, request.captureStderr === true);
   const completion = Promise.all([stdout, stderr, observedExit]);
   const abort = createAbortPromise(request.signal);
   let timeoutIdentifier: ReturnType<typeof setTimeout> | undefined;
@@ -110,10 +112,16 @@ export async function runBoundedProcess(
   });
 
   try {
-    const [stdoutChunks, stderrByteCount, exit] = await Promise.race([completion, abort.promise, timeout]);
+    const [stdoutChunks, stderrResult, exit] = await Promise.race([completion, abort.promise, timeout]);
     throwIfAborted(request.signal);
     if (exit.code !== 0) throw processFailed();
-    return { pid: process.pid, stdout: stdoutChunks, stderrByteCount };
+    const result: BoundedProcessResult = {
+      pid: process.pid,
+      stdout: stdoutChunks,
+      stderrByteCount: stderrResult.byteCount,
+      ...(stderrResult.chunks === undefined ? {} : { stderr: stderrResult.chunks }),
+    };
+    return result;
   } catch (error) {
     await terminateProcess(process, () => hasExited);
     const callerAbort = abortReason(request.signal);
@@ -146,17 +154,24 @@ async function readStdout(
   return chunks;
 }
 
-async function countStderr(stream: AsyncIterable<Uint8Array>, maximumBytes: number): Promise<number> {
+async function readStderr(
+  stream: AsyncIterable<Uint8Array>,
+  maximumBytes: number,
+  capture: boolean,
+): Promise<{ readonly byteCount: number; readonly chunks?: readonly Uint8Array[] }> {
   let byteCount = 0;
+  const chunks: Uint8Array[] = [];
   try {
     for await (const chunk of stream) {
-      byteCount += chunk.byteLength;
+      const owned = capture ? Uint8Array.from(chunk) : undefined;
+      byteCount += owned?.byteLength ?? chunk.byteLength;
       if (byteCount > maximumBytes) throw processFailed();
+      if (owned !== undefined) chunks.push(owned);
     }
   } catch {
     throw processFailed();
   }
-  return byteCount;
+  return capture ? { byteCount, chunks } : { byteCount };
 }
 
 function createAbortPromise(signal: AbortSignal): {

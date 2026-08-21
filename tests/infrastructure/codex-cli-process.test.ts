@@ -125,6 +125,27 @@ describe("runBoundedProcess", () => {
     expect(result).toEqual({ pid: 19, stdout: [encoder.encode("jsonl\n")], stderrByteCount: 0 });
   });
 
+  test("retains owned bounded stderr only when explicitly requested", async () => {
+    const source = encoder.encode("known preflight status\n");
+    const spawner = fakeSpawner(processWith({ stderr: stream(source) }));
+    const request = {
+      ...validBoundedRequest(),
+      captureStderr: true,
+    } as BoundedProcessRequest & { readonly captureStderr: true };
+
+    const result = await runBoundedProcess(request, spawner) as Awaited<ReturnType<typeof runBoundedProcess>> & {
+      readonly stderr: readonly Uint8Array[];
+    };
+    source[0] = 0;
+
+    expect(result).toEqual({
+      pid: 71,
+      stdout: [],
+      stderr: [encoder.encode("known preflight status\n")],
+      stderrByteCount: 23,
+    });
+  });
+
   test("normalizes a synchronous spawn failure without retrying or leaking its message", async () => {
     const spawner = fakeSpawner();
     spawner.spawn.mockImplementation(() => {

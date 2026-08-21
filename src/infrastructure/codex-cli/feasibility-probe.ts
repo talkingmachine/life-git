@@ -107,7 +107,7 @@ export async function inspectModelVisibleInputs(input: {
       maxStderrBytes: CODEX_PREFLIGHT_LIMITS.maxStderrBytes,
       signal: input.signal,
     }, input.spawner);
-    return inspectMessageList(decodeChunks(result.stdout));
+    return inspectMessageList(decodeChunks(result.stdout), directoryPath);
   } finally {
     await rm(directoryPath, { recursive: true });
   }
@@ -135,7 +135,7 @@ function readEventTypes(chunks: readonly Uint8Array[]): readonly string[] {
   return eventTypes;
 }
 
-function inspectMessageList(stdout: string): {
+function inspectMessageList(stdout: string, isolatedCwd: string): {
   readonly messageInputsObserved: boolean;
   readonly projectContextPaths: readonly string[];
   readonly projectRuleInputsObserved: boolean;
@@ -146,7 +146,7 @@ function inspectMessageList(stdout: string): {
     const messages = Array.isArray(parsed) ? parsed : isObject(parsed) ? parsed.messages : undefined;
     if (!Array.isArray(messages)) throw isolationUnproven();
     const text = messages.map(readMessageText).join("\n");
-    const projectContextPaths = extractProjectContextPaths(text);
+    const projectContextPaths = extractProjectContextPaths(text).filter((path) => path !== isolatedCwd);
     return {
       messageInputsObserved: true,
       projectContextPaths,

@@ -27,8 +27,8 @@ export async function validateCodexTempRoot(input: {
     const canonicalPath = await realpath(input.path);
     const canonicalHomePath = await canonicalizeReferencePath(input.userHomePath);
     const canonicalWorkspacePath = await canonicalizeReferencePath(input.workspacePath);
-    const metadata = await lstat(input.path);
-    if (canonicalPath !== resolve(input.path) || metadata.isSymbolicLink() || !metadata.isDirectory() ||
+    const metadata = await lstat(resolve(input.path));
+    if (metadata.isSymbolicLink() || !metadata.isDirectory() ||
       metadata.uid !== input.currentUid ||
       isForbiddenRoot(canonicalPath, canonicalHomePath, canonicalWorkspacePath)) {
       throw invalidTempRoot();

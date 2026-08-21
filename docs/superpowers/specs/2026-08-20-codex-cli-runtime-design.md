@@ -80,6 +80,12 @@ Infrastructure содержит один concrete `CodexCliModelAdapter`. Onboar
 - `Logged in using ChatGPT`;
 - `codex exec` поддерживает ephemeral execution и JSON Schema output.
 
+Observed bounded streams are exact: version stdout is `codex-cli 0.148.0-alpha.15\n`; version stderr
+is empty outside the sandbox or contains exactly one known PATH-alias warning inside it. Login stdout
+is empty and login stderr is exactly `Logged in using ChatGPT\n`, optionally preceded by that one
+known warning. The preflight rejects every other ordering, repetition, or content and consumes these bytes privately and
+never copies stderr into application errors, artifacts or logs.
+
 Это зафиксированное наблюдение demo-окружения, а не обещание совместимости с любой будущей версией
 Codex. Несовместимая версия блокирует model-assisted actions до явного обновления и повторного eval.
 Приложение не запускает login flow и не читает, не копирует и не показывает auth token.
@@ -132,7 +138,10 @@ callable skill features, user rules или conversation resume. Общий inert
 
 Этот exact tuple содержит 22 model-visible tool-related features pinned build. Единый tuple
 используется для local feature inventory и `exec`: inventory обязан найти все 22 имени ровно по
-одному разу с effective state `false`, а любой unknown/missing/enabled member останавливает gate.
+одному разу с effective state `false`. Полный registry принадлежит CLI и содержит другие известные
+features, поэтому unrelated registry entries допускаются; missing/duplicate/enabled pinned member
+или malformed/duplicate registry line останавливает gate. Реальный inventory больше 4 KiB, поэтому
+ему выделен отдельный bounded stdout limit, не расширяющий limits остальных preflight probes.
 `--strict-config` обязателен для `exec`, чтобы drift имени/конфигурации не был silently ignored.
 Локальный `debug prompt-input` показывает model-visible message inputs, но не отдельный hidden tool
 registry; он используется только для доказательства отсутствия project/workspace path, user/project
@@ -226,7 +235,8 @@ Runtime contract принят, когда:
 4. exact 22-feature inventory reports every member known and false; `--strict-config` exec uses that
    same tuple, fresh empty validated cwd and closed env; message inputs contain no
    project/workspace/user-rule/app-specific/project-skill context, both callable skill features are
-   false; prompt injection produces no tool event, and any tool/protocol event fails closed;
+   false; the diagnostic's exact own fresh cwd is expected plumbing rather than project context;
+   prompt injection produces no tool event, and any tool/protocol event fails closed;
 5. unknown field/segment, invented value/ref, malformed/oversize output, abort, timeout, missing CLI
    и logged-out state fail-closed без изменения durable state;
 6. every call uses a fresh `0700` temporary directory/process, passes prompt only through stdin,

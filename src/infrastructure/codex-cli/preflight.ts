@@ -11,6 +11,11 @@ export const CODEX_PREFLIGHT_LIMITS = Object.freeze({
   maxStderrBytes: 16_384,
 } as const);
 
+const CODEX_FEATURE_INVENTORY_LIMITS = Object.freeze({
+  ...CODEX_PREFLIGHT_LIMITS,
+  maxStdoutBytes: 16_384,
+} as const);
+
 export const CODEX_DISABLED_FEATURES = Object.freeze([
   "apps",
   "auth_elicitation",
@@ -43,6 +48,10 @@ export const CODEX_FEATURE_INVENTORY_ARGS = Object.freeze([
 ] as const);
 
 const CHATGPT_APP_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex";
+const PINNED_VERSION_STDOUT = `${CODEX_CLI_VERSION}\n`;
+const KNOWN_PATH_ALIAS_WARNING =
+  "WARNING: proceeding, even though we could not create PATH aliases: Operation not permitted (os error 1)\n";
+const CHATGPT_LOGIN_STATUS = "Logged in using ChatGPT\n";
 
 export interface CodexPreflightResult {
   readonly executable: string;
@@ -60,11 +69,24 @@ export async function preflightCodexCli(input: {
   const executable = await resolveCodexExecutable(input.configuredExecutable, input.pathValue);
   if (executable === undefined) throw new CodexRuntimeError("codex_missing");
 
-  const version = await runTextProbe(executable, ["--version"], input);
-  if (version !== CODEX_CLI_VERSION) throw new CodexRuntimeError("codex_version_mismatch");
+  const version = await runTextProbe(executable, ["--version"], input, { captureStderr: true });
+  if (
+    version.stdout !== PINNED_VERSION_STDOUT ||
+    (version.stderr !== "" && version.stderr !== KNOWN_PATH_ALIAS_WARNING)
+  ) {
+    throw new CodexRuntimeError("codex_version_mismatch");
+  }
 
-  const loginStatus = await runTextProbe(executable, ["login", "status"], input);
-  if (loginStatus !== "Logged in using ChatGPT") throw new CodexRuntimeError("codex_not_authenticated");
+  const loginStatus = await runTextProbe(executable, ["login", "status"], input, {
+    captureStderr: true,
+  });
+  if (
+    loginStatus.stdout !== "" ||
+    (loginStatus.stderr !== CHATGPT_LOGIN_STATUS &&
+      loginStatus.stderr !== `${KNOWN_PATH_ALIAS_WARNING}${CHATGPT_LOGIN_STATUS}`)
+  ) {
+    throw new CodexRuntimeError("codex_not_authenticated");
+  }
 
   return { executable, cliVersion: CODEX_CLI_VERSION, authenticatedWith: "ChatGPT" };
 }
@@ -75,12 +97,10 @@ export async function readDisabledFeatureInventory(input: {
   readonly childEnv: Readonly<Record<string, string>>;
   readonly signal: AbortSignal;
 }): Promise<Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>> {
-  const stdout = await runTextProbe(input.preflight.executable, CODEX_FEATURE_INVENTORY_ARGS, input);
+  const { stdout } = await runTextProbe(input.preflight.executable, CODEX_FEATURE_INVENTORY_ARGS, input, {
+    limits: CODEX_FEATURE_INVENTORY_LIMITS,
+  });
   const inventory = parseFeatureInventory(stdout);
-  if (inventory.size !== CODEX_DISABLED_FEATURES.length ||
-    [...inventory.keys()].some((feature) => !isDisabledFeature(feature))) {
-    throw new CodexRuntimeError("codex_tool_isolation_unproven");
-  }
   const disabled = Object.create(null) as Record<(typeof CODEX_DISABLED_FEATURES)[number], false>;
   for (const feature of CODEX_DISABLED_FEATURES) {
     if (inventory.get(feature) !== false) throw new CodexRuntimeError("codex_tool_isolation_unproven");
@@ -130,17 +150,29 @@ async function runTextProbe(
     readonly childEnv: Readonly<Record<string, string>>;
     readonly signal: AbortSignal;
   },
-): Promise<string> {
+  options: {
+    readonly captureStderr?: boolean;
+    readonly limits?: {
+      readonly timeoutMs: number;
+      readonly maxStdoutBytes: number;
+      readonly maxStderrBytes: number;
+    };
+  } = {},
+): Promise<{ readonly stdout: string; readonly stderr?: string }> {
   const result = await runBoundedProcess({
     executable,
     args,
     cwd: dirname(executable),
     env: createClosedCodexEnvironment(input.childEnv),
     stdin: new Uint8Array(),
-    ...CODEX_PREFLIGHT_LIMITS,
+    ...(options.limits ?? CODEX_PREFLIGHT_LIMITS),
     signal: input.signal,
+    captureStderr: options.captureStderr,
   }, input.spawner);
-  return decodeChunks(result.stdout);
+  return {
+    stdout: decodeChunks(result.stdout),
+    ...(result.stderr === undefined ? {} : { stderr: decodeChunks(result.stderr) }),
+  };
 }
 
 export function createClosedCodexEnvironment(
@@ -169,15 +201,11 @@ function parseFeatureInventory(stdout: string): ReadonlyMap<string, boolean> {
   const inventory = new Map<string, boolean>();
   const lines = stdout.endsWith("\n") ? stdout.slice(0, -1).split("\n") : [];
   for (const line of lines) {
-    const match = /^(\S+)\s+(\S+)\s+(true|false)$/.exec(line);
+    const match = /^(\S+)\s+(.+?)\s+(true|false)$/.exec(line);
     if (match === null || match[1] === undefined || match[3] === undefined || inventory.has(match[1])) {
       throw new CodexRuntimeError("codex_tool_isolation_unproven");
     }
     inventory.set(match[1], match[3] === "true");
   }
   return inventory;
-}
-
-function isDisabledFeature(value: string): value is (typeof CODEX_DISABLED_FEATURES)[number] {
-  return CODEX_DISABLED_FEATURES.some((feature) => feature === value);
 }
