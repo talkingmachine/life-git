@@ -8,7 +8,11 @@ export const MAX_CODEX_STDERR_BYTES = 65_536;
 export const MAX_CODEX_EVENTS = 256;
 export const MAX_CODEX_PROMPT_BYTES = 262_144;
 
-const NATIVE_ABORT_SIGNAL_OWN_KEYS = new Set(Reflect.ownKeys(new AbortController().signal));
+const NATIVE_ABORT_SIGNAL_OWN_KEYS = new Set([
+  ...Reflect.ownKeys(new AbortController().signal),
+  ...Reflect.ownKeys(AbortSignal.timeout(1)),
+  ...Reflect.ownKeys(AbortSignal.any([new AbortController().signal])),
+]);
 
 export type CodexCapabilityId =
   | "onboarding_extract"

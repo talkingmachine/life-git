@@ -159,6 +159,13 @@ describe("createCodexJsonInvocation", () => {
       .toThrowError("codex_protocol_invalid");
   });
 
+  test.each([
+    ["timeout", AbortSignal.timeout(1_000)],
+    ["any", AbortSignal.any([new AbortController().signal])],
+  ])("accepts an active native AbortSignal.%s variant", (_name, signal) => {
+    expect(() => createCodexJsonInvocation(validInvocation({ signal }))).not.toThrow();
+  });
+
   test("accepts an empty prompt and version strings at the UTF-8 byte limit", () => {
     const boundaryText = "x".repeat(MAX_CODEX_PROMPT_BYTES);
 
