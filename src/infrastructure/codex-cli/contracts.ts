@@ -8,11 +8,10 @@ export const MAX_CODEX_STDERR_BYTES = 65_536;
 export const MAX_CODEX_EVENTS = 256;
 export const MAX_CODEX_PROMPT_BYTES = 262_144;
 
-const NATIVE_ABORT_SIGNAL_OWN_KEYS = new Set([
-  ...Reflect.ownKeys(new AbortController().signal),
-  ...Reflect.ownKeys(AbortSignal.timeout(1)),
-  ...Reflect.ownKeys(AbortSignal.any([new AbortController().signal])),
-]);
+const NATIVE_ABORT_SIGNAL_ABORTED_GETTER =
+  Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
+const NATIVE_ABORT_CONTROLLER_ABORT = AbortController.prototype.abort;
+const NATIVE_EVENT_TARGET_ADD_EVENT_LISTENER = EventTarget.prototype.addEventListener;
 
 export type CodexCapabilityId =
   | "onboarding_extract"
@@ -163,13 +162,16 @@ function requireBoundedInteger(value: unknown, maximum: number): number {
 }
 
 function requireSignal(value: unknown): AbortSignal {
-  if (!(value instanceof AbortSignal) || Object.getPrototypeOf(value) !== AbortSignal.prototype ||
-    Reflect.ownKeys(value).some((key) => !NATIVE_ABORT_SIGNAL_OWN_KEYS.has(key))) {
-    throw protocolInvalid();
-  }
-  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted");
-  if (descriptor?.get?.call(value) === true) throw protocolInvalid();
-  return value;
+  if (value === null || typeof value !== "object" || NATIVE_ABORT_SIGNAL_ABORTED_GETTER === undefined ||
+    NATIVE_ABORT_SIGNAL_ABORTED_GETTER.call(value) !== false) throw protocolInvalid();
+
+  const controller = new AbortController();
+  NATIVE_EVENT_TARGET_ADD_EVENT_LISTENER.call(value, "abort", () => {
+    if (NATIVE_ABORT_SIGNAL_ABORTED_GETTER.call(value) === true) {
+      NATIVE_ABORT_CONTROLLER_ABORT.call(controller);
+    }
+  }, { once: true });
+  return controller.signal;
 }
 
 function isJsonObject(value: JsonValue): value is JsonObject {
