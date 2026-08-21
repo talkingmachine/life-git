@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Task 0 is complete in commits `6e67783`, `fdc5962`, and `aa747e3`. Preserve `src/decision/onboarding-catalog.ts`, `src/decision/onboarding-model-output.ts`, and their historical tests except for a proven bug.
-- Execute `docs/superpowers/plans/2026-08-21-codex-cli-runtime.md` before Task 3. Do not add another process adapter or runtime facade.
+- Runtime Tasks 1–4 and their real feasibility gate must be complete before Task 3. The user explicitly deferred the separate Task 5 network/privacy audit on 2026-08-22 after its single fail-closed run; that audit remains open but does not block product implementation. Do not add another process adapter or runtime facade.
 - Questionnaire state is authoritative. Codex proposes only allowlisted values and closed review codes; deterministic guards alone mutate or block the form.
 - Missing text, ambiguity, `-`, and `не знаю` remain empty. Explicit numeric zero remains valid.
 - Only a guarded proposal that replaces an existing manual value becomes nonblocking yellow `model_overwrite_unreviewed`; Confirm and Revert are local deterministic actions.
@@ -26,7 +26,7 @@
 ## Execution Order Across Existing Plans
 
 1. This plan Tasks 1–2.
-2. All tasks in `docs/superpowers/plans/2026-08-21-codex-cli-runtime.md`.
+2. Tasks 1–4 and the passing real feasibility gate in `docs/superpowers/plans/2026-08-21-codex-cli-runtime.md`; its Task 5 audit may remain deferred under the recorded user decision.
 3. This plan Tasks 3–5.
 4. This plan Task 6, which executes all tasks in `docs/superpowers/plans/2026-08-20-country-assessment-v2.md`.
 5. This plan Tasks 7–8 for the first working onboarding → Country Frontier slice.
@@ -433,7 +433,7 @@ git commit -m "feat: guard onboarding session"
 
 ### Task 3: Bind the two onboarding capabilities to the shared Codex adapter
 
-**Prerequisite:** `docs/superpowers/plans/2026-08-21-codex-cli-runtime.md` is complete.
+**Prerequisite:** Codex runtime Tasks 1–4 and the passing real feasibility artifact are complete. Runtime Task 5 remains a recorded deferred audit and is not a product dependency.
 
 **Files:**
 - Create: `src/application/onboarding-contracts.ts`
