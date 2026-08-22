@@ -3,6 +3,15 @@ import type {
   LocalReviewResult,
 } from "../decision/onboarding-catalog";
 import type { SessionMessage } from "../decision/onboarding-session";
+import type { OnboardingSessionState } from "../decision/onboarding-session";
+import type { PlaceFrontierPrepared } from "./place-frontier";
+import type {
+  ConfirmedOnboardingValues,
+  PreferenceProfileV2Snapshot,
+  QuestionnaireIssue,
+  RelocationProfileV2Snapshot,
+} from "../decision/onboarding-questionnaire";
+import type { QuestionnaireProvenance } from "../decision/onboarding-provenance";
 
 export interface OnboardingModelVersions {
   readonly invocation: "codex-cli-invocation@1";
@@ -56,3 +65,65 @@ export class OnboardingModelError extends Error {
     super(code);
   }
 }
+
+export interface OnboardingReceipt {
+  readonly schemaVersion: "onboarding-receipt@1";
+  readonly receiptId: string;
+  readonly completionCommandId: string;
+  readonly confirmationDigest: string;
+  readonly profileId: string;
+  readonly preferenceProfileId: string;
+  readonly frontierRunId: string;
+  readonly confirmedAt: string;
+}
+
+export interface VerifiedOnboardingConfirmation {
+  readonly receipt: OnboardingReceipt;
+  readonly profile: RelocationProfileV2Snapshot;
+  readonly preferences: PreferenceProfileV2Snapshot;
+  readonly provenance: QuestionnaireProvenance;
+  readonly versions: OnboardingModelVersions;
+}
+
+export interface OnboardingCompletionPort {
+  commitOrReplay(input: {
+    readonly completionCommandId: string;
+    readonly confirmed: ConfirmedOnboardingValues;
+    readonly versions: OnboardingModelVersions;
+  }): Promise<OnboardingReceipt>;
+}
+
+export interface OnboardingConfirmationReadPort {
+  loadBySnapshotBindingsVerified(input: {
+    readonly profileId: string;
+    readonly preferenceProfileId: string;
+  }): Promise<VerifiedOnboardingConfirmation>;
+}
+
+export interface ConfirmedOnboardingFrontierPort {
+  prepareFromOnboardingReceipt(receipt: OnboardingReceipt): Promise<PlaceFrontierPrepared>;
+}
+
+export interface ExtractOnboardingMessageCommand {
+  readonly schemaVersion: "onboarding-message-command@1";
+  readonly session: OnboardingSessionState;
+  readonly message: SessionMessage;
+}
+
+export interface ContinueOnboardingCommand {
+  readonly schemaVersion: "onboarding-continue-command@1";
+  readonly session: OnboardingSessionState;
+}
+
+export type CompleteOnboardingResult =
+  | {
+      readonly kind: "blocked";
+      readonly session: OnboardingSessionState;
+      readonly issues: readonly [QuestionnaireIssue, ...QuestionnaireIssue[]];
+      readonly followUpQuestion: string;
+    }
+  | {
+      readonly kind: "launched";
+      readonly receipt: OnboardingReceipt;
+      readonly prepared: PlaceFrontierPrepared;
+    };
