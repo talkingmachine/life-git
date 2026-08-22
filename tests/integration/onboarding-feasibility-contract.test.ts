@@ -1,7 +1,18 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import {
+  chmod,
+  link,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 
@@ -12,6 +23,10 @@ import {
   runOnboardingFeasibilityForTest,
 } from "../../evals/onboarding-feasibility";
 import type { OnboardingModelPort } from "../../src/application/onboarding-contracts";
+import {
+  ONBOARDING_MODEL_VERSIONS_V1,
+  ONBOARDING_MODEL_VERSIONS_V2,
+} from "../../src/application/onboarding-model-versions";
 import type {
   GuardedExtractionProposal,
 } from "../../src/decision/onboarding-model-contract";
@@ -32,6 +47,29 @@ import {
 } from "../../src/infrastructure/codex-cli/onboarding-schema";
 
 const fixtureUrl = new URL("../../evals/fixtures/onboarding/cases.json", import.meta.url);
+const fixturePath = fileURLToPath(fixtureUrl);
+const ARTIFACT_KEYS = Object.freeze([
+  "artifactDigest",
+  "caseResults",
+  "cliVersion",
+  "extractionLimits",
+  "extractionPromptDigest",
+  "extractionPromptVersion",
+  "extractionSchemaDigest",
+  "extractionSchemaVersion",
+  "fixtureDigest",
+  "fixtureVersion",
+  "invocationVersion",
+  "rawOutputStored",
+  "rawPromptStored",
+  "reviewLimits",
+  "reviewPromptDigest",
+  "reviewPromptVersion",
+  "reviewSchemaDigest",
+  "reviewSchemaVersion",
+  "schemaVersion",
+  "transcriptStored",
+]);
 const temporaryDirectories: string[] = [];
 let fixtureBytes: Uint8Array;
 
@@ -108,10 +146,31 @@ describe("onboarding feasibility contract", () => {
     });
 
     expect(calls).toEqual(["extract", "extract", "extract", "extract", "extract", "extract", "review"]);
+    expect(Object.keys(artifact).sort()).toEqual(ARTIFACT_KEYS);
+    expect(artifact).toMatchObject({
+      schemaVersion: "onboarding-model-feasibility@2",
+      invocationVersion: ONBOARDING_MODEL_VERSIONS_V2.invocation,
+      cliVersion: ONBOARDING_MODEL_VERSIONS_V2.cliVersion,
+      extractionPromptVersion: ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt,
+      reviewPromptVersion: ONBOARDING_MODEL_VERSIONS_V2.reviewPrompt,
+      extractionSchemaVersion: ONBOARDING_MODEL_VERSIONS_V2.extractionSchema,
+      reviewSchemaVersion: ONBOARDING_MODEL_VERSIONS_V2.reviewSchema,
+    });
+    expect(artifact).not.toHaveProperty("modelVersions");
     expect(artifact.caseResults).toHaveLength(7);
     expect(artifact.caseResults.every(({ status, elapsedMs }) => status === "passed" && elapsedMs === 7)).toBe(true);
-    expect(artifact.extractionLimits).toEqual(ONBOARDING_EXTRACTION_LIMITS);
-    expect(artifact.reviewLimits).toEqual(ONBOARDING_REVIEW_LIMITS);
+    expect(artifact.extractionLimits).toEqual({
+      timeoutMs: 30_000,
+      maxStdoutBytes: 131_072,
+      maxStderrBytes: 16_384,
+      maxEvents: 64,
+    });
+    expect(artifact.reviewLimits).toEqual({
+      timeoutMs: 15_000,
+      maxStdoutBytes: 65_536,
+      maxStderrBytes: 16_384,
+      maxEvents: 64,
+    });
     expect(artifact.fixtureDigest).toBe(digestBytes(fixtureBytes));
     expect(artifact.extractionPromptDigest).toBe(digestText(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE));
     expect(artifact.reviewPromptDigest).toBe(digestText(ONBOARDING_REVIEW_PROMPT_TEMPLATE));
@@ -152,7 +211,7 @@ describe("onboarding feasibility contract", () => {
     await expect(readFile(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
     const diagnostic = JSON.parse(await readFile(diagnosticPath, "utf8")) as Record<string, unknown>;
     expect(diagnostic).toMatchObject({
-      schemaVersion: "onboarding-model-feasibility-diagnostic@1",
+      schemaVersion: "onboarding-model-feasibility-diagnostic@2",
       fixtureVersion: "onboarding-cases@1",
       caseId: "extract_zero_unusual_iso",
       stage: "extract_model",
@@ -164,6 +223,180 @@ describe("onboarding feasibility contract", () => {
     expect(JSON.stringify(diagnostic)).not.toContain("secret model failure");
     const { diagnosticDigest, ...withoutDigest } = diagnostic;
     expect(diagnosticDigest).toBe(digestJson(withoutDigest));
+  });
+
+  test("removes syntactically valid legacy evidence and replaces it only with exact V2 evidence", async () => {
+    const fixture = readFixture();
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    await writeFile(artifactPath, `${JSON.stringify(legacyFeasibilityArtifact())}\n`, "utf8");
+
+    const artifact = await runOnboardingFeasibilityForTest({
+      artifactPath,
+      fixtureBytes,
+      model: fakeModel(fixture, []),
+      signal: new AbortController().signal,
+      clock: clockBy(1),
+    });
+
+    expect(artifact.schemaVersion).toBe("onboarding-model-feasibility@2");
+    const written = JSON.parse(await readFile(artifactPath, "utf8")) as Record<string, unknown>;
+    expect(written.schemaVersion).toBe("onboarding-model-feasibility@2");
+    expect(JSON.stringify(written)).not.toContain("onboarding-model-feasibility@1");
+  });
+
+  test("removes both stale outputs before descriptor-safely reading the model tuple", async () => {
+    const fixture = readFixture();
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    const diagnosticPath = join(directory, "diagnostic.json");
+    await writeFile(artifactPath, `${JSON.stringify(legacyFeasibilityArtifact())}\n`, "utf8");
+    await writeFile(diagnosticPath, "stale diagnostic\n", "utf8");
+    let versionReads = 0;
+    const model = fakeModelWithVersionGetter(fixture, () => {
+      versionReads += 1;
+      expect(existsSync(artifactPath)).toBe(false);
+      expect(existsSync(diagnosticPath)).toBe(false);
+    });
+
+    const artifact = await runOnboardingFeasibilityForTest({
+      artifactPath,
+      diagnosticPath,
+      fixtureBytes,
+      model,
+      signal: new AbortController().signal,
+      clock: clockBy(1),
+    });
+
+    expect(versionReads).toBe(1);
+    expect(artifact.extractionPromptVersion).toBe(ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt);
+  });
+
+  test.each([
+    ["historical V1", ONBOARDING_MODEL_VERSIONS_V1],
+    ["V1 prompt with V2 schema", {
+      ...ONBOARDING_MODEL_VERSIONS_V2,
+      extractionPrompt: ONBOARDING_MODEL_VERSIONS_V1.extractionPrompt,
+    }],
+    ["V2 prompt with V1 schema", {
+      ...ONBOARDING_MODEL_VERSIONS_V2,
+      extractionSchema: ONBOARDING_MODEL_VERSIONS_V1.extractionSchema,
+    }],
+  ])("rejects %s before any model call after removing stale evidence", async (_name, versions) => {
+    const fixture = readFixture();
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    const diagnosticPath = join(directory, "diagnostic.json");
+    await writeFile(artifactPath, `${JSON.stringify(legacyFeasibilityArtifact())}\n`, "utf8");
+    await writeFile(diagnosticPath, "stale diagnostic\n", "utf8");
+    let calls = 0;
+
+    await expect(runOnboardingFeasibilityForTest({
+      artifactPath,
+      diagnosticPath,
+      fixtureBytes,
+      model: fakeModelWithVersions(fixture, versions, () => {
+        calls += 1;
+      }),
+      signal: new AbortController().signal,
+    })).rejects.toEqual(new OnboardingFeasibilityError());
+
+    expect(calls).toBe(0);
+    await expect(readFile(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(JSON.parse(await readFile(diagnosticPath, "utf8"))).toMatchObject({
+      schemaVersion: "onboarding-model-feasibility-diagnostic@2",
+      stage: "input_validation",
+      passingArtifactPresent: false,
+    });
+  });
+
+  test("rejects direct, symlink-parent, and hard-link fixture aliases for both outputs before touching bytes", async () => {
+    const originalFixtureBytes = new Uint8Array(await readFile(fixturePath));
+    const originalFixtureMode = (await stat(fixturePath)).mode & 0o777;
+    const aliasRoot = await temporaryDirectory();
+    const symlinkedFixtureDirectory = join(aliasRoot, "fixture-alias");
+    await symlink(dirname(fixturePath), symlinkedFixtureDirectory, "dir");
+    const hardLinkPath = join(aliasRoot, "fixture-hard-link.json");
+    await link(fixturePath, hardLinkPath);
+    const candidates = [
+      fixturePath,
+      join(symlinkedFixtureDirectory, basename(fixturePath)),
+      hardLinkPath,
+    ];
+
+    try {
+      for (const output of ["artifact", "diagnostic"] as const) {
+        for (const candidate of candidates) {
+          const siblingPath = join(await temporaryDirectory(), `${output}-sibling.json`);
+          let calls = 0;
+          await expect(runOnboardingFeasibilityForTest({
+            artifactPath: output === "artifact" ? candidate : siblingPath,
+            diagnosticPath: output === "diagnostic" ? candidate : siblingPath,
+            fixtureBytes,
+            model: fakeModel(readFixture(), [], undefined, () => {
+              calls += 1;
+            }),
+            signal: new AbortController().signal,
+          })).rejects.toEqual(new OnboardingFeasibilityError());
+          expect(calls).toBe(0);
+          expect(new Uint8Array(await readFile(fixturePath))).toEqual(originalFixtureBytes);
+          expect(new Uint8Array(await readFile(candidate))).toEqual(originalFixtureBytes);
+        }
+      }
+    } finally {
+      const currentFixtureBytes = await readFile(fixturePath).catch(() => undefined);
+      if (
+        currentFixtureBytes === undefined ||
+        !Buffer.from(currentFixtureBytes).equals(Buffer.from(originalFixtureBytes))
+      ) await writeFile(fixturePath, originalFixtureBytes);
+      if (((await stat(fixturePath)).mode & 0o777) !== originalFixtureMode) {
+        await chmod(fixturePath, originalFixtureMode);
+      }
+    }
+  });
+
+  test("rejects direct, symlink-parent, and hard-link aliases between outputs before removing either", async () => {
+    const directPath = join(await temporaryDirectory(), "direct.json");
+    await writeFile(directPath, "direct stale evidence\n", "utf8");
+
+    const realRoot = await temporaryDirectory();
+    const symlinkRoot = await temporaryDirectory();
+    const realPath = join(realRoot, "same.json");
+    await writeFile(realPath, "symlink stale evidence\n", "utf8");
+    const aliasedRoot = join(symlinkRoot, "output-alias");
+    await symlink(realRoot, aliasedRoot, "dir");
+    const symlinkPath = join(aliasedRoot, "same.json");
+
+    const hardLinkRoot = await temporaryDirectory();
+    const hardLinkArtifact = join(hardLinkRoot, "artifact.json");
+    const hardLinkDiagnostic = join(hardLinkRoot, "diagnostic.json");
+    await writeFile(hardLinkArtifact, "hard-link stale evidence\n", "utf8");
+    await link(hardLinkArtifact, hardLinkDiagnostic);
+
+    const aliases = [
+      { artifactPath: directPath, diagnosticPath: directPath, expected: "direct stale evidence\n" },
+      { artifactPath: realPath, diagnosticPath: symlinkPath, expected: "symlink stale evidence\n" },
+      {
+        artifactPath: hardLinkArtifact,
+        diagnosticPath: hardLinkDiagnostic,
+        expected: "hard-link stale evidence\n",
+      },
+    ];
+    for (const paths of aliases) {
+      let calls = 0;
+      await expect(runOnboardingFeasibilityForTest({
+        artifactPath: paths.artifactPath,
+        diagnosticPath: paths.diagnosticPath,
+        fixtureBytes,
+        model: fakeModel(readFixture(), [], undefined, () => {
+          calls += 1;
+        }),
+        signal: new AbortController().signal,
+      })).rejects.toEqual(new OnboardingFeasibilityError());
+      expect(calls).toBe(0);
+      expect(await readFile(paths.artifactPath, "utf8")).toBe(paths.expected);
+      expect(await readFile(paths.diagnosticPath, "utf8")).toBe(paths.expected);
+    }
   });
 
   test("rejects invalid input or an inactive signal before any model callback and leaves no artifact", async () => {
@@ -277,6 +510,37 @@ function fakeModel(
   return Object.freeze(model);
 }
 
+function fakeModelWithVersions(
+  fixture: Fixture,
+  versions: unknown,
+  onCall: () => void,
+): OnboardingModelPort {
+  const model = fakeModel(fixture, [], undefined, onCall);
+  return Object.freeze({
+    ...model,
+    versions,
+  }) as unknown as OnboardingModelPort;
+}
+
+function fakeModelWithVersionGetter(
+  fixture: Fixture,
+  onVersionRead: () => void,
+): OnboardingModelPort {
+  const model = fakeModel(fixture, []);
+  const borrowed: Record<string, unknown> = {
+    extract: model.extract,
+    review: model.review,
+  };
+  Object.defineProperty(borrowed, "versions", {
+    enumerable: true,
+    get: () => {
+      onVersionRead();
+      return ONBOARDING_MODEL_VERSIONS_V2;
+    },
+  });
+  return Object.freeze(borrowed) as unknown as OnboardingModelPort;
+}
+
 function rawProposal(proposal: GuardedExtractionProposal, message: { messageId: string; text: string }) {
   const common = {
     messageId: message.messageId,
@@ -311,6 +575,40 @@ function digestText(value: string): string {
 
 function digestJson(value: unknown): string {
   return digestText(JSON.stringify(canonicalize(value)));
+}
+
+function clockBy(step: number): () => number {
+  let now = 0;
+  return () => {
+    const value = now;
+    now += step;
+    return value;
+  };
+}
+
+function legacyFeasibilityArtifact(): Record<string, unknown> {
+  return {
+    schemaVersion: "onboarding-model-feasibility@1",
+    fixtureVersion: "onboarding-cases@1",
+    fixtureDigest: "0".repeat(64),
+    invocationVersion: ONBOARDING_MODEL_VERSIONS_V1.invocation,
+    cliVersion: ONBOARDING_MODEL_VERSIONS_V1.cliVersion,
+    extractionPromptVersion: ONBOARDING_MODEL_VERSIONS_V1.extractionPrompt,
+    reviewPromptVersion: ONBOARDING_MODEL_VERSIONS_V1.reviewPrompt,
+    extractionSchemaVersion: ONBOARDING_MODEL_VERSIONS_V1.extractionSchema,
+    reviewSchemaVersion: ONBOARDING_MODEL_VERSIONS_V1.reviewSchema,
+    extractionPromptDigest: "1".repeat(64),
+    reviewPromptDigest: "2".repeat(64),
+    extractionSchemaDigest: "3".repeat(64),
+    reviewSchemaDigest: "4".repeat(64),
+    extractionLimits: ONBOARDING_EXTRACTION_LIMITS,
+    reviewLimits: ONBOARDING_REVIEW_LIMITS,
+    caseResults: [],
+    rawPromptStored: false,
+    rawOutputStored: false,
+    transcriptStored: false,
+    artifactDigest: "5".repeat(64),
+  };
 }
 
 function canonicalize(value: unknown): unknown {

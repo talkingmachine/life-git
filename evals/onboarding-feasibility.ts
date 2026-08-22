@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { chmod, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -9,6 +9,11 @@ import {
   type OnboardingModelPort,
   type OnboardingRuntimeErrorCode,
 } from "../src/application/onboarding-contracts";
+import {
+  ONBOARDING_MODEL_VERSIONS_V2,
+  reconstructOnboardingModelVersions,
+  type OnboardingModelVersionsV2,
+} from "../src/application/onboarding-model-versions";
 import {
   PARTICIPANT_LEAF_IDS,
   PARTICIPANT_RELATIONSHIPS,
@@ -39,17 +44,12 @@ import {
   type QuestionnaireIssue,
 } from "../src/decision/onboarding-questionnaire";
 import { registerNodeCodexRuntime } from "../src/instrumentation-node";
-import {
-  CODEX_CLI_VERSION,
-  CODEX_INVOCATION_VERSION,
-} from "../src/infrastructure/codex-cli/contracts";
 import { getCodexCliModelAdapter } from "../src/infrastructure/codex-cli/runtime";
 import { snapshotOwnedJson, type JsonObject, type JsonValue } from "../src/infrastructure/codex-cli/owned-json";
 import {
   createCodexOnboardingModel,
   ONBOARDING_EXTRACTION_LIMITS,
   ONBOARDING_EXTRACTION_PROMPT_TEMPLATE,
-  ONBOARDING_MODEL_VERSIONS,
   ONBOARDING_REVIEW_LIMITS,
   ONBOARDING_REVIEW_PROMPT_TEMPLATE,
 } from "../src/infrastructure/codex-cli/onboarding-model";
@@ -60,8 +60,10 @@ import {
 
 const FIXTURE_VERSION = "onboarding-cases@1" as const;
 const SESSION_SEED_VERSION = "onboarding-feasibility-session-seed@1" as const;
-const ARTIFACT_VERSION = "onboarding-model-feasibility@1" as const;
-const DIAGNOSTIC_VERSION = "onboarding-model-feasibility-diagnostic@1" as const;
+const ARTIFACT_VERSION = "onboarding-model-feasibility@2" as const;
+const DIAGNOSTIC_VERSION = "onboarding-model-feasibility-diagnostic@2" as const;
+const FEASIBILITY_FIXTURE_URL = new URL("./fixtures/onboarding/cases.json", import.meta.url);
+const FEASIBILITY_FIXTURE_PATH = resolve(fileURLToPath(FEASIBILITY_FIXTURE_URL));
 const CASE_IDS = [
   "extract_self_ru",
   "extract_companion",
@@ -116,12 +118,12 @@ export interface OnboardingModelFeasibilityArtifact {
   readonly schemaVersion: typeof ARTIFACT_VERSION;
   readonly fixtureVersion: typeof FIXTURE_VERSION;
   readonly fixtureDigest: string;
-  readonly invocationVersion: typeof CODEX_INVOCATION_VERSION;
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
-  readonly extractionPromptVersion: typeof ONBOARDING_MODEL_VERSIONS.extractionPrompt;
-  readonly reviewPromptVersion: typeof ONBOARDING_MODEL_VERSIONS.reviewPrompt;
-  readonly extractionSchemaVersion: typeof ONBOARDING_MODEL_VERSIONS.extractionSchema;
-  readonly reviewSchemaVersion: typeof ONBOARDING_MODEL_VERSIONS.reviewSchema;
+  readonly invocationVersion: OnboardingModelVersionsV2["invocation"];
+  readonly cliVersion: OnboardingModelVersionsV2["cliVersion"];
+  readonly extractionPromptVersion: OnboardingModelVersionsV2["extractionPrompt"];
+  readonly reviewPromptVersion: OnboardingModelVersionsV2["reviewPrompt"];
+  readonly extractionSchemaVersion: OnboardingModelVersionsV2["extractionSchema"];
+  readonly reviewSchemaVersion: OnboardingModelVersionsV2["reviewSchema"];
   readonly extractionPromptDigest: string;
   readonly reviewPromptDigest: string;
   readonly extractionSchemaDigest: string;
@@ -190,10 +192,10 @@ export async function runOnboardingFeasibilityForTest(input: {
   readonly signal: AbortSignal;
   readonly clock?: () => number;
 }): Promise<OnboardingModelFeasibilityArtifact> {
-  const artifactPath = requireArtifactPath(input.artifactPath);
-  const diagnosticPath = input.diagnosticPath === undefined
-    ? undefined
-    : requireDistinctDiagnosticPath(input.diagnosticPath, artifactPath);
+  const { artifactPath, diagnosticPath } = await requireOutputPaths(
+    input.artifactPath,
+    input.diagnosticPath,
+  );
   await rm(artifactPath, { force: true });
   if (diagnosticPath !== undefined) await rm(diagnosticPath, { force: true });
   let stage: OnboardingFeasibilityStage = "input_validation";
@@ -204,6 +206,7 @@ export async function runOnboardingFeasibilityForTest(input: {
     const fixtureBytes = Uint8Array.from(input.fixtureBytes);
     const fixtureText = new TextDecoder("utf-8", { fatal: true }).decode(fixtureBytes);
     const fixture = readOnboardingFeasibilityFixture(JSON.parse(fixtureText) as unknown);
+    const modelVersions = requireCurrentModelVersions(input.model.versions);
     const clock = input.clock ?? Date.now;
     const results: { caseId: string; status: "passed"; elapsedMs: number }[] = [];
 
@@ -224,12 +227,12 @@ export async function runOnboardingFeasibilityForTest(input: {
       schemaVersion: ARTIFACT_VERSION,
       fixtureVersion: FIXTURE_VERSION,
       fixtureDigest: sha256(fixtureBytes),
-      invocationVersion: CODEX_INVOCATION_VERSION,
-      cliVersion: CODEX_CLI_VERSION,
-      extractionPromptVersion: ONBOARDING_MODEL_VERSIONS.extractionPrompt,
-      reviewPromptVersion: ONBOARDING_MODEL_VERSIONS.reviewPrompt,
-      extractionSchemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
-      reviewSchemaVersion: ONBOARDING_MODEL_VERSIONS.reviewSchema,
+      invocationVersion: modelVersions.invocation,
+      cliVersion: modelVersions.cliVersion,
+      extractionPromptVersion: modelVersions.extractionPrompt,
+      reviewPromptVersion: modelVersions.reviewPrompt,
+      extractionSchemaVersion: modelVersions.extractionSchema,
+      reviewSchemaVersion: modelVersions.reviewSchema,
       extractionPromptDigest: digestText(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE),
       reviewPromptDigest: digestText(ONBOARDING_REVIEW_PROMPT_TEMPLATE),
       extractionSchemaDigest: digestJson(ONBOARDING_EXTRACTION_SCHEMA),
@@ -509,10 +512,109 @@ function requireArtifactPath(value: unknown): string {
   return path;
 }
 
+async function requireOutputPaths(
+  artifactValue: unknown,
+  diagnosticValue: unknown,
+): Promise<{
+  readonly artifactPath: string;
+  readonly diagnosticPath?: string;
+}> {
+  const artifactPath = requireArtifactPath(artifactValue);
+  const diagnosticPath = diagnosticValue === undefined
+    ? undefined
+    : requireDistinctDiagnosticPath(diagnosticValue, artifactPath);
+  const [fixtureIdentity, artifactIdentity, diagnosticIdentity] = await Promise.all([
+    readPathIdentity(FEASIBILITY_FIXTURE_PATH),
+    readPathIdentity(artifactPath),
+    diagnosticPath === undefined ? undefined : readPathIdentity(diagnosticPath),
+  ]);
+  if (
+    pathsAlias(fixtureIdentity, artifactIdentity) ||
+    (diagnosticIdentity !== undefined && (
+      pathsAlias(fixtureIdentity, diagnosticIdentity) ||
+      pathsAlias(artifactIdentity, diagnosticIdentity)
+    ))
+  ) throw failed();
+  return Object.freeze({
+    artifactPath,
+    ...(diagnosticPath === undefined ? {} : { diagnosticPath }),
+  });
+}
+
+interface PathIdentity {
+  readonly realPath: string;
+  readonly existing?: {
+    readonly dev: number | bigint;
+    readonly ino: number | bigint;
+  };
+}
+
+async function readPathIdentity(path: string): Promise<PathIdentity> {
+  const [realPath, identity] = await Promise.all([
+    resolveRealPathThroughExistingPrefix(path),
+    statIfPresent(path),
+  ]);
+  return Object.freeze({
+    realPath,
+    ...(identity === undefined
+      ? {}
+      : { existing: Object.freeze({ dev: identity.dev, ino: identity.ino }) }),
+  });
+}
+
+function pathsAlias(left: PathIdentity, right: PathIdentity): boolean {
+  return left.realPath === right.realPath || (
+    left.existing !== undefined &&
+    right.existing !== undefined &&
+    left.existing.dev === right.existing.dev &&
+    left.existing.ino === right.existing.ino
+  );
+}
+
+async function resolveRealPathThroughExistingPrefix(path: string): Promise<string> {
+  let existingPrefix = path;
+  const missingSuffix: string[] = [];
+  while (true) {
+    try {
+      return resolve(await realpath(existingPrefix), ...missingSuffix);
+    } catch (error) {
+      if (!isMissingPathError(error)) throw error;
+      const parent = dirname(existingPrefix);
+      if (parent === existingPrefix) throw error;
+      missingSuffix.unshift(basename(existingPrefix));
+      existingPrefix = parent;
+    }
+  }
+}
+
+async function statIfPresent(path: string): Promise<Awaited<ReturnType<typeof stat>> | undefined> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (isMissingPathError(error)) return undefined;
+    throw error;
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (error === null || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "ENOENT" || error.code === "ENOTDIR";
+}
+
 function requireDistinctDiagnosticPath(value: unknown, artifactPath: string): string {
   const diagnosticPath = requireArtifactPath(value);
   if (diagnosticPath === artifactPath) throw failed();
   return diagnosticPath;
+}
+
+function requireCurrentModelVersions(value: unknown): OnboardingModelVersionsV2 {
+  try {
+    const versions = reconstructOnboardingModelVersions(value);
+    if (versions !== ONBOARDING_MODEL_VERSIONS_V2) throw failed();
+    return versions;
+  } catch {
+    throw failed();
+  }
 }
 
 function requireActiveSignal(value: AbortSignal): void {
@@ -636,16 +738,15 @@ export function parseOnboardingFeasibilityArguments(args: readonly string[]): {
 
 async function main(): Promise<void> {
   const parsed = parseOnboardingFeasibilityArguments(process.argv.slice(2));
-  const artifactPath = requireArtifactPath(parsed.artifactPath);
-  const diagnosticPath = parsed.diagnosticPath === undefined
-    ? undefined
-    : requireDistinctDiagnosticPath(parsed.diagnosticPath, artifactPath);
+  const { artifactPath, diagnosticPath } = await requireOutputPaths(
+    parsed.artifactPath,
+    parsed.diagnosticPath,
+  );
   await rm(artifactPath, { force: true });
   if (diagnosticPath !== undefined) await rm(diagnosticPath, { force: true });
   let runnerStarted = false;
   try {
-    const fixtureUrl = new URL("./fixtures/onboarding/cases.json", import.meta.url);
-    const fixtureBytes = new Uint8Array(await readFile(fixtureUrl));
+    const fixtureBytes = new Uint8Array(await readFile(FEASIBILITY_FIXTURE_URL));
     await registerNodeCodexRuntime();
     runnerStarted = true;
     await runOnboardingFeasibilityForTest({
