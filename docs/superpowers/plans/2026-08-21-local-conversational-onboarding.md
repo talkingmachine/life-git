@@ -881,6 +881,122 @@ export function reconstructCountryAssessmentInputV2(
 ): CountryAssessmentInputV2;
 ```
 
+The confirmation store keeps the snapshot-pair loader unchanged. It makes every first-write
+confirmation pair unique by issuing one store-owned monotonic `confirmedAt` inside the same
+`BEGIN IMMEDIATE` transaction:
+
+```ts
+const observedMs = clock().getTime(); // exactly one clock call on a first write
+const previousMs = previousConfirmedAt === undefined
+  ? Number.NEGATIVE_INFINITY
+  : new Date(previousConfirmedAt).getTime();
+const issuedMs = Math.max(observedMs, previousMs + 1);
+const confirmedAt = new Date(issuedMs).toISOString();
+```
+
+`previousConfirmedAt` is the greatest persisted confirmation instant. Both the observed value and
+the prior value must be canonical 24-character millisecond UTC instants. Since both `@2` snapshot
+IDs hash their canonical payload including `confirmedAt`, two different completion commands with
+identical values and the same wall-clock millisecond receive `T` and `T+1ms`, distinct
+content-addressed snapshot IDs, and an unambiguous pair. The table enforces both
+`UNIQUE(confirmed_at)` and `UNIQUE(profile_id, preference_profile_id)`; the loader queries at most
+two rows and requires exactly one instead of using `MAX`, `ORDER BY`, or latest-wins behavior.
+
+Receipt and Frontier identities use the existing canonical JSON and SHA-256 primitives with exact
+domain separation:
+
+```ts
+const receiptId = `onboarding-receipt:${sha256Text(canonicalJson({
+  schemaVersion: "onboarding-receipt-id@1",
+  completionCommandId,
+}))}`;
+
+const frontierRunId = `onboarding-frontier:${sha256Text(canonicalJson({
+  schemaVersion: "onboarding-frontier-run-id@1",
+  completionCommandId,
+}))}`;
+```
+
+The stored digest is the lowercase HMAC-SHA-256 of the canonical full binding below. The integrity
+key is injected into the store and is never persisted. `confirmationDigest` is deliberately not
+unique because distinct user actions may confirm identical questionnaire values.
+
+```ts
+export interface OnboardingConfirmationDigestPayload {
+  readonly schemaVersion: "onboarding-confirmation-binding@1";
+  readonly receipt: Omit<OnboardingReceipt, "confirmationDigest">;
+  readonly profile: RelocationProfileV2Snapshot;
+  readonly preferences: PreferenceProfileV2Snapshot;
+  readonly provenance: QuestionnaireProvenance;
+  readonly versions: OnboardingModelVersions;
+}
+
+const confirmationDigest = hmacSha256(
+  canonicalJson(digestPayload),
+  hmacKey,
+);
+```
+
+The exact new table and immutability contract are:
+
+```sql
+CREATE TABLE IF NOT EXISTS onboarding_confirmations (
+  schema_version TEXT NOT NULL
+    CHECK (schema_version = 'onboarding-receipt@1'),
+  receipt_id TEXT PRIMARY KEY,
+  completion_command_id TEXT NOT NULL UNIQUE,
+  confirmation_digest TEXT NOT NULL CHECK (
+    length(confirmation_digest) = 64
+    AND confirmation_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  frontier_run_id TEXT NOT NULL UNIQUE,
+  confirmed_at TEXT NOT NULL UNIQUE,
+  provenance_json TEXT NOT NULL,
+  versions_json TEXT NOT NULL,
+  UNIQUE (profile_id, preference_profile_id),
+  CHECK (profile_id <> preference_profile_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS onboarding_confirmations_no_update
+BEFORE UPDATE ON onboarding_confirmations
+BEGIN
+  SELECT RAISE(ABORT, 'onboarding_confirmation_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS onboarding_confirmations_no_delete
+BEFORE DELETE ON onboarding_confirmations
+BEGIN
+  SELECT RAISE(ABORT, 'onboarding_confirmation_is_immutable');
+END;
+```
+
+Both foreign keys target `profile_snapshots(id)` with SQLite's default `NO ACTION` / `MATCH NONE`.
+There is no premature foreign key from `frontier_run_id`: Task 5 reserves one run per confirmation,
+while Task 7 creates the first Frontier snapshot. `db.ts` preflights the exact table SQL, both
+foreign keys, unique constraints, and both immutable triggers; an incompatible existing object
+requires `database_schema_reset_required`.
+
+`commitOrReplay` uses one synchronous transaction-safe insert path; it never nests an async profile
+store method or awaits inside a `better-sqlite3` transaction callback. Its exact order is:
+
+1. Descriptor-safely snapshot the timestamp-free confirmed values and require the fixed version
+   tuple and validated lowercase completion UUID.
+2. Start `BEGIN IMMEDIATE` and load by `completion_command_id` before any clock or materializer call.
+3. For an existing command, verified-load the receipt, both `@2` snapshots, provenance, versions,
+   derived IDs and HMAC; reconstruct the timestamp-free confirmed values and exact-canonical-compare
+   them and the versions with the incoming values. A match returns the original frozen receipt with
+   zero clock, materializer, or writer calls; a mismatch throws `onboarding_completion_conflict`.
+4. For a first write, call the clock once, derive the monotonic `confirmedAt`, call
+   `materializeOnboardingSnapshots({confirmedAt, values})` once, derive the two IDs and digest, insert
+   both snapshots and the confirmation, verified-reload the complete binding, then commit.
+5. A content-ID collision is accepted only after exact verified equality. Any other failure rolls
+   back both snapshots and the confirmation.
+
+`BEGIN IMMEDIATE` serializes first writers. A concurrent same-command loser observes the committed
+winner at step 2 and therefore also performs zero clock/materializer/writer work.
+
 Keep existing `loadRelocationVerified`/`loadPreferenceVerified` V1-only for historical consumers;
 add exact V2-only loaders and one closed `@1 | @2` preference loader used only by ranking. The
 Country Assessment V2 plan remains owner of the Any-loader and schema dispatch in Cold Start.
@@ -899,7 +1015,7 @@ The country-assessment projector is a lossless descriptor-safe copy of the verif
 requires `profileSnapshotId === profile.id`, exact `relocation-profile@2`, dense participant order,
 and all typed participant values; it performs no aggregation, route selection, or verdict.
 
-- [ ] **Step 1: Write RED schema/store tests.** Cover atomicity, one clock/materialization on first write, content-addressed snapshot IDs, fixed receipt/run IDs, duplicate-submission idempotence after an ambiguous response failure without another clock/materialization, changed-draft command rotation, same-command conflict, different-command/same-values fresh confirmation, exact snapshot-pair verified load, digest/provenance/version tamper, forbidden columns, and V1 byte compatibility.
+- [ ] **Step 1: Write RED schema/store tests.** Cover atomicity, one clock/materialization on first write, content-addressed snapshot IDs, exact domain-separated receipt/run IDs, duplicate-submission idempotence after an ambiguous response failure without another clock/materialization, concurrent same-command convergence, changed-draft command rotation, same-command values/version conflict, two different commands with identical values and one clock millisecond receiving `T`/`T+1ms` and distinct unambiguous pairs, exact snapshot-pair verified load, duplicate pair/time/command/run rejection with duplicate digest allowed, forced post-snapshot rollback, digest/provenance/version/receipt-binding tamper, exact schema preflight and immutable triggers, forbidden columns, and V1 byte compatibility.
 - [ ] **Step 2: Write RED ranking tests.** `preference-profile@2` ranks only its five country criteria; city preferences do not affect country ordering.
 - [ ] **Step 3: Write RED country-input tests.** Cover every profile field, exact ID binding, dense order, hostile descriptors, no aggregation, and fresh frozen output.
 - [ ] **Step 4: Run RED, implement, and run GREEN.** Run `pnpm exec vitest run tests/integration/onboarding-store.test.ts tests/domain/country-assessment-input-v2.test.ts tests/integration/profile-store.test.ts tests/integration/database-schema.test.ts tests/domain/place-ranker.test.ts tests/integration/place-frontier.test.ts`; expect only the new seams to fail, implement them, and re-run it.
