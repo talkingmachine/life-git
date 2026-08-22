@@ -230,7 +230,7 @@ Money handling is closed: EUR direct; RUB through a fresh sealed CBR claim; any 
 ### Task 4: Dispatch verified profiles inside Cold Start
 
 **Files:**
-- Verify unchanged: `src/application/country-assessment-projection-v2.ts`
+- Create: `src/application/country-assessment-projection-v2.ts`
 - Modify: `src/application/cold-start.ts`
 - Modify: `src/infrastructure/cold-start-composition.ts`
 - Modify: `src/infrastructure/sqlite/profile-store.ts`
@@ -390,7 +390,7 @@ export interface ColdStartApplicationPortsV2 extends Omit<
 
 `Omit` changes only the four versioned seams and preserves the current required `countrySourceIndex`, `knowledge`, `integrity`, `clock`, `nextRunId` and every other unchanged port. `SqliteProfileStore.loadRelocationVerified` remains V1-only for existing Place Frontier consumers; the new `loadRelocationAnyVerified` is used only by Cold Start dispatch. Direct draft preparation and the existing outward `ColdStartReadModel` remain V1 in this task. `createColdStartApplication` with `ColdStartApplicationPortsV2` and `createColdStartComposition` return the exact `ColdStartApplicationAny` surface above. Its ID-only `prepareAny`, `runAny` and `presentAny` verified-load the profile, check the requested/sealed ID, and return `ColdStartReadModelAny`; inherited `prepare`, `run` and `present` remain byte-compatible V1 for historical/direct callers. In the V2 branch Cold Start already owns the verified profile and reconstructed dossier, so it derives `orderedPairs` from dossier route order crossed with profile participant order and calls `reconstructCountryAssessmentProjectionV2` before the read model crosses its port. The resulting fresh frozen `assessmentProjection` is bound to the same profile/Evidence IDs and comparator; no adapter is asked to reload or infer order. Task 5 atomically exposes that projection through Country Verifier and the streams by calling the explicit Any methods. V1 continues to call existing research/dossier/assessor methods. V2 calls the suffixed V2 methods and returns `ColdStartReadModelV2`. `SqliteDossierStore` uses the existing table but reconstructs by exact schema; V1 and V2 predecessor chains never cross. Country Knowledge accepts the exact V3 Evidence projection without rewriting historical revisions and publishes only claims its V2 contract understands.
 
-- [ ] Write REDs for V1 draft, V1 ID, V2 ID, unknown schema, profile ID mismatch before research, exact V2 Evidence/Dossier replay, independently derived route × participant order, projection/comparator binding, partial V2 dossier, no-completeness yellow, and zero adapter schema logic.
+- [ ] Write REDs for V1 draft, V1 ID, V2 ID, unknown schema, profile ID mismatch before research, exact V2 Evidence/Dossier replay, the absent order-aware projection module, independently derived route × participant order, projection/comparator binding, partial V2 dossier, no-completeness yellow, and zero adapter schema logic.
 - [ ] Add store REDs for V1/V2 dossier isolation, tamper, lost race and exact retry; add Knowledge REDs for V3 parser/rules bindings and V1 historical bytes.
 - [ ] Run `pnpm exec vitest run tests/integration/cold-start.test.ts tests/integration/country-knowledge.test.ts tests/integration/profile-store.test.ts`; expect only explicit V2 seams to fail. Add a compile fixture proving existing Place Frontier still receives the unchanged V1 loader, `ColdStartApplicationPortsV2` satisfies every unchanged base member, composition returns `ColdStartApplicationAny`, and inherited V1 methods retain their old result/event types and behavior.
 - [ ] Implement the closed branch with separate suffixed V2 methods; do not genericize the existing V1 API.
@@ -402,7 +402,7 @@ export interface ColdStartApplicationPortsV2 extends Omit<
 ### Task 5: Carry the V2 explanation through Country Frontier
 
 **Files:**
-- Create: `src/application/country-assessment-projection-v2.ts`
+- Modify: `src/application/country-assessment-projection-v2.ts`
 - Modify: `src/application/country-verifier.ts`
 - Modify: `src/application/place-frontier.ts`
 - Modify: `src/application/country-resolution.ts`
