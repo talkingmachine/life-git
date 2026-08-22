@@ -1167,6 +1167,7 @@ git commit -m "feat: launch frontier from onboarding"
 - Create: `src/experience/components/OnboardingStart.tsx`
 - Create: `src/experience/components/OnboardingQuestionnaire.tsx`
 - Create: `src/experience/components/OnboardingChat.tsx`
+- Modify: `src/application/onboarding.ts`
 - Modify: `src/experience/components/ProductShell.tsx`
 - Modify: `src/experience/components/WorkspaceGlobe.tsx`
 - Modify: `src/experience/research-map/contracts.ts`
@@ -1180,8 +1181,12 @@ git commit -m "feat: launch frontier from onboarding"
 - Create: `evals/fixtures/onboarding/canonical-journey.json`
 - Create: `tests/integration/onboarding-experience.test.tsx`
 - Create: `tests/integration/onboarding-journey-timing-contract.test.ts`
+- Modify: `tests/integration/onboarding.test.ts`
+- Modify: `tests/integration/onboarding-composition.test.ts`
+- Modify: `tests/integration/onboarding-transport.test.ts`
 - Modify: `tests/integration/product-shell.test.tsx`
 - Modify: `tests/integration/research-globe-canvas.test.tsx`
+- Modify: `tests/integration/visual-system.test.ts`
 - Modify: `package.json`
 
 **Interfaces:**
@@ -1195,18 +1200,37 @@ export const ONBOARDING_CANONICAL_JOURNEY_LIMIT_MS = 35_000;
 export interface OnboardingJourneyTimingArtifact {
   readonly schemaVersion: "onboarding-journey-timing@1";
   readonly fixtureVersion: "onboarding-canonical-journey@1";
+  readonly fixtureDigest: string;
   readonly cliVersion: "codex-cli 0.148.0-alpha.15";
   readonly elapsedMs: number;
   readonly limitMs: 35_000;
   readonly acceptedFrontierHandoff: true;
-  readonly modelInvocationCount: number;
+  readonly modelInvocationCount: 2;
   readonly rawPromptStored: false;
   readonly rawOutputStored: false;
   readonly transcriptStored: false;
   readonly artifactDigest: string;
 }
 
+export interface OnboardingCanonicalJourneyFixture {
+  readonly schemaVersion: "onboarding-canonical-journey@1";
+  readonly ids: {
+    readonly initialParticipantId: string;
+    readonly companionParticipantId: string;
+    readonly initialCompletionCommandId: string;
+    readonly assistantMessageId: string;
+    readonly extractedCompletionCommandId: string;
+  };
+  readonly messages: readonly [{
+    readonly messageId: string;
+    readonly role: "user";
+    readonly text: string;
+  }];
+}
+
 export async function runOnboardingJourneyTimingForTest(input: {
+  readonly artifactPath: string;
+  readonly fixtureBytes: Uint8Array;
   readonly runCanonicalJourney: () => Promise<{
     readonly acceptedFrontierHandoff: boolean;
     readonly modelInvocationCount: number;
@@ -1222,25 +1246,79 @@ first message. Reduced motion stops rotation. The start copy states that questio
 sent to OpenAI through the installed Codex CLI under the owner's existing personal ChatGPT/Codex
 login; it neither requests an API key nor claims that model processing is local.
 
+The exact disclosure is: `Содержимое анкеты передаётся в OpenAI через установленный Codex CLI с
+вашим текущим личным входом ChatGPT/Codex. API-ключ не нужен; обработка моделью не является
+локальной.` The server final-review follow-up is exactly `Заполните выделенные поля.` and the UI
+renders that returned text verbatim as a UI-only assistant item; it never inserts the item into the
+server-owned session message array.
+
+Neutral globe state is a separate closed presentation branch. Existing routed globe projections
+keep their required origin and exact bytes. The neutral branch has no origin, marker, label, route,
+aircraft or verdict, uses the same lazily loaded WebGL canvas, and enables slow idle rotation only
+when reduced motion is false. An explicitly supplied neutral globe remains visible when
+`ProductShell` is in setup mode without synthesizing a pending context/status bar. Desktop owns one
+left scroll container and a pinned right globe; mobile preserves DOM order globe, latest-question
+shortcut, questionnaire, chat.
+
+The routed `WorkspaceGlobePresentation` stays unchanged and origin-required. A separate
+`NeutralWorkspaceGlobePresentation` joins it only at the `ProductShell`/`WorkspaceGlobe` input
+union; only Canvas receives optional origin plus idle-rotation props. Neutral performs zero airliner
+GLB loads, and its readiness/fallback never depends on `planeTemplate`; routed loading and lifecycle
+stay unchanged. Only a request with `flow`, `run` and `profile` all absent renders
+`OnboardingStart`. Known flow branches, bare legacy `?run=...`, and legacy fallback/error branches
+remain byte- and behavior-compatible.
+
 The field component renders yellow `!` only for unresolved model-overwrite state and exposes
 `Подтвердить`/`Вернуть`. Yellow never disables Continue. Blocked review focuses the first invalid
 field and appends the server follow-up. Service failure preserves state and shows an ordinary error
-with no retry control. As soon as the response is validated as the accepted Frontier stream and the
-UI has adopted `PlaceFrontierJourney`, it replaces the URL and purges transcript/draft before
-waiting for the potentially long research stream to finish. A later Frontier stream failure does
-not resurrect confirmed onboarding data; only a response/handoff failure before adoption preserves
-the session for another ordinary Continue action.
+with no retry control. Successful adoption is ordered exactly: validate the NDJSON response and
+identity headers, create the finite stream handoff, install
+`?flow=place-frontier&run=<runId>`, then perform one discriminated `editing -> frontier` React state
+transition that drops session, composer, issues, errors and UI-only follow-ups before the first
+stream read. If URL installation fails, cancel the unowned handoff and preserve the editing state.
+`PlaceFrontierJourney` then adopts the same stream. A later Frontier stream failure remains inside
+that Journey and never reconstructs onboarding. The browser performs zero automatic or launch
+requests to `/api/place-frontier`; an explicit later user-triggered retry inside the existing
+Frontier experience remains its existing separate action.
 
-Transcript, raw manual input, source spans, and the completion command remain only in live React
-memory. No `localStorage`, `sessionStorage`, IndexedDB, Cache API, server session, analytics, crash
-payload, or journey-history write may contain them. The UI performs exactly one message request per
-message action and one Continue request per Continue action; it never auto-repeats either request.
+Transcript and raw input remain ephemeral in local session/process memory across React and local
+Node request handling. Only the current message plus the normalized questionnaire projection reaches
+Codex/OpenAI. Transcript, raw manual input, source spans and the completion command never enter
+durable state, logs, telemetry or eval artifacts. No `localStorage`, `sessionStorage`, IndexedDB,
+Cache API, server session, analytics, crash payload, or journey-history write may contain them. The
+UI performs exactly one message request per message action and one Continue request per Continue
+action; it never auto-repeats either request. Model/request failures retain editing state and expose
+only the ordinary action again; there is no separate retry control. The globe's renderer-load
+fallback remains an unrelated visual recovery control.
 
-- [ ] **Step 1: Write RED component tests.** Cover initial/expanded desktop, exact OpenAI/Codex disclosure, React-memory-only state, initial command UUID, stability without authoritative change, one rotation after manual/model/provenance change, manual edits, ordinary model-origin replacement, yellow only for manual overwrite, Confirm/Revert, nonblocking yellow, blocked server follow-up without retry UI, one request per ordinary action, state preservation before failed handoff, validated stream adoption followed by immediate purge, later stream failure without resurrection, zero second `/api/place-frontier` request, neutral globe, mobile order, keyboard/dialog semantics, and reduced motion.
-- [ ] **Step 2: Run RED, implement, and run GREEN.** Run `pnpm exec vitest run tests/integration/onboarding-experience.test.tsx tests/integration/product-shell.test.tsx tests/integration/research-globe-canvas.test.tsx`; expect the onboarding components and neutral globe seam to be absent, implement them, and re-run it.
-- [ ] **Step 3: Write the timing-gate RED contract.** With an injected monotonic clock and fake journey, require `35_000` ms to pass, `35_001` ms or an unaccepted handoff to fail without a passing artifact, exact closed artifact keys, and zero prompt/output/transcript content.
+The timing artifact is bound to the lowercase SHA-256 of the exact tracked fixture bytes. Elapsed
+time is `ceil(end - start)` from a monotonic clock; only exactly one extraction plus one final review
+(`modelInvocationCount === 2`) may pass. The real run uses a fresh in-memory SQLite database so a
+durable replay cannot shorten the gate. It derives handoff acceptance through the production strict
+response opener and single-use handoff, bound to the launched receipt/prepared identities; no CLI
+argument, fixture field, environment variable or callback assertion can claim acceptance. The
+timing runner stops at an inert accepted Frontier envelope and must not invoke `runPlaceFrontier`,
+official research or a browser.
+
+`artifactDigest` is SHA-256 over canonical JSON of every artifact field except itself. The writer
+removes a stale target before work and, only on success, writes one final-LF canonical artifact via a
+same-directory `wx`/`0600` temporary file, `fsync`, close and atomic rename. Any fixture, clock,
+timing, handoff, model or write failure leaves no passing target and emits only the fixed public error
+`onboarding_journey_timing_failed` without caught text. The pure injected callback remains a
+fake-test seam; production acceptance is computed internally.
+
+The tracked fixture parser accepts exactly the closed `OnboardingCanonicalJourneyFixture` above:
+one dense ordered user-message tuple describing the canonical self-plus-spouse case, exact keys,
+canonical version, six pairwise-distinct UUIDs, valid UTF-8 and bounded nonempty text. Extra/missing
+keys, extra/sparse messages, duplicate or invalid
+UUIDs and malformed/non-UTF-8 bytes fail before any model call. Production always reads that fixed
+tracked file; there is no fixture CLI override, stdin fixture or environment substitution.
+
+- [ ] **Step 1: Write RED component tests.** Cover initial/expanded desktop, exact OpenAI/Codex disclosure, ephemeral process-memory-only state, initial command UUID, stability without authoritative change, one rotation after manual/model/provenance change, manual edits, ordinary model-origin replacement, yellow only for manual overwrite, Confirm/Revert, nonblocking yellow, exact Russian blocked server follow-up without retry UI, one request per ordinary action, state preservation before failed handoff, validated stream adoption followed by immediate purge before the first stream read, later stream failure without resurrection, zero automatic `/api/place-frontier` launch request, neutral globe with zero GLB load, one desktop scroll container, mobile order, keyboard/dialog semantics, reactive reduced motion, exact empty-query default onboarding, and unchanged known-flow/bare-run legacy routing.
+- [ ] **Step 2: Run RED, implement, and run GREEN.** Run `pnpm exec vitest run tests/integration/onboarding-experience.test.tsx tests/integration/product-shell.test.tsx tests/integration/research-globe-canvas.test.tsx tests/integration/visual-system.test.ts`; expect the onboarding components and neutral globe seam to be absent, implement them, and re-run it.
+- [ ] **Step 3: Write the timing-gate RED contract.** With an injected monotonic clock and fake journey, require exact count `2` and `35_000` ms to pass; `35_000.0001` (ceiled to `35_001`), clock rollback/non-finite values, any other count or an unaccepted handoff fails without a passing artifact. Pin the exact closed keys, fixture/digest bindings, stale-target removal, `0600` atomic final-LF write, fixed content-free failure, no retry and zero prompt/output/transcript content.
 - [ ] **Step 4: Run timing RED.** Run `pnpm exec vitest run tests/integration/onboarding-journey-timing-contract.test.ts`; expect the eval module to be absent.
-- [ ] **Step 5: Implement and run fake GREEN.** Add `"eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts"`. The real script uses only `onboarding-canonical-journey@1`, starts its monotonic timer immediately before the first extraction call, stops when the same Continue response is accepted as the Frontier handoff, and writes only the closed artifact. Re-run the timing contract test.
+- [ ] **Step 5: Implement and run fake GREEN.** Add `"eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts"`. The real script uses only the closed `onboarding-canonical-journey@1` fixture, starts its monotonic timer immediately before the first extraction call, and stops when the production strict opener/single-use handoff accepts an inert Frontier envelope constructed from the exact launched receipt/prepared identities. It never calls `runPlaceFrontier` and writes only the closed artifact. Re-run the timing contract test.
 - [ ] **Step 6: Obtain explicit authorization for the prepared-Mac OpenAI calls, then run the timing gate.** Run `pnpm run eval:onboarding-journey-timing -- --artifact data/evals/onboarding-journey-timing.json`; require an accepted handoff and `elapsedMs <= 35_000`. Missing authorization, model/runtime failure, an unobserved handoff, or `35_001+` ms writes no passing artifact and blocks completion.
 - [ ] **Step 7: Run `pnpm test`, `pnpm run typecheck`, `pnpm run lint`, `pnpm run build`, and `git diff --check`.**
 - [ ] **Step 8: Commit.**
@@ -1248,7 +1326,7 @@ message action and one Continue request per Continue action; it never auto-repea
 ```bash
 git add src/experience/components/OnboardingStart.tsx \
   src/experience/components/OnboardingQuestionnaire.tsx \
-  src/experience/components/OnboardingChat.tsx \
+  src/experience/components/OnboardingChat.tsx src/application/onboarding.ts \
   src/experience/components/ProductShell.tsx src/experience/components/WorkspaceGlobe.tsx \
   src/experience/research-map/contracts.ts \
   src/experience/research-map/ResearchGlobeCanvas.tsx \
@@ -1259,7 +1337,9 @@ git add src/experience/components/OnboardingStart.tsx \
   evals/fixtures/onboarding/canonical-journey.json \
   tests/integration/onboarding-experience.test.tsx \
   tests/integration/onboarding-journey-timing-contract.test.ts package.json \
-  tests/integration/product-shell.test.tsx tests/integration/research-globe-canvas.test.tsx
+  tests/integration/onboarding.test.ts tests/integration/onboarding-composition.test.ts \
+  tests/integration/onboarding-transport.test.ts tests/integration/product-shell.test.tsx \
+  tests/integration/research-globe-canvas.test.tsx tests/integration/visual-system.test.ts
 git commit -m "feat: deliver conversational onboarding"
 ```
 

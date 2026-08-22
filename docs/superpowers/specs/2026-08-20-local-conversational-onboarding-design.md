@@ -43,6 +43,10 @@ Country Frontier. Отдельного экрана повторного под�
 13. Competition questionnaire имеет один закрытый versioned field catalog. Установленный country
     package не может незаметно добавлять в onboarding новые обязательные поля.
 
+Точный disclosure первого экрана: `Содержимое анкеты передаётся в OpenAI через установленный Codex
+CLI с вашим текущим личным входом ChatGPT/Codex. API-ключ не нужен; обработка моделью не является
+локальной.`
+
 ## 3. Экран onboarding
 
 ### Desktop
@@ -66,6 +70,11 @@ Country Frontier. Отдельного экрана повторного под�
 - Закреплённая компактная панель показывает последний вопрос модели и переводит пользователя к
   чату, не скрывая форму.
 - Основное действие и ошибки остаются доступны без горизонтальной прокрутки.
+
+Neutral globe является отдельной закрытой presentation-веткой: у неё нет origin, marker, label,
+route, aircraft или verdict. Existing routed globe contract сохраняет обязательный origin и свои
+байты. Slow idle rotation включается только без `prefers-reduced-motion`; при изменении media query
+уже запущенное вращение останавливается.
 
 ## 4. Структура анкеты
 
@@ -204,23 +213,31 @@ observed model/runtime metadata сохраняется в eval artifact, тол�
   переезда и полями сопровождающих, либо планом работы и её условиями.
 
 Ревью возвращает точные field IDs и закрытый reason code каждой проблемы. UI отрисовывает из него
-краткое объяснение. Поля получают inline error,
-чат задаёт необходимые уточняющие вопросы, а переход не выполняется. После исправлений пользователь
-снова нажимает `Продолжить`.
+краткое объяснение. Поля получают inline error, чат дословно показывает server follow-up
+`Заполните выделенные поля.`, не добавляя его в server-owned session messages, а переход не
+выполняется. После исправлений пользователь снова нажимает `Продолжить`.
 
 Если блокеров нет, приложение атомарно фиксирует Profile Snapshot, расширенный Preference Profile
 Snapshot с country и universal city values и закрытое questionnaire provenance, очищает session
 chat и сразу запускает Country Frontier.
 
+Browser adoption упорядочен: strict validation NDJSON/identity headers, создание single-use handoff,
+установка `?flow=place-frontier&run=<runId>`, затем один discriminated `editing -> frontier` state
+transition, который удаляет draft/transcript/composer/issues до первого чтения stream. Ошибка до
+этого перехода отменяет неусыновлённый stream и сохраняет форму; ошибка stream после перехода не
+восстанавливает onboarding. Отдельный browser launch-запрос к `/api/place-frontier` не выполняется.
+
 ## 8. Privacy и сохранение
 
-- Полный transcript существует только во время onboarding.
+- Полный transcript существует только во время onboarding в эфемерной памяти React и локальной
+  Node-обработки текущего запроса.
 - После успешного перехода transcript не сохраняется в journey history.
 - Durable whitelist ограничен подтверждёнными structured snapshots, field IDs, typed old/new
   values, origin enum, closed reason codes, review state и версиями Codex invocation/schema.
 - Краткие объяснения отрисовываются из reason code и не сохраняются отдельным свободным текстом.
-- Transcript, message excerpts, source spans, prompts, raw model output, embeddings и session/temp
-  caches удаляются при завершении session. Application/crash/telemetry logs не содержат их content.
+- Transcript, raw manual input, message excerpts, source spans, prompts, raw model output, embeddings
+  и completion command никогда не попадают в durable state, logs, telemetry или eval artifacts и
+  удаляются из browser state при принятии Frontier handoff.
 - Codex CLI получает только данные текущей onboarding session либо явно выбранные
   golden/adversarial fixtures. Они могут передаваться OpenAI через личный Codex login.
 - Приложение не отправляет questionnaire content иным providers и не включает его в
