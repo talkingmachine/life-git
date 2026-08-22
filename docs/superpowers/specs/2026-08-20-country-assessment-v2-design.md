@@ -87,8 +87,10 @@ profile ID, effective interval, catalog routes and all sealed Evidence reference
 
 Для Slovenia accepted attestation дополнительно требует `jurisdiction === "SI"`, exact
 `profileSnapshotId`, `evidenceSnapshotId === evidence.id`, effective interval, покрывающий
-`assessmentAt`, и catalog route IDs, точно равные derived formal route IDs. Каждая catalog Evidence
-reference использует `evidence.id`, а её `artifactId` существует в `evidence.artifactIds`.
+`assessmentAt`, и applicable catalog route IDs, точно равные derived formal route IDs. Separately
+proved excluded catalog routes могут присутствовать рядом. Каждая catalog Evidence reference
+использует `evidence.id`, а её `artifactId` существует в `evidence.artifactIds`. При пустом derived
+route set attestation отбрасывается, чтобы пустое исследование не стало red по vacuous truth.
 Descriptor-safe mismatch отбрасывается до formal call, а не превращается в domain result. Пока
 verified catalog-attestation producer/loader отсутствует и installed Slovenia catalog имеет
 `completeness: "unproven"`, production передаёт `undefined`; synthetic test attestation проверяет
