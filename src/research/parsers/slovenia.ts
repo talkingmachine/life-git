@@ -520,7 +520,47 @@ const ZTUJ2_ROUTE_LINES = {
   article55Opening: "(1) Dovoljenje za prebivanje v Republiki Sloveniji se tujcu ne izda, če:",
 } as const;
 
-function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string): SloveniaValidationResult {
+function suffixFrom(text: string, marker: string): string {
+  const index = text.indexOf(marker);
+  if (index < 0) throw new Error("invalid parser policy");
+  return text.slice(index);
+}
+
+const GOV_REMOTE_WORK_SUFFIX = suffixFrom(GOV_ROUTE_LINES.workScope, "who is either employed");
+const ZTUJ2_REMOTE_WORK_SUFFIX = suffixFrom(ZTUJ2_ROUTE_LINES.workScope, "je zaposlen");
+
+function uniqueLineEndingWith(lines: readonly string[], suffix: string): string | null {
+  const matches = lines.filter((line) => line.endsWith(suffix));
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function uniquePisrsItemEndingWith(
+  article: PisrsArticle,
+  structure: string,
+  suffix: string,
+): PisrsTextItem | null {
+  const matches = article.items.filter((item) =>
+    item.struktura === structure && normalizedMarkupText(item.vsebina).endsWith(suffix)
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+export type SloveniaRouteClaimSubsetResult =
+  | { readonly ok: true; readonly claims: readonly VerifiedCountryClaim[] }
+  | { readonly ok: false; readonly kind: "integrity_mismatch" | "semantic_mismatch" };
+
+type ParsedSloveniaRouteClaimSubset =
+  | {
+      readonly ok: true;
+      readonly claims: readonly VerifiedCountryClaim[];
+      readonly legacyComplete: boolean;
+    }
+  | { readonly ok: false; readonly kind: "semantic_mismatch" };
+
+function parseRouteClaimSubset(
+  entry: ParserEntry<SloveniaSourceId>,
+  assessmentAt: string,
+): ParsedSloveniaRouteClaimSubset {
   const gov = artifactByRole(entry, "gov-route-page");
   const document = decodePisrsDocument(
     entry,
@@ -540,7 +580,7 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
     "55. člen",
     "55. člen (zavrnitev izdaje dovoljenja za prebivanje)",
   );
-  if (govLines === null || article51 === null || article55 === null) {
+  if (govLines === null || article51 === null) {
     return { ok: false, kind: "semantic_mismatch" };
   }
   const applicability = article51.items[0]?.navezavaNPB?.vsebina;
@@ -552,7 +592,6 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
   const sourcePeriod = applicabilityMatch === null
     ? null
     : `${applicabilityMatch[3]}-${applicabilityMatch[2]}-${applicabilityMatch[1]}`;
-  const orderedGovLines = Object.values(GOV_ROUTE_LINES);
   const opening = uniquePisrsItem(article51, "odstavek", ZTUJ2_ROUTE_LINES.opening);
   const workScope = uniquePisrsItem(
     article51,
@@ -581,30 +620,35 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
     "odstavek",
     ZTUJ2_ROUTE_LINES.reapplication,
   );
-  const article55Opening = uniquePisrsItem(
-    article55,
-    "odstavek",
-    ZTUJ2_ROUTE_LINES.article55Opening,
-  );
+  const article55Opening = article55 === null
+    ? null
+    : uniquePisrsItem(
+        article55,
+        "odstavek",
+        ZTUJ2_ROUTE_LINES.article55Opening,
+      );
+  const article55FollowsArticle51 = article55 !== null &&
+    article51.startIndex < article55.startIndex &&
+    article51.contentsIndex < article55.contentsIndex;
   const completeArticle51 = pisrsArticleText(article51);
   if (
     sourcePeriod === null ||
     !isIsoDateAtOrBefore(sourcePeriod, assessmentAt) ||
-    sourcePeriod !== "2025-11-21" ||
-    orderedGovLines.some((line) => uniqueLine(govLines, line) === null) ||
-    !markersAreStrictlyOrdered(govLines, orderedGovLines) ||
-    [opening, workScope, passport, insurance, funds, refusalGrounds, duration, reapplication,
-      article55Opening].some((item) => item === null) ||
-    article51.startIndex >= article55.startIndex ||
-    article51.contentsIndex >= article55.contentsIndex ||
-    /\b(?:diploma|degree|qualification)\b|izobraz/iu.test(completeArticle51)
+    sourcePeriod !== "2025-11-21"
   ) return { ok: false, kind: "semantic_mismatch" };
 
-  const govTitle = uniqueLine(govLines, GOV_ROUTE_LINES.title)!;
-  const govPublicationDate = uniqueLine(govLines, GOV_ROUTE_LINES.publishedAt)!;
-  const govWorkScope = uniqueLine(govLines, GOV_ROUTE_LINES.workScope)!;
-  const govDuration = uniqueLine(govLines, GOV_ROUTE_LINES.duration)!;
-  const govFamily = uniqueLine(govLines, GOV_ROUTE_LINES.family)!;
+  const orderedGovLines = Object.values(GOV_ROUTE_LINES);
+  const govTitle = uniqueLine(govLines, GOV_ROUTE_LINES.title);
+  const govPublicationDate = uniqueLine(govLines, GOV_ROUTE_LINES.publishedAt);
+  const govWorkScope = uniqueLine(govLines, GOV_ROUTE_LINES.workScope);
+  const govRemoteWorkScope = uniqueLineEndingWith(govLines, GOV_REMOTE_WORK_SUFFIX);
+  const govDuration = uniqueLine(govLines, GOV_ROUTE_LINES.duration);
+  const govFamily = uniqueLine(govLines, GOV_ROUTE_LINES.family);
+  const remoteWorkScope = uniquePisrsItemEndingWith(
+    article51,
+    "alinea_za_odstavkom",
+    ZTUJ2_REMOTE_WORK_SUFFIX,
+  );
   const version = `${document.selected.identity} ${document.selected.label}`;
   const govRef = (locator: string, lines: readonly string[]) =>
     evidenceRef(entry.sourceId, gov, sourcePeriod, locator, lines.join(" "));
@@ -616,72 +660,138 @@ function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string):
       `PISRS ${version} > ${locator}`,
       items.map(pisrsItemText).join(" "),
     );
-  const claimInputs: readonly [
-    ClaimKind,
-    ClaimValueByKind[ClaimKind],
-    readonly CountryEvidenceRef[],
-  ][] = [
-    ["route_basis", {
+
+  const claims: VerifiedCountryClaim[] = [];
+  if (opening !== null && article51.items[0] !== undefined) {
+    const evidence = [] as CountryEvidenceRef[];
+    if (govTitle !== null && govPublicationDate !== null) {
+      evidence.push(govRef("GOV.SI route title and publication date", [
+        govTitle,
+        govPublicationDate,
+      ]));
+    }
+    evidence.push(lawRef("51.a člen > route basis", [article51.items[0], opening]));
+    claims.push(verifiedClaim(entry.sourceId, "route_basis", {
       route: "temporary_residence_digital_nomad",
       legalBasis: "ZTuj-2 Article 51a",
       effectiveFrom: "2025-11-21",
-    }, [
-      govRef("GOV.SI route title and publication date", [
-        govTitle,
-        govPublicationDate,
-      ]),
-      lawRef("51.a člen > route basis", [article51.items[0]!, opening!]),
-    ]],
-    ["citizenship_applicability", {
+    }, sourcePeriod, evidence, "si-route@2"));
+  }
+
+  const citizenshipEvidence = [] as CountryEvidenceRef[];
+  if (workScope !== null) {
+    citizenshipEvidence.push(lawRef("51.a člen > citizenship scope", [workScope]));
+  }
+  if (govWorkScope !== null) {
+    citizenshipEvidence.push(govRef("GOV.SI citizenship scope", [govWorkScope]));
+  }
+  if (citizenshipEvidence.length > 0) {
+    claims.push(verifiedClaim(entry.sourceId, "citizenship_applicability", {
       eligibleCategory: "third_country_national",
       explicitNationalityExclusions: ["EU", "EEA"],
-    }, [
-      lawRef("51.a člen > citizenship scope", [workScope!]),
-      govRef("GOV.SI citizenship scope", [govWorkScope]),
-    ]],
-    ["remote_work_relations", {
+    }, sourcePeriod, citizenshipEvidence, "si-route@2"));
+  }
+
+  const remoteEvidence = [] as CountryEvidenceRef[];
+  if (remoteWorkScope !== null) {
+    remoteEvidence.push(lawRef("51.a člen > remote-work relations", [remoteWorkScope]));
+  }
+  if (govRemoteWorkScope !== null) {
+    remoteEvidence.push(govRef("GOV.SI remote-work relations", [govRemoteWorkScope]));
+  }
+  if (remoteEvidence.length > 0) {
+    claims.push(verifiedClaim(entry.sourceId, "remote_work_relations", {
       allowedRelations: ["foreign_employer", "own_foreign_business", "foreign_clients"],
       slovenianLabourMarketWorkIncluded: false,
-    }, [
-      lawRef("51.a člen > remote-work relations", [workScope!]),
-      govRef("GOV.SI remote-work relations", [govWorkScope]),
-    ]],
-    ["qualification", { rule: "not_listed_in_authoritative_requirements" }, [
+    }, sourcePeriod, remoteEvidence, "si-route@2"));
+  }
+
+  const qualificationListed = /\b(?:diploma|degree|qualification)\b|izobraz/iu.test(
+    completeArticle51,
+  );
+  if (!qualificationListed) {
+    claims.push(verifiedClaim(entry.sourceId, "qualification", {
+      rule: "not_listed_in_authoritative_requirements",
+    }, sourcePeriod, [
       lawRef("51.a člen > complete bounded article", article51.items),
-    ]],
-    ["companion_entry", { rule: "immediate_family_reunification_without_waiting_period" }, [
+    ], "si-route@2"));
+  }
+
+  if (govFamily !== null) {
+    claims.push(verifiedClaim(entry.sourceId, "companion_entry", {
+      rule: "immediate_family_reunification_without_waiting_period",
+    }, sourcePeriod, [
       govRef("GOV.SI immediate family entry", [govFamily]),
-    ]],
-    ["duration", { maximumMonths: 12, extendable: false, reapplyAfterMonths: 6 }, [
-      govRef("GOV.SI route duration", [govDuration]),
-      lawRef("51.a člen > duration and reapplication", [duration!, reapplication!]),
-    ]],
-    ["general_statutory_prerequisites", {
+    ], "si-route@2"));
+  }
+
+  const durationEvidence = [] as CountryEvidenceRef[];
+  if (govDuration !== null) {
+    durationEvidence.push(govRef("GOV.SI route duration", [govDuration]));
+  }
+  if (duration !== null && reapplication !== null) {
+    durationEvidence.push(lawRef(
+      "51.a člen > duration and reapplication",
+      [duration, reapplication],
+    ));
+  }
+  if (durationEvidence.length > 0) {
+    claims.push(verifiedClaim(entry.sourceId, "duration", {
+      maximumMonths: 12,
+      extendable: false,
+      reapplyAfterMonths: 6,
+    }, sourcePeriod, durationEvidence, "si-route@2"));
+  }
+
+  if (
+    article55FollowsArticle51 && passport !== null && insurance !== null &&
+    refusalGrounds !== null &&
+    article55Opening !== null
+  ) {
+    claims.push(verifiedClaim(entry.sourceId, "general_statutory_prerequisites", {
       passportBeyondPermitMonths: 3,
       healthInsurance: true,
       article55GroundsApply: true,
-    }, [
+    }, sourcePeriod, [
       lawRef("51.a člen > passport, insurance, and refusal prerequisites", [
-        passport!,
-        insurance!,
-        refusalGrounds!,
+        passport,
+        insurance,
+        refusalGrounds,
       ]),
-      lawRef("55. člen > refusal grounds opening", [article55Opening!]),
-    ]],
-  ];
+      lawRef("55. člen > refusal grounds opening", [article55Opening]),
+    ], "si-route@2"));
+  }
+
   return {
     ok: true,
-    claims: claimInputs.map(([kind, value, claimEvidence]) =>
-      verifiedClaim(
-        entry.sourceId,
-        kind,
-        value,
-        sourcePeriod,
-        claimEvidence,
-        "si-route@2",
-      )
-    ) as readonly VerifiedCountryClaim[],
+    claims,
+    legacyComplete:
+      orderedGovLines.every((line) => uniqueLine(govLines, line) !== null) &&
+      markersAreStrictlyOrdered(govLines, orderedGovLines) &&
+      article55FollowsArticle51 &&
+      [opening, workScope, passport, insurance, funds, refusalGrounds, duration, reapplication,
+        article55Opening].every((item) => item !== null) &&
+      !qualificationListed,
   };
+}
+
+export function validateSloveniaRouteClaimSubset(
+  entry: ParserEntry<SloveniaSourceId>,
+  assessmentAt: string,
+): SloveniaRouteClaimSubsetResult {
+  if (!entryHasValidIntegrity(entry)) return { ok: false, kind: "integrity_mismatch" };
+  const parsed = parseRouteClaimSubset(entry, assessmentAt);
+  return parsed.ok
+    ? { ok: true, claims: parsed.claims }
+    : parsed;
+}
+
+function parseRoute(entry: ParserEntry<SloveniaSourceId>, assessmentAt: string): SloveniaValidationResult {
+  const parsed = parseRouteClaimSubset(entry, assessmentAt);
+  if (!parsed.ok || !parsed.legacyComplete || parsed.claims.length !== 7) {
+    return { ok: false, kind: "semantic_mismatch" };
+  }
+  return { ok: true, claims: parsed.claims };
 }
 
 function gregorianMonthLength(year: number, month: number): number {

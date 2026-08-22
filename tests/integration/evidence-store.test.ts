@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -14,6 +15,13 @@ import type {
   LiveCapturedArtifact,
   SourceId,
 } from "../../src/research/contracts";
+import type { SloveniaSourceId } from "../../src/research/cold-start-contracts";
+import {
+  SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_PARSER_VERSIONS,
+  SLOVENIA_V2_RESEARCH_SCOPE,
+  SLOVENIA_V2_SOURCE_ORDER,
+} from "../../src/research/cold-start-contracts-v2";
 import {
   EVIDENCE_PARSER_VERSIONS,
   EVIDENCE_RULES_VERSION,
@@ -21,9 +29,12 @@ import {
   type TerminalEvidenceEntry,
 } from "../../src/research/run";
 import type {
+  SealedEvidence,
+  TerminalEvidenceEntry as GenericTerminalEvidenceEntry,
   VerifiedEvidenceBundle,
   VerifiedLoadExpectations,
 } from "../../src/research/research-plan";
+import { sealEvidencePlan } from "../../src/research/research-plan";
 
 const KEY = "integration-test-key-at-least-32-bytes";
 const INTEGRITY = createEvidenceIntegrity(KEY);
@@ -144,6 +155,74 @@ function completeEntries(): readonly TerminalEvidenceEntry[] {
   return SOURCE_IDS.map((sourceId) => verifiedEntry(sourceId));
 }
 
+type V3Claim = Claim<{ readonly present: true }, SloveniaSourceId>;
+
+function v3Artifact(
+  sourceId: SloveniaSourceId,
+  index: number,
+): LiveCapturedArtifact<SloveniaSourceId> {
+  const bytes = Uint8Array.of(index + 10);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const url = `https://official.example/${sourceId}`;
+  return {
+    artifactId: `${sourceId}:official-document:${sha256}`,
+    runId: "v3-persistence-run",
+    sourceId,
+    role: "official-document",
+    url,
+    mediaType: "application/octet-stream",
+    sha256,
+    bytes,
+    origin: "live",
+    capturedAt: "2026-08-22T10:00:00.000Z",
+    responseStatus: 200,
+    responseUrl: url,
+    request: { method: "GET", url },
+  };
+}
+
+function v3Entries(): readonly GenericTerminalEvidenceEntry<SloveniaSourceId, V3Claim>[] {
+  return SLOVENIA_V2_SOURCE_ORDER.map((sourceId, index) => {
+    const sourceArtifact = v3Artifact(sourceId, index);
+    return {
+      sourceId,
+      parserEntry: {
+        sourceId,
+        navigationUrl: sourceArtifact.url,
+        resolvedEvidenceUrl: sourceArtifact.responseUrl,
+        artifacts: [sourceArtifact],
+      },
+      coverage: "verified",
+      claims: [{
+        claimId: `${sourceId}-v3-facts`,
+        sourceId,
+        value: { present: true },
+        scope: SLOVENIA_V2_RESEARCH_SCOPE,
+        sourcePeriod: "2026-08-22",
+        anchor: {
+          artifactId: sourceArtifact.artifactId,
+          locator: "V3 fixture locator",
+          excerptSha256: "a".repeat(64),
+        },
+        status: "verified",
+      }],
+    };
+  });
+}
+
+async function sealedV3(
+  sourceIds: readonly SloveniaSourceId[] = SLOVENIA_V2_SOURCE_ORDER,
+): Promise<SealedEvidence<SloveniaSourceId, V3Claim>> {
+  return sealEvidencePlan({
+    id: `v3-${sourceIds.join("-")}`,
+    assessmentDate: "2026-08-22",
+    entries: v3Entries(),
+    sourceIds,
+    parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+    rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  }, createEvidenceIntegrity(KEY));
+}
+
 describe("append-only evidence persistence", () => {
   test("stores raw bytes before parsing and seals one snapshot only after all five entries are terminal", async () => {
     const db = database();
@@ -258,6 +337,146 @@ describe("append-only evidence persistence", () => {
     expect(() => db.prepare("DELETE FROM artifacts").run()).toThrow();
     expect(() => db.prepare("UPDATE evidence_snapshots SET rules_version = 'changed'").run()).toThrow();
     expect(() => db.prepare("DELETE FROM evidence_snapshots").run()).toThrow();
+  });
+});
+
+describe("Country Assessment V2 evidence persistence", () => {
+  test("uses the exact @3 structural source order while retaining generic storage", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore<SloveniaSourceId, V3Claim>(db);
+    const entries = v3Entries();
+    for (const entry of entries) {
+      await store.appendArtifact(entry.parserEntry.artifacts[0] as LiveCapturedArtifact<SloveniaSourceId>);
+    }
+    const sealed = await sealedV3();
+
+    await store.seal(sealed);
+
+    await expect(store.loadVerified(sealed.snapshot.id, KEY, {
+      parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+      rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+    })).resolves.toEqual(sealed.snapshot);
+    const reversed = await sealedV3([...SLOVENIA_V2_SOURCE_ORDER].reverse());
+    await expect(store.seal(reversed)).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("rejects hostile borrowed inputs on append, seal, and expected-load without Proxy traps", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore<SloveniaSourceId, V3Claim>(db);
+    const entries = v3Entries();
+    let traps = 0;
+    const trap = (): never => {
+      traps += 1;
+      throw new Error("proxy trap must not run");
+    };
+    const proxiedArtifact = new Proxy(
+      entries[0]!.parserEntry.artifacts[0] as LiveCapturedArtifact<SloveniaSourceId>,
+      { get: trap, getOwnPropertyDescriptor: trap, getPrototypeOf: trap, ownKeys: trap },
+    );
+    const revokedArtifact = Proxy.revocable(
+      structuredClone(entries[0]!.parserEntry.artifacts[0]) as LiveCapturedArtifact<SloveniaSourceId>,
+      {},
+    );
+    revokedArtifact.revoke();
+
+    await expect(store.appendArtifact(proxiedArtifact)).rejects.toThrow("integrity_mismatch");
+    await expect(store.appendArtifact(revokedArtifact.proxy)).rejects.toThrow("integrity_mismatch");
+    expect(traps).toBe(0);
+
+    const polluted = structuredClone(
+      entries[0]!.parserEntry.artifacts[0],
+    ) as LiveCapturedArtifact<SloveniaSourceId>;
+    Object.defineProperty(polluted, "__proto__", {
+      enumerable: true,
+      value: { polluted: true },
+    });
+    await expect(store.appendArtifact(polluted)).rejects.toThrow("integrity_mismatch");
+
+    for (const entry of entries) {
+      await store.appendArtifact(entry.parserEntry.artifacts[0] as LiveCapturedArtifact<SloveniaSourceId>);
+    }
+    const sealed = await sealedV3();
+    const proxiedSealed = new Proxy(sealed, {
+      get: trap,
+      getOwnPropertyDescriptor: trap,
+      getPrototypeOf: trap,
+      ownKeys: trap,
+    });
+    await expect(store.seal(proxiedSealed)).rejects.toThrow("integrity_mismatch");
+    expect(traps).toBe(0);
+    await store.seal(sealed);
+
+    const expected = new Proxy({
+      parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+      rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+    }, {
+      get: trap,
+      getOwnPropertyDescriptor: trap,
+      getPrototypeOf: trap,
+      ownKeys: trap,
+    });
+    await expect(store.loadVerified(sealed.snapshot.id, KEY, expected)).rejects.toThrow(
+      "integrity_mismatch",
+    );
+    expect(traps).toBe(0);
+  });
+
+  test("rejects hostile Uint8Array internals on append, seal, and expected-load without traps", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore<SloveniaSourceId, V3Claim>(db);
+    const entries = v3Entries();
+    let traps = 0;
+    const trap = (): never => {
+      traps += 1;
+      throw new Error("typed-array trap must not run");
+    };
+    const poisonedBytes = (
+      poison: "proxy prototype" | "buffer getter" | "byteLength getter",
+    ): Uint8Array => {
+      const bytes = Uint8Array.of(1, 2, 3);
+      if (poison === "proxy prototype") {
+        Object.setPrototypeOf(bytes, new Proxy(Uint8Array.prototype, { getPrototypeOf: trap }));
+      } else {
+        Object.defineProperty(bytes, poison === "buffer getter" ? "buffer" : "byteLength", {
+          configurable: true,
+          get: trap,
+        });
+      }
+      return bytes;
+    };
+
+    const append = structuredClone(
+      entries[0]!.parserEntry.artifacts[0],
+    ) as LiveCapturedArtifact<SloveniaSourceId>;
+    (append as { bytes: Uint8Array }).bytes = poisonedBytes("proxy prototype");
+    await expect(store.appendArtifact(append)).rejects.toThrow("integrity_mismatch");
+    expect(traps).toBe(0);
+
+    for (const entry of entries) {
+      await store.appendArtifact(entry.parserEntry.artifacts[0] as LiveCapturedArtifact<SloveniaSourceId>);
+    }
+    const sealed = await sealedV3();
+    const sealInput = structuredClone(sealed) as SealedEvidence<SloveniaSourceId, V3Claim>;
+    Object.defineProperty(sealInput, "typedArrayPoison", {
+      enumerable: true,
+      value: poisonedBytes("buffer getter"),
+    });
+    await expect(store.seal(sealInput)).rejects.toThrow("integrity_mismatch");
+    expect(traps).toBe(0);
+    await store.seal(sealed);
+
+    const expected = {
+      parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+      rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+    };
+    Object.defineProperty(expected, "typedArrayPoison", {
+      enumerable: true,
+      value: poisonedBytes("byteLength getter"),
+    });
+    await expect(store.loadVerified(sealed.snapshot.id, KEY, expected)).rejects.toThrow(
+      "integrity_mismatch",
+    );
+    expect(traps).toBe(0);
   });
 });
 
