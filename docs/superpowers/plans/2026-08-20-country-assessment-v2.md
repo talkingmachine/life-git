@@ -342,9 +342,11 @@ Money handling is closed: EUR direct; RUB through a fresh sealed CBR claim; any 
 - Modify: `tests/integration/cold-start.test.ts`
 - Modify: `tests/integration/country-knowledge.test.ts`
 - Modify: `tests/integration/database-schema.test.ts`
+- Modify: `tests/integration/confirmed-life.test.ts`
 - Create: `tests/integration/dossier-store-v2.test.ts`
 - Modify: `tests/integration/evidence-store.test.ts`
 - Modify: `tests/integration/profile-store.test.ts`
+- Modify: `tests/branch/life-git.test.ts`
 
 **Interfaces:**
 - Consumes: verified profile union from onboarding Task 6A, V1 research methods unchanged, V2 plan/assessor from Tasks 1–3.
