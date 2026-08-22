@@ -6,7 +6,11 @@ import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
-import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
+import {
+  loadVerifiedCountryEvidence,
+  loadVerifiedCountryEvidenceV2,
+  SqliteEvidenceStore,
+} from "../../src/infrastructure/sqlite/evidence-store";
 import { createEvidenceIntegrity, secureHexEqual } from "../../src/infrastructure/integrity";
 import type { ReplayEvidenceStore } from "../../src/application/replay-evidence";
 import type {
@@ -212,13 +216,14 @@ function v3Entries(): readonly GenericTerminalEvidenceEntry<SloveniaSourceId, V3
 
 async function sealedV3(
   sourceIds: readonly SloveniaSourceId[] = SLOVENIA_V2_SOURCE_ORDER,
+  parserVersions: Readonly<Record<SloveniaSourceId, string>> = SLOVENIA_V2_PARSER_VERSIONS,
 ): Promise<SealedEvidence<SloveniaSourceId, V3Claim>> {
   return sealEvidencePlan({
     id: `v3-${sourceIds.join("-")}`,
     assessmentDate: "2026-08-22",
     entries: v3Entries(),
     sourceIds,
-    parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+    parserVersions,
     rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
   }, createEvidenceIntegrity(KEY));
 }
@@ -478,6 +483,73 @@ describe("Country Assessment V2 evidence persistence", () => {
     );
     expect(traps).toBe(0);
   });
+
+  test("projects only exact V3 Evidence into the V2 Knowledge input", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore<SloveniaSourceId, V3Claim>(db);
+    const entries = v3Entries();
+    for (const entry of entries) {
+      await store.appendArtifact(entry.parserEntry.artifacts[0] as LiveCapturedArtifact<SloveniaSourceId>);
+    }
+    const sealed = await sealedV3();
+    await store.seal(sealed);
+
+    const projected = loadVerifiedCountryEvidenceV2(db, sealed.snapshot.id, KEY);
+
+    expect(projected.snapshot).toEqual(sealed.snapshot);
+    expect(projected.entries.map(({ sourceId }) => sourceId)).toEqual([...SLOVENIA_V2_SOURCE_ORDER]);
+    expect(projected.artifacts).toHaveLength(entries.length);
+    expect(projected.artifacts.every((artifact) => !("bytes" in artifact))).toBe(true);
+    expect(() => loadVerifiedCountryEvidence(db, sealed.snapshot.id, KEY))
+      .toThrow("integrity_mismatch");
+  });
+
+  test("keeps the V1 Knowledge projection closed to V3 and the V2 projection closed to V1", async () => {
+    const db = database();
+    const v3Store = new SqliteEvidenceStore<SloveniaSourceId, V3Claim>(db);
+    for (const entry of v3Entries()) {
+      await v3Store.appendArtifact(entry.parserEntry.artifacts[0] as LiveCapturedArtifact<SloveniaSourceId>);
+    }
+    const v3 = await sealedV3();
+    await v3Store.seal(v3);
+
+    const v1Store = new SqliteEvidenceStore(db);
+    for (const entry of completeEntries()) {
+      await v1Store.appendArtifact(entry.parserEntry.artifacts[0]! as LiveCapturedArtifact);
+    }
+    const v1 = await sealEvidence({
+      id: "v1-knowledge-boundary",
+      assessmentDate: ASSESSMENT_DATE,
+      entries: completeEntries(),
+      parserVersions: EVIDENCE_PARSER_VERSIONS,
+      rulesVersion: EVIDENCE_RULES_VERSION,
+    }, INTEGRITY);
+    await v1Store.seal(v1);
+
+    expect(() => loadVerifiedCountryEvidenceV2(db, v1.snapshot.id, KEY))
+      .toThrow("integrity_mismatch");
+    expect(() => loadVerifiedCountryEvidence(db, v3.snapshot.id, KEY))
+      .toThrow("integrity_mismatch");
+  });
+
+  test("rejects @3 Evidence when one parser version drifts", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore<SloveniaSourceId, V3Claim>(db);
+    for (const entry of v3Entries()) {
+      await store.appendArtifact(
+        entry.parserEntry.artifacts[0] as LiveCapturedArtifact<SloveniaSourceId>,
+      );
+    }
+    const drifted = await sealedV3(SLOVENIA_V2_SOURCE_ORDER, {
+      ...SLOVENIA_V2_PARSER_VERSIONS,
+      "si-income-threshold": "si-income@999",
+    });
+    await store.seal(drifted);
+
+    expect(() => loadVerifiedCountryEvidenceV2(db, drifted.snapshot.id, KEY))
+      .toThrow("integrity_mismatch");
+  });
+
 });
 
 describe("verified Evidence dependency boundary", () => {

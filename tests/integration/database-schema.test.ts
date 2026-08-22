@@ -135,6 +135,153 @@ describe("database schema preflight", () => {
     ).get()).toEqual({ sql: "CREATE TABLE country_knowledge_revisions (id TEXT PRIMARY KEY)" });
   });
 
+  test("rejects an existing incompatible V2 dossier table before schema execution", () => {
+    const path = temporaryDatabasePath();
+    const incompatible = track(new Database(path));
+    incompatible.exec("CREATE TABLE dossier_versions_v2 (id TEXT PRIMARY KEY)");
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(verification.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'dossier_versions_v2'",
+    ).get()).toEqual({ sql: "CREATE TABLE dossier_versions_v2 (id TEXT PRIMARY KEY)" });
+    expect(verification.prepare(
+      `SELECT COUNT(*) AS count FROM sqlite_master
+       WHERE name NOT LIKE 'sqlite_%' AND name <> 'dossier_versions_v2'`,
+    ).get()).toEqual({ count: 0 });
+  });
+
+  test("rejects an altered V2 dossier immutability trigger before schema execution", () => {
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const tampered = track(new Database(path));
+    tampered.exec(`
+      DROP TRIGGER dossier_versions_v2_no_update;
+      CREATE TRIGGER dossier_versions_v2_no_update
+      BEFORE UPDATE ON dossier_versions_v2
+      BEGIN
+        SELECT RAISE(ABORT, 'wrong_v2_immutability_guard');
+      END;
+    `);
+    const before = storedSchema(tampered);
+    tampered.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test.each([
+    ["missing one-root", "DROP INDEX dossier_versions_v2_one_root"],
+    [
+      "altered one-successor",
+      `DROP INDEX dossier_versions_v2_one_successor;
+       CREATE INDEX dossier_versions_v2_one_successor
+       ON dossier_versions_v2 (predecessor_id)`,
+    ],
+  ] as const)("rejects a %s V2 chain index before schema execution", (_name, sql) => {
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const tampered = track(new Database(path));
+    tampered.exec(sql);
+    const before = storedSchema(tampered);
+    tampered.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("adds the exact V2 dossier table to a legacy database with no V2 objects", () => {
+    const path = temporaryDatabasePath();
+    const legacy = track(openEvidenceDatabase(path));
+    legacy.exec(`
+      DROP TRIGGER dossier_versions_v2_no_update;
+      DROP TRIGGER dossier_versions_v2_no_delete;
+      DROP INDEX dossier_versions_v2_one_root;
+      DROP INDEX dossier_versions_v2_one_successor;
+      DROP TABLE dossier_versions_v2;
+    `);
+    const legacyV1DossierSql = legacy.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'dossier_versions'",
+    ).pluck().get();
+    legacy.close();
+
+    const upgraded = track(openEvidenceDatabase(path));
+
+    expect(upgraded.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'dossier_versions'",
+    ).pluck().get()).toBe(legacyV1DossierSql);
+    expect(upgraded.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE tbl_name = 'dossier_versions_v2' AND name NOT LIKE 'sqlite_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "index", name: "dossier_versions_v2_one_root" },
+      { type: "index", name: "dossier_versions_v2_one_successor" },
+      { type: "table", name: "dossier_versions_v2" },
+      { type: "trigger", name: "dossier_versions_v2_no_delete" },
+      { type: "trigger", name: "dossier_versions_v2_no_update" },
+    ]);
+  });
+
+  test.each(["trigger", "index"] as const)(
+    "rejects an orphan V2 dossier %s name before creating the table",
+    (kind) => {
+      const path = temporaryDatabasePath();
+      const orphaned = track(new Database(path));
+      orphaned.exec("CREATE TABLE unrelated (id TEXT PRIMARY KEY)");
+      if (kind === "trigger") {
+        orphaned.exec(`
+          CREATE TRIGGER dossier_versions_v2_no_delete
+          BEFORE DELETE ON unrelated
+          BEGIN SELECT RAISE(ABORT, 'orphan'); END
+        `);
+      } else {
+        orphaned.exec(`
+          CREATE UNIQUE INDEX dossier_versions_v2_one_root ON unrelated (id)
+        `);
+      }
+      const before = storedSchema(orphaned);
+      orphaned.close();
+
+      expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+      const verification = track(new Database(path, { readonly: true }));
+      expect(storedSchema(verification)).toEqual(before);
+    },
+  );
+
+  test.each([
+    [
+      "poison insert trigger",
+      `CREATE TRIGGER dossier_versions_v2_poison
+       BEFORE INSERT ON dossier_versions_v2
+       BEGIN SELECT RAISE(ABORT, 'poison_v2_insert'); END`,
+    ],
+    [
+      "extra unique payload index",
+      `CREATE UNIQUE INDEX dossier_versions_v2_extra_payload
+       ON dossier_versions_v2 (country_code, payload_hash)`,
+    ],
+  ] as const)("rejects a V2 dossier %s before schema execution", (_name, sql) => {
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const tampered = track(new Database(path));
+    tampered.exec(sql);
+    const before = storedSchema(tampered);
+    tampered.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
   test("rejects a representative e506 schema before its unsafe mixed row can be used", () => {
     const path = temporaryDatabasePath();
     const legacy = createRunRevisionsSchema(path, {
@@ -211,6 +358,7 @@ describe("database schema preflight", () => {
       { name: "country_knowledge_revisions" },
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
+      { name: "dossier_versions_v2" },
       { name: "evidence_snapshots" },
       { name: "onboarding_confirmations" },
       { name: "place_frontier_snapshots" },
@@ -342,8 +490,120 @@ describe("database schema preflight", () => {
     `).all()).toEqual([
       { type: "index", name: "dossier_versions_one_root" },
       { type: "index", name: "dossier_versions_one_successor" },
+      { type: "index", name: "dossier_versions_v2_one_root" },
+      { type: "index", name: "dossier_versions_v2_one_successor" },
+      { type: "table", name: "dossier_versions_v2" },
       { type: "trigger", name: "dossier_versions_no_delete" },
       { type: "trigger", name: "dossier_versions_no_update" },
+      { type: "trigger", name: "dossier_versions_v2_no_delete" },
+      { type: "trigger", name: "dossier_versions_v2_no_update" },
+    ]);
+    expect(reopened.prepare(`
+      SELECT type, name, sql FROM sqlite_master
+      WHERE name IN (
+        'dossier_versions',
+        'dossier_versions_one_root',
+        'dossier_versions_one_successor',
+        'dossier_versions_no_update',
+        'dossier_versions_no_delete'
+      )
+      ORDER BY type, name
+    `).all()).toEqual([
+      {
+        type: "index",
+        name: "dossier_versions_one_root",
+        sql: `CREATE UNIQUE INDEX dossier_versions_one_root
+ON dossier_versions (country_code, schema_version)
+WHERE predecessor_id IS NULL`,
+      },
+      {
+        type: "index",
+        name: "dossier_versions_one_successor",
+        sql: `CREATE UNIQUE INDEX dossier_versions_one_successor
+ON dossier_versions (predecessor_id)
+WHERE predecessor_id IS NOT NULL`,
+      },
+      {
+        type: "table",
+        name: "dossier_versions",
+        sql: `CREATE TABLE dossier_versions (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (length(country_code) = 2 AND country_code = upper(country_code)),
+  predecessor_id TEXT REFERENCES dossier_versions(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  schema_version TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  manifest_hash TEXT NOT NULL CHECK (length(manifest_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  published_at TEXT NOT NULL,
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (country_code, schema_version, payload_hash)
+)`,
+      },
+      {
+        type: "trigger",
+        name: "dossier_versions_no_delete",
+        sql: `CREATE TRIGGER dossier_versions_no_delete
+BEFORE DELETE ON dossier_versions
+BEGIN
+  SELECT RAISE(ABORT, 'dossier_version_is_immutable');
+END`,
+      },
+      {
+        type: "trigger",
+        name: "dossier_versions_no_update",
+        sql: `CREATE TRIGGER dossier_versions_no_update
+BEFORE UPDATE ON dossier_versions
+BEGIN
+  SELECT RAISE(ABORT, 'dossier_version_is_immutable');
+END`,
+      },
+    ]);
+    const dossierV2Columns = reopened.prepare(
+      "PRAGMA table_info(dossier_versions_v2)",
+    ).all() as { readonly name: string }[];
+    expect(dossierV2Columns.map(({ name }) => name)).toEqual([
+      "id",
+      "country_code",
+      "predecessor_id",
+      "evidence_snapshot_id",
+      "schema_version",
+      "payload_json",
+      "payload_hash",
+      "manifest_hash",
+      "hmac",
+      "published_at",
+    ]);
+    const dossierV2ForeignKeys = reopened.prepare(
+      "PRAGMA foreign_key_list(dossier_versions_v2)",
+    ).all() as Array<{ readonly table: string; readonly from: string; readonly to: string }>;
+    expect(dossierV2ForeignKeys.map(({ table, from, to }) => ({ table, from, to })))
+      .toEqual(expect.arrayContaining([
+        {
+          table: "dossier_versions_v2",
+          from: "predecessor_id",
+          to: "id",
+        },
+        {
+          table: "evidence_snapshots",
+          from: "evidence_snapshot_id",
+          to: "id",
+        },
+      ]));
+    const dossierV2UniqueIndexes = reopened.prepare(
+      "PRAGMA index_list(dossier_versions_v2)",
+    ).all() as Array<{ readonly name: string; readonly unique: number }>;
+    const dossierV2UniqueColumns = dossierV2UniqueIndexes
+      .filter(({ unique }) => unique === 1)
+      .map(({ name }) => (reopened.prepare(`PRAGMA index_info('${name}')`).all() as
+        Array<{ readonly name: string }>).map(({ name }) => name).join(","))
+      .sort();
+    expect(dossierV2UniqueColumns).toEqual([
+      "country_code",
+      "country_code,evidence_snapshot_id",
+      "id",
+      "predecessor_id",
     ]);
 
     expect(reopened.prepare(`

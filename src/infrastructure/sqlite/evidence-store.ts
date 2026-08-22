@@ -22,12 +22,15 @@ import type {
   SloveniaSourceId,
 } from "../../research/cold-start-contracts";
 import {
+  type ColdStartEvidenceClaimV2,
   SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_PARSER_VERSIONS,
   SLOVENIA_V2_SOURCE_ORDER,
 } from "../../research/cold-start-contracts-v2";
 import type {
   KnowledgeEvidenceEntry,
   VerifiedCountryEvidenceInput,
+  VerifiedCountryEvidenceInputV2,
 } from "../../research/country-knowledge";
 import {
   assertSealedEvidenceStructure,
@@ -559,6 +562,37 @@ const SLOVENIA_PARSER_VERSIONS: Readonly<Record<SloveniaSourceId, string>> = {
   "cbr-eur": "cbr-eur@1",
 };
 
+/** @internal Verified, byte-free Knowledge projection for the closed V2 contract. */
+export function loadVerifiedCountryEvidenceV2(
+  database: Database.Database,
+  id: string,
+  key: string,
+): VerifiedCountryEvidenceInputV2 {
+  const verified = loadVerifiedEvidenceBundle<SloveniaSourceId, ColdStartEvidenceClaimV2>(
+    database,
+    id,
+    createEvidenceIntegrity(key),
+    {
+      parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+      rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+    },
+  );
+  const { snapshot, manifest } = verified;
+  const entries: readonly KnowledgeEvidenceEntry[] = manifest.entries.map((entry) => ({
+    sourceId: entry.sourceId,
+    navigationUrl: entry.navigationUrl,
+    ...(entry.indexedSourceUrl === undefined ? {} : { indexedSourceUrl: entry.indexedSourceUrl }),
+    resolvedEvidenceUrl: entry.resolvedEvidenceUrl,
+    artifactIds: [...entry.artifactIds],
+    ...(entry.versionHint === undefined ? {} : { versionHint: entry.versionHint }),
+  }));
+  return {
+    snapshot,
+    entries,
+    artifacts: manifest.artifacts.map((artifact) => ({ ...artifact })),
+  };
+}
+
 /** @internal Verified, byte-free Knowledge projection for transactional consumers. */
 export function loadVerifiedCountryEvidence(
   database: Database.Database,
@@ -645,5 +679,12 @@ export class SqliteEvidenceStore<
     key: string,
   ): Promise<VerifiedCountryEvidenceInput> {
     return loadVerifiedCountryEvidence(this.database, id, key);
+  }
+
+  async loadVerifiedCountryEvidenceV2(
+    id: string,
+    key: string,
+  ): Promise<VerifiedCountryEvidenceInputV2> {
+    return loadVerifiedCountryEvidenceV2(this.database, id, key);
   }
 }

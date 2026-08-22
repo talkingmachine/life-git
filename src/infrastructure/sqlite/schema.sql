@@ -97,6 +97,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS dossier_versions_one_root
 ON dossier_versions (country_code, schema_version)
 WHERE predecessor_id IS NULL;
 
+CREATE TABLE IF NOT EXISTS dossier_versions_v2 (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (country_code = 'SI'),
+  predecessor_id TEXT REFERENCES dossier_versions_v2(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'si-dossier@2'),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  manifest_hash TEXT NOT NULL CHECK (length(manifest_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  published_at TEXT NOT NULL,
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (country_code, evidence_snapshot_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS dossier_versions_v2_one_successor
+ON dossier_versions_v2 (predecessor_id)
+WHERE predecessor_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS dossier_versions_v2_one_root
+ON dossier_versions_v2 (country_code)
+WHERE predecessor_id IS NULL;
+
 CREATE TABLE IF NOT EXISTS profile_snapshots (
   id TEXT PRIMARY KEY,
   confirmed_at TEXT NOT NULL,
@@ -293,6 +316,18 @@ CREATE TRIGGER IF NOT EXISTS dossier_versions_no_delete
 BEFORE DELETE ON dossier_versions
 BEGIN
   SELECT RAISE(ABORT, 'dossier_version_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS dossier_versions_v2_no_update
+BEFORE UPDATE ON dossier_versions_v2
+BEGIN
+  SELECT RAISE(ABORT, 'dossier_version_v2_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS dossier_versions_v2_no_delete
+BEFORE DELETE ON dossier_versions_v2
+BEGIN
+  SELECT RAISE(ABORT, 'dossier_version_v2_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS profile_snapshots_no_update

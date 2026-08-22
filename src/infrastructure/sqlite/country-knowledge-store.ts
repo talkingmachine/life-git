@@ -2,14 +2,20 @@ import type Database from "better-sqlite3";
 
 import {
   buildSloveniaKnowledgeRevision,
+  buildSloveniaKnowledgeRevisionV2,
   type InstalledCountryKnowledgeRevision,
   type KnowledgeStatusObservation,
   type SloveniaCountryKnowledgeRevision,
   type VerifiedCountryEvidenceInput,
+  type VerifiedCountryEvidenceInputV2,
 } from "../../research/country-knowledge";
 import type { ClaimKind, SloveniaSourceId } from "../../research/cold-start-contracts";
+import { SLOVENIA_V2_EVIDENCE_RULES_VERSION } from "../../research/cold-start-contracts-v2";
 import { canonicalJson, hmacSha256, secureHexEqual, sha256Text } from "../integrity";
-import { loadVerifiedCountryEvidence } from "./evidence-store";
+import {
+  loadVerifiedCountryEvidence,
+  loadVerifiedCountryEvidenceV2,
+} from "./evidence-store";
 
 export interface CountryKnowledgeStore {
   publish(revision: InstalledCountryKnowledgeRevision): InstalledCountryKnowledgeRevision;
@@ -35,6 +41,16 @@ interface KnowledgeRow {
   readonly hmac: string;
   readonly created_at: string;
 }
+
+type VerifiedKnowledgeEvidence =
+  | {
+      readonly rulesVersion: "vs2-si-evidence@2";
+      readonly evidence: VerifiedCountryEvidenceInput;
+    }
+  | {
+      readonly rulesVersion: typeof SLOVENIA_V2_EVIDENCE_RULES_VERSION;
+      readonly evidence: VerifiedCountryEvidenceInputV2;
+    };
 
 const CLAIM_KINDS: readonly ClaimKind[] = [
   "route_basis",
@@ -232,12 +248,8 @@ export class SqliteCountryKnowledgeStore implements CountryKnowledgeStore {
 
   resolveForEvidence(evidenceSnapshotId: string): CountryKnowledgePublication {
     try {
-      const evidence = loadVerifiedCountryEvidence(
-        this.database,
-        evidenceSnapshotId,
-        this.hmacKey,
-      );
-      return this.resolveVerifiedEvidence(evidence);
+      const verified = this.loadVerifiedKnowledgeEvidence(evidenceSnapshotId);
+      return this.resolveVerifiedEvidence(verified.evidence);
     } catch {
       integrityMismatch();
     }
@@ -245,25 +257,17 @@ export class SqliteCountryKnowledgeStore implements CountryKnowledgeStore {
 
   publishCurrentFromEvidence(evidenceSnapshotId: string): CountryKnowledgePublication {
     const publish = this.database.transaction((): CountryKnowledgePublication => {
-      const evidence = loadVerifiedCountryEvidence(
-        this.database,
-        evidenceSnapshotId,
-        this.hmacKey,
-      );
-      const bound = this.resolveVerifiedEvidence(evidence);
+      const verified = this.loadVerifiedKnowledgeEvidence(evidenceSnapshotId);
+      const bound = this.resolveVerifiedEvidence(verified.evidence);
       if (bound.publishedRevision !== undefined) return bound;
-      const createdAt = evidence.artifacts
+      const createdAt = verified.evidence.artifacts
         .filter(({ sourceId }) => sourceId !== "cbr-eur")
         .map(({ capturedAt }) => capturedAt)
         .sort()
         .at(-1);
       if (createdAt === undefined) return bound;
       const predecessor = this.latest("SI");
-      const revision = buildSloveniaKnowledgeRevision({
-        evidence,
-        ...(predecessor === undefined ? {} : { predecessor }),
-        createdAt,
-      });
+      const revision = this.buildExpectedRevision(verified, predecessor, createdAt);
       if (revision === undefined) return bound;
       const publishedRevision = this.insertVerified(revision, predecessor);
       return { publishedRevision, currentRevision: publishedRevision };
@@ -276,7 +280,7 @@ export class SqliteCountryKnowledgeStore implements CountryKnowledgeStore {
   }
 
   private resolveVerifiedEvidence(
-    evidence: VerifiedCountryEvidenceInput,
+    evidence: VerifiedCountryEvidenceInput | VerifiedCountryEvidenceInputV2,
   ): CountryKnowledgePublication {
     const triggeredRows = this.database.prepare(`
       SELECT id FROM country_knowledge_revisions
@@ -358,18 +362,52 @@ export class SqliteCountryKnowledgeStore implements CountryKnowledgeStore {
     revision: SloveniaCountryKnowledgeRevision,
     predecessor: SloveniaCountryKnowledgeRevision | undefined,
   ): void {
-    const evidence = loadVerifiedCountryEvidence(
-      this.database,
-      revision.triggerEvidenceSnapshotId,
-      this.hmacKey,
-    );
-    const expected = buildSloveniaKnowledgeRevision({
-      evidence,
-      ...(predecessor === undefined ? {} : { predecessor }),
-      createdAt: revision.createdAt,
-    });
+    const evidence = this.loadVerifiedKnowledgeEvidence(revision.triggerEvidenceSnapshotId);
+    const expected = this.buildExpectedRevision(evidence, predecessor, revision.createdAt);
     if (expected === undefined || canonicalJson(expected) !== canonicalJson(revision)) {
       integrityMismatch();
     }
+  }
+
+  private loadVerifiedKnowledgeEvidence(evidenceSnapshotId: string): VerifiedKnowledgeEvidence {
+    const row = this.database.prepare(
+      "SELECT rules_version FROM evidence_snapshots WHERE id = ?",
+    ).get(evidenceSnapshotId) as { readonly rules_version: string } | undefined;
+    if (row === undefined) throw new Error("evidence_not_found");
+    if (row.rules_version === "vs2-si-evidence@2") {
+      return {
+        rulesVersion: "vs2-si-evidence@2",
+        evidence: loadVerifiedCountryEvidence(
+          this.database,
+          evidenceSnapshotId,
+          this.hmacKey,
+        ),
+      };
+    }
+    if (row.rules_version === SLOVENIA_V2_EVIDENCE_RULES_VERSION) {
+      return {
+        rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+        evidence: loadVerifiedCountryEvidenceV2(
+          this.database,
+          evidenceSnapshotId,
+          this.hmacKey,
+        ),
+      };
+    }
+    integrityMismatch();
+  }
+
+  private buildExpectedRevision(
+    verified: VerifiedKnowledgeEvidence,
+    predecessor: SloveniaCountryKnowledgeRevision | undefined,
+    createdAt: string,
+  ): SloveniaCountryKnowledgeRevision | undefined {
+    const common = {
+      ...(predecessor === undefined ? {} : { predecessor }),
+      createdAt,
+    };
+    return verified.rulesVersion === "vs2-si-evidence@2"
+      ? buildSloveniaKnowledgeRevision({ evidence: verified.evidence, ...common })
+      : buildSloveniaKnowledgeRevisionV2({ evidence: verified.evidence, ...common });
   }
 }

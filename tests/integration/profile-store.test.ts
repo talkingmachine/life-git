@@ -244,4 +244,38 @@ describe("typed profile snapshot persistence", () => {
       .rejects.toThrow("integrity_mismatch");
     database.close();
   });
+
+  test("loads relocation snapshots through the closed Any reader without widening V1", async () => {
+    const database = openEvidenceDatabase(":memory:");
+    const store = new SqliteProfileStore(database);
+    const v1 = snapshotFixture("relocation").snapshot as RelocationProfileSnapshot;
+    const v2 = v2Snapshots().profile;
+    const preferenceV1 = snapshotFixture("preference").snapshot as PreferenceProfileSnapshot;
+    const preferenceV2 = v2Snapshots().preferences;
+    await store.appendRelocation(v1);
+    await store.appendPreference(preferenceV1);
+    seedSnapshot(database, v2);
+    seedSnapshot(database, preferenceV2);
+
+    await expect(store.loadRelocationAnyVerified(v1.id)).resolves.toEqual(v1);
+    await expect(store.loadRelocationAnyVerified(v2.id)).resolves.toEqual(v2);
+    await expect(store.loadRelocationAnyVerified(preferenceV1.id))
+      .rejects.toThrow("integrity_mismatch");
+    await expect(store.loadRelocationAnyVerified(preferenceV2.id))
+      .rejects.toThrow("integrity_mismatch");
+    await expect(store.loadRelocationVerified(v2.id)).rejects.toThrow("integrity_mismatch");
+    await expect(store.loadRelocationAnyVerified("f".repeat(64)))
+      .rejects.toThrow("profile_not_found");
+
+    database.exec("DROP TRIGGER profile_snapshots_no_update");
+    const invalid = { ...v2, schemaVersion: "relocation-profile@3" };
+    const invalidJson = canonicalJson(invalid);
+    database.prepare(`
+      INSERT INTO profile_snapshots (id, confirmed_at, snapshot_json, snapshot_hash)
+      VALUES (?, ?, ?, ?)
+    `).run("e".repeat(64), v2.confirmedAt, invalidJson, sha256Text(invalidJson));
+    await expect(store.loadRelocationAnyVerified("e".repeat(64)))
+      .rejects.toThrow("integrity_mismatch");
+    database.close();
+  });
 });

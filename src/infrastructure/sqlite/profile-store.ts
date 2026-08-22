@@ -32,6 +32,9 @@ interface TypedProfileSnapshot {
 type ReconfirmSnapshot<T extends TypedProfileSnapshot> = (snapshot: T) => T;
 
 export interface ProfileStoreV2Reads {
+  loadRelocationAnyVerified(
+    id: string,
+  ): Promise<RelocationProfileSnapshot | RelocationProfileV2Snapshot>;
   loadRelocationV2Verified(id: string): Promise<RelocationProfileV2Snapshot>;
   loadPreferenceV2Verified(id: string): Promise<PreferenceProfileV2Snapshot>;
   loadPreferenceForRankingVerified(
@@ -286,6 +289,15 @@ export class SqliteProfileStore implements ProfileStoreV2Reads {
 
   async loadRelocationV2Verified(id: string): Promise<RelocationProfileV2Snapshot> {
     return loadRelocationV2SnapshotVerified(this.database, id);
+  }
+
+  async loadRelocationAnyVerified(
+    id: string,
+  ): Promise<RelocationProfileSnapshot | RelocationProfileV2Snapshot> {
+    const schemaVersion = loadStoredSchemaVersion(this.database, id);
+    if (schemaVersion === "relocation-profile@1") return this.loadRelocationVerified(id);
+    if (schemaVersion === "relocation-profile@2") return this.loadRelocationV2Verified(id);
+    integrityMismatch();
   }
 
   async loadPreferenceV2Verified(id: string): Promise<PreferenceProfileV2Snapshot> {
