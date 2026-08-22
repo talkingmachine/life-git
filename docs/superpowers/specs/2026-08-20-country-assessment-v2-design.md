@@ -412,7 +412,9 @@ unscoped V2 country claims. Scoped `duration` and
 and status are retired rather than carried forward or selected by array order. Scope remains in the
 V2 Dossier and Assessment; no optional scope field or new Knowledge schema is introduced here. V1
 revision bytes are unchanged, and a V2-triggered revision may append after a V1 predecessor without
-rewriting it.
+rewriting it. Existing transient-source atomicity also remains unchanged: a relevant timeout,
+deadline, rate limit or server error publishes no Knowledge successor, leaving the predecessor
+current and deferring scoped retirement until an otherwise publishable revision.
 
 Participant explanations remain in the canonical Country Frontier result instead of disappearing
 after `assessColdStartV2`. Cold Start constructs this projection while it still owns both the

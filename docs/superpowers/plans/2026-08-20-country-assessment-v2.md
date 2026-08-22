@@ -513,7 +513,10 @@ V3 because `FormalKnowledgeReference` has no participant scope and permits only 
 `ClaimKind`; if a V3 revision contains either scoped kind, any predecessor reference and status for
 that kind is retired instead of being silently reused or last-write-wins. Those scoped facts remain
 only in V2 Dossier/Assessment. No `scope` field is added to `country-knowledge@1`, and no claim value
-or artifact byte enters a Knowledge revision.
+or artifact byte enters a Knowledge revision. The historical atomic transient policy is preserved:
+any relevant `timeout`, `deadline`, `rate_limited` or `server_error` returns no revision, so the
+current predecessor remains unchanged and scoped retirement is deferred until an otherwise
+publishable Evidence revision.
 
 `SqliteCountryKnowledgeStore.resolveForEvidence`, `publishCurrentFromEvidence` and revision replay
 keep their current signatures and dispatch only after reading the stored exact rules branch:
