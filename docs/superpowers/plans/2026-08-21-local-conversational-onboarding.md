@@ -1163,6 +1163,12 @@ git commit -m "feat: launch frontier from onboarding"
 
 ### Task 8: Deliver the questionnaire/chat workspace as the default route
 
+**Execution split:** complete the UI, fixture and timing-contract preparation in Steps 1–4, then
+execute Task 10 in full before resuming Steps 5–8. Task 10 owns the V2 wire/evidence upgrade and its
+timing changes satisfy the implementation half of Step 5; Task 8 re-runs that fake gate, runs the
+authorized real gates and commits the remaining UI slice. This split keeps the unchanged canonical
+fixture available to Task 10 without making completed Task 8 depend on a future type or artifact.
+
 **Files:**
 - Create: `src/experience/components/OnboardingStart.tsx`
 - Create: `src/experience/components/OnboardingQuestionnaire.tsx`
@@ -1234,6 +1240,7 @@ export async function runOnboardingJourneyTimingForTest(input: {
   readonly runCanonicalJourney: () => Promise<{
     readonly acceptedFrontierHandoff: boolean;
     readonly modelInvocationCount: number;
+    readonly modelVersions: unknown;
   }>;
   readonly monotonicNowMs: () => number;
 }): Promise<OnboardingJourneyTimingArtifact>;
@@ -1567,7 +1574,7 @@ git commit -m "feat: bind onboarding to city criteria"
 
 **Interfaces:**
 - Consumes: the completed Task 3 `LocalExtractionResult@1`, Task 5 confirmation HMAC, Task 7
-  receipt-to-Frontier handoff, and Task 8 canonical timing fixture.
+  receipt-to-Frontier handoff, and the Task 8 Steps 1–4 canonical timing fixture/runner scaffold.
 - Produces: a compact external extraction protocol whose decoded result is byte-equivalent to the
   existing internal model result, plus exact historical/current lineage reconstruction.
 
