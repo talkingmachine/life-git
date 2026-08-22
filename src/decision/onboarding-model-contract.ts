@@ -1,4 +1,9 @@
 import {
+  CITY_PREFERENCE_IDS,
+  COUNTRY_PREFERENCE_IDS,
+  ONBOARDING_BASE_FIELD_IDS,
+  PARTICIPANT_LEAF_IDS,
+  PREFERENCE_PARTS,
   type CityPreferenceFieldId,
   type CountryPreferenceFieldId,
   type CurrentWorkValue,
@@ -6,9 +11,11 @@ import {
   type IsoCountryCode,
   type MonthlyIncomeValue,
   type OnboardingBaseFieldId,
+  type OnboardingModelFieldId,
   type ParticipantDescriptor,
   type ParticipantLeafId,
   type ParticipantRosterProposal,
+  type ParsedLocalFieldProposal,
   type PassportValue,
   type RemoteContinuationValue,
 } from "./onboarding-catalog";
@@ -25,6 +32,8 @@ import {
   type OnboardingFieldValue,
   type ParticipantRosterValue,
   type QuestionnaireIssue,
+  type QuestionnaireApplicability,
+  type QuestionnaireFieldState,
 } from "./onboarding-questionnaire";
 import {
   reconstructOnboardingSessionState,
@@ -70,9 +79,20 @@ export interface GuardedExtraction {
   readonly nextQuestion: string;
 }
 
+export interface OnboardingQuestionnaireProjectionField {
+  readonly fieldId: OnboardingModelFieldId;
+  readonly applicability: QuestionnaireApplicability;
+  readonly normalizedValue: ParsedLocalFieldProposal["typedValue"] | null;
+}
+
+export interface OnboardingQuestionnaireProjection {
+  readonly schemaVersion: "onboarding-questionnaire-projection@1";
+  readonly fields: readonly OnboardingQuestionnaireProjectionField[];
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const PARTICIPANT_FIELD = /^participants\.(self|companion\.(?:0|[1-9][0-9]*))\.(citizenships|passport|current_work|remote_continuation|monthly_income|education|relevant_experience_years)$/;
-const DURABLE_PARTICIPANT_FIELD = /^participants\.([0-9a-f-]+)\.(citizenships|passport|current_work|remote_continuation|monthly_income|education|relevant_experience_years)$/;
+const PARTICIPANT_FIELD = /^participants\.(self|companion\.(?:0|[1-9][0-9]*))\.([a-z_]+)$/;
+const DURABLE_PARTICIPANT_FIELD = /^participants\.([0-9a-f-]+)\.([a-z_]+)$/;
 const PLACEHOLDERS = new Set(["-", "не знаю", "неизвестно", "unknown", "n/a", "na"]);
 const EXPLICIT_EVIDENCE = /[\p{L}\p{N}]/u;
 const MAX_PARTICIPANTS = 20;
@@ -97,9 +117,18 @@ export function guardExtraction(input: {
     return retainEvidenceSpan(message.text, proposal.sourceSpan.start, proposal.sourceSpan.end);
   });
   const rosterProposal = retained.find(({ fieldId }) => fieldId === "participants");
+  const currentDescriptorRoster = descriptorRoster(currentRoster);
   const candidateRoster = rosterProposal?.fieldId === "participants"
     ? rosterProposal.typedValue
-    : descriptorRoster(currentRoster);
+    : currentDescriptorRoster;
+  const rosterIsNoOp = rosterProposal?.fieldId === "participants" &&
+    rosterProposal.typedValue.length === currentDescriptorRoster.length &&
+    rosterProposal.typedValue.every((participant, index) => {
+      const current = currentDescriptorRoster[index];
+      return current !== undefined &&
+        participant.descriptor === current.descriptor &&
+        participant.relationship === current.relationship;
+    });
   if (candidateRoster.length > MAX_PARTICIPANTS) throw invalidContract();
   const proposedWork = new Map<ParticipantDescriptor, CurrentWorkValue>();
   for (const proposal of retained) {
@@ -109,7 +138,9 @@ export function guardExtraction(input: {
     }
   }
 
-  const proposals = retained.map((proposal): GuardedExtractionProposal => {
+  const proposals = retained
+    .filter((proposal) => proposal.fieldId !== "participants" || !rosterIsNoOp)
+    .map((proposal): GuardedExtractionProposal => {
     if (proposal.fieldId === "participants") {
       return deepFreeze({
         kind: "participant_roster" as const,
@@ -140,12 +171,14 @@ export function guardExtraction(input: {
       >,
       normalizedValue: cloneOnboardingFieldValueForDecision(proposal.fieldId, proposal.typedValue),
     });
-  });
+    });
 
   return deepFreeze({ proposals, nextQuestion: parsed.nextQuestion });
 }
 
-export function projectQuestionnaireForModel(session: OnboardingSessionState): unknown {
+export function projectQuestionnaireForModel(
+  session: OnboardingSessionState,
+): OnboardingQuestionnaireProjection {
   const current = reconstructOnboardingSessionState(session);
   const draft = current.draft;
   const roster = readCurrentRoster(draft);
@@ -153,16 +186,75 @@ export function projectQuestionnaireForModel(session: OnboardingSessionState): u
   const descriptorByParticipant = new Map(
     [...bindings].map(([descriptor, participantId]) => [participantId, descriptor] as const),
   );
-  const fields = draft.fields.map((field) => {
+  const fields = draft.fields.map((field): OnboardingQuestionnaireProjectionField => {
     const fieldId = projectFieldId(field.fieldId, descriptorByParticipant);
     const normalizedValue = field.fieldId === "participants"
       ? descriptorRoster(roster)
       : field.normalizedValue === null
         ? null
-        : cloneOnboardingFieldValueForDecision(field.fieldId, field.normalizedValue);
+        : cloneOnboardingFieldValueForDecision(
+            field.fieldId,
+            field.normalizedValue,
+          ) as ParsedLocalFieldProposal["typedValue"];
     return deepFreeze({ fieldId, applicability: field.applicability, normalizedValue });
   });
   return deepFreeze({ schemaVersion: "onboarding-questionnaire-projection@1" as const, fields });
+}
+
+export function reconstructOnboardingQuestionnaireProjection(
+  value: unknown,
+): OnboardingQuestionnaireProjection {
+  const projection = exactRecord(value, ["schemaVersion", "fields"]);
+  if (projection.schemaVersion !== "onboarding-questionnaire-projection@1") {
+    throw invalidContract();
+  }
+  const rawFields = denseProjectionArray(projection.fields, 172);
+  if (rawFields.length < 39) throw invalidContract();
+
+  const rawRosterField = exactRecord(rawFields[3], ["fieldId", "applicability", "normalizedValue"]);
+  if (
+    rawRosterField.fieldId !== "participants" ||
+    rawRosterField.applicability !== "required" ||
+    rawRosterField.normalizedValue === null
+  ) {
+    throw invalidContract();
+  }
+  const roster = parseProjectedValue("participants", rawRosterField.normalizedValue) as unknown as
+    readonly ParticipantRosterProposal[];
+  if (roster.length > MAX_PARTICIPANTS) throw invalidContract();
+
+  const expectedFieldIds = canonicalProjectionFieldIds(roster);
+  if (rawFields.length !== expectedFieldIds.length) throw invalidContract();
+  const fields = rawFields.map((rawField, index): OnboardingQuestionnaireProjectionField => {
+    const field = exactRecord(rawField, ["fieldId", "applicability", "normalizedValue"]);
+    const fieldId = expectedFieldIds[index];
+    if (
+      fieldId === undefined ||
+      field.fieldId !== fieldId ||
+      (field.applicability !== "required" && field.applicability !== "not_applicable")
+    ) {
+      throw invalidContract();
+    }
+    const normalizedValue = fieldId === "participants"
+      ? roster
+      : field.normalizedValue === null
+        ? null
+        : parseProjectedValue(fieldId, field.normalizedValue);
+    return {
+      fieldId,
+      applicability: field.applicability,
+      normalizedValue,
+    };
+  });
+
+  reconstructOnboardingDraft({
+    schemaVersion: "onboarding-draft@1",
+    fields: durableProjectionFields(fields, roster),
+  });
+  return deepFreeze({
+    schemaVersion: "onboarding-questionnaire-projection@1",
+    fields,
+  });
 }
 
 export function corroborateModelReview(input: {
@@ -225,7 +317,11 @@ function parseParticipantProposalField(fieldId: string): {
   readonly leafId: ParticipantLeafId;
 } | undefined {
   const match = PARTICIPANT_FIELD.exec(fieldId);
-  if (match === null || match[1] === undefined || match[2] === undefined) return undefined;
+  if (
+    match?.[1] === undefined ||
+    match[2] === undefined ||
+    !PARTICIPANT_LEAF_IDS.includes(match[2] as ParticipantLeafId)
+  ) return undefined;
   return {
     descriptor: match[1] as ParticipantDescriptor,
     leafId: match[2] as ParticipantLeafId,
@@ -314,15 +410,124 @@ function matchingBindings(
 function projectFieldId(
   fieldId: OnboardingFieldId,
   descriptorByParticipant: ReadonlyMap<string, ParticipantDescriptor>,
-): string {
+): OnboardingModelFieldId {
   const match = DURABLE_PARTICIPANT_FIELD.exec(fieldId);
-  if (match === null) return fieldId;
+  if (match === null) return fieldId as OnboardingModelFieldId;
   const participantId = match[1];
   const leafId = match[2];
-  if (participantId === undefined || leafId === undefined || !UUID.test(participantId)) throw invalidContract();
+  if (
+    participantId === undefined ||
+    leafId === undefined ||
+    !UUID.test(participantId) ||
+    !PARTICIPANT_LEAF_IDS.includes(leafId as ParticipantLeafId)
+  ) throw invalidContract();
   const descriptor = descriptorByParticipant.get(participantId);
   if (descriptor === undefined) throw invalidContract();
-  return `participants.${descriptor}.${leafId}`;
+  return `participants.${descriptor}.${leafId}` as OnboardingModelFieldId;
+}
+
+function canonicalProjectionFieldIds(
+  roster: readonly ParticipantRosterProposal[],
+): OnboardingModelFieldId[] {
+  return [
+    ...ONBOARDING_BASE_FIELD_IDS,
+    ...roster.flatMap(({ descriptor }) =>
+      PARTICIPANT_LEAF_IDS.map((leafId) => `participants.${descriptor}.${leafId}` as const)),
+    ...COUNTRY_PREFERENCE_IDS.flatMap((preferenceId) =>
+      PREFERENCE_PARTS.map((part) => `country_preferences.${preferenceId}.${part}` as const)),
+    ...CITY_PREFERENCE_IDS.flatMap((preferenceId) =>
+      PREFERENCE_PARTS.map((part) => `city_preferences.${preferenceId}.${part}` as const)),
+  ];
+}
+
+function parseProjectedValue(
+  fieldId: OnboardingModelFieldId,
+  value: unknown,
+): ParsedLocalFieldProposal["typedValue"] {
+  const parsed = parseLocalExtractionOutput({
+    schemaVersion: "onboarding-model-output@1",
+    proposals: [{
+      fieldId,
+      typedValue: value,
+      messageId: "projection",
+      sourceSpan: { start: 0, end: 1 },
+    }],
+    nextQuestion: "projection",
+  });
+  const proposal = parsed.proposals[0];
+  if (proposal === undefined) throw invalidContract();
+  return proposal.typedValue;
+}
+
+function durableProjectionFields(
+  fields: readonly OnboardingQuestionnaireProjectionField[],
+  roster: readonly ParticipantRosterProposal[],
+): QuestionnaireFieldState[] {
+  const participantIds = new Map<ParticipantDescriptor, string>();
+  for (const [index, { descriptor }] of roster.entries()) {
+    participantIds.set(descriptor, projectionParticipantId(index));
+  }
+  return fields.map((field): QuestionnaireFieldState => {
+    const fieldId = durableProjectionFieldId(field.fieldId, participantIds);
+    const normalizedValue = field.fieldId === "participants"
+      ? roster.map(({ descriptor, relationship }) => ({
+          participantId: requireProjectionParticipantId(participantIds, descriptor),
+          relationship,
+        }))
+      : field.normalizedValue;
+    if (field.applicability === "not_applicable") {
+      if (normalizedValue !== null) throw invalidContract();
+      return {
+        fieldId,
+        applicability: "not_applicable",
+        rawInput: null,
+        normalizedValue: null,
+        origin: "empty",
+        overwrite: null,
+      };
+    }
+    if (normalizedValue === null) {
+      return {
+        fieldId,
+        applicability: "required",
+        rawInput: null,
+        normalizedValue: null,
+        origin: "empty",
+        overwrite: null,
+      };
+    }
+    return {
+      fieldId,
+      applicability: "required",
+      rawInput: null,
+      normalizedValue: normalizedValue as OnboardingFieldValue,
+      origin: "manual",
+      overwrite: null,
+    };
+  });
+}
+
+function durableProjectionFieldId(
+  fieldId: OnboardingModelFieldId,
+  participantIds: ReadonlyMap<ParticipantDescriptor, string>,
+): OnboardingFieldId {
+  const participant = parseParticipantProposalField(fieldId);
+  if (participant === undefined) return fieldId as OnboardingFieldId;
+  const participantId = requireProjectionParticipantId(participantIds, participant.descriptor);
+  return `participants.${participantId}.${participant.leafId}`;
+}
+
+function requireProjectionParticipantId(
+  participantIds: ReadonlyMap<ParticipantDescriptor, string>,
+  descriptor: ParticipantDescriptor,
+): string {
+  const participantId = participantIds.get(descriptor);
+  if (participantId === undefined) throw invalidContract();
+  return participantId;
+}
+
+function projectionParticipantId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
 }
 
 function resolveReviewFieldId(
@@ -356,7 +561,7 @@ function exactRecord(value: unknown, expectedKeys: readonly string[]): Record<st
     Object.getPrototypeOf(value) !== Object.prototype || Object.getOwnPropertySymbols(value).length > 0) {
     throw invalidContract();
   }
-  const keys = Object.keys(value);
+  const keys = Object.getOwnPropertyNames(value);
   if (keys.length !== expectedKeys.length || !expectedKeys.every((key) => keys.includes(key))) {
     throw invalidContract();
   }
@@ -365,6 +570,30 @@ function exactRecord(value: unknown, expectedKeys: readonly string[]): Record<st
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (descriptor?.enumerable !== true || !("value" in descriptor)) throw invalidContract();
     result[key] = descriptor.value;
+  }
+  return result;
+}
+
+function denseProjectionArray(value: unknown, maximumLength: number): unknown[] {
+  if (
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    Object.getOwnPropertySymbols(value).length > 0 ||
+    value.length > maximumLength
+  ) {
+    throw invalidContract();
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const expectedKeys = new Set([
+    ...Array.from({ length: value.length }, (_, index) => String(index)),
+    "length",
+  ]);
+  if (Object.keys(descriptors).some((key) => !expectedKeys.has(key))) throw invalidContract();
+  const result: unknown[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor?.enumerable !== true || !("value" in descriptor)) throw invalidContract();
+    result.push(descriptor.value);
   }
   return result;
 }

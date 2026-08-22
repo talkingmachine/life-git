@@ -4,6 +4,8 @@ import {
   corroborateModelReview,
   guardExtraction,
   projectQuestionnaireForModel,
+  reconstructOnboardingQuestionnaireProjection,
+  type OnboardingQuestionnaireProjection,
 } from "../../src/decision/onboarding-model-contract";
 import type { OnboardingSessionState } from "../../src/decision/onboarding-session";
 import {
@@ -51,6 +53,81 @@ function rawExtraction(proposals: readonly unknown[], nextQuestion = "Что е�
 }
 
 describe("onboarding model contract", () => {
+  test("round-trips the exact frozen canonical questionnaire projection", () => {
+    const projected: OnboardingQuestionnaireProjection = projectQuestionnaireForModel(session());
+    const reconstructed = reconstructOnboardingQuestionnaireProjection(projected);
+
+    expect(reconstructed).toEqual(projected);
+    expect(reconstructed).not.toBe(projected);
+    expect(reconstructed.fields).not.toBe(projected.fields);
+    expect(reconstructed.fields).toHaveLength(39);
+    expect(reconstructed.fields.map(({ fieldId }) => fieldId).slice(0, 12)).toEqual([
+      "current_location",
+      "move_horizon",
+      "moving_party",
+      "participants",
+      "savings",
+      "participants.self.citizenships",
+      "participants.self.passport",
+      "participants.self.current_work",
+      "participants.self.remote_continuation",
+      "participants.self.monthly_income",
+      "participants.self.education",
+      "participants.self.relevant_experience_years",
+    ]);
+    expect(Object.isFrozen(reconstructed)).toBe(true);
+    expect(Object.isFrozen(reconstructed.fields)).toBe(true);
+    expect(reconstructed.fields.every(Object.isFrozen)).toBe(true);
+  });
+
+  test("rejects noncanonical, mismatched, and hostile questionnaire projections", () => {
+    type MutableProjection = {
+      schemaVersion: string;
+      fields: Array<{
+        fieldId: string;
+        applicability: string;
+        normalizedValue: unknown;
+      }>;
+    };
+    const projected = projectQuestionnaireForModel(session());
+    const plain = structuredClone(projected) as unknown as MutableProjection;
+    const swapped = structuredClone(projected) as unknown as MutableProjection;
+    [swapped.fields[0], swapped.fields[1]] = [swapped.fields[1]!, swapped.fields[0]!];
+    const invalidValue = structuredClone(projected) as unknown as MutableProjection;
+    invalidValue.fields[1]!.normalizedValue = "soon";
+    const invalidApplicability = structuredClone(projected) as unknown as MutableProjection;
+    invalidApplicability.fields[0]!.applicability = "not_applicable";
+    const sparse = structuredClone(projected) as unknown as MutableProjection;
+    delete sparse.fields[1];
+    const decorated = structuredClone(projected) as unknown as MutableProjection;
+    Object.assign(decorated.fields, { extra: true });
+    const symbol = { ...plain, [Symbol("extra")]: true };
+    const cycle = structuredClone(projected) as unknown as MutableProjection;
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    cycle.fields[0]!.normalizedValue = cyclic;
+    const getter = Object.defineProperty({ schemaVersion: projected.schemaVersion }, "fields", {
+      enumerable: true,
+      get: () => {
+        throw new Error("getter invoked");
+      },
+    });
+
+    for (const invalid of [
+      { ...plain, extra: true },
+      swapped,
+      invalidValue,
+      invalidApplicability,
+      sparse,
+      decorated,
+      symbol,
+      cycle,
+      getter,
+    ]) {
+      expect(() => reconstructOnboardingQuestionnaireProjection(invalid)).toThrow(TypeError);
+    }
+  });
+
   test("uses UTF-16 offsets without splitting non-ASCII surrogate pairs", () => {
     const text = "Я планирую 🙂 переезд в ближайшие три месяца";
     const evidence = "в ближайшие три месяца";
@@ -227,6 +304,42 @@ describe("onboarding model contract", () => {
           normalizedValue: { status: "employment" },
         },
       ],
+      nextQuestion: "Что ещё важно?",
+    });
+  });
+
+  test("drops a model roster that is identical to the current descriptor roster", () => {
+    const userMessage = {
+      messageId: USER_MESSAGE_3,
+      role: "user" as const,
+      text: "переезжаю одна",
+    };
+
+    expect(guardExtraction({
+      session: session(),
+      userMessage,
+      rawModelOutput: rawExtraction([
+        extractionProposal({
+          fieldId: "participants",
+          typedValue: [{ descriptor: "self", relationship: "self" }],
+          messageId: userMessage.messageId,
+          start: 0,
+          end: userMessage.text.length,
+        }),
+        extractionProposal({
+          fieldId: "moving_party",
+          typedValue: "alone",
+          messageId: userMessage.messageId,
+          start: 0,
+          end: userMessage.text.length,
+        }),
+      ]),
+    })).toEqual({
+      proposals: [{
+        kind: "non_participant_field",
+        fieldId: "moving_party",
+        normalizedValue: "alone",
+      }],
       nextQuestion: "Что ещё важно?",
     });
   });

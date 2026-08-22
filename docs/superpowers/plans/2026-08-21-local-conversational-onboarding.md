@@ -574,7 +574,7 @@ export interface OnboardingModelVersions {
 export const ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES = 65_536;
 export const ONBOARDING_REVIEW_MAX_PROMPT_BYTES = 98_304;
 export const ONBOARDING_EXTRACTION_LIMITS = Object.freeze({
-  timeoutMs: 15_000,
+  timeoutMs: 30_000,
   maxStdoutBytes: 131_072,
   maxStderrBytes: 16_384,
   maxEvents: 64,
@@ -655,6 +655,15 @@ mismatch, projection/schema/parser failure, non-Codex rejection, or invalid owne
 new content-free `OnboardingModelError("onboarding_model_invalid")`. The error has no `cause`, raw
 message, prompt, result, stdout or stderr. `message === code`.
 
+The extraction prompt makes the descriptor grammar executable rather than implicit: a roster starts
+with `self/self`, continues with `companion.0`, `companion.1`, and so on in mention order, reuses those
+descriptors in participant field IDs, and never emits the same field ID twice. The 30-second extraction
+ceiling reflects the measured prepared-Mac companion case; review retains its separate 15-second ceiling.
+City values are normalized to their canonical nominative Russian form while the evidence span keeps
+the user's original inflected wording.
+`guardExtraction` canonicalizes an explicit roster equal to the current descriptor roster away as a
+no-op; an actual roster change remains a guarded proposal and retains the existing reconciliation rules.
+
 The fixture is one exact plain object
 `{fixtureVersion:"onboarding-cases@1", cases:[...]}` with this fixed order:
 `extract_self_ru`, `extract_companion`, `extract_zero_unusual_iso`, `extract_unknown`,
@@ -663,9 +672,9 @@ only `{caseId,kind:"extract",sessionSeed,userMessage,expectedProposals}`; review
 `{caseId,kind:"review",sessionSeed,expectedIssues}`. `sessionSeed` is the compact exact object
 `{schemaVersion:"onboarding-feasibility-session-seed@1",initialParticipantId,
 initialCompletionCommandId,nextCompletionCommandIds,changes}`; every change is an exact
-`manual_set` `{kind,fieldId,rawInput,normalizedValue}`. The gate reconstructs it only through
+`manual_set` `{kind,fieldId,rawInput}`. The gate reconstructs it only through
 `createOnboardingSession`, ordered `applySessionFieldChange`, exact consumption of all completion
-IDs, and final `reconstructOnboardingSessionState`; roster values carry companion UUIDs. The fixture
+IDs, and final `reconstructOnboardingSessionState`; roster `rawInput` carries companion UUIDs. The fixture
 reader rejects extra/missing/accessor/symbol/sparse/decorated graphs before any callback.
 `expectedProposals` is the exact canonical guarded
 proposal projection without `nextQuestion`; the gate additionally requires a non-empty bounded

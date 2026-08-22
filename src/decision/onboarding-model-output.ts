@@ -1,6 +1,20 @@
 import {
   CITY_PREFERENCE_IDS,
+  COUNTRY_PREFERENCE_TARGET_VALUES,
   COUNTRY_PREFERENCE_IDS,
+  EDUCATION_LEVELS,
+  INCOME_BASES,
+  MOVE_HORIZONS,
+  MOVING_PARTY_VALUES,
+  ONBOARDING_BASE_FIELD_IDS,
+  PARTICIPANT_LEAF_IDS,
+  PARTICIPANT_RELATIONSHIPS,
+  PREFERENCE_PARTS,
+  PREFERENCE_IMPORTANCES,
+  PREFERENCE_MODES,
+  QUESTIONNAIRE_ISSUE_CODES,
+  REMOTE_CONTINUATION_VALUES,
+  WORK_STATUSES,
   type CurrentLocationValue,
   type CurrentWorkValue,
   type EducationValue,
@@ -19,27 +33,24 @@ import {
 } from "./onboarding-catalog";
 import { isCanonicalDay, isCanonicalDecimal, isIsoCountryCode, isIsoCurrencyCode } from "./iso-codes";
 
-export { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from "./onboarding-catalog";
-export type * from "./onboarding-catalog";
+export * from "./onboarding-catalog";
 
 const MAX_ARRAY_LENGTH = 100;
 const MAX_TEXT_LENGTH = 1_000;
 const MAX_MESSAGE_ID_LENGTH = 200;
 const MAX_QUESTION_LENGTH = 1_000;
 const UNKNOWN_TEXT = new Set(["не знаю", "неизвестно", "unknown", "n/a", "na"]);
-const ISSUE_CODES = new Set<QuestionnaireIssueCode>([
-  "required_empty",
-  "invalid_value",
-  "placeholder_value",
-  "party_mismatch",
-  "work_mismatch",
-  "range_mismatch",
-]);
-const MOVE_HORIZONS = new Set(["within_3_months", "3_to_6_months", "6_to_12_months", "more_than_12_months"]);
-const MOVING_PARTIES = new Set(["alone", "with_companions"]);
-const WORK_STATUSES = new Set(["not_working", "employment", "self_employment", "contract_service", "other"]);
-const EDUCATION_LEVELS = new Set(["none", "secondary", "vocational", "higher"]);
-const RELATIONSHIPS = new Set(["self", "spouse", "minor_child", "other_family"]);
+const ISSUE_CODE_SET = new Set<string>(QUESTIONNAIRE_ISSUE_CODES);
+const MOVE_HORIZON_SET = new Set<string>(MOVE_HORIZONS);
+const MOVING_PARTY_SET = new Set<string>(MOVING_PARTY_VALUES);
+const WORK_STATUS_SET = new Set<string>(WORK_STATUSES);
+const EDUCATION_LEVEL_SET = new Set<string>(EDUCATION_LEVELS);
+const RELATIONSHIP_SET = new Set<string>(PARTICIPANT_RELATIONSHIPS);
+const REMOTE_CONTINUATION_SET = new Set<string>(REMOTE_CONTINUATION_VALUES);
+const INCOME_BASIS_SET = new Set<string>(INCOME_BASES);
+const PREFERENCE_MODE_SET = new Set<string>(PREFERENCE_MODES);
+const PREFERENCE_IMPORTANCE_SET = new Set<number>(PREFERENCE_IMPORTANCES);
+const COUNTRY_PREFERENCE_TARGET_SET = new Set<string>(COUNTRY_PREFERENCE_TARGET_VALUES);
 
 type JsonRecord = Record<string, unknown>;
 type FieldValueParser = (value: unknown) => unknown;
@@ -88,7 +99,7 @@ function parseProposal(value: unknown): ParsedLocalFieldProposal {
 function parseIssue(value: unknown): { fieldId: OnboardingModelFieldId; reasonCode: QuestionnaireIssueCode } {
   const issue = exactRecord(value, ["fieldId", "reasonCode"]);
   const fieldId = parseFieldId(issue.fieldId);
-  if (typeof issue.reasonCode !== "string" || !ISSUE_CODES.has(issue.reasonCode as QuestionnaireIssueCode)) {
+  if (typeof issue.reasonCode !== "string" || !ISSUE_CODE_SET.has(issue.reasonCode)) {
     throw invalidOutput();
   }
 
@@ -127,20 +138,33 @@ function parseFieldId(value: unknown): OnboardingModelFieldId {
   if (typeof value !== "string") {
     throw invalidOutput();
   }
-  if (["current_location", "move_horizon", "moving_party", "participants", "savings"].includes(value)) {
+  if (ONBOARDING_BASE_FIELD_IDS.includes(value as (typeof ONBOARDING_BASE_FIELD_IDS)[number])) {
     return value as OnboardingModelFieldId;
   }
 
-  const participant = /^participants\.(self|companion\.(?:0|[1-9][0-9]*))\.(citizenships|passport|current_work|remote_continuation|monthly_income|education|relevant_experience_years)$/.exec(value);
-  if (participant !== null) return value as OnboardingModelFieldId;
+  const participant = /^participants\.(self|companion\.(?:0|[1-9][0-9]*))\.([a-z_]+)$/.exec(value);
+  if (
+    participant?.[2] !== undefined &&
+    PARTICIPANT_LEAF_IDS.includes(participant[2] as (typeof PARTICIPANT_LEAF_IDS)[number])
+  ) return value as OnboardingModelFieldId;
 
-  const countryPreference = /^country_preferences\.([a-z_]+)\.(mode|importance|target)$/.exec(value);
-  if (countryPreference !== null && COUNTRY_PREFERENCE_IDS.includes(countryPreference[1] as (typeof COUNTRY_PREFERENCE_IDS)[number])) {
+  const countryPreference = /^country_preferences\.([a-z_]+)\.([a-z_]+)$/.exec(value);
+  if (
+    countryPreference?.[1] !== undefined &&
+    countryPreference[2] !== undefined &&
+    COUNTRY_PREFERENCE_IDS.includes(countryPreference[1] as (typeof COUNTRY_PREFERENCE_IDS)[number]) &&
+    PREFERENCE_PARTS.includes(countryPreference[2] as (typeof PREFERENCE_PARTS)[number])
+  ) {
     return value as OnboardingModelFieldId;
   }
 
-  const cityPreference = /^city_preferences\.([a-z_]+)\.(mode|importance|target)$/.exec(value);
-  if (cityPreference !== null && CITY_PREFERENCE_IDS.includes(cityPreference[1] as (typeof CITY_PREFERENCE_IDS)[number])) {
+  const cityPreference = /^city_preferences\.([a-z_]+)\.([a-z_]+)$/.exec(value);
+  if (
+    cityPreference?.[1] !== undefined &&
+    cityPreference[2] !== undefined &&
+    CITY_PREFERENCE_IDS.includes(cityPreference[1] as (typeof CITY_PREFERENCE_IDS)[number]) &&
+    PREFERENCE_PARTS.includes(cityPreference[2] as (typeof PREFERENCE_PARTS)[number])
+  ) {
     return value as OnboardingModelFieldId;
   }
 
@@ -154,12 +178,12 @@ function parseCurrentLocation(value: unknown): CurrentLocationValue {
 }
 
 function parseMoveHorizon(value: unknown) {
-  if (typeof value !== "string" || !MOVE_HORIZONS.has(value)) throw invalidOutput();
+  if (typeof value !== "string" || !MOVE_HORIZON_SET.has(value)) throw invalidOutput();
   return value;
 }
 
 function parseMovingParty(value: unknown) {
-  if (typeof value !== "string" || !MOVING_PARTIES.has(value)) throw invalidOutput();
+  if (typeof value !== "string" || !MOVING_PARTY_SET.has(value)) throw invalidOutput();
   return value;
 }
 
@@ -167,7 +191,7 @@ function parseParticipants(value: unknown): readonly ParticipantRosterProposal[]
   const roster = denseArray(value, MAX_ARRAY_LENGTH).map((entry) => {
     const participant = exactRecord(entry, ["descriptor", "relationship"]);
     const descriptor = parseParticipantDescriptor(participant.descriptor);
-    if (typeof participant.relationship !== "string" || !RELATIONSHIPS.has(participant.relationship)) {
+    if (typeof participant.relationship !== "string" || !RELATIONSHIP_SET.has(participant.relationship)) {
       throw invalidOutput();
     }
     return { descriptor, relationship: participant.relationship as ParticipantRosterProposal["relationship"] };
@@ -202,7 +226,7 @@ function parsePassport(value: unknown): PassportValue {
 
 function parseCurrentWork(value: unknown): CurrentWorkValue {
   const work = optionalRecord(value, ["status", "occupation"], ["status"]);
-  if (typeof work.status !== "string" || !WORK_STATUSES.has(work.status)) throw invalidOutput();
+  if (typeof work.status !== "string" || !WORK_STATUS_SET.has(work.status)) throw invalidOutput();
   if ("occupation" in work && work.occupation === undefined) throw invalidOutput();
   const occupation = work.occupation === undefined ? undefined : boundedText(work.occupation, MAX_TEXT_LENGTH);
   return occupation === undefined
@@ -211,15 +235,19 @@ function parseCurrentWork(value: unknown): CurrentWorkValue {
 }
 
 function parseRemoteContinuation(value: unknown) {
-  if (value !== "yes" && value !== "no") throw invalidOutput();
+  if (typeof value !== "string" || !REMOTE_CONTINUATION_SET.has(value)) throw invalidOutput();
   return value;
 }
 
 function parseMonthlyIncome(value: unknown): MonthlyIncomeValue {
   const income = exactRecord(value, ["amount", "currency", "basis"]);
   if (!isCanonicalDecimal(income.amount) || !isIsoCurrencyCode(income.currency)) throw invalidOutput();
-  if (income.basis !== "net" && income.basis !== "gross") throw invalidOutput();
-  return { amount: income.amount, currency: income.currency, basis: income.basis };
+  if (typeof income.basis !== "string" || !INCOME_BASIS_SET.has(income.basis)) throw invalidOutput();
+  return {
+    amount: income.amount,
+    currency: income.currency,
+    basis: income.basis as MonthlyIncomeValue["basis"],
+  };
 }
 
 function parseSavings(value: unknown): SavingsValue {
@@ -232,7 +260,7 @@ function parseSavings(value: unknown): SavingsValue {
 
 function parseEducation(value: unknown): EducationValue {
   const education = optionalRecord(value, ["level", "field"], ["level"]);
-  if (typeof education.level !== "string" || !EDUCATION_LEVELS.has(education.level)) throw invalidOutput();
+  if (typeof education.level !== "string" || !EDUCATION_LEVEL_SET.has(education.level)) throw invalidOutput();
   if ("field" in education && education.field === undefined) throw invalidOutput();
   const field = education.field === undefined ? undefined : boundedText(education.field, MAX_TEXT_LENGTH);
   return field === undefined
@@ -246,20 +274,20 @@ function parseExperienceYears(value: unknown): number {
 }
 
 function parsePreferenceMode(value: unknown): PreferenceMode {
-  if (value !== "required" && value !== "weighted") throw invalidOutput();
-  return value;
+  if (typeof value !== "string" || !PREFERENCE_MODE_SET.has(value)) throw invalidOutput();
+  return value as PreferenceMode;
 }
 
 function parsePreferenceImportance(value: unknown): PreferenceImportance {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 5) {
+  if (typeof value !== "number" || !PREFERENCE_IMPORTANCE_SET.has(value)) {
     throw invalidOutput();
   }
   return value as PreferenceImportance;
 }
 
 function parseCountryPreferenceTarget(value: unknown): "required_true" | "maximize" {
-  if (value !== "required_true" && value !== "maximize") throw invalidOutput();
-  return value;
+  if (typeof value !== "string" || !COUNTRY_PREFERENCE_TARGET_SET.has(value)) throw invalidOutput();
+  return value as "required_true" | "maximize";
 }
 
 function parseCityPreferenceTarget(value: unknown): string {
@@ -296,7 +324,9 @@ function optionalRecord(value: unknown, keys: readonly string[], requiredKeys: r
 
 function snapshotRecord(value: unknown): JsonRecord | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  if (Object.getPrototypeOf(value) !== Object.prototype || Object.getOwnPropertySymbols(value).length !== 0) return null;
+  const prototype = Object.getPrototypeOf(value);
+  if ((prototype !== Object.prototype && prototype !== null) ||
+    Object.getOwnPropertySymbols(value).length !== 0) return null;
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const result = Object.create(null) as JsonRecord;
   for (const [key, descriptor] of Object.entries(descriptors)) {

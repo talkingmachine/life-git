@@ -2,7 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import {
   CITY_PREFERENCE_IDS,
+  COUNTRY_PREFERENCE_TARGET_VALUES,
   COUNTRY_PREFERENCE_IDS,
+  EDUCATION_LEVELS,
+  INCOME_BASES,
+  MOVE_HORIZONS,
+  MOVING_PARTY_VALUES,
+  ONBOARDING_BASE_FIELD_IDS,
+  PARTICIPANT_LEAF_IDS,
+  PARTICIPANT_RELATIONSHIPS,
+  PREFERENCE_IMPORTANCES,
+  PREFERENCE_MODES,
+  PREFERENCE_PARTS,
+  QUESTIONNAIRE_ISSUE_CODES,
+  REMOTE_CONTINUATION_VALUES,
+  WORK_STATUSES,
   parseLocalExtractionOutput,
   parseLocalReviewOutput,
 } from "../../src/decision/onboarding-model-output";
@@ -41,6 +55,73 @@ describe("onboarding model output", () => {
       "urban_transit",
       "fixed_broadband",
     ]);
+
+    expect({
+      base: ONBOARDING_BASE_FIELD_IDS,
+      participantLeaves: PARTICIPANT_LEAF_IDS,
+      relationships: PARTICIPANT_RELATIONSHIPS,
+      moveHorizons: MOVE_HORIZONS,
+      movingParties: MOVING_PARTY_VALUES,
+      workStatuses: WORK_STATUSES,
+      remoteContinuation: REMOTE_CONTINUATION_VALUES,
+      incomeBases: INCOME_BASES,
+      educationLevels: EDUCATION_LEVELS,
+      preferenceModes: PREFERENCE_MODES,
+      preferenceImportances: PREFERENCE_IMPORTANCES,
+      preferenceParts: PREFERENCE_PARTS,
+      countryTargets: COUNTRY_PREFERENCE_TARGET_VALUES,
+      issueCodes: QUESTIONNAIRE_ISSUE_CODES,
+    }).toEqual({
+      base: ["current_location", "move_horizon", "moving_party", "participants", "savings"],
+      participantLeaves: [
+        "citizenships",
+        "passport",
+        "current_work",
+        "remote_continuation",
+        "monthly_income",
+        "education",
+        "relevant_experience_years",
+      ],
+      relationships: ["self", "spouse", "minor_child", "other_family"],
+      moveHorizons: ["within_3_months", "3_to_6_months", "6_to_12_months", "more_than_12_months"],
+      movingParties: ["alone", "with_companions"],
+      workStatuses: ["not_working", "employment", "self_employment", "contract_service", "other"],
+      remoteContinuation: ["yes", "no"],
+      incomeBases: ["net", "gross"],
+      educationLevels: ["none", "secondary", "vocational", "higher"],
+      preferenceModes: ["required", "weighted"],
+      preferenceImportances: [1, 2, 3, 4, 5],
+      preferenceParts: ["mode", "importance", "target"],
+      countryTargets: ["required_true", "maximize"],
+      issueCodes: [
+        "required_empty",
+        "invalid_value",
+        "placeholder_value",
+        "party_mismatch",
+        "work_mismatch",
+        "range_mismatch",
+      ],
+    });
+    for (const vocabulary of [
+      COUNTRY_PREFERENCE_IDS,
+      CITY_PREFERENCE_IDS,
+      ONBOARDING_BASE_FIELD_IDS,
+      PARTICIPANT_LEAF_IDS,
+      PARTICIPANT_RELATIONSHIPS,
+      MOVE_HORIZONS,
+      MOVING_PARTY_VALUES,
+      WORK_STATUSES,
+      REMOTE_CONTINUATION_VALUES,
+      INCOME_BASES,
+      EDUCATION_LEVELS,
+      PREFERENCE_MODES,
+      PREFERENCE_IMPORTANCES,
+      PREFERENCE_PARTS,
+      COUNTRY_PREFERENCE_TARGET_VALUES,
+      QUESTIONNAIRE_ISSUE_CODES,
+    ]) {
+      expect(Object.isFrozen(vocabulary)).toBe(true);
+    }
   });
 
   it("accepts every base and participant proposal value form, including explicit zero", () => {

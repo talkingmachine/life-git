@@ -1,0 +1,676 @@
+import { createHash, randomUUID } from "node:crypto";
+import { chmod, open, readFile, rename, rm } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  OnboardingModelError,
+  type OnboardingModelErrorCode,
+  type OnboardingModelPort,
+  type OnboardingRuntimeErrorCode,
+} from "../src/application/onboarding-contracts";
+import {
+  PARTICIPANT_LEAF_IDS,
+  PARTICIPANT_RELATIONSHIPS,
+  QUESTIONNAIRE_ISSUE_CODES,
+  type ParticipantDescriptor,
+  type ParticipantLeafId,
+  type ParticipantRosterProposal,
+  type QuestionnaireIssueCode,
+} from "../src/decision/onboarding-catalog";
+import {
+  corroborateModelReview,
+  guardExtraction,
+  projectQuestionnaireForModel,
+  type GuardedExtractionProposal,
+} from "../src/decision/onboarding-model-contract";
+import {
+  applySessionFieldChange,
+  createOnboardingSession,
+  reconstructOnboardingSessionState,
+  type OnboardingSessionState,
+  type SessionMessage,
+} from "../src/decision/onboarding-session";
+import {
+  cloneOnboardingFieldValueForDecision,
+  parseOnboardingFieldIdForDecision,
+  type OnboardingFieldId,
+  type QuestionnaireFieldChange,
+  type QuestionnaireIssue,
+} from "../src/decision/onboarding-questionnaire";
+import { registerNodeCodexRuntime } from "../src/instrumentation-node";
+import {
+  CODEX_CLI_VERSION,
+  CODEX_INVOCATION_VERSION,
+} from "../src/infrastructure/codex-cli/contracts";
+import { getCodexCliModelAdapter } from "../src/infrastructure/codex-cli/runtime";
+import { snapshotOwnedJson, type JsonObject, type JsonValue } from "../src/infrastructure/codex-cli/owned-json";
+import {
+  createCodexOnboardingModel,
+  ONBOARDING_EXTRACTION_LIMITS,
+  ONBOARDING_EXTRACTION_PROMPT_TEMPLATE,
+  ONBOARDING_MODEL_VERSIONS,
+  ONBOARDING_REVIEW_LIMITS,
+  ONBOARDING_REVIEW_PROMPT_TEMPLATE,
+} from "../src/infrastructure/codex-cli/onboarding-model";
+import {
+  ONBOARDING_EXTRACTION_SCHEMA,
+  ONBOARDING_REVIEW_SCHEMA,
+} from "../src/infrastructure/codex-cli/onboarding-schema";
+
+const FIXTURE_VERSION = "onboarding-cases@1" as const;
+const SESSION_SEED_VERSION = "onboarding-feasibility-session-seed@1" as const;
+const ARTIFACT_VERSION = "onboarding-model-feasibility@1" as const;
+const DIAGNOSTIC_VERSION = "onboarding-model-feasibility-diagnostic@1" as const;
+const CASE_IDS = [
+  "extract_self_ru",
+  "extract_companion",
+  "extract_zero_unusual_iso",
+  "extract_unknown",
+  "extract_correction",
+  "extract_prompt_injection",
+  "review_final_blockers",
+] as const;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PARTICIPANT_DESCRIPTOR = /^(?:self|companion\.(?:0|[1-9][0-9]*))$/;
+const PARTICIPANT_ID = "00000000-0000-4000-8000-000000000001";
+const PARTICIPANT_LEAF_SET = new Set<string>(PARTICIPANT_LEAF_IDS);
+const RELATIONSHIP_SET = new Set<string>(PARTICIPANT_RELATIONSHIPS);
+const ISSUE_CODE_SET = new Set<string>(QUESTIONNAIRE_ISSUE_CODES);
+const MAX_CASES = CASE_IDS.length;
+const MAX_CHANGES = 172;
+const MAX_EXPECTED_VALUES = 172;
+const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
+
+interface SessionSeed {
+  readonly schemaVersion: typeof SESSION_SEED_VERSION;
+  readonly initialParticipantId: string;
+  readonly initialCompletionCommandId: string;
+  readonly nextCompletionCommandIds: readonly string[];
+  readonly changes: readonly Extract<QuestionnaireFieldChange, { readonly kind: "manual_set" }>[];
+}
+
+interface ExtractionCase {
+  readonly caseId: (typeof CASE_IDS)[number];
+  readonly kind: "extract";
+  readonly sessionSeed: SessionSeed;
+  readonly userMessage: SessionMessage;
+  readonly expectedProposals: readonly GuardedExtractionProposal[];
+}
+
+interface ReviewCase {
+  readonly caseId: "review_final_blockers";
+  readonly kind: "review";
+  readonly sessionSeed: SessionSeed;
+  readonly expectedIssues: readonly QuestionnaireIssue[];
+}
+
+type FeasibilityCase = ExtractionCase | ReviewCase;
+
+export interface OnboardingFeasibilityFixture {
+  readonly fixtureVersion: typeof FIXTURE_VERSION;
+  readonly cases: readonly FeasibilityCase[];
+}
+
+export interface OnboardingModelFeasibilityArtifact {
+  readonly schemaVersion: typeof ARTIFACT_VERSION;
+  readonly fixtureVersion: typeof FIXTURE_VERSION;
+  readonly fixtureDigest: string;
+  readonly invocationVersion: typeof CODEX_INVOCATION_VERSION;
+  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly extractionPromptVersion: typeof ONBOARDING_MODEL_VERSIONS.extractionPrompt;
+  readonly reviewPromptVersion: typeof ONBOARDING_MODEL_VERSIONS.reviewPrompt;
+  readonly extractionSchemaVersion: typeof ONBOARDING_MODEL_VERSIONS.extractionSchema;
+  readonly reviewSchemaVersion: typeof ONBOARDING_MODEL_VERSIONS.reviewSchema;
+  readonly extractionPromptDigest: string;
+  readonly reviewPromptDigest: string;
+  readonly extractionSchemaDigest: string;
+  readonly reviewSchemaDigest: string;
+  readonly extractionLimits: typeof ONBOARDING_EXTRACTION_LIMITS;
+  readonly reviewLimits: typeof ONBOARDING_REVIEW_LIMITS;
+  readonly caseResults: readonly {
+    readonly caseId: string;
+    readonly status: "passed";
+    readonly elapsedMs: number;
+  }[];
+  readonly rawPromptStored: false;
+  readonly rawOutputStored: false;
+  readonly transcriptStored: false;
+  readonly artifactDigest: string;
+}
+
+export type OnboardingFeasibilityStage =
+  | "input_validation"
+  | "runtime_initialization"
+  | "extract_model"
+  | "extract_semantic"
+  | "review_model"
+  | "review_semantic"
+  | "artifact_write";
+
+export interface OnboardingModelFeasibilityDiagnostic {
+  readonly schemaVersion: typeof DIAGNOSTIC_VERSION;
+  readonly fixtureVersion: typeof FIXTURE_VERSION;
+  readonly caseId: string | null;
+  readonly stage: OnboardingFeasibilityStage;
+  readonly errorCode: OnboardingModelErrorCode | "onboarding_model_feasibility_failed";
+  readonly runtimeCode: OnboardingRuntimeErrorCode | null;
+  readonly passingArtifactPresent: false;
+  readonly diagnosticDigest: string;
+}
+
+export class OnboardingFeasibilityError extends Error {
+  readonly name = "OnboardingFeasibilityError";
+
+  constructor() {
+    super("onboarding_model_feasibility_failed");
+  }
+}
+
+export function readOnboardingFeasibilityFixture(value: unknown): OnboardingFeasibilityFixture {
+  try {
+    const owned = snapshotOwnedJson(value);
+    const root = exactObject(owned, ["fixtureVersion", "cases"]);
+    if (root.fixtureVersion !== FIXTURE_VERSION) throw failed();
+    const cases = denseArray(root.cases, MAX_CASES);
+    if (cases.length !== CASE_IDS.length) throw failed();
+    const parsed = cases.map((entry, index) => readCase(entry, CASE_IDS[index]));
+    return deepFreeze({ fixtureVersion: FIXTURE_VERSION, cases: parsed });
+  } catch (error) {
+    if (error instanceof OnboardingFeasibilityError) throw error;
+    throw failed();
+  }
+}
+
+export async function runOnboardingFeasibilityForTest(input: {
+  readonly artifactPath: string;
+  readonly diagnosticPath?: string;
+  readonly fixtureBytes: Uint8Array;
+  readonly model: OnboardingModelPort;
+  readonly signal: AbortSignal;
+  readonly clock?: () => number;
+}): Promise<OnboardingModelFeasibilityArtifact> {
+  const artifactPath = requireArtifactPath(input.artifactPath);
+  const diagnosticPath = input.diagnosticPath === undefined
+    ? undefined
+    : requireDistinctDiagnosticPath(input.diagnosticPath, artifactPath);
+  await rm(artifactPath, { force: true });
+  if (diagnosticPath !== undefined) await rm(diagnosticPath, { force: true });
+  let stage: OnboardingFeasibilityStage = "input_validation";
+  let caseId: string | null = null;
+
+  try {
+    requireActiveSignal(input.signal);
+    const fixtureBytes = Uint8Array.from(input.fixtureBytes);
+    const fixtureText = new TextDecoder("utf-8", { fatal: true }).decode(fixtureBytes);
+    const fixture = readOnboardingFeasibilityFixture(JSON.parse(fixtureText) as unknown);
+    const clock = input.clock ?? Date.now;
+    const results: { caseId: string; status: "passed"; elapsedMs: number }[] = [];
+
+    for (const testCase of fixture.cases) {
+      requireActiveSignal(input.signal);
+      caseId = testCase.caseId;
+      stage = testCase.kind === "extract" ? "extract_model" : "review_model";
+      const startedAt = readClock(clock);
+      await runCase(testCase, input.model, input.signal, () => {
+        stage = testCase.kind === "extract" ? "extract_semantic" : "review_semantic";
+      });
+      const finishedAt = readClock(clock);
+      if (finishedAt < startedAt) throw failed();
+      results.push({ caseId: testCase.caseId, status: "passed", elapsedMs: finishedAt - startedAt });
+    }
+
+    const withoutDigest = deepFreeze({
+      schemaVersion: ARTIFACT_VERSION,
+      fixtureVersion: FIXTURE_VERSION,
+      fixtureDigest: sha256(fixtureBytes),
+      invocationVersion: CODEX_INVOCATION_VERSION,
+      cliVersion: CODEX_CLI_VERSION,
+      extractionPromptVersion: ONBOARDING_MODEL_VERSIONS.extractionPrompt,
+      reviewPromptVersion: ONBOARDING_MODEL_VERSIONS.reviewPrompt,
+      extractionSchemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
+      reviewSchemaVersion: ONBOARDING_MODEL_VERSIONS.reviewSchema,
+      extractionPromptDigest: digestText(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE),
+      reviewPromptDigest: digestText(ONBOARDING_REVIEW_PROMPT_TEMPLATE),
+      extractionSchemaDigest: digestJson(ONBOARDING_EXTRACTION_SCHEMA),
+      reviewSchemaDigest: digestJson(ONBOARDING_REVIEW_SCHEMA),
+      extractionLimits: ONBOARDING_EXTRACTION_LIMITS,
+      reviewLimits: ONBOARDING_REVIEW_LIMITS,
+      caseResults: results,
+      rawPromptStored: false as const,
+      rawOutputStored: false as const,
+      transcriptStored: false as const,
+    });
+    const artifact: OnboardingModelFeasibilityArtifact = deepFreeze({
+      ...withoutDigest,
+      artifactDigest: digestJson(withoutDigest),
+    });
+    stage = "artifact_write";
+    await writeArtifactAtomically(artifactPath, artifact);
+    return artifact;
+  } catch (error) {
+    await rm(artifactPath, { force: true });
+    if (diagnosticPath !== undefined) {
+      await writeFailureDiagnostic(diagnosticPath, { caseId, stage, error });
+    }
+    throw failed();
+  }
+}
+
+async function runCase(
+  testCase: FeasibilityCase,
+  model: OnboardingModelPort,
+  signal: AbortSignal,
+  modelCompleted: () => void,
+): Promise<void> {
+  const session = buildSession(testCase.sessionSeed);
+  const questionnaire = projectQuestionnaireForModel(session);
+  if (testCase.kind === "extract") {
+    const result = await model.extract({ message: testCase.userMessage, questionnaire, signal });
+    modelCompleted();
+    requireActiveSignal(signal);
+    const guarded = guardExtraction({
+      session,
+      userMessage: testCase.userMessage,
+      rawModelOutput: result,
+    });
+    if (guarded.nextQuestion.trim().length === 0 ||
+      canonicalJson(canonicalProposals(guarded.proposals)) !==
+      canonicalJson(canonicalProposals(testCase.expectedProposals))) {
+      throw failed();
+    }
+    return;
+  }
+
+  const result = await model.review({ questionnaire, signal });
+  modelCompleted();
+  requireActiveSignal(signal);
+  const issues = corroborateModelReview({ session, rawModelOutput: result });
+  if (canonicalJson(issues) !== canonicalJson(testCase.expectedIssues)) throw failed();
+}
+
+function buildSession(seed: SessionSeed): OnboardingSessionState {
+  let participantUsed = false;
+  let initialCommandUsed = false;
+  let completionIndex = 0;
+  let session = createOnboardingSession({
+    nextParticipantId: () => {
+      if (participantUsed) throw failed();
+      participantUsed = true;
+      return seed.initialParticipantId;
+    },
+    nextCompletionCommandId: () => {
+      if (initialCommandUsed) throw failed();
+      initialCommandUsed = true;
+      return seed.initialCompletionCommandId;
+    },
+  });
+
+  for (const change of seed.changes) {
+    session = applySessionFieldChange({
+      session,
+      change,
+      nextCompletionCommandId: () => {
+        const next = seed.nextCompletionCommandIds[completionIndex];
+        if (next === undefined) throw failed();
+        completionIndex += 1;
+        return next;
+      },
+    });
+  }
+  if (completionIndex !== seed.nextCompletionCommandIds.length) throw failed();
+  return reconstructOnboardingSessionState(session);
+}
+
+function readCase(value: JsonValue, expectedId: (typeof CASE_IDS)[number]): FeasibilityCase {
+  const base = exactObject(value);
+  if (base.caseId !== expectedId) throw failed();
+  if (expectedId === "review_final_blockers") {
+    requireKeys(base, ["caseId", "kind", "sessionSeed", "expectedIssues"]);
+    if (base.kind !== "review") throw failed();
+    return deepFreeze({
+      caseId: expectedId,
+      kind: "review" as const,
+      sessionSeed: readSessionSeed(base.sessionSeed),
+      expectedIssues: readExpectedIssues(base.expectedIssues),
+    });
+  }
+  requireKeys(base, ["caseId", "kind", "sessionSeed", "userMessage", "expectedProposals"]);
+  if (base.kind !== "extract") throw failed();
+  return deepFreeze({
+    caseId: expectedId,
+    kind: "extract" as const,
+    sessionSeed: readSessionSeed(base.sessionSeed),
+    userMessage: readUserMessage(base.userMessage),
+    expectedProposals: readExpectedProposals(base.expectedProposals),
+  });
+}
+
+function readSessionSeed(value: JsonValue): SessionSeed {
+  const seed = exactObject(value, [
+    "schemaVersion",
+    "initialParticipantId",
+    "initialCompletionCommandId",
+    "nextCompletionCommandIds",
+    "changes",
+  ]);
+  if (seed.schemaVersion !== SESSION_SEED_VERSION) throw failed();
+  const initialParticipantId = readUuid(seed.initialParticipantId);
+  const initialCompletionCommandId = readUuid(seed.initialCompletionCommandId);
+  if (initialParticipantId === initialCompletionCommandId) throw failed();
+  const nextCompletionCommandIds = denseArray(seed.nextCompletionCommandIds, MAX_CHANGES).map(readUuid);
+  const changes = denseArray(seed.changes, MAX_CHANGES).map(readManualChange);
+  return deepFreeze({
+    schemaVersion: SESSION_SEED_VERSION,
+    initialParticipantId,
+    initialCompletionCommandId,
+    nextCompletionCommandIds,
+    changes,
+  });
+}
+
+function readManualChange(value: JsonValue): Extract<QuestionnaireFieldChange, { kind: "manual_set" }> {
+  const change = exactObject(value, ["kind", "fieldId", "rawInput"]);
+  if (change.kind !== "manual_set") throw failed();
+  return deepFreeze({
+    kind: "manual_set" as const,
+    fieldId: parseOnboardingFieldIdForDecision(change.fieldId),
+    rawInput: ordinaryJson(change.rawInput),
+  });
+}
+
+function readUserMessage(value: JsonValue): SessionMessage {
+  const message = exactObject(value, ["messageId", "role", "text"]);
+  if (typeof message.messageId !== "string" || !UUID.test(message.messageId) ||
+    message.role !== "user" || typeof message.text !== "string" || message.text.trim().length === 0) {
+    throw failed();
+  }
+  return Object.freeze({ messageId: message.messageId, role: "user" as const, text: message.text });
+}
+
+function readExpectedProposals(value: JsonValue): readonly GuardedExtractionProposal[] {
+  const proposals = denseArray(value, MAX_EXPECTED_VALUES).map(readExpectedProposal);
+  const canonical = canonicalProposals(proposals);
+  if (canonicalJson(proposals) !== canonicalJson(canonical)) throw failed();
+  return canonical;
+}
+
+function readExpectedProposal(value: JsonValue): GuardedExtractionProposal {
+  const proposal = exactObject(value);
+  if (proposal.kind === "participant_roster") {
+    requireKeys(proposal, ["kind", "roster"]);
+    const roster = denseArray(proposal.roster, 20).map(readRosterEntry);
+    if (roster.length === 0 || roster[0]?.descriptor !== "self" || roster[0]?.relationship !== "self" ||
+      roster.some(({ descriptor }, index) => descriptor !== (index === 0 ? "self" : `companion.${index - 1}`))) {
+      throw failed();
+    }
+    return deepFreeze({ kind: "participant_roster" as const, roster });
+  }
+  if (proposal.kind === "participant_leaf") {
+    requireKeys(proposal, ["kind", "descriptor", "leafId", "normalizedValue"]);
+    const descriptor = readDescriptor(proposal.descriptor);
+    const leafId = readLeafId(proposal.leafId);
+    const fieldId = `participants.${PARTICIPANT_ID}.${leafId}` as OnboardingFieldId;
+    return deepFreeze({
+      kind: "participant_leaf" as const,
+      descriptor,
+      leafId,
+      normalizedValue: cloneOnboardingFieldValueForDecision(fieldId, ordinaryJson(proposal.normalizedValue)),
+    }) as GuardedExtractionProposal;
+  }
+  if (proposal.kind === "non_participant_field") {
+    requireKeys(proposal, ["kind", "fieldId", "normalizedValue"]);
+    const fieldId = parseOnboardingFieldIdForDecision(proposal.fieldId);
+    if (fieldId === "participants" || fieldId.startsWith("participants.")) throw failed();
+    return deepFreeze({
+      kind: "non_participant_field" as const,
+      fieldId,
+      normalizedValue: cloneOnboardingFieldValueForDecision(fieldId, ordinaryJson(proposal.normalizedValue)),
+    }) as GuardedExtractionProposal;
+  }
+  throw failed();
+}
+
+function readRosterEntry(value: JsonValue): ParticipantRosterProposal {
+  const entry = exactObject(value, ["descriptor", "relationship"]);
+  const descriptor = readDescriptor(entry.descriptor);
+  if (typeof entry.relationship !== "string" || !RELATIONSHIP_SET.has(entry.relationship)) throw failed();
+  return Object.freeze({
+    descriptor,
+    relationship: entry.relationship as ParticipantRosterProposal["relationship"],
+  });
+}
+
+function readExpectedIssues(value: JsonValue): readonly QuestionnaireIssue[] {
+  const issues = denseArray(value, MAX_EXPECTED_VALUES).map((entry) => {
+    const issue = exactObject(entry, ["fieldId", "reasonCode"]);
+    const fieldId = parseOnboardingFieldIdForDecision(issue.fieldId);
+    if (typeof issue.reasonCode !== "string" || !ISSUE_CODE_SET.has(issue.reasonCode)) throw failed();
+    return Object.freeze({ fieldId, reasonCode: issue.reasonCode as QuestionnaireIssueCode });
+  });
+  if (new Set(issues.map(({ fieldId, reasonCode }) => `${fieldId}\0${reasonCode}`)).size !== issues.length) {
+    throw failed();
+  }
+  return Object.freeze(issues);
+}
+
+function readDescriptor(value: JsonValue): ParticipantDescriptor {
+  if (typeof value !== "string" || !PARTICIPANT_DESCRIPTOR.test(value)) throw failed();
+  return value as ParticipantDescriptor;
+}
+
+function readLeafId(value: JsonValue): ParticipantLeafId {
+  if (typeof value !== "string" || !PARTICIPANT_LEAF_SET.has(value)) throw failed();
+  return value as ParticipantLeafId;
+}
+
+function canonicalProposals(
+  value: readonly GuardedExtractionProposal[],
+): readonly GuardedExtractionProposal[] {
+  return Object.freeze([...value].sort((left, right) => compareText(proposalKey(left), proposalKey(right))));
+}
+
+function proposalKey(value: GuardedExtractionProposal): string {
+  if (value.kind === "participant_roster") return "participants";
+  if (value.kind === "participant_leaf") return `participants.${value.descriptor}.${value.leafId}`;
+  return value.fieldId;
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function exactObject(value: JsonValue, keys?: readonly string[]): Record<string, JsonValue> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw failed();
+  const object = value as Record<string, JsonValue>;
+  if (keys !== undefined) requireKeys(object, keys);
+  return object;
+}
+
+function requireKeys(value: Readonly<Record<string, JsonValue>>, keys: readonly string[]): void {
+  const actual = Object.keys(value);
+  if (actual.length !== keys.length || !keys.every((key) => actual.includes(key))) throw failed();
+}
+
+function denseArray(value: JsonValue, maximum: number): readonly JsonValue[] {
+  if (!Array.isArray(value) || value.length > maximum) throw failed();
+  return value;
+}
+
+function readUuid(value: JsonValue): string {
+  if (typeof value !== "string" || !UUID.test(value)) throw failed();
+  return value;
+}
+
+function requireArtifactPath(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || !value.endsWith(".json")) throw failed();
+  const path = resolve(value);
+  if (path === resolve("/") || dirname(path) === path) throw failed();
+  return path;
+}
+
+function requireDistinctDiagnosticPath(value: unknown, artifactPath: string): string {
+  const diagnosticPath = requireArtifactPath(value);
+  if (diagnosticPath === artifactPath) throw failed();
+  return diagnosticPath;
+}
+
+function requireActiveSignal(value: AbortSignal): void {
+  if (NATIVE_ABORTED_GETTER === undefined) throw failed();
+  try {
+    if (NATIVE_ABORTED_GETTER.call(value) !== false) throw failed();
+  } catch {
+    throw failed();
+  }
+}
+
+function readClock(clock: () => number): number {
+  const value = clock();
+  if (!Number.isSafeInteger(value) || value < 0) throw failed();
+  return value;
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalize(snapshotOwnedJson(value)));
+}
+
+function canonicalize(value: JsonValue): JsonValue {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(canonicalize);
+  const object = value as JsonObject;
+  const result: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
+  for (const key of Object.keys(object).sort()) result[key] = canonicalize(object[key] as JsonValue);
+  return result;
+}
+
+function ordinaryJson(value: JsonValue): JsonValue {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(ordinaryJson);
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, ordinaryJson(child)]));
+}
+
+function digestText(value: string): string {
+  return sha256(new TextEncoder().encode(value));
+}
+
+function digestJson(value: unknown): string {
+  return digestText(canonicalJson(value));
+}
+
+function sha256(value: Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function writeArtifactAtomically(
+  artifactPath: string,
+  artifact: unknown,
+): Promise<void> {
+  const temporaryPath = `${artifactPath}.${process.pid}.${randomUUID()}.tmp`;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(temporaryPath, "wx", 0o600);
+    await handle.writeFile(`${JSON.stringify(snapshotOwnedJson(artifact))}\n`, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    await rename(temporaryPath, artifactPath);
+    await chmod(artifactPath, 0o600);
+  } finally {
+    await handle?.close().catch(() => undefined);
+    await rm(temporaryPath, { force: true });
+  }
+}
+
+async function writeFailureDiagnostic(
+  diagnosticPath: string,
+  input: {
+    readonly caseId: string | null;
+    readonly stage: OnboardingFeasibilityStage;
+    readonly error: unknown;
+  },
+): Promise<void> {
+  const errorCode: OnboardingModelErrorCode | "onboarding_model_feasibility_failed" =
+    input.error instanceof OnboardingModelError
+    ? input.error.code
+    : "onboarding_model_feasibility_failed";
+  const runtimeCode = input.error instanceof OnboardingModelError
+    ? input.error.runtimeCode ?? null
+    : null;
+  const withoutDigest = deepFreeze({
+    schemaVersion: DIAGNOSTIC_VERSION,
+    fixtureVersion: FIXTURE_VERSION,
+    caseId: input.caseId,
+    stage: input.stage,
+    errorCode,
+    runtimeCode,
+    passingArtifactPresent: false as const,
+  });
+  const diagnostic: OnboardingModelFeasibilityDiagnostic = deepFreeze({
+    ...withoutDigest,
+    diagnosticDigest: digestJson(withoutDigest),
+  });
+  await writeArtifactAtomically(diagnosticPath, diagnostic);
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
+
+function failed(): OnboardingFeasibilityError {
+  return new OnboardingFeasibilityError();
+}
+
+export function parseOnboardingFeasibilityArguments(args: readonly string[]): {
+  readonly artifactPath: string;
+  readonly diagnosticPath?: string;
+} {
+  if (args[0] !== "--artifact" || args[1] === undefined) throw failed();
+  if (args.length === 2) return { artifactPath: args[1] };
+  if (args.length !== 4 || args[2] !== "--diagnostic" || args[3] === undefined) throw failed();
+  return { artifactPath: args[1], diagnosticPath: args[3] };
+}
+
+async function main(): Promise<void> {
+  const parsed = parseOnboardingFeasibilityArguments(process.argv.slice(2));
+  const artifactPath = requireArtifactPath(parsed.artifactPath);
+  const diagnosticPath = parsed.diagnosticPath === undefined
+    ? undefined
+    : requireDistinctDiagnosticPath(parsed.diagnosticPath, artifactPath);
+  await rm(artifactPath, { force: true });
+  if (diagnosticPath !== undefined) await rm(diagnosticPath, { force: true });
+  let runnerStarted = false;
+  try {
+    const fixtureUrl = new URL("./fixtures/onboarding/cases.json", import.meta.url);
+    const fixtureBytes = new Uint8Array(await readFile(fixtureUrl));
+    await registerNodeCodexRuntime();
+    runnerStarted = true;
+    await runOnboardingFeasibilityForTest({
+      artifactPath,
+      ...(diagnosticPath === undefined ? {} : { diagnosticPath }),
+      fixtureBytes,
+      model: createCodexOnboardingModel(getCodexCliModelAdapter()),
+      signal: new AbortController().signal,
+    });
+  } catch (error) {
+    await rm(artifactPath, { force: true });
+    if (!runnerStarted && diagnosticPath !== undefined) {
+      await writeFailureDiagnostic(diagnosticPath, {
+        caseId: null,
+        stage: "runtime_initialization",
+        error,
+      });
+    }
+    throw failed();
+  }
+}
+
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main().catch(() => {
+    process.stderr.write("onboarding_model_feasibility_failed\n");
+    process.exitCode = 1;
+  });
+}
