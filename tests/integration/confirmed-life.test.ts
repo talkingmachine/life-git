@@ -725,6 +725,7 @@ describe("confirmed-life orchestration", () => {
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
       { name: "evidence_snapshots" },
+      { name: "onboarding_confirmations" },
       { name: "place_frontier_snapshots" },
       { name: "profile_snapshots" },
       { name: "run_revisions" },
