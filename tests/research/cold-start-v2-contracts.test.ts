@@ -28,6 +28,7 @@ import {
   SLOVENIA_V2_CLAIM_SOURCE,
   SLOVENIA_V2_CLAIM_VALIDATOR,
   SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_FORMAL_ROUTE_ID,
   SLOVENIA_V2_PARTICIPANT_SCOPE_ORDER,
   SLOVENIA_V2_PARSER_VERSIONS,
   SLOVENIA_V2_RESEARCH_SCOPE,
@@ -532,6 +533,12 @@ function addEnumerableProto(target: object): void {
 }
 
 describe("Country Assessment V2 contract isolation", () => {
+  test("owns the singleton formal route identity beside the V2 evidence policy", () => {
+    expect(SLOVENIA_V2_FORMAL_ROUTE_ID).toBe(
+      "si-temporary-residence-digital-nomad",
+    );
+  });
+
   test("owns participant scope tokens, order, claim IDs, and identities in one policy", () => {
     const applicant = { kind: "applicant" } as const;
     const spouse = { kind: "companion", relationship: "spouse" } as const;

@@ -65,6 +65,9 @@ export const SLOVENIA_V2_PARSER_VERSIONS = Object.freeze({
 
 export const SLOVENIA_V2_EVIDENCE_RULES_VERSION = "vs2-si-evidence@3" as const;
 
+export const SLOVENIA_V2_FORMAL_ROUTE_ID =
+  "si-temporary-residence-digital-nomad" as const;
+
 export const SLOVENIA_V2_CLAIM_SOURCE = Object.freeze({
   route_basis: "si-digital-nomad-route",
   citizenship_applicability: "si-digital-nomad-route",
