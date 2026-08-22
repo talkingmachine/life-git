@@ -125,17 +125,47 @@ function typedValueFor(fieldId: string): unknown {
   return "quiet";
 }
 
+function wireAddressFor(fieldId: string): string {
+  const baseIndex = ONBOARDING_BASE_FIELD_IDS.indexOf(
+    fieldId as (typeof ONBOARDING_BASE_FIELD_IDS)[number],
+  );
+  if (baseIndex >= 0) return `b${baseIndex}`;
+
+  const participant = /^participants\.(self|companion\.(\d+))\.([a-z_]+)$/.exec(fieldId);
+  if (participant?.[1] !== undefined && participant[3] !== undefined) {
+    const descriptorIndex = participant[1] === "self" ? 0 : Number(participant[2]) + 1;
+    return `p${descriptorIndex}.${PARTICIPANT_LEAF_IDS.indexOf(
+      participant[3] as (typeof PARTICIPANT_LEAF_IDS)[number],
+    )}`;
+  }
+
+  const country = /^country_preferences\.([a-z_]+)\.([a-z_]+)$/.exec(fieldId);
+  if (country?.[1] !== undefined && country[2] !== undefined) {
+    return `k${COUNTRY_PREFERENCE_IDS.indexOf(
+      country[1] as (typeof COUNTRY_PREFERENCE_IDS)[number],
+    )}.${["mode", "importance", "target"].indexOf(country[2])}`;
+  }
+
+  const city = /^city_preferences\.([a-z_]+)\.([a-z_]+)$/.exec(fieldId);
+  if (city?.[1] !== undefined && city[2] !== undefined) {
+    return `c${CITY_PREFERENCE_IDS.indexOf(
+      city[1] as (typeof CITY_PREFERENCE_IDS)[number],
+    )}.${["mode", "importance", "target"].indexOf(city[2])}`;
+  }
+  return fieldId;
+}
+
 function extraction(
   fieldId: string,
   typedValue = typedValueFor(fieldId),
 ): Record<string, unknown> {
   return {
-    schemaVersion: "onboarding-model-output@1",
+    schemaVersion: "onboarding-extraction-wire@2",
     proposals: [{
-      fieldId,
-      typedValue,
-      messageId: "message-1",
-      sourceSpan: { start: 0, end: 1 },
+      f: wireAddressFor(fieldId),
+      v: typedValue,
+      s: 0,
+      e: 1,
     }],
     nextQuestion: "Что ещё важно?",
   };
@@ -179,7 +209,7 @@ describe("onboarding Codex schemas and contracts", () => {
     }
     expect(properties(ONBOARDING_EXTRACTION_SCHEMA).schemaVersion).toEqual({
       type: "string",
-      enum: ["onboarding-model-output@1"],
+      enum: ["onboarding-extraction-wire@2"],
     });
     expect(properties(ONBOARDING_REVIEW_SCHEMA).schemaVersion).toEqual({
       type: "string",
@@ -197,13 +227,15 @@ describe("onboarding Codex schemas and contracts", () => {
   test("covers every closed field family and derives review reasons from the catalog", () => {
     const branches = proposalBranches();
     expect(branches).toHaveLength(18);
-    expect(branches.map((branch) => properties(branch).fieldId)).toEqual(expect.arrayContaining([
-      { type: "string", enum: ["current_location"] },
-      { type: "string", enum: ["move_horizon"] },
-      { type: "string", enum: ["moving_party"] },
-      { type: "string", enum: ["participants"] },
-      { type: "string", enum: ["savings"] },
+    expect(branches.map((branch) => properties(branch).f)).toEqual(expect.arrayContaining([
+      { type: "string", enum: ["b0"] },
+      { type: "string", enum: ["b1"] },
+      { type: "string", enum: ["b2"] },
+      { type: "string", enum: ["b3"] },
+      { type: "string", enum: ["b4"] },
     ]));
+    expect(properties(branches[0] ?? {}).v).toBeDefined();
+    expect(properties(ONBOARDING_EXTRACTION_SCHEMA).proposals.maxItems).toBe(100);
 
     const reviewProperties = properties(issueItem());
     expect(reviewProperties.reasonCode).toEqual({
@@ -285,15 +317,21 @@ describe("onboarding Codex schemas and contracts", () => {
       {
         ...extraction("participants"),
         proposals: [{
-          fieldId: "participants",
-          typedValue: Array.from({ length: 21 }, (_, index) => ({
+          f: "b3",
+          v: Array.from({ length: 21 }, (_, index) => ({
             descriptor: index === 0 ? "self" : `companion.${index - 1}`,
             relationship: index === 0 ? "self" : "other_family",
           })),
-          messageId: "message-1",
-          sourceSpan: { start: 0, end: 1 },
+          s: 0,
+          e: 1,
         }],
       },
+      {
+        ...extraction("moving_party"),
+        proposals: [{ ...((extraction("moving_party").proposals as Record<string, unknown>[])[0]), extra: true }],
+      },
+      extraction("move_horizon", { countryCode: "RU", city: "Москва" }),
+      extraction("participants.companion.19.citizenships", ["RU"]),
     ]) {
       expect(accepts(ONBOARDING_EXTRACTION_SCHEMA, invalid)).toBe(false);
     }
@@ -310,9 +348,9 @@ describe("onboarding Codex schemas and contracts", () => {
     const versions: OnboardingModelVersions = {
       invocation: "codex-cli-invocation@1",
       cliVersion: "codex-cli 0.148.0-alpha.15",
-      extractionPrompt: "onboarding-extract@1",
+      extractionPrompt: "onboarding-extract@2",
       reviewPrompt: "onboarding-review@1",
-      extractionSchema: "onboarding-model-output@1",
+      extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
     };
     const model = { versions } as OnboardingModelPort;

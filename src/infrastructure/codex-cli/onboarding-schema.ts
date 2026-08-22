@@ -20,6 +20,7 @@ import {
   type PreferencePart,
 } from "../../decision/onboarding-catalog";
 import type { JsonObject, JsonValue } from "./owned-json";
+import { ONBOARDING_EXTRACTION_WIRE_CODEBOOK } from "./onboarding-extraction-wire";
 
 const COUNTRY_CODE_PATTERN = "^[A-Z]{2}$";
 const CURRENCY_CODE_PATTERN = "^[A-Z]{3}$";
@@ -29,15 +30,11 @@ const PARTICIPANT_DESCRIPTOR_PATTERN = "^(?:self|companion\\.(?:0|[1-9][0-9]*))$
 const PARTICIPANT_FIELD_PREFIX_PATTERN = "participants\\.(?:self|companion\\.(?:0|[1-9][0-9]*))";
 
 const boundedText = Object.freeze({ type: "string", minLength: 1, maxLength: 1_000 });
-const messageId = Object.freeze({ type: "string", minLength: 1, maxLength: 200 });
 const countryCode = Object.freeze({ type: "string", pattern: COUNTRY_CODE_PATTERN });
 const currencyCode = Object.freeze({ type: "string", pattern: CURRENCY_CODE_PATTERN });
 const canonicalDecimal = Object.freeze({ type: "string", pattern: CANONICAL_DECIMAL_PATTERN });
 
-const sourceSpan = exactObject({
-  start: { type: "integer", minimum: 0 },
-  end: { type: "integer", minimum: 0 },
-});
+const wireOffset = Object.freeze({ type: "integer", minimum: 0 });
 
 const currentLocation = exactObject({
   countryCode,
@@ -135,21 +132,27 @@ const cityPreferenceValueSchemas: Readonly<Record<PreferencePart, JsonObject>> =
 
 const extractionProposalSchemas = [
   ...ONBOARDING_BASE_FIELD_IDS.map((fieldId) =>
-    proposalSchema(enumSchema([fieldId]), baseValueSchemas[fieldId])),
+    proposalSchema(wireAddressSchema((candidate) => candidate === fieldId), baseValueSchemas[fieldId])),
   ...PARTICIPANT_LEAF_IDS.map((leafId) =>
-    proposalSchema(participantFieldId(leafId), participantValueSchemas[leafId])),
+    proposalSchema(
+      wireAddressSchema((candidate) =>
+        candidate.startsWith("participants.") && candidate.endsWith(`.${leafId}`)),
+      participantValueSchemas[leafId],
+    )),
   ...PREFERENCE_PARTS.map((part) => proposalSchema(
-    enumSchema(COUNTRY_PREFERENCE_IDS.map((id) => `country_preferences.${id}.${part}`)),
+    wireAddressSchema((candidate) =>
+      candidate.startsWith("country_preferences.") && candidate.endsWith(`.${part}`)),
     countryPreferenceValueSchemas[part],
   )),
   ...PREFERENCE_PARTS.map((part) => proposalSchema(
-    enumSchema(CITY_PREFERENCE_IDS.map((id) => `city_preferences.${id}.${part}`)),
+    wireAddressSchema((candidate) =>
+      candidate.startsWith("city_preferences.") && candidate.endsWith(`.${part}`)),
     cityPreferenceValueSchemas[part],
   )),
 ];
 
 export const ONBOARDING_EXTRACTION_SCHEMA = deepFreeze(exactObject({
-  schemaVersion: enumSchema(["onboarding-model-output@1"]),
+  schemaVersion: enumSchema(["onboarding-extraction-wire@2"]),
   proposals: {
     type: "array",
     maxItems: 100,
@@ -184,15 +187,14 @@ export const ONBOARDING_REVIEW_SCHEMA = deepFreeze(exactObject({
   },
 }));
 
-function proposalSchema(fieldId: JsonObject, typedValue: JsonObject): JsonObject {
-  return exactObject({ fieldId, typedValue, messageId, sourceSpan });
+function proposalSchema(fieldAddress: JsonObject, typedValue: JsonObject): JsonObject {
+  return exactObject({ f: fieldAddress, v: typedValue, s: wireOffset, e: wireOffset });
 }
 
-function participantFieldId(leafId: ParticipantLeafId): JsonObject {
-  return {
-    type: "string",
-    pattern: `^${PARTICIPANT_FIELD_PREFIX_PATTERN}\\.${leafId}$`,
-  };
+function wireAddressSchema(predicate: (fieldId: string) => boolean): JsonObject {
+  return enumSchema(ONBOARDING_EXTRACTION_WIRE_CODEBOOK
+    .filter(({ fieldId }) => predicate(fieldId))
+    .map(({ code }) => code));
 }
 
 function enumSchema(values: readonly (string | number)[]): JsonObject {

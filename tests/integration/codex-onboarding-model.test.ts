@@ -54,16 +54,29 @@ function extractionResult(
 ): CodexJsonResult {
   return {
     value: {
-      schemaVersion: "onboarding-model-output@1",
+      schemaVersion: "onboarding-extraction-wire@2",
       proposals: [{
-        fieldId: "moving_party",
-        typedValue: "alone",
-        messageId: USER_MESSAGE_ID,
-        sourceSpan: { start: 0, end: MESSAGE_TEXT.length },
+        f: "b2",
+        v: "alone",
+        s: 0,
+        e: MESSAGE_TEXT.length,
       }],
       nextQuestion: "Где вы живёте сейчас?",
     },
     metadata,
+  };
+}
+
+function decodedExtractionResult(): unknown {
+  return {
+    schemaVersion: "onboarding-model-output@1",
+    proposals: [{
+      fieldId: "moving_party",
+      typedValue: "alone",
+      messageId: USER_MESSAGE_ID,
+      sourceSpan: { start: 0, end: MESSAGE_TEXT.length },
+    }],
+    nextQuestion: "Где вы живёте сейчас?",
   };
 }
 
@@ -81,8 +94,8 @@ function extractionMetadata(): CodexJsonResult["metadata"] {
   return {
     invocationVersion: CODEX_INVOCATION_VERSION,
     cliVersion: CODEX_CLI_VERSION,
-    templateVersion: "onboarding-extract@1",
-    schemaVersion: "onboarding-model-output@1",
+    templateVersion: "onboarding-extract@2",
+    schemaVersion: "onboarding-extraction-wire@2",
   };
 }
 
@@ -160,7 +173,7 @@ describe("Codex onboarding model", () => {
       message: message(),
       questionnaire: questionnaire(),
       signal: new AbortController().signal,
-    })).resolves.toEqual(baseline.value);
+    })).resolves.toEqual(decodedExtractionResult());
   });
 
   test("pins a frozen, minimal port surface and the approved process contract", () => {
@@ -169,9 +182,9 @@ describe("Codex onboarding model", () => {
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
       invocation: "codex-cli-invocation@1",
       cliVersion: "codex-cli 0.148.0-alpha.15",
-      extractionPrompt: "onboarding-extract@1",
+      extractionPrompt: "onboarding-extract@2",
       reviewPrompt: "onboarding-review@1",
-      extractionSchema: "onboarding-model-output@1",
+      extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
     });
     expect(ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES).toBe(65_536);
@@ -209,14 +222,14 @@ describe("Codex onboarding model", () => {
       message: message(),
       questionnaire: questionnaire(),
       signal: new AbortController().signal,
-    })).resolves.toEqual(extractionResult().value);
+    })).resolves.toEqual(decodedExtractionResult());
 
     expect(invokeJson).toHaveBeenCalledTimes(1);
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
       capability: "onboarding_extract",
-      templateVersion: "onboarding-extract@1",
-      schemaVersion: "onboarding-model-output@1",
+      templateVersion: "onboarding-extract@2",
+      schemaVersion: "onboarding-extraction-wire@2",
       limits: ONBOARDING_EXTRACTION_LIMITS,
     });
     expect(invocation?.outputSchema).toEqual(ONBOARDING_EXTRACTION_SCHEMA);
@@ -224,17 +237,32 @@ describe("Codex onboarding model", () => {
     expect(invocation?.prompt.startsWith(
       ONBOARDING_EXTRACTION_PROMPT_TEMPLATE.split("\nBEGIN_ONBOARDING_INPUT_JSON")[0] ?? "",
     )).toBe(true);
-    expect(invocation?.prompt).toContain(USER_MESSAGE_ID);
+    expect(invocation?.prompt).not.toContain(USER_MESSAGE_ID);
+    expect(invocation?.prompt).not.toContain("messageId");
     expect(invocation?.prompt).toContain("onboarding-questionnaire-projection@1");
     expect(invocation?.prompt).toContain(
-      "For a participants roster, use self/self first, then companion.0, companion.1, and so on",
+      "pD.L",
     );
-    expect(invocation?.prompt).toContain("Never emit the same fieldId twice");
+    expect(invocation?.prompt).toContain("b0=current_location");
+    expect(invocation?.prompt).toContain("p0.0=participants.self.citizenships");
+    expect(invocation?.prompt).toContain(
+      "p19.6=participants.companion.18.relevant_experience_years",
+    );
+    expect(invocation?.prompt).toContain("k4.2=country_preferences.peace_and_stability.target");
+    expect(invocation?.prompt).toContain("c3.2=city_preferences.fixed_broadband.target");
+    expect(invocation?.prompt).toContain("Never emit the same f twice");
     expect(invocation?.prompt).toContain(
       "Normalize city names to their canonical nominative Russian form",
     );
     expect(invocation?.prompt).not.toContain(SELF_ID);
     expect(invocation?.prompt).not.toContain(COMMAND_ID);
+    const payloadText = invocation?.prompt.match(
+      /BEGIN_ONBOARDING_INPUT_JSON\n([\s\S]+)\nEND_ONBOARDING_INPUT_JSON/,
+    )?.[1];
+    expect(JSON.parse(payloadText ?? "null")).toEqual({
+      currentUserMessage: { text: MESSAGE_TEXT },
+      questionnaire: questionnaire(),
+    });
     expect(utf8Bytes(invocation?.prompt ?? "")).toBeLessThanOrEqual(
       ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES,
     );
@@ -334,7 +362,7 @@ describe("Codex onboarding model", () => {
   test("maps parser rejection and hostile runtime results to one content-free invalid error", async () => {
     const invalidValue: CodexJsonResult = {
       value: {
-        schemaVersion: "onboarding-model-output@1",
+        schemaVersion: "onboarding-extraction-wire@2",
         proposals: [],
         nextQuestion: SECRET,
         extra: SECRET,

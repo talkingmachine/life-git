@@ -12,15 +12,9 @@ import type {
   RelocationProfileV2Snapshot,
 } from "../decision/onboarding-questionnaire";
 import type { QuestionnaireProvenance } from "../decision/onboarding-provenance";
+import type { OnboardingModelVersions } from "./onboarding-model-versions";
 
-export interface OnboardingModelVersions {
-  readonly invocation: "codex-cli-invocation@1";
-  readonly cliVersion: "codex-cli 0.148.0-alpha.15";
-  readonly extractionPrompt: "onboarding-extract@1";
-  readonly reviewPrompt: "onboarding-review@1";
-  readonly extractionSchema: "onboarding-model-output@1";
-  readonly reviewSchema: "onboarding-review-output@1";
-}
+export type { OnboardingModelVersions } from "./onboarding-model-versions";
 
 export interface OnboardingModelPort {
   readonly versions: OnboardingModelVersions;
