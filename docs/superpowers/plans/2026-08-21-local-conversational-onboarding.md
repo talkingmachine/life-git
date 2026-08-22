@@ -1067,9 +1067,16 @@ Country Assessment V2 plan.
 - Create: `src/app/api/onboarding/continue/route.ts`
 - Create: `src/app/api/place-frontier/stream-response.ts`
 - Modify: `src/app/api/place-frontier/route.ts`
+- Modify: `src/application/onboarding-contracts.ts`
+- Modify: `src/application/onboarding.ts`
 - Modify: `src/application/place-frontier.ts`
 - Modify: `src/infrastructure/place-frontier-composition.ts`
 - Modify: `src/infrastructure/composition-root.ts`
+- Modify: `src/infrastructure/sqlite/onboarding-store.ts`
+- Modify: `src/infrastructure/sqlite/place-frontier-store.ts`
+- Modify: `tests/integration/onboarding.test.ts`
+- Modify: `tests/integration/onboarding-store.test.ts`
+- Modify: `tests/integration/place-frontier.test.ts`
 - Create: `tests/integration/onboarding-composition.test.ts`
 - Create: `tests/integration/onboarding-transport.test.ts`
 - Modify: `tests/integration/place-frontier-transport.test.ts`
@@ -1100,12 +1107,32 @@ requires the exact `onboarding-message-command@1` DTO; it returns the guarded up
 `{kind:"blocked", session, issues, followUpQuestion}` or the existing finite Frontier NDJSON stream
 in the same POST. The browser does not issue a second `/api/place-frontier` request.
 
+`OnboardingCompletionPort` additionally exposes the narrow read-only capability
+`replayCommitted({completionCommandId, confirmed, versions}): Promise<OnboardingReceipt | undefined>`.
+After exact command reconstruction, `completeOnboarding` runs the deterministic questionnaire review.
+When that review has no blockers it confirms the timestamp-free values and calls `replayCommitted` before
+the model review. An absent receipt continues through the one model review and normal `commitOrReplay`;
+an exact durable receipt skips the model and proceeds directly to its fixed Frontier run; a changed value
+or version conflicts. This lookup performs no clock read, materialization or write. It is not an in-memory
+cache, a derived-ID shortcut or an automatic retry. Deterministic blockers still take the ordinary review
+path and cannot reveal or launch an older receipt.
+
 `prepareFromOnboardingReceipt` loads the verified confirmation by the receipt's exact snapshot pair,
 rechecks receipt/profile/preference/provenance/version/digest bindings, and prepares only
 `receipt.frontierRunId` at `receipt.confirmedAt`. First-writer-wins insert-or-load fixes one ranking
 for that run; exact concurrent/repeated preparation loads the winner, while any changed binding fails
-integrity. A sealed terminal run is presentation-only replay and makes zero model, verifier, research,
-or writer calls. Historical direct `/api/place-frontier` requests and `@1` stream bytes remain unchanged.
+integrity. The SQLite store owns a receipt-specific `insertOrLoadRanking` and optional verified ranking/
+shortlist reads; historical `appendRanking` keeps its exact-conflict behavior. Receipt ranking uses the
+closed `rankPlacesForVerifiedPreferences` branch and exact `preference-profile@2.countryCriteria`; it never
+reads V1-only `criteria` or any city preference.
+
+A sealed terminal run is presentation-only replay and makes zero onboarding-model,
+`CountryVerifierPort.check`, official-source research or writer calls. The already approved read-only
+`CountryVerifierPort.present` semantic replay remains mandatory for every persisted marker so a re-signed
+schema-valid whole-grid reorder is still rejected. Completed NDJSON replay reconstructs a protocol-valid
+sequence from the verified Ranking and Shortlist: `ranking_sealed`, the initial activations, each persisted
+completion plus any red replacement activation, then `frontier_completed`; it emits no invented progress.
+Historical direct `/api/place-frontier` requests and `@1` stream bytes remain unchanged.
 
 Composition obtains the already preflighted process-local adapter through
 `getCodexCliModelAdapter`, wraps it once with `createCodexOnboardingModel`, injects the onboarding
@@ -1114,17 +1141,21 @@ store and V2-capable Frontier, and exports the two use cases. The composition ro
 IDs; a transport test proves that none is reused across those roles. Routes only delegate; they never
 construct a model, run preflight, read auth, or retry.
 
-- [ ] **Step 1: Write RED composition/transport tests.** Cover one runtime instance, exact command schemas/keys, closed JSON, an exact 131,072-byte body accepted, 131,073 bytes rejected before `JSON.parse`/command reconstruction/model calls, chunked overflow, the exact session count/UTF-8 limits from Task 2, abort, blocked response, same-POST NDJSON handoff, verified receipt/snapshot/version binding, fixed run/time, concurrent exact preparation, V2 dispatch, completed replay with zero model/verifier/research/writes, zero duplicate browser launch, historical route bytes, and no raw request/error content.
+- [ ] **Step 1: Write RED composition/transport tests.** Cover one runtime instance, exact command schemas/keys, closed JSON, an exact 131,072-byte body accepted, 131,073 bytes rejected before `JSON.parse`/command reconstruction/model calls, chunked overflow, the exact session count/UTF-8 limits from Task 2, abort, blocked response, same-POST NDJSON handoff, verified receipt/snapshot/version binding, fixed run/time, concurrent exact preparation, V2 dispatch, exact durable command replay with zero model review, completed replay with zero `verifier.check`/research/writes and required semantic `verifier.present`, a protocol-valid reconstructed event sequence, zero duplicate browser launch, historical route bytes, and no raw request/error content. Add store REDs proving read-only command replay, receipt-specific first-writer-wins ranking convergence and unchanged historical `appendRanking` conflicts.
 - [ ] **Step 2: Run RED, implement, and run GREEN.** Run `pnpm exec vitest run tests/integration/onboarding-composition.test.ts tests/integration/onboarding-transport.test.ts tests/integration/place-frontier-transport.test.ts`; expect only the new routes/composition/handoff seams to fail, extract the shared response and wire them, then re-run it.
-- [ ] **Step 3: Run static gates and commit.** Run `pnpm run typecheck`, `pnpm exec eslint src/app/api/onboarding/route-contract.ts src/app/api/onboarding/message/route.ts src/app/api/onboarding/continue/route.ts src/app/api/place-frontier/stream-response.ts src/app/api/place-frontier/route.ts src/application/place-frontier.ts src/infrastructure/place-frontier-composition.ts src/infrastructure/composition-root.ts tests/integration/onboarding-composition.test.ts tests/integration/onboarding-transport.test.ts tests/integration/place-frontier-transport.test.ts`, and `git diff --check`.
+- [ ] **Step 3: Run static gates and commit.** Run `pnpm run typecheck`, `pnpm exec eslint src/app/api/onboarding/route-contract.ts src/app/api/onboarding/message/route.ts src/app/api/onboarding/continue/route.ts src/app/api/place-frontier/stream-response.ts src/app/api/place-frontier/route.ts src/application/onboarding-contracts.ts src/application/onboarding.ts src/application/place-frontier.ts src/infrastructure/place-frontier-composition.ts src/infrastructure/composition-root.ts src/infrastructure/sqlite/onboarding-store.ts src/infrastructure/sqlite/place-frontier-store.ts tests/integration/onboarding.test.ts tests/integration/onboarding-store.test.ts tests/integration/place-frontier.test.ts tests/integration/onboarding-composition.test.ts tests/integration/onboarding-transport.test.ts tests/integration/place-frontier-transport.test.ts`, and `git diff --check`.
 
 ```bash
 git add src/app/api/onboarding/route-contract.ts \
   src/app/api/onboarding/message/route.ts src/app/api/onboarding/continue/route.ts \
   src/app/api/place-frontier/stream-response.ts src/app/api/place-frontier/route.ts \
+  src/application/onboarding-contracts.ts src/application/onboarding.ts \
   src/application/place-frontier.ts src/infrastructure/place-frontier-composition.ts \
-  src/infrastructure/composition-root.ts tests/integration/onboarding-composition.test.ts \
-  tests/integration/onboarding-transport.test.ts tests/integration/place-frontier-transport.test.ts
+  src/infrastructure/composition-root.ts src/infrastructure/sqlite/onboarding-store.ts \
+  src/infrastructure/sqlite/place-frontier-store.ts tests/integration/onboarding.test.ts \
+  tests/integration/onboarding-store.test.ts tests/integration/place-frontier.test.ts \
+  tests/integration/onboarding-composition.test.ts tests/integration/onboarding-transport.test.ts \
+  tests/integration/place-frontier-transport.test.ts
 git commit -m "feat: launch frontier from onboarding"
 ```
 
