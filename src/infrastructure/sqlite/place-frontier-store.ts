@@ -8,7 +8,10 @@ import {
 } from "../../application/place-frontier";
 import { reconstructFrontierMarker } from "../../application/country-resolution-contracts";
 import { reconstructPlaceRanking } from "../../decision/place-ranker";
-import type { PreferenceProfileSnapshot } from "../../decision/preference-profile";
+import type {
+  PreferenceProfileSnapshot,
+  PreferenceProfileV2Snapshot,
+} from "../../decision/preference-profile";
 import { canonicalJson, hmacSha256, secureHexEqual, sha256Text } from "../integrity";
 
 type SnapshotKind = "ranking" | "shortlist";
@@ -224,7 +227,9 @@ export class SqlitePlaceFrontierStore {
     private readonly database: Database.Database,
     private readonly hmacKey: string,
     private readonly preferences: {
-      loadPreferenceVerified(id: string): Promise<PreferenceProfileSnapshot>;
+      loadPreferenceForRankingVerified(
+        id: string,
+      ): Promise<PreferenceProfileSnapshot | PreferenceProfileV2Snapshot>;
     },
   ) {
     if (hmacKey.length === 0) throw new Error("integrity_key_missing");
@@ -286,7 +291,7 @@ export class SqlitePlaceFrontierStore {
   }
 
   private async verifyRankingSemantics(snapshot: RankingSnapshot): Promise<void> {
-    const preferences = await this.preferences.loadPreferenceVerified(
+    const preferences = await this.preferences.loadPreferenceForRankingVerified(
       snapshot.preferenceProfileSnapshotId,
     );
     if (preferences.id !== snapshot.preferenceProfileSnapshotId) integrityMismatch();

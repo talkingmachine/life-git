@@ -26,7 +26,9 @@ import { rankPlaces, type RankablePlace, type RankedPlace } from
 import type {
   PreferenceProfileDraft,
   PreferenceProfileSnapshot,
+  PreferenceProfileV2Snapshot,
 } from "../../src/decision/preference-profile";
+import { materializePreferenceProfileV2 } from "../../src/decision/preference-profile";
 import type { RelocationProfileDraft } from "../../src/decision/relocation-profile";
 import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { createColdStartComposition } from "../../src/infrastructure/cold-start-composition";
@@ -262,6 +264,11 @@ function harness(options: HarnessOptions) {
       if (snapshot === undefined) throw new Error("profile_not_found");
       return structuredClone(snapshot) as PreferenceProfileSnapshot;
     },
+    loadPreferenceForRankingVerified: async (id: string) => {
+      const snapshot = preferences.get(id);
+      if (snapshot === undefined) throw new Error("profile_not_found");
+      return structuredClone(snapshot) as PreferenceProfileSnapshot | PreferenceProfileV2Snapshot;
+    },
   };
   const store = new SqlitePlaceFrontierStore(database, HMAC_KEY, preferenceLoader);
   const checks: string[] = [];
@@ -437,6 +444,62 @@ function requiredPlace(
   };
 }
 
+function v2PreferenceSnapshot(): PreferenceProfileV2Snapshot {
+  return materializePreferenceProfileV2({
+    confirmedAt: NOW,
+    preferences: {
+      schemaVersion: "preference-profile@2",
+      countryCriteria: [
+        { id: "outside_cis", mode: "required", importance: 5, target: "required_true" },
+        { id: "europe", mode: "weighted", importance: 4, target: "maximize" },
+        { id: "personal_safety", mode: "weighted", importance: 5, target: "maximize" },
+        { id: "infrastructure", mode: "weighted", importance: 3, target: "maximize" },
+        { id: "peace_and_stability", mode: "required", importance: 2, target: "required_true" },
+      ],
+      cityCriteria: [
+        { id: "safety", mode: "required", importance: 5, target: "low crime" },
+        { id: "long_term_rent", mode: "weighted", importance: 4, target: "under 1200 EUR" },
+        { id: "urban_transit", mode: "weighted", importance: 3, target: "frequent" },
+        { id: "fixed_broadband", mode: "weighted", importance: 2, target: "500 Mbps" },
+      ],
+    },
+  });
+}
+
+function v2RankablePlace(countryCode: string, match: string): RankablePlace {
+  return {
+    countryCode,
+    label: countryCode,
+    flag: `flag-${countryCode}`,
+    coordinate: { lat: 46, lng: 14 },
+    factors: [
+      {
+        criterionId: "outside_cis",
+        state: "known",
+        match: "1",
+        requirementStatus: "matches",
+        observationId: `observation-${countryCode}-outside-cis`,
+        evaluatorVersion: "fixture-factor@1",
+      },
+      ...(["europe", "personal_safety", "infrastructure"] as const).map((criterionId) => ({
+        criterionId,
+        state: "known" as const,
+        match,
+        observationId: `observation-${countryCode}-${criterionId}`,
+        evaluatorVersion: "fixture-factor@1",
+      })),
+      {
+        criterionId: "peace_and_stability",
+        state: "known",
+        match: "1",
+        requirementStatus: "matches",
+        observationId: `observation-${countryCode}-peace`,
+        evaluatorVersion: "fixture-factor@1",
+      },
+    ],
+  };
+}
+
 function genuineExcludedHarness() {
   return harness({
     rankedCountries: ["SI", "DE"],
@@ -526,7 +589,7 @@ async function concurrentStoreWrites(input: {
     parentPort.postMessage({ type: "ready" });
     Atomics.wait(state, 0, 0);
     const preferences = {
-      loadPreferenceVerified: async (id) => {
+      loadPreferenceForRankingVerified: async (id) => {
         if (workerData.preference.id !== id) throw new Error("profile_not_found");
         return structuredClone(workerData.preference);
       },
@@ -1063,6 +1126,57 @@ describe("frozen CountryFrontier", () => {
 });
 
 describe("frontier snapshot integrity", () => {
+  test("verifies persisted @1 ranking semantics against its actual @2 preference snapshot ID", async () => {
+    // Break caught: hard-wiring Frontier replay to the historical @1 preference loader.
+    const database = openEvidenceDatabase(":memory:");
+    const preferences = v2PreferenceSnapshot();
+    const loadPreferenceForRankingVerified = vi.fn(async (id: string) => {
+      if (id !== preferences.id) throw new Error("profile_not_found");
+      return structuredClone(preferences);
+    });
+    const store = new SqlitePlaceFrontierStore(database, HMAC_KEY, {
+      loadPreferenceForRankingVerified,
+    });
+    const runId = "frontier-v2-preference";
+    const profileSnapshotId = "a".repeat(64);
+    const rankingId = `${runId}:ranking`;
+    const result = rankPlaces({
+      assessmentAt: DAY,
+      preferences: preferences as never,
+      places: [v2RankablePlace("PT", "0.5"), v2RankablePlace("SI", "1")],
+    });
+    const integrity = createEvidenceIntegrity(HMAC_KEY);
+    const ranking: RankingSnapshot = {
+      schemaVersion: "place-ranking@1",
+      id: rankingId,
+      runId,
+      profileSnapshotId,
+      preferenceProfileSnapshotId: preferences.id,
+      assessmentAt: NOW,
+      contextHash: integrity.hash(integrity.canonical({
+        runId,
+        profileId: profileSnapshotId,
+        preferenceProfileId: preferences.id,
+        assessmentAt: NOW,
+        rankingSnapshotId: rankingId,
+      })),
+      knowledgeRevisionIds: { PT: null, SI: null },
+      ordered: result.ordered,
+      excludedPlaces: [],
+      excluded: result.excluded,
+      rulesVersion: "place-ranker@1",
+      createdAt: NOW,
+    };
+
+    await store.appendRanking(ranking);
+
+    await expect(store.loadRankingVerified(runId)).resolves.toEqual(ranking);
+    expect(loadPreferenceForRankingVerified).toHaveBeenCalledWith(preferences.id);
+    expect(ranking.schemaVersion).toBe("place-ranking@1");
+    expect(ranking.preferenceProfileSnapshotId).toBe(preferences.id);
+    database.close();
+  });
+
   test("rejects a fabricated excluded country on append and re-signed load", async () => {
     const source = genuineExcludedHarness();
     const prepared = await source.prepare();
@@ -1080,7 +1194,7 @@ describe("frontier snapshot integrity", () => {
     const preference = source.preferences.get(valid.preferenceProfileSnapshotId) as
       PreferenceProfileSnapshot;
     const emptyStore = new SqlitePlaceFrontierStore(openEvidenceDatabase(":memory:"), HMAC_KEY, {
-      loadPreferenceVerified: async () => structuredClone(preference),
+      loadPreferenceForRankingVerified: async () => structuredClone(preference),
     });
 
     await expect(emptyStore.appendRanking(forged)).rejects.toThrow("integrity_mismatch");
@@ -1154,7 +1268,7 @@ describe("frontier snapshot integrity", () => {
     const preference = source.preferences.get(valid.preferenceProfileSnapshotId) as
       PreferenceProfileSnapshot;
     const emptyStore = new SqlitePlaceFrontierStore(emptyDatabase, HMAC_KEY, {
-      loadPreferenceVerified: async () => structuredClone(preference),
+      loadPreferenceForRankingVerified: async () => structuredClone(preference),
     });
 
     await expect(emptyStore.appendRanking(forged)).rejects.toThrow("integrity_mismatch");
@@ -1299,7 +1413,7 @@ describe("frontier snapshot integrity", () => {
       openEvidenceDatabase(":memory:"),
       HMAC_KEY,
       {
-        loadPreferenceVerified: async () => structuredClone(
+        loadPreferenceForRankingVerified: async () => structuredClone(
           fixture.preferences.get(result.rankingSnapshot.preferenceProfileSnapshotId) as
             PreferenceProfileSnapshot,
         ),
@@ -1365,7 +1479,7 @@ describe("frontier snapshot integrity", () => {
       const preference = fixture.preferences.get(ranking.preferenceProfileSnapshotId) as
         PreferenceProfileSnapshot;
       const winner = await new SqlitePlaceFrontierStore(database, HMAC_KEY, {
-        loadPreferenceVerified: async () => structuredClone(preference),
+        loadPreferenceForRankingVerified: async () => structuredClone(preference),
       })
         .loadRankingVerified(prepared.runId);
       expect([canonicalJson(ranking), canonicalJson(conflicting)])
@@ -1395,7 +1509,7 @@ describe("frontier snapshot integrity", () => {
       const preference = fixture.preferences.get(ranking.preferenceProfileSnapshotId) as
         PreferenceProfileSnapshot;
       const seedStore = new SqlitePlaceFrontierStore(seedDatabase, HMAC_KEY, {
-        loadPreferenceVerified: async () => structuredClone(preference),
+        loadPreferenceForRankingVerified: async () => structuredClone(preference),
       });
       await seedStore.appendRanking(ranking);
 

@@ -90,6 +90,43 @@ const CURRENT_COUNTRY_RESOLUTION_TABLE = normalizeSchemaSql(`
   );
 `);
 
+const CURRENT_ONBOARDING_CONFIRMATIONS_TABLE = normalizeExactSchemaSql(`
+CREATE TABLE IF NOT EXISTS onboarding_confirmations (
+  schema_version TEXT NOT NULL
+    CHECK (schema_version = 'onboarding-receipt@1'),
+  receipt_id TEXT PRIMARY KEY,
+  completion_command_id TEXT NOT NULL UNIQUE,
+  confirmation_digest TEXT NOT NULL CHECK (
+    length(confirmation_digest) = 64
+    AND confirmation_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  frontier_run_id TEXT NOT NULL UNIQUE,
+  confirmed_at TEXT NOT NULL UNIQUE,
+  provenance_json TEXT NOT NULL,
+  versions_json TEXT NOT NULL,
+  UNIQUE (profile_id, preference_profile_id),
+  CHECK (profile_id <> preference_profile_id)
+);
+`);
+
+const CURRENT_ONBOARDING_NO_UPDATE_TRIGGER = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS onboarding_confirmations_no_update
+BEFORE UPDATE ON onboarding_confirmations
+BEGIN
+  SELECT RAISE(ABORT, 'onboarding_confirmation_is_immutable');
+END;
+`);
+
+const CURRENT_ONBOARDING_NO_DELETE_TRIGGER = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS onboarding_confirmations_no_delete
+BEFORE DELETE ON onboarding_confirmations
+BEGIN
+  SELECT RAISE(ABORT, 'onboarding_confirmation_is_immutable');
+END;
+`);
+
 interface SchemaEntry {
   readonly type: string;
   readonly sql: string | null;
@@ -106,8 +143,27 @@ interface ForeignKeyEntry {
   readonly match: string;
 }
 
+interface IndexListEntry {
+  readonly name: string;
+  readonly unique: number;
+}
+
+interface IndexInfoEntry {
+  readonly seqno: number;
+  readonly name: string;
+}
+
 function normalizeSchemaSql(value: string): string {
   return value.toLowerCase().replace(/\s+/g, "").replace("ifnotexists", "").replace(/;$/, "");
+}
+
+function normalizeExactSchemaSql(value: string): string {
+  const withoutOptionalExistence = value.trim()
+    .replace(/^CREATE TABLE IF NOT EXISTS /, "CREATE TABLE ")
+    .replace(/^CREATE TRIGGER IF NOT EXISTS /, "CREATE TRIGGER ");
+  return withoutOptionalExistence.endsWith(";")
+    ? withoutOptionalExistence.slice(0, -1).trimEnd()
+    : withoutOptionalExistence;
 }
 
 function hasCurrentBranchCommitForeignKey(database: Database.Database): boolean {
@@ -173,6 +229,96 @@ function preflightExistingCountryResolution(database: Database.Database): void {
   }
 }
 
+function hasCurrentOnboardingForeignKeys(database: Database.Database): boolean {
+  const foreignKeys = database.pragma(
+    "foreign_key_list(onboarding_confirmations)",
+  ) as ForeignKeyEntry[];
+  if (foreignKeys.length !== 2) return false;
+  return ["profile_id", "preference_profile_id"].every((column) => {
+    const candidates = foreignKeys.filter((entry) => entry.from === column);
+    if (candidates.length !== 1) return false;
+    const candidate = candidates[0]!;
+    return candidate.seq === 0 &&
+      candidate.table === "profile_snapshots" &&
+      candidate.to === "id" &&
+      candidate.on_update === "NO ACTION" &&
+      candidate.on_delete === "NO ACTION" &&
+      candidate.match === "NONE" &&
+      foreignKeys.filter((entry) => entry.id === candidate.id).length === 1;
+  });
+}
+
+function hasCurrentOnboardingUniqueConstraints(database: Database.Database): boolean {
+  const indexes = database.pragma(
+    "index_list(onboarding_confirmations)",
+  ) as IndexListEntry[];
+  const uniqueColumnSets = indexes
+    .filter(({ unique }) => unique === 1)
+    .map(({ name }) => (database.pragma(`index_info('${name}')`) as IndexInfoEntry[])
+      .sort((left, right) => left.seqno - right.seqno)
+      .map(({ name: column }) => column)
+      .join(","))
+    .sort();
+  const expected = [
+    "completion_command_id",
+    "confirmed_at",
+    "frontier_run_id",
+    "profile_id,preference_profile_id",
+    "receipt_id",
+  ];
+  return uniqueColumnSets.length === expected.length &&
+    uniqueColumnSets.every((value, index) => value === expected[index]);
+}
+
+function hasExactSchemaObject(
+  database: Database.Database,
+  name: string,
+  type: "trigger",
+  expectedSql: string,
+): boolean {
+  const entry = database.prepare(
+    "SELECT type, sql FROM sqlite_master WHERE name = ?",
+  ).get(name) as SchemaEntry | undefined;
+  return entry !== undefined && entry.type === type && entry.sql !== null &&
+    normalizeExactSchemaSql(entry.sql) === expectedSql;
+}
+
+function preflightExistingOnboardingConfirmations(database: Database.Database): void {
+  const entry = database.prepare(`
+    SELECT type, sql FROM sqlite_master WHERE name = 'onboarding_confirmations'
+  `).get() as SchemaEntry | undefined;
+  const triggerNames = [
+    "onboarding_confirmations_no_update",
+    "onboarding_confirmations_no_delete",
+  ] as const;
+  if (entry === undefined) {
+    const orphanedObject = database.prepare(`
+      SELECT 1 FROM sqlite_master WHERE name IN (?, ?) LIMIT 1
+    `).get(...triggerNames);
+    if (orphanedObject !== undefined) throw new Error("database_schema_reset_required");
+    return;
+  }
+  if (
+    entry.type !== "table" ||
+    entry.sql === null ||
+    normalizeExactSchemaSql(entry.sql) !== CURRENT_ONBOARDING_CONFIRMATIONS_TABLE ||
+    !hasCurrentOnboardingForeignKeys(database) ||
+    !hasCurrentOnboardingUniqueConstraints(database) ||
+    !hasExactSchemaObject(
+      database,
+      triggerNames[0],
+      "trigger",
+      CURRENT_ONBOARDING_NO_UPDATE_TRIGGER,
+    ) ||
+    !hasExactSchemaObject(
+      database,
+      triggerNames[1],
+      "trigger",
+      CURRENT_ONBOARDING_NO_DELETE_TRIGGER,
+    )
+  ) throw new Error("database_schema_reset_required");
+}
+
 export function openEvidenceDatabase(path: string): Database.Database {
   const database = new Database(path);
   try {
@@ -181,6 +327,7 @@ export function openEvidenceDatabase(path: string): Database.Database {
     preflightExistingCityEvidence(database);
     preflightExistingCountryKnowledge(database);
     preflightExistingCountryResolution(database);
+    preflightExistingOnboardingConfirmations(database);
     database.exec(schema);
     return database;
   } catch (error) {

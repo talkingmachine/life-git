@@ -4,12 +4,15 @@ import { describe, expect, test } from "vitest";
 
 import {
   confirmPreferenceProfile,
+  materializePreferenceProfileV2,
   type PlaceCriterionId,
   type PreferenceCriterion,
   type PreferenceProfileSnapshot,
+  type PreferenceProfileV2Snapshot,
 } from "../../src/decision/preference-profile";
 import {
   rankPlaces,
+  rankPlacesForVerifiedPreferences,
   reconstructPlaceRanking,
   type PlaceFactorProjection,
   type RankablePlace,
@@ -37,6 +40,35 @@ function preferences(
   criteria: readonly PreferenceCriterion[],
 ): PreferenceProfileSnapshot {
   return confirmPreferenceProfile({ criteria }, () => new Date(CONFIRMED_AT));
+}
+
+function preferencesV2(cityVariant: "first" | "second"): PreferenceProfileV2Snapshot {
+  return materializePreferenceProfileV2({
+    confirmedAt: CONFIRMED_AT,
+    preferences: {
+      schemaVersion: "preference-profile@2",
+      countryCriteria: [
+        { id: "outside_cis", mode: "required", importance: 5, target: "required_true" },
+        { id: "europe", mode: "weighted", importance: 4, target: "maximize" },
+        { id: "personal_safety", mode: "weighted", importance: 5, target: "maximize" },
+        { id: "infrastructure", mode: "weighted", importance: 3, target: "maximize" },
+        { id: "peace_and_stability", mode: "required", importance: 2, target: "required_true" },
+      ],
+      cityCriteria: cityVariant === "first"
+        ? [
+            { id: "safety", mode: "required", importance: 5, target: "low crime" },
+            { id: "long_term_rent", mode: "weighted", importance: 4, target: "under 1200 EUR" },
+            { id: "urban_transit", mode: "weighted", importance: 3, target: "frequent" },
+            { id: "fixed_broadband", mode: "weighted", importance: 2, target: "500 Mbps" },
+          ]
+        : [
+            { id: "safety", mode: "weighted", importance: 1, target: "anything" },
+            { id: "long_term_rent", mode: "required", importance: 1, target: "luxury only" },
+            { id: "urban_transit", mode: "required", importance: 5, target: "none" },
+            { id: "fixed_broadband", mode: "required", importance: 5, target: "dial-up" },
+          ],
+    },
+  });
 }
 
 function known(
@@ -75,6 +107,68 @@ function place(
 }
 
 describe("preference profile and place ranking", () => {
+  test("ranks preference-profile@2 from only its five country criteria", () => {
+    // Break caught: feeding any universal city preference into country ranking.
+    const places = [
+      place("PT", [
+        known("outside_cis", "1", "matches"),
+        known("europe", "1"),
+        known("personal_safety", "0.5"),
+        known("infrastructure", "0.25"),
+        known("peace_and_stability", "1", "matches"),
+      ]),
+      place("SI", [
+        known("outside_cis", "1", "matches"),
+        known("europe", "0.5"),
+        known("personal_safety", "1"),
+        known("infrastructure", "1"),
+        known("peace_and_stability", "1", "matches"),
+      ]),
+    ];
+
+    const firstPreferences = preferencesV2("first");
+    const secondPreferences = preferencesV2("second");
+    const firstPreferenceId = firstPreferences.id;
+    const secondPreferenceId = secondPreferences.id;
+    const first = rankPlacesForVerifiedPreferences({
+      assessmentAt: "2026-08-12",
+      preferences: firstPreferences,
+      places,
+    });
+    const second = rankPlacesForVerifiedPreferences({
+      assessmentAt: "2026-08-12",
+      preferences: secondPreferences,
+      places,
+    });
+
+    expect(second).toEqual(first);
+    expect(firstPreferences).toMatchObject({
+      schemaVersion: "preference-profile@2",
+      id: firstPreferenceId,
+    });
+    expect(secondPreferences).toMatchObject({
+      schemaVersion: "preference-profile@2",
+      id: secondPreferenceId,
+    });
+    expect(secondPreferenceId).not.toBe(firstPreferenceId);
+    expect(first.ordered.map(({ countryCode, relevance, coverage }) => ({
+      countryCode,
+      relevance,
+      coverage,
+    }))).toEqual([
+      { countryCode: "SI", relevance: "0.89473684210526315789", coverage: "1" },
+      { countryCode: "PT", relevance: "0.75", coverage: "1" },
+    ]);
+    expect(first.ordered[0]?.contributions.map(({ criterionId }) => criterionId)).toEqual([
+      "outside_cis",
+      "europe",
+      "personal_safety",
+      "infrastructure",
+      "peace_and_stability",
+    ]);
+    expect(JSON.stringify(first)).not.toMatch(/long_term_rent|urban_transit|fixed_broadband/);
+  });
+
   test("reconstructs only exact canonical scoring and genuine required exclusions", () => {
     const profile = preferences([
       required("outside_cis", 5),

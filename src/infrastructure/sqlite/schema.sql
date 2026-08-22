@@ -104,6 +104,25 @@ CREATE TABLE IF NOT EXISTS profile_snapshots (
   snapshot_hash TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS onboarding_confirmations (
+  schema_version TEXT NOT NULL
+    CHECK (schema_version = 'onboarding-receipt@1'),
+  receipt_id TEXT PRIMARY KEY,
+  completion_command_id TEXT NOT NULL UNIQUE,
+  confirmation_digest TEXT NOT NULL CHECK (
+    length(confirmation_digest) = 64
+    AND confirmation_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  frontier_run_id TEXT NOT NULL UNIQUE,
+  confirmed_at TEXT NOT NULL UNIQUE,
+  provenance_json TEXT NOT NULL,
+  versions_json TEXT NOT NULL,
+  UNIQUE (profile_id, preference_profile_id),
+  CHECK (profile_id <> preference_profile_id)
+);
+
 CREATE TABLE IF NOT EXISTS place_frontier_snapshots (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -286,6 +305,18 @@ CREATE TRIGGER IF NOT EXISTS profile_snapshots_no_delete
 BEFORE DELETE ON profile_snapshots
 BEGIN
   SELECT RAISE(ABORT, 'profile_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS onboarding_confirmations_no_update
+BEFORE UPDATE ON onboarding_confirmations
+BEGIN
+  SELECT RAISE(ABORT, 'onboarding_confirmation_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS onboarding_confirmations_no_delete
+BEFORE DELETE ON onboarding_confirmations
+BEGIN
+  SELECT RAISE(ABORT, 'onboarding_confirmation_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS place_frontier_snapshots_no_update

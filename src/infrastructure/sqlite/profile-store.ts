@@ -3,11 +3,15 @@ import type Database from "better-sqlite3";
 import {
   confirmPreferenceProfile,
   type PreferenceProfileSnapshot,
+  reconstructPreferenceProfileV2,
+  type PreferenceProfileV2Snapshot,
 } from "../../decision/preference-profile";
 import { confirmProfile } from "../../decision/profile";
 import {
   confirmRelocationProfile,
+  reconstructRelocationProfileV2,
   type RelocationProfileSnapshot,
+  type RelocationProfileV2Snapshot,
 } from "../../decision/relocation-profile";
 import type { ProfileSnapshot } from "../../research/contracts";
 import { canonicalJson, secureHexEqual, sha256Text } from "../integrity";
@@ -26,6 +30,14 @@ interface TypedProfileSnapshot {
 }
 
 type ReconfirmSnapshot<T extends TypedProfileSnapshot> = (snapshot: T) => T;
+
+export interface ProfileStoreV2Reads {
+  loadRelocationV2Verified(id: string): Promise<RelocationProfileV2Snapshot>;
+  loadPreferenceV2Verified(id: string): Promise<PreferenceProfileV2Snapshot>;
+  loadPreferenceForRankingVerified(
+    id: string,
+  ): Promise<PreferenceProfileSnapshot | PreferenceProfileV2Snapshot>;
+}
 
 function integrityMismatch(): never {
   throw new Error("integrity_mismatch");
@@ -66,6 +78,23 @@ function appendTypedSnapshot<T extends TypedProfileSnapshot>(
   `).run(snapshot.id, snapshot.confirmedAt, snapshotJson, sha256Text(snapshotJson));
 }
 
+function insertOrVerifyTypedSnapshot<T extends TypedProfileSnapshot>(
+  database: Database.Database,
+  snapshot: T,
+  schemaVersion: T["schemaVersion"],
+  reconfirm: ReconfirmSnapshot<T>,
+): void {
+  const confirmed = reconfirmTypedSnapshot(snapshot, schemaVersion, reconfirm);
+  const snapshotJson = canonicalJson(confirmed);
+  database.prepare(`
+    INSERT INTO profile_snapshots (id, confirmed_at, snapshot_json, snapshot_hash)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT (id) DO NOTHING
+  `).run(confirmed.id, confirmed.confirmedAt, snapshotJson, sha256Text(snapshotJson));
+  const stored = loadTypedSnapshot(database, confirmed.id, schemaVersion, reconfirm);
+  if (canonicalJson(stored) !== snapshotJson) integrityMismatch();
+}
+
 function loadTypedSnapshot<T extends TypedProfileSnapshot>(
   database: Database.Database,
   id: string,
@@ -103,7 +132,69 @@ function loadTypedSnapshot<T extends TypedProfileSnapshot>(
   return confirmed;
 }
 
-export class SqliteProfileStore {
+export function insertRelocationV2Snapshot(
+  database: Database.Database,
+  snapshot: RelocationProfileV2Snapshot,
+): void {
+  insertOrVerifyTypedSnapshot(
+    database,
+    snapshot,
+    "relocation-profile@2",
+    reconstructRelocationProfileV2,
+  );
+}
+
+export function insertPreferenceV2Snapshot(
+  database: Database.Database,
+  snapshot: PreferenceProfileV2Snapshot,
+): void {
+  insertOrVerifyTypedSnapshot(
+    database,
+    snapshot,
+    "preference-profile@2",
+    reconstructPreferenceProfileV2,
+  );
+}
+
+export function loadRelocationV2SnapshotVerified(
+  database: Database.Database,
+  id: string,
+): RelocationProfileV2Snapshot {
+  return loadTypedSnapshot(
+    database,
+    id,
+    "relocation-profile@2",
+    reconstructRelocationProfileV2,
+  );
+}
+
+export function loadPreferenceV2SnapshotVerified(
+  database: Database.Database,
+  id: string,
+): PreferenceProfileV2Snapshot {
+  return loadTypedSnapshot(
+    database,
+    id,
+    "preference-profile@2",
+    reconstructPreferenceProfileV2,
+  );
+}
+
+function loadStoredSchemaVersion(database: Database.Database, id: string): unknown {
+  const row = database.prepare(
+    "SELECT snapshot_json FROM profile_snapshots WHERE id = ?",
+  ).get(id) as { readonly snapshot_json: string } | undefined;
+  if (row === undefined) throw new Error("profile_not_found");
+  try {
+    const parsed: unknown = JSON.parse(row.snapshot_json);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) integrityMismatch();
+    return (parsed as { readonly schemaVersion?: unknown }).schemaVersion;
+  } catch {
+    integrityMismatch();
+  }
+}
+
+export class SqliteProfileStore implements ProfileStoreV2Reads {
   constructor(private readonly database: Database.Database) {}
 
   async append(snapshot: ProfileSnapshot): Promise<void> {
@@ -191,5 +282,22 @@ export class SqliteProfileStore {
         () => new Date(stored.confirmedAt),
       ),
     );
+  }
+
+  async loadRelocationV2Verified(id: string): Promise<RelocationProfileV2Snapshot> {
+    return loadRelocationV2SnapshotVerified(this.database, id);
+  }
+
+  async loadPreferenceV2Verified(id: string): Promise<PreferenceProfileV2Snapshot> {
+    return loadPreferenceV2SnapshotVerified(this.database, id);
+  }
+
+  async loadPreferenceForRankingVerified(
+    id: string,
+  ): Promise<PreferenceProfileSnapshot | PreferenceProfileV2Snapshot> {
+    const schemaVersion = loadStoredSchemaVersion(this.database, id);
+    if (schemaVersion === "preference-profile@1") return this.loadPreferenceVerified(id);
+    if (schemaVersion === "preference-profile@2") return this.loadPreferenceV2Verified(id);
+    integrityMismatch();
   }
 }
