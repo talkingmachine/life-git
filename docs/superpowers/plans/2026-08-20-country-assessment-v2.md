@@ -333,12 +333,15 @@ Money handling is closed: EUR direct; RUB through a fresh sealed CBR claim; any 
 - Modify: `src/infrastructure/cold-start-composition.ts`
 - Modify: `src/infrastructure/sqlite/profile-store.ts`
 - Modify: `src/infrastructure/sqlite/dossier-store.ts`
+- Modify: `src/infrastructure/sqlite/db.ts`
 - Modify: `src/infrastructure/sqlite/evidence-store.ts`
+- Modify: `src/infrastructure/sqlite/schema.sql`
 - Modify: `src/research/country-knowledge.ts`
 - Modify: `src/infrastructure/sqlite/country-knowledge-store.ts`
 - Create: `tests/integration/country-assessment-projection-v2.test.ts`
 - Modify: `tests/integration/cold-start.test.ts`
 - Modify: `tests/integration/country-knowledge.test.ts`
+- Modify: `tests/integration/database-schema.test.ts`
 - Create: `tests/integration/dossier-store-v2.test.ts`
 - Modify: `tests/integration/evidence-store.test.ts`
 - Modify: `tests/integration/profile-store.test.ts`
@@ -485,12 +488,26 @@ export interface ColdStartApplicationPortsV2 extends Omit<
     findV2ByPayload(
       countryCode: "SI",
       payloadHash: string,
+      evidenceSnapshotId: string,
     ): DossierVersionV2 | undefined;
   };
 }
 ```
 
-`Omit` changes only the four versioned seams and preserves the current required `countrySourceIndex`, `knowledge`, `integrity`, `clock`, `nextRunId` and every other unchanged port. `SqliteProfileStore.loadRelocationVerified` remains V1-only for existing Place Frontier consumers; the new `loadRelocationAnyVerified` is used only by Cold Start dispatch. Direct draft preparation and the existing outward `ColdStartReadModel` remain V1 in this task. `createColdStartApplication` with `ColdStartApplicationPortsV2` and `createColdStartComposition` return the exact `ColdStartApplicationAny` surface above. Its ID-only `prepareAny`, `runAny` and `presentAny` verified-load the profile, check the requested/sealed ID, and return `ColdStartReadModelAny`; inherited `prepare`, `run` and `present` remain byte-compatible V1 for historical/direct callers. In the V2 branch Cold Start already owns the verified profile and reconstructed dossier, so it derives `orderedPairs` from dossier route order crossed with profile participant order and calls `reconstructCountryAssessmentProjectionV2` before the read model crosses its port. The resulting fresh frozen `assessmentProjection` is bound to the same profile/Evidence IDs and comparator; no adapter is asked to reload or infer order. Task 5 atomically exposes that projection through Country Verifier and the streams by calling the explicit Any methods. V1 continues to call existing research/dossier/assessor methods. V2 calls the suffixed V2 methods and returns `ColdStartReadModelV2`. `SqliteDossierStore` uses the existing table but reconstructs by exact schema; V1 and V2 predecessor chains never cross. Country Knowledge accepts the exact V3 Evidence projection without rewriting historical revisions and publishes only claims its V2 contract understands.
+`Omit` changes only the four versioned seams and preserves the current required `countrySourceIndex`, `knowledge`, `integrity`, `clock`, `nextRunId` and every other unchanged port. `SqliteProfileStore.loadRelocationVerified` remains V1-only for existing Place Frontier consumers; the new `loadRelocationAnyVerified` is used only by Cold Start dispatch. Direct draft preparation and the existing outward `ColdStartReadModel` remain V1 in this task. `createColdStartApplication` with `ColdStartApplicationPortsV2` and `createColdStartComposition` return the exact `ColdStartApplicationAny` surface above. Its ID-only `prepareAny`, `runAny` and `presentAny` verified-load the profile, check the requested/sealed ID, and return `ColdStartReadModelAny`; inherited `prepare`, `run` and `present` remain byte-compatible V1 for historical/direct callers. In the V2 branch Cold Start already owns the verified profile and reconstructed dossier, so it derives `orderedPairs` from dossier route order crossed with profile participant order and calls `reconstructCountryAssessmentProjectionV2` before the read model crosses its port. The resulting fresh frozen `assessmentProjection` is bound to the same profile/Evidence IDs and comparator; no adapter is asked to reload or infer order. Task 5 atomically exposes that projection through Country Verifier and the streams by calling the explicit Any methods. V1 continues to call existing research/dossier/assessor methods. V2 calls the suffixed V2 methods and returns `ColdStartReadModelV2`. Country Knowledge accepts the exact V3 Evidence projection without rewriting historical revisions and publishes only claims its V2 contract understands.
+
+V1 `dossier_versions` and all of its constraints, rows and canonical bytes remain untouched. V2 is
+stored in a separate immutable `dossier_versions_v2` table with a fixed `si-dossier@2` schema,
+self-referencing predecessor chain, Evidence foreign key, one root and one successor per version.
+Its exact idempotency key is `(countryCode, payloadHash, evidenceSnapshotId)`: retrying the same
+verified Evidence returns the same version without a new row, while a distinct Evidence Snapshot
+with byte-identical dossier payload appends a new V2 version bound to that new Evidence. Therefore
+`findV2ByPayload` always requires all three values and can never return a dossier bound to another
+run. The table has `UNIQUE(country_code, evidence_snapshot_id)`; payload hash keeps its existing
+meaning `sha256(canonicalJson(payload))` and is intentionally non-unique across Evidence snapshots.
+Open-time schema preflight rejects an incompatible pre-existing V2 table or trigger before any DDL;
+direct update/delete remains impossible. V1 and V2 chains cannot cross because they use separate
+foreign-key domains.
 
 The generic SQLite Evidence store remains the persistence primitive, but every typed read is an
 exact versioned boundary. The existing `loadVerifiedCountryEvidence` remains V1-only. Task 4 adds
@@ -528,7 +545,7 @@ chain, but no historical row is rewritten. Composition's unchanged `knowledge.pu
 also validates `lastCheckedAt` through the selected exact V1/V2 projection.
 
 - [ ] Write REDs for V1 draft, V1 ID, V2 ID, unknown schema, profile ID mismatch before research, exact V2 Evidence/Dossier replay, the absent order-aware projection module, independently derived route × participant order, projection/comparator binding, partial V2 dossier, no-completeness yellow, and zero adapter schema logic.
-- [ ] Add store REDs for V1/V2 dossier isolation, tamper, lost race and exact retry; add Evidence REDs for exact V1/V3 loader and replay separation; add Knowledge REDs for V3 parser/rules bindings, scoped-claim retirement, exact internal dispatch and V1 historical bytes.
+- [ ] Add store REDs for V1/V2 dossier isolation, tamper, lost race and exact retry; prove two distinct Evidence IDs with the same V2 payload append distinct exactly bound versions while one exact Evidence retry is idempotent; add schema-preflight/immutability REDs. Add Evidence REDs for exact V1/V3 loader and replay separation; add Knowledge REDs for V3 parser/rules bindings, scoped-claim retirement, exact internal dispatch and V1 historical bytes.
 - [ ] Run `pnpm exec vitest run tests/integration/cold-start.test.ts tests/integration/country-knowledge.test.ts tests/integration/profile-store.test.ts`; expect only explicit V2 seams to fail. Add a compile fixture proving existing Place Frontier still receives the unchanged V1 loader, `ColdStartApplicationPortsV2` satisfies every unchanged base member, composition returns `ColdStartApplicationAny`, and inherited V1 methods retain their old result/event types and behavior.
 - [ ] Implement the closed branch with separate suffixed V2 methods; do not genericize the existing V1 API.
 - [ ] Re-run the focused suites, then `pnpm run typecheck`, scoped `pnpm exec eslint`, and `git diff --check`.

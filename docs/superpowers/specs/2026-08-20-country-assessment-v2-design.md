@@ -103,6 +103,16 @@ verified catalog-attestation producer/loader отсутствует и installed
 `vs2-si-evidence@3` и `DossierVersionV2` со schema `si-dossier@2`. Они могут ссылаться на те же
 retained official artifacts, но имеют отдельные parser/rules versions и canonical replay.
 
+Историческая таблица `dossier_versions` остаётся V1-only и не меняет constraints или bytes. V2
+использует отдельную immutable `dossier_versions_v2` с собственной predecessor chain и Evidence
+foreign key. Exact identity/read key равен `(countryCode, payloadHash, evidenceSnapshotId)`.
+Повтор того же verified Evidence idempotent; новый Evidence Snapshot с тем же canonical dossier
+payload создаёт новую V2 revision, потому что downstream assessment требует exact
+`dossier.evidenceSnapshotId === evidence.id`. `payloadHash` по-прежнему равен
+`sha256(canonicalJson(payload))` и не становится Evidence-binding digest. V2 lookup без точного
+Evidence ID запрещён. Отдельные FK/index/immutability triggers исключают смешанную V1/V2 chain, а
+open-time preflight отвергает несовместимую существующую V2 schema до DDL.
+
 Три значения, которых не было в V1, имеют закрытые shapes:
 
 ```ts
