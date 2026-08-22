@@ -242,6 +242,22 @@ observed model/runtime metadata сохраняется, только если CL
 Приложение не pin-ит скрытый model ID, не передаёт `--model` и использует CLI default для
 аутентифицированного аккаунта и прошедшей preflight build.
 
+Onboarding production использует компактный Codex-facing extraction wire
+`onboarding-extraction-wire@2`. Его exact root содержит только `schemaVersion`, `proposals` и
+`nextQuestion`; каждый proposal содержит только `{f,v,s,e}`. `f` — один из закрытых коротких
+адресов поля, `v` сохраняет прежний typed-value contract, а `s`/`e` — UTF-16 offsets в текущем
+сообщении. Wire не содержит `messageId`: adapter подставляет уже проверенный UUID текущего
+сообщения, раскрывает адрес в прежний внутренний `onboarding-model-output@1` и только затем вызывает
+существующий parser/guard. Questionnaire projection, Decision/session/provenance contracts и их
+authority не меняются.
+
+Новый exact production tuple равен `codex-cli-invocation@1` / `codex-cli 0.148.0-alpha.15` /
+`onboarding-extract@2` / `onboarding-review@1` / `onboarding-extraction-wire@2` /
+`onboarding-review-output@1`. Verified historical data принимает также только прежний полный
+`@1` tuple. Поля tuple нельзя независимо смешивать: любой `@1`/`@2` hybrid отклоняется. Оба tuple
+остаются частью immutable confirmation lineage и HMAC; новый wire не разрешает повторную генерацию
+исторического результата.
+
 Remote Codex generation не считается byte-deterministic. Replay всегда использует сохранённый
 guarded output и не запускает Codex повторно. В Life Git причинными называются deterministic
 изменения facts/calculations, выведенные из изменённого решения. Narrative baseline и alternative
