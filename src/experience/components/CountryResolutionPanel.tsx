@@ -31,6 +31,37 @@ function promptCandidate(
     country.countryCode === view.currentPrompt?.countryCode);
 }
 
+function explanationStatusLabel(
+  status: NonNullable<CountryResolutionCandidateView["assessmentExplanations"]>[number]["status"],
+): "Нужно уточнить" | "Есть подтверждённое несоответствие" {
+  return status === "unknown"
+    ? "Нужно уточнить"
+    : "Есть подтверждённое несоответствие";
+}
+
+function AssessmentExplanations({
+  explanations,
+}: {
+  readonly explanations?: CountryResolutionCandidateView["assessmentExplanations"];
+}) {
+  if (explanations === undefined || explanations.length === 0) return null;
+  return (
+    <section aria-label="Объяснение по участникам">
+      <ul>
+        {explanations.map((explanation, index) => (
+          <li key={`${explanation.routeLabel}:${explanation.participantLabel}:${index}`}>
+            <p>{explanation.routeLabel} · {explanation.participantLabel}</p>
+            <p>
+              <strong>{explanationStatusLabel(explanation.status)}</strong>
+              {`: ${explanation.reasonLabels.join("; ")}`}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function ResolvedCountryCard({
   candidate,
   card,
@@ -45,6 +76,7 @@ function ResolvedCountryCard({
         <h3>{card.country.label}</h3>
         <p>{candidate.statusLabel}</p>
       </header>
+      <AssessmentExplanations explanations={candidate.assessmentExplanations} />
       <dl>
         <div><dt>Релевантность</dt><dd>{card.relevance}</dd></div>
         <div><dt>Покрытие</dt><dd>{card.coverage}</dd></div>
@@ -115,6 +147,7 @@ export function CountryResolutionPanel({
             </ul>
           </section>
         )}
+        <AssessmentExplanations explanations={candidate.assessmentExplanations} />
         {view.currentPrompt.uncertainty.catalogCompletenessUnprovable === undefined ? null : (
           <p>Полнота официального каталога маршрутов не подтверждена.</p>
         )}

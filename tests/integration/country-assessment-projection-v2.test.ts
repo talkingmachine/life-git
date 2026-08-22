@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   reconstructCountryAssessmentProjectionV2,
+  reconstructCountryAssessmentProjectionV2Structure,
 } from "../../src/application/country-assessment-projection-v2";
 
 const PROFILE_ID = "profile-v2";
@@ -44,6 +45,28 @@ function expectedOrder() {
       { routeId: ROUTE_ID, participantId: SELF_ID },
       { routeId: ROUTE_ID, participantId: SPOUSE_ID },
     ],
+  };
+}
+
+function denseProjection() {
+  const value = projection();
+  value.participantAssessments.push(
+    {
+      ...structuredClone(value.participantAssessments[0]!),
+      routeId: "si-employment-route",
+    },
+    {
+      ...structuredClone(value.participantAssessments[1]!),
+      routeId: "si-employment-route",
+    },
+  );
+  return value;
+}
+
+function structuralBindings() {
+  return {
+    profileSnapshotId: PROFILE_ID,
+    evidenceSnapshotId: EVIDENCE_ID,
   };
 }
 
@@ -121,6 +144,84 @@ describe("Country Assessment V2 projection reconstruction", () => {
     expected.orderedPairs = [expected.orderedPairs[0]!];
 
     expect(reconstructCountryAssessmentProjectionV2(value, expected)).toEqual(value);
+  });
+});
+
+describe("Country Assessment V2 structural reconstruction", () => {
+  test("returns a fresh frozen copy of a dense route-major rectangle", () => {
+    const value = denseProjection();
+    const before = structuredClone(value);
+
+    const first = reconstructCountryAssessmentProjectionV2Structure(
+      value,
+      structuralBindings(),
+    );
+    const second = reconstructCountryAssessmentProjectionV2Structure(
+      value,
+      structuralBindings(),
+    );
+    value.participantAssessments[0]!.reasonCodes[0] = "country_not_installed";
+
+    expect(first).toEqual(before);
+    expect(first).not.toBe(value);
+    expect(second).not.toBe(first);
+    expect(second.participantAssessments).not.toBe(first.participantAssessments);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.participantAssessments)).toBe(true);
+    expect(Object.isFrozen(first.participantAssessments[0])).toBe(true);
+  });
+
+  test.each([
+    ["duplicate pair", (value: ReturnType<typeof denseProjection>) => {
+      value.participantAssessments[1] = structuredClone(value.participantAssessments[0]!);
+    }],
+    ["missing pair", (value: ReturnType<typeof denseProjection>) => {
+      value.participantAssessments.pop();
+    }],
+    ["participant-major interleave", (value: ReturnType<typeof denseProjection>) => {
+      value.participantAssessments = [
+        value.participantAssessments[0]!,
+        value.participantAssessments[2]!,
+        value.participantAssessments[1]!,
+        value.participantAssessments[3]!,
+      ];
+    }],
+    ["relationship drift", (value: ReturnType<typeof denseProjection>) => {
+      value.participantAssessments[3]!.relationship = "self";
+    }],
+  ] as const)("rejects a structurally invalid %s", (_label, mutate) => {
+    const value = denseProjection();
+    mutate(value);
+
+    expect(() => reconstructCountryAssessmentProjectionV2Structure(
+      value,
+      structuralBindings(),
+    )).toThrowError(new Error("integrity_mismatch"));
+  });
+
+  test("accepts a whole-grid route reorder without treating itself as the order oracle", () => {
+    const value = denseProjection();
+    value.participantAssessments = [
+      value.participantAssessments[2]!,
+      value.participantAssessments[3]!,
+      value.participantAssessments[0]!,
+      value.participantAssessments[1]!,
+    ];
+
+    expect(reconstructCountryAssessmentProjectionV2Structure(
+      value,
+      structuralBindings(),
+    )).toEqual(value);
+  });
+
+  test.each([
+    ["profile", { profileSnapshotId: "profile-other", evidenceSnapshotId: EVIDENCE_ID }],
+    ["Evidence", { profileSnapshotId: PROFILE_ID, evidenceSnapshotId: "evidence-other" }],
+  ] as const)("rejects a changed %s binding", (_label, expected) => {
+    expect(() => reconstructCountryAssessmentProjectionV2Structure(
+      projection(),
+      expected,
+    )).toThrowError(new Error("integrity_mismatch"));
   });
 });
 

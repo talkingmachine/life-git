@@ -1,9 +1,15 @@
 import type {
-  ColdStartEvent,
+  ColdStartEventAny,
+  ColdStartReadModelAny,
+  ColdStartReadModelCommon,
 } from "../application/cold-start";
+import { reconstructCountryAssessmentProjectionV2Structure } from
+  "../application/country-assessment-projection-v2";
 import {
   countryCheckRunId,
   type CountryVerificationProgress,
+  type CountryVerificationPresentation,
+  type CountryVerificationResult,
   type CountryVerifierPort,
 } from "../application/country-verifier";
 import {
@@ -12,7 +18,86 @@ import {
 } from "./cold-start-composition";
 import { createEvidenceIntegrity } from "./integrity";
 
-type VerificationEvent = Exclude<ColdStartEvent, { readonly type: "assessment_completed" }>;
+type VerificationEvent = Exclude<ColdStartEventAny, { readonly type: "assessment_completed" }>;
+
+function integrityMismatch(): never {
+  throw new Error("integrity_mismatch");
+}
+
+function knowledgeFields(readModel: ColdStartReadModelCommon) {
+  return {
+    ...(readModel.knowledge.currentRevisionId === undefined ? {} : {
+      currentKnowledgeRevisionId: readModel.knowledge.currentRevisionId,
+    }),
+    ...(readModel.knowledge.updatedRevisionId === undefined ? {} : {
+      updatedKnowledgeRevisionId: readModel.knowledge.updatedRevisionId,
+    }),
+    ...(readModel.knowledge.knowledgeUpdatedAt === undefined ? {} : {
+      knowledgeUpdatedAt: readModel.knowledge.knowledgeUpdatedAt,
+    }),
+  };
+}
+
+function checkedResult(
+  readModel: ColdStartReadModelAny,
+  childRunId: string,
+  profileId: string,
+): CountryVerificationResult {
+  if (readModel.assessmentRulesVersion === "cold-start-assessment@1") {
+    return {
+      countryCheckRunId: childRunId,
+      sourceAssessmentRulesVersion: readModel.assessmentRulesVersion,
+      verdict: readModel.comparator.formalVerdict,
+      evidenceSnapshotId: readModel.evidenceSnapshotId,
+      ...knowledgeFields(readModel),
+      lastCheckedAt: readModel.knowledge.lastCheckedAt,
+    };
+  }
+  return {
+    countryCheckRunId: childRunId,
+    sourceAssessmentRulesVersion: readModel.assessmentRulesVersion,
+    verdict: readModel.comparator.formalVerdict,
+    evidenceSnapshotId: readModel.evidenceSnapshotId,
+    assessmentProjection: reconstructCountryAssessmentProjectionV2Structure(
+      readModel.assessmentProjection,
+      {
+        profileSnapshotId: profileId,
+        evidenceSnapshotId: readModel.evidenceSnapshotId,
+      },
+    ),
+    ...knowledgeFields(readModel),
+    lastCheckedAt: readModel.knowledge.lastCheckedAt,
+  };
+}
+
+function presentedResult(
+  readModel: ColdStartReadModelAny,
+  profileId: string,
+): CountryVerificationPresentation {
+  if (readModel.assessmentRulesVersion === "cold-start-assessment@1") {
+    return {
+      sourceAssessmentRulesVersion: readModel.assessmentRulesVersion,
+      verdict: readModel.comparator.formalVerdict,
+      evidenceSnapshotId: readModel.evidenceSnapshotId,
+      ...knowledgeFields(readModel),
+      lastCheckedAt: readModel.knowledge.lastCheckedAt,
+    };
+  }
+  return {
+    sourceAssessmentRulesVersion: readModel.assessmentRulesVersion,
+    verdict: readModel.comparator.formalVerdict,
+    evidenceSnapshotId: readModel.evidenceSnapshotId,
+    assessmentProjection: reconstructCountryAssessmentProjectionV2Structure(
+      readModel.assessmentProjection,
+      {
+        profileSnapshotId: profileId,
+        evidenceSnapshotId: readModel.evidenceSnapshotId,
+      },
+    ),
+    ...knowledgeFields(readModel),
+    lastCheckedAt: readModel.knowledge.lastCheckedAt,
+  };
+}
 
 export function normalizeCountryVerificationProgress(
   event: VerificationEvent,
@@ -68,7 +153,7 @@ export function createCountryVerifierAdapter(
         ...options,
         nextRunId: () => runId,
       });
-      const prepared = await countryCheck.prepare({
+      const prepared = await countryCheck.prepareAny({
         countryInput: country.label,
         profileId,
       });
@@ -76,54 +161,25 @@ export function createCountryVerifierAdapter(
         prepared.profileId !== profileId ||
         prepared.runId !== runId ||
         prepared.country.code !== "SI"
-      ) throw new Error("integrity_mismatch");
-      const readModel = await countryCheck.run(prepared, async (event) => {
+      ) integrityMismatch();
+      const readModel = await countryCheck.runAny(prepared, async (event) => {
         if (event.type !== "assessment_completed") {
           await emitProgress(normalizeCountryVerificationProgress(event));
         }
       }, signal);
-      return {
-        countryCheckRunId: runId,
-        sourceAssessmentRulesVersion: readModel.assessmentRulesVersion,
-        verdict: readModel.comparator.formalVerdict,
-        evidenceSnapshotId: readModel.evidenceSnapshotId,
-        ...(readModel.knowledge.currentRevisionId === undefined ? {} : {
-          currentKnowledgeRevisionId: readModel.knowledge.currentRevisionId,
-        }),
-        ...(readModel.knowledge.updatedRevisionId === undefined ? {} : {
-          updatedKnowledgeRevisionId: readModel.knowledge.updatedRevisionId,
-        }),
-        ...(readModel.knowledge.knowledgeUpdatedAt === undefined ? {} : {
-          knowledgeUpdatedAt: readModel.knowledge.knowledgeUpdatedAt,
-        }),
-        lastCheckedAt: readModel.knowledge.lastCheckedAt,
-      };
+      return checkedResult(readModel, runId, profileId);
     },
 
     async present({ parentRunId, countryCode, countryCheckRunId: childRunId, profileId }) {
       const expectedRunId = countryCheckRunId(parentRunId, countryCode, integrity);
       if (countryCode !== "SI" || childRunId !== expectedRunId) {
-        throw new Error("integrity_mismatch");
+        integrityMismatch();
       }
-      const readModel = await coldStart.present({ runId: childRunId, profileId });
+      const readModel = await coldStart.presentAny({ runId: childRunId, profileId });
       if (readModel.runId !== childRunId || readModel.country.code !== countryCode) {
-        throw new Error("integrity_mismatch");
+        integrityMismatch();
       }
-      return {
-        sourceAssessmentRulesVersion: readModel.assessmentRulesVersion,
-        verdict: readModel.comparator.formalVerdict,
-        evidenceSnapshotId: readModel.evidenceSnapshotId,
-        ...(readModel.knowledge.currentRevisionId === undefined ? {} : {
-          currentKnowledgeRevisionId: readModel.knowledge.currentRevisionId,
-        }),
-        ...(readModel.knowledge.updatedRevisionId === undefined ? {} : {
-          updatedKnowledgeRevisionId: readModel.knowledge.updatedRevisionId,
-        }),
-        ...(readModel.knowledge.knowledgeUpdatedAt === undefined ? {} : {
-          knowledgeUpdatedAt: readModel.knowledge.knowledgeUpdatedAt,
-        }),
-        lastCheckedAt: readModel.knowledge.lastCheckedAt,
-      };
+      return presentedResult(readModel, profileId);
     },
   };
   return Object.freeze(verifier);

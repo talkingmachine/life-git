@@ -108,12 +108,12 @@ function verdict(countryCode: string, evidenceSnapshotId: string): FormalResiden
     verdictAsOf: DAY,
     routeOutcomes: [{
       routeId: `route-${countryCode}`,
-      status: "viable",
-      ruleEffectiveFrom: "2026-01-01",
       reasons: [reason],
       evidenceSnapshotIds: [evidenceSnapshotId],
       proceduralActions: [{ kind: "insurance", completed: false }],
       contingentActions: [],
+      status: "viable",
+      ruleEffectiveFrom: "2026-01-01",
     }],
     reasons: [reason],
     catalogCompleteness: {
@@ -298,6 +298,78 @@ function validFixture(runId = "frontier-run-1") {
   return { events, readModel };
 }
 
+interface AssessmentProjectionFixture {
+  readonly schemaVersion: "country-assessment-projection@2";
+  readonly profileSnapshotId: string;
+  readonly evidenceSnapshotId: string;
+  readonly participantAssessments: readonly Record<string, unknown>[];
+}
+
+function assessmentProjection(
+  participantAssessments: readonly Record<string, unknown>[] = [{
+    routeId: "si-temporary-residence-digital-nomad",
+    participantId: "participant-self",
+    relationship: "self",
+    status: "unknown",
+    reasonCodes: ["remote_work_prerequisite_unknown"],
+    claimIds: ["claim-self"],
+  }, {
+    routeId: "si-temporary-residence-digital-nomad",
+    participantId: "participant-spouse",
+    relationship: "spouse",
+    status: "impossible",
+    reasonCodes: ["companion_route_impossible"],
+    claimIds: ["claim-spouse"],
+  }, {
+    routeId: "si-secondary-route",
+    participantId: "participant-self",
+    relationship: "self",
+    status: "verified",
+    reasonCodes: ["route_requirements_verified"],
+    claimIds: ["claim-secondary-self"],
+  }, {
+    routeId: "si-secondary-route",
+    participantId: "participant-spouse",
+    relationship: "spouse",
+    status: "unknown",
+    reasonCodes: ["companion_route_unverified"],
+    claimIds: ["claim-secondary-spouse"],
+  }],
+): AssessmentProjectionFixture {
+  return {
+    schemaVersion: "country-assessment-projection@2",
+    profileSnapshotId: PROFILE_ID,
+    evidenceSnapshotId: "evidence-SI",
+    participantAssessments,
+  } as const;
+}
+
+function v2Fixture(
+  projection: AssessmentProjectionFixture = assessmentProjection(),
+) {
+  const v1 = validFixture("frontier-run-v2");
+  const v1Marker = v1.readModel.shortlistSnapshot.markers[0]!;
+  const v2Marker = {
+    ...v1Marker,
+    sourceAssessmentRulesVersion: "cold-start-assessment@2",
+    assessmentProjection: projection,
+  } as unknown as FrontierMarker;
+  const readModel = {
+    ...v1.readModel,
+    shortlistSnapshot: {
+      ...v1.readModel.shortlistSnapshot,
+      markers: [v2Marker],
+    },
+  } as PlaceFrontierReadModel;
+  const events = [
+    v1.events[0]!,
+    v1.events[1]!,
+    { ...v1.events[2]!, payload: { marker: v2Marker } },
+    { ...v1.events[3]!, payload: { readModel } },
+  ] as PlaceFrontierEvent[];
+  return { events, readModel };
+}
+
 function sixCountryFixture() {
   const runId = "frontier-run-six";
   const codes = ["DE", "ES", "FR", "IT", "PT", "SI"] as const;
@@ -444,6 +516,101 @@ describe("strict finite frontier protocol", () => {
     expect(state.terminal).toEqual(fixture.readModel);
     expect(Object.isFrozen(state)).toBe(true);
     expect(Object.isFrozen(state.events)).toBe(true);
+  });
+
+  test("accepts and preserves one exact dense V2 assessment projection", async () => {
+    const fixture = v2Fixture();
+    const events = await collectEvents(streamOf(...encodedEvents(fixture.events)));
+
+    expect(events).toEqual(fixture.events);
+    const terminal = events.at(-1) as
+      Extract<PlaceFrontierEvent, { type: "frontier_completed" }>;
+    const terminalMarker = terminal.payload.readModel.shortlistSnapshot.markers[0] as
+      FrontierMarker & { readonly assessmentProjection: unknown };
+    expect(terminalMarker.assessmentProjection).toEqual(assessmentProjection());
+  });
+
+  test("allows a structurally valid whole route-block reorder without inventing an order oracle", async () => {
+    const original = assessmentProjection().participantAssessments;
+    const reordered = assessmentProjection([
+      ...original.slice(2),
+      ...original.slice(0, 2),
+    ]);
+    const fixture = v2Fixture(reordered);
+
+    await expect(collectEvents(streamOf(...encodedEvents(fixture.events))))
+      .resolves.toEqual(fixture.events);
+  });
+
+  test.each([
+    ["an extra projection field", () => ({ ...assessmentProjection(), unexpected: true })],
+    ["a duplicate participant pair", () => {
+      const values = structuredClone(assessmentProjection().participantAssessments) as
+        Record<string, unknown>[];
+      values[3] = { ...values[2]! };
+      return assessmentProjection(values);
+    }],
+    ["a sparse route block", () => assessmentProjection(
+      assessmentProjection().participantAssessments.slice(0, -1),
+    )],
+    ["a relationship that changes between route blocks", () => {
+      const values = structuredClone(assessmentProjection().participantAssessments) as
+        Record<string, unknown>[];
+      values[3] = { ...values[3]!, relationship: "minor_child" };
+      return assessmentProjection(values);
+    }],
+    ["an unknown reason code", () => {
+      const values = structuredClone(assessmentProjection().participantAssessments) as
+        Record<string, unknown>[];
+      values[0] = { ...values[0]!, reasonCodes: ["invented_reason"] };
+      return assessmentProjection(values);
+    }],
+  ] as const)("rejects V2 %s", async (_name, createProjection) => {
+    const fixture = v2Fixture(
+      createProjection() as AssessmentProjectionFixture,
+    );
+    await expect(collectEvents(streamOf(...encodedEvents(fixture.events)))).rejects.toThrow();
+  });
+
+  test("rejects cross-version projection presence and absence", async () => {
+    const v1WithProjection = structuredClone(validFixture().events) as PlaceFrontierEvent[];
+    const v1Completion = v1WithProjection[2] as
+      Extract<PlaceFrontierEvent, { type: "country_completed" }>;
+    (v1Completion.payload.marker as unknown as Record<string, unknown>).assessmentProjection =
+      assessmentProjection();
+    const v1Terminal = v1WithProjection[3] as
+      Extract<PlaceFrontierEvent, { type: "frontier_completed" }>;
+    (v1Terminal.payload.readModel.shortlistSnapshot.markers[0] as unknown as
+      Record<string, unknown>).assessmentProjection = assessmentProjection();
+    await expect(collectEvents(streamOf(...encodedEvents(v1WithProjection)))).rejects.toThrow();
+
+    const v2WithoutProjection = structuredClone(v2Fixture().events) as PlaceFrontierEvent[];
+    const v2Completion = v2WithoutProjection[2] as
+      Extract<PlaceFrontierEvent, { type: "country_completed" }>;
+    delete (v2Completion.payload.marker as unknown as Record<string, unknown>)
+      .assessmentProjection;
+    const v2Terminal = v2WithoutProjection[3] as
+      Extract<PlaceFrontierEvent, { type: "frontier_completed" }>;
+    delete (v2Terminal.payload.readModel.shortlistSnapshot.markers[0] as unknown as
+      Record<string, unknown>).assessmentProjection;
+    await expect(collectEvents(streamOf(...encodedEvents(v2WithoutProjection)))).rejects.toThrow();
+  });
+
+  test("binds a V2 projection to marker evidence and terminal ranking profile", async () => {
+    const evidenceDrift = assessmentProjection();
+    const fixtureWithEvidenceDrift = v2Fixture({
+      ...evidenceDrift,
+      evidenceSnapshotId: "different-evidence",
+    });
+    await expect(collectEvents(streamOf(...encodedEvents(fixtureWithEvidenceDrift.events))))
+      .rejects.toThrow();
+
+    const fixtureWithProfileDrift = v2Fixture({
+      ...assessmentProjection(),
+      profileSnapshotId: "different-profile",
+    });
+    await expect(collectEvents(streamOf(...encodedEvents(fixtureWithProfileDrift.events))))
+      .rejects.toThrow();
   });
 
   test("rejects a shortlist sealed before an expanded-year assessment", async () => {
@@ -629,6 +796,9 @@ describe("strict finite frontier protocol", () => {
 describe("place-frontier browser boundary", () => {
   test("Experience entry modules have no runtime import from outer or Node layers", () => {
     const entryFiles = [
+      "../../src/experience/country-assessment-projection-v2.ts",
+      "../../src/experience/cold-start-stream.ts",
+      "../../src/experience/cold-start-view-model.ts",
       "../../src/experience/place-frontier-stream.ts",
       "../../src/experience/place-frontier-view-model.ts",
       "../../src/experience/country-resolution-stream.ts",
@@ -1017,7 +1187,7 @@ describe("place-frontier HTTP adapter", () => {
 
     releaseRun?.();
     const body = await response.text();
-    expect(body.endsWith("\n")).toBe(true);
+    expect(body).toBe(fixture.events.map((event) => `${JSON.stringify(event)}\n`).join(""));
     expect(body.trimEnd().split("\n").map((eventLine) => JSON.parse(eventLine)))
       .toEqual(fixture.events);
   });

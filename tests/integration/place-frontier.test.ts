@@ -17,7 +17,12 @@ import {
   type ShortlistSnapshot,
 } from "../../src/application/place-frontier";
 import type { ColdStartEvent } from "../../src/application/cold-start";
-import type { CountryVerificationProgress } from "../../src/application/country-verifier";
+import {
+  countryVerificationReplayExpectation,
+  materializeFrontierMarker,
+  type CountryVerificationProgress,
+  type CountryVerificationResult,
+} from "../../src/application/country-verifier";
 import type { FormalEvidenceReference, FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
 import { assessFormalResidence } from "../../src/decision/formal-residence-verdict";
@@ -28,8 +33,19 @@ import type {
   PreferenceProfileSnapshot,
   PreferenceProfileV2Snapshot,
 } from "../../src/decision/preference-profile";
-import { materializePreferenceProfileV2 } from "../../src/decision/preference-profile";
-import type { RelocationProfileDraft } from "../../src/decision/relocation-profile";
+import {
+  confirmPreferenceProfile,
+  materializePreferenceProfileV2,
+} from "../../src/decision/preference-profile";
+import type {
+  RelocationProfileDraft,
+  RelocationProfileSnapshot,
+  RelocationProfileV2Snapshot,
+} from "../../src/decision/relocation-profile";
+import {
+  confirmRelocationProfile,
+  materializeRelocationProfileV2,
+} from "../../src/decision/relocation-profile";
 import { canonicalJson, createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 import { createColdStartComposition } from "../../src/infrastructure/cold-start-composition";
 import * as coldStartCompositionExports from
@@ -39,6 +55,8 @@ import { createPlaceFrontierComposition } from
   "../../src/infrastructure/place-frontier-composition";
 import { normalizeCountryVerificationProgress } from
   "../../src/infrastructure/country-verifier-adapter";
+import { createCountryVerifierAdapter } from
+  "../../src/infrastructure/country-verifier-adapter";
 import {
   initialPlaceFrontierEventState,
   reducePlaceFrontierEvent,
@@ -46,6 +64,8 @@ import {
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqlitePlaceFrontierStore } from
   "../../src/infrastructure/sqlite/place-frontier-store";
+import { insertRelocationV2Snapshot } from
+  "../../src/infrastructure/sqlite/profile-store";
 
 const NOW = "2026-08-12T08:00:00.000Z";
 const DAY = "2026-08-12";
@@ -236,6 +256,81 @@ function rankedPlace(
   };
 }
 
+function assessmentProjectionV2(
+  profileSnapshotId: string,
+  evidenceSnapshotId: string,
+) {
+  return {
+    schemaVersion: "country-assessment-projection@2" as const,
+    profileSnapshotId,
+    evidenceSnapshotId,
+    participantAssessments: [
+      {
+        routeId: "route-SI",
+        participantId: "participant-self",
+        relationship: "self" as const,
+        status: "unknown" as const,
+        reasonCodes: ["remote_work_prerequisite_unknown" as const],
+        claimIds: ["claim-remote-work"],
+      },
+      {
+        routeId: "route-SI",
+        participantId: "participant-spouse",
+        relationship: "spouse" as const,
+        status: "impossible" as const,
+        reasonCodes: ["companion_route_impossible" as const],
+        claimIds: ["claim-companion"],
+      },
+    ],
+  };
+}
+
+function verificationResultV2(
+  profileSnapshotId: string,
+  evidenceSnapshotId = "evidence-SI",
+  parentRunId = "frontier-run-1",
+): CountryVerificationResult {
+  const integrity = createEvidenceIntegrity(HMAC_KEY);
+  return {
+    countryCheckRunId: countryCheckRunId(parentRunId, "SI", integrity),
+    sourceAssessmentRulesVersion: "cold-start-assessment@2",
+    verdict: unresolvedVerdict(),
+    evidenceSnapshotId,
+    lastCheckedAt: DAY,
+    assessmentProjection: assessmentProjectionV2(profileSnapshotId, evidenceSnapshotId),
+  };
+}
+
+function presentationFromVerification(
+  result: CountryVerificationResult,
+): Awaited<ReturnType<CountryVerifierPort["present"]>> {
+  const common = {
+    verdict: result.verdict,
+    evidenceSnapshotId: result.evidenceSnapshotId,
+    ...(result.currentKnowledgeRevisionId === undefined ? {} : {
+      currentKnowledgeRevisionId: result.currentKnowledgeRevisionId,
+    }),
+    ...(result.updatedKnowledgeRevisionId === undefined ? {} : {
+      updatedKnowledgeRevisionId: result.updatedKnowledgeRevisionId,
+    }),
+    ...(result.knowledgeUpdatedAt === undefined ? {} : {
+      knowledgeUpdatedAt: result.knowledgeUpdatedAt,
+    }),
+    lastCheckedAt: result.lastCheckedAt,
+  };
+  if (result.sourceAssessmentRulesVersion === "cold-start-assessment@1") {
+    return structuredClone({
+      sourceAssessmentRulesVersion: result.sourceAssessmentRulesVersion,
+      ...common,
+    });
+  }
+  return structuredClone({
+    sourceAssessmentRulesVersion: result.sourceAssessmentRulesVersion,
+    ...common,
+    assessmentProjection: result.assessmentProjection,
+  });
+}
+
 interface HarnessOptions {
   readonly rankedCountries: readonly string[];
   readonly markerByCountry?: Readonly<Record<string, "green" | "yellow" | "red">>;
@@ -289,8 +384,14 @@ function harness(options: HarnessOptions) {
         if (snapshot === undefined) throw new Error("profile_not_found");
         return structuredClone(snapshot) as never;
       },
+      loadRelocationAnyVerified: async (id) => {
+        const snapshot = profiles.get(id);
+        if (snapshot === undefined) throw new Error("profile_not_found");
+        return structuredClone(snapshot) as never;
+      },
       appendPreference: async (snapshot) => { preferences.set(snapshot.id, snapshot); },
       loadPreferenceVerified: preferenceLoader.loadPreferenceVerified,
+      loadPreferenceForRankingVerified: preferenceLoader.loadPreferenceForRankingVerified,
     },
     rankingInputs: {
       freezeCurrent: async () => {
@@ -368,21 +469,7 @@ function harness(options: HarnessOptions) {
         }
         const result = verifierResults.get(countryCode);
         if (result === undefined) throw new Error("integrity_mismatch");
-        return {
-          sourceAssessmentRulesVersion: result.sourceAssessmentRulesVersion,
-          verdict: result.verdict,
-          evidenceSnapshotId: result.evidenceSnapshotId,
-          ...(result.currentKnowledgeRevisionId === undefined ? {} : {
-            currentKnowledgeRevisionId: result.currentKnowledgeRevisionId,
-          }),
-          ...(result.updatedKnowledgeRevisionId === undefined ? {} : {
-            updatedKnowledgeRevisionId: result.updatedKnowledgeRevisionId,
-          }),
-          ...(result.knowledgeUpdatedAt === undefined ? {} : {
-            knowledgeUpdatedAt: result.knowledgeUpdatedAt,
-          }),
-          lastCheckedAt: result.lastCheckedAt,
-        };
+        return presentationFromVerification(result);
       },
     },
     integrity,
@@ -497,6 +584,145 @@ function v2RankablePlace(countryCode: string, match: string): RankablePlace {
         evaluatorVersion: "fixture-factor@1",
       },
     ],
+  };
+}
+
+function v2RelocationSnapshot(): RelocationProfileV2Snapshot {
+  return materializeRelocationProfileV2({
+    confirmedAt: NOW,
+    profile: {
+      schemaVersion: "relocation-profile@2",
+      profile: {
+        currentLocation: { countryCode: "RU", city: "Moscow" },
+        moveHorizon: "within_3_months",
+        movingParty: "alone",
+        participants: [{
+          participantId: "00000000-0000-4000-8000-000000000101",
+          relationship: "self",
+          citizenships: ["RU"],
+          passport: { validUntil: "2030-01-01" },
+          currentWork: {
+            applicability: "required",
+            value: { status: "employment", occupation: "Engineer" },
+          },
+          remoteContinuation: { applicability: "required", value: "yes" },
+          monthlyIncome: {
+            applicability: "required",
+            value: { amount: "3000", currency: "EUR", basis: "net" },
+          },
+          education: {
+            applicability: "required",
+            value: { level: "higher", field: "Engineering" },
+          },
+          relevantExperienceYears: { applicability: "required", value: 8 },
+        }],
+        savings: { min: "10000", max: "20000", currency: "EUR" },
+      },
+    },
+  });
+}
+
+type RelocationSnapshotAny = RelocationProfileSnapshot | RelocationProfileV2Snapshot;
+type PreferenceSnapshotAny = PreferenceProfileSnapshot | PreferenceProfileV2Snapshot;
+
+function profilePairHarness(
+  initialRelocation: RelocationSnapshotAny,
+  initialPreference: PreferenceSnapshotAny,
+) {
+  const integrity = createEvidenceIntegrity(HMAC_KEY);
+  const runId = "profile-pair-frontier-run";
+  const rankingSnapshotId = `${runId}:ranking`;
+  const contextHash = "profile-pair-context";
+  const place = rankedPlace("SI", 1);
+  const ranking: RankingSnapshot = {
+    schemaVersion: "place-ranking@1",
+    id: rankingSnapshotId,
+    runId,
+    profileSnapshotId: initialRelocation.id,
+    preferenceProfileSnapshotId: initialPreference.id,
+    assessmentAt: NOW,
+    contextHash,
+    knowledgeRevisionIds: { SI: null },
+    ordered: [place],
+    excludedPlaces: [],
+    excluded: [],
+    rulesVersion: "place-ranker@1",
+    createdAt: NOW,
+  };
+  const prepared = {
+    runId,
+    profileId: initialRelocation.id,
+    preferenceProfileId: initialPreference.id,
+    assessmentAt: NOW,
+    rankingSnapshotId,
+    contextHash,
+  };
+  let relocation = initialRelocation;
+  let preference = initialPreference;
+  let shortlist: ShortlistSnapshot | undefined;
+  let checkCalls = 0;
+  let presentCalls = 0;
+
+  const profiles = {
+    appendRelocation: async () => { throw new Error("unexpected_append"); },
+    loadRelocationVerified: async () => { throw new Error("v1_relocation_loader_called"); },
+    loadRelocationAnyVerified: async () => structuredClone(relocation),
+    appendPreference: async () => { throw new Error("unexpected_append"); },
+    loadPreferenceVerified: async () => { throw new Error("v1_preference_loader_called"); },
+    loadPreferenceForRankingVerified: async () => structuredClone(preference),
+  } as unknown as PlaceFrontierApplicationPorts["profiles"];
+  const application = createPlaceFrontierApplication({
+    profiles,
+    rankingInputs: {
+      freezeCurrent: async () => { throw new Error("unexpected_ranking_input"); },
+    },
+    rank: rankPlaces,
+    store: {
+      appendRanking: async () => { throw new Error("unexpected_ranking_append"); },
+      appendShortlist: async (snapshot) => { shortlist = structuredClone(snapshot); },
+      loadRankingVerified: async () => structuredClone(ranking),
+      loadShortlistVerified: async () => {
+        if (shortlist === undefined) throw new Error("shortlist_not_found");
+        return structuredClone(shortlist);
+      },
+    },
+    knowledge: {
+      loadVerified: async () => { throw new Error("unexpected_knowledge_load"); },
+    },
+    verifier: {
+      check: async ({ profileId, parentRunId }) => {
+        checkCalls += 1;
+        if (relocation.schemaVersion === "relocation-profile@2") {
+          return verificationResultV2(profileId, "evidence-SI", parentRunId);
+        }
+        return {
+          countryCheckRunId: countryCheckRunId(parentRunId, "SI", integrity),
+          sourceAssessmentRulesVersion: "cold-start-assessment@1",
+          verdict: unresolvedVerdict(),
+          evidenceSnapshotId: "evidence-SI",
+          lastCheckedAt: DAY,
+        };
+      },
+      present: async () => {
+        presentCalls += 1;
+        if (shortlist === undefined) throw new Error("shortlist_not_found");
+        return countryVerificationReplayExpectation(shortlist.markers[0]!);
+      },
+    },
+    integrity,
+    clock: () => new Date(NOW),
+    nextRunId: () => runId,
+  });
+
+  return {
+    application,
+    prepared,
+    replaceProfiles(nextRelocation: RelocationSnapshotAny, nextPreference: PreferenceSnapshotAny) {
+      relocation = nextRelocation;
+      preference = nextPreference;
+    },
+    checkCalls: () => checkCalls,
+    presentCalls: () => presentCalls,
   };
 }
 
@@ -669,6 +895,309 @@ async function concurrentStoreWrites(input: {
   return outcomes.sort();
 }
 
+describe("Country Frontier V2 marker contract", () => {
+  test("materializes and replays an exact fresh frozen V2 projection", () => {
+    const integrity = createEvidenceIntegrity(HMAC_KEY);
+    const checked = verificationResultV2("stored-profile");
+    const borrowedProjection = checked.assessmentProjection!;
+
+    const marker = materializeFrontierMarker({
+      place: rankedPlace("SI", 1),
+      checked,
+      parentRunId: "frontier-run-1",
+      profileId: "stored-profile",
+      integrity,
+    });
+    const replay = countryVerificationReplayExpectation(marker);
+    (borrowedProjection.participantAssessments[0]!.reasonCodes as string[])[0] =
+      "country_not_installed";
+
+    expect(marker).toEqual(expect.objectContaining({
+      sourceAssessmentRulesVersion: "cold-start-assessment@2",
+      assessmentProjection: assessmentProjectionV2("stored-profile", "evidence-SI"),
+    }));
+    expect(replay).toEqual({
+      sourceAssessmentRulesVersion: "cold-start-assessment@2",
+      verdict: unresolvedVerdict(),
+      evidenceSnapshotId: "evidence-SI",
+      lastCheckedAt: DAY,
+      assessmentProjection: assessmentProjectionV2("stored-profile", "evidence-SI"),
+    });
+    expect(marker.assessmentProjection).not.toBe(borrowedProjection);
+    expect(replay.assessmentProjection).not.toBe(marker.assessmentProjection);
+    expect(Object.isFrozen(marker.assessmentProjection)).toBe(true);
+    if (marker.sourceAssessmentRulesVersion !== "cold-start-assessment@2") {
+      throw new Error("test_fixture_mismatch");
+    }
+    expect(Object.isFrozen(marker.assessmentProjection.participantAssessments)).toBe(true);
+    expect(Object.isFrozen(replay.assessmentProjection)).toBe(true);
+  });
+
+  test("keeps the historical V1 result and replay free of a projection key", () => {
+    const integrity = createEvidenceIntegrity(HMAC_KEY);
+    const checked: CountryVerificationResult = {
+      countryCheckRunId: countryCheckRunId("frontier-run-1", "SI", integrity),
+      sourceAssessmentRulesVersion: "cold-start-assessment@1",
+      verdict: unresolvedVerdict(),
+      evidenceSnapshotId: "evidence-SI",
+      lastCheckedAt: DAY,
+    };
+
+    const marker = materializeFrontierMarker({
+      place: rankedPlace("SI", 1),
+      checked,
+      parentRunId: "frontier-run-1",
+      profileId: "stored-profile",
+      integrity,
+    });
+    const replay = countryVerificationReplayExpectation(marker);
+
+    expect(Object.hasOwn(marker, "assessmentProjection")).toBe(false);
+    expect(Object.hasOwn(replay, "assessmentProjection")).toBe(false);
+    expect(JSON.stringify(replay)).toBe(
+      '{"sourceAssessmentRulesVersion":"cold-start-assessment@1",' +
+      '"verdict":{"rulesVersion":"formal-residence@1","marker":"yellow",' +
+      '"verdictAsOf":"2026-08-12","routeOutcomes":[],"reasons":[],' +
+      '"catalogCompleteness":{"status":"unproven",' +
+      '"reasonCode":"catalog_completeness_unprovable"}},' +
+      '"evidenceSnapshotId":"evidence-SI","lastCheckedAt":"2026-08-12"}',
+    );
+  });
+
+  test("rejects an enumerable version getter without evaluating borrowed result data", () => {
+    const integrity = createEvidenceIntegrity(HMAC_KEY);
+    let getterCalls = 0;
+    const checked: Record<string, unknown> = {
+      countryCheckRunId: countryCheckRunId("frontier-run-1", "SI", integrity),
+      verdict: unresolvedVerdict(),
+      evidenceSnapshotId: "evidence-SI",
+      lastCheckedAt: DAY,
+    };
+    Object.defineProperty(checked, "sourceAssessmentRulesVersion", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return getterCalls === 1
+          ? "cold-start-assessment@1"
+          : "cold-start-assessment@2";
+      },
+    });
+
+    expect(() => materializeFrontierMarker({
+      place: rankedPlace("SI", 1),
+      checked: checked as unknown as CountryVerificationResult,
+      parentRunId: "frontier-run-1",
+      profileId: "stored-profile",
+      integrity,
+    })).toThrow("integrity_mismatch");
+    expect(getterCalls).toBe(0);
+  });
+
+  test.each([
+    ["a non-enumerable assessmentProjection", (checked: Record<PropertyKey, unknown>) => {
+      Object.defineProperty(checked, "assessmentProjection", {
+        configurable: true,
+        enumerable: false,
+        value: assessmentProjectionV2("stored-profile", "evidence-SI"),
+      });
+      return checked;
+    }],
+    ["an enumerable symbol key", (checked: Record<PropertyKey, unknown>) => {
+      Object.defineProperty(checked, Symbol("hidden"), {
+        configurable: true,
+        enumerable: true,
+        value: "hidden",
+      });
+      return checked;
+    }],
+    ["a custom prototype", (checked: Record<PropertyKey, unknown>) =>
+      Object.assign(Object.create({ inherited: true }) as Record<PropertyKey, unknown>, checked)],
+  ] as const)("rejects a V1 result with %s", (_label, mutate) => {
+    const integrity = createEvidenceIntegrity(HMAC_KEY);
+    const checked = mutate({
+      countryCheckRunId: countryCheckRunId("frontier-run-1", "SI", integrity),
+      sourceAssessmentRulesVersion: "cold-start-assessment@1",
+      verdict: unresolvedVerdict(),
+      evidenceSnapshotId: "evidence-SI",
+      lastCheckedAt: DAY,
+    });
+
+    expect(() => materializeFrontierMarker({
+      place: rankedPlace("SI", 1),
+      checked: checked as unknown as CountryVerificationResult,
+      parentRunId: "frontier-run-1",
+      profileId: "stored-profile",
+      integrity,
+    })).toThrow("integrity_mismatch");
+  });
+
+  test("rejects a Proxy result before invoking any Proxy trap", () => {
+    const integrity = createEvidenceIntegrity(HMAC_KEY);
+    let trapCalls = 0;
+    const checked = new Proxy({
+      countryCheckRunId: countryCheckRunId("frontier-run-1", "SI", integrity),
+      sourceAssessmentRulesVersion: "cold-start-assessment@1" as const,
+      verdict: unresolvedVerdict(),
+      evidenceSnapshotId: "evidence-SI",
+      lastCheckedAt: DAY,
+    }, {
+      get(target, key, receiver) {
+        trapCalls += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+
+    expect(() => materializeFrontierMarker({
+      place: rankedPlace("SI", 1),
+      checked,
+      parentRunId: "frontier-run-1",
+      profileId: "stored-profile",
+      integrity,
+    })).toThrow("integrity_mismatch");
+    expect(trapCalls).toBe(0);
+  });
+
+  test.each([
+    ["V1 result with projection", (result: Record<string, unknown>) => {
+      result.assessmentProjection = assessmentProjectionV2("stored-profile", "evidence-SI");
+    }],
+    ["V2 result without projection", (result: Record<string, unknown>) => {
+      result.sourceAssessmentRulesVersion = "cold-start-assessment@2";
+    }],
+    ["projection profile binding", (result: Record<string, unknown>) => {
+      Object.assign(result, verificationResultV2("profile-other"));
+    }],
+    ["projection Evidence binding", (result: Record<string, unknown>) => {
+      Object.assign(result, verificationResultV2("stored-profile"));
+      (result.assessmentProjection as { evidenceSnapshotId: string }).evidenceSnapshotId =
+        "evidence-other";
+    }],
+    ["duplicate participant pair", (result: Record<string, unknown>) => {
+      Object.assign(result, verificationResultV2("stored-profile"));
+      const projection = result.assessmentProjection as ReturnType<typeof assessmentProjectionV2>;
+      projection.participantAssessments[1] = structuredClone(
+        projection.participantAssessments[0]!,
+      );
+    }],
+  ] as const)("rejects an invalid %s before marker publication", (_label, mutate) => {
+    const integrity = createEvidenceIntegrity(HMAC_KEY);
+    const result: Record<string, unknown> = {
+      countryCheckRunId: countryCheckRunId("frontier-run-1", "SI", integrity),
+      sourceAssessmentRulesVersion: "cold-start-assessment@1",
+      verdict: unresolvedVerdict(),
+      evidenceSnapshotId: "evidence-SI",
+      lastCheckedAt: DAY,
+    };
+    mutate(result);
+
+    expect(() => materializeFrontierMarker({
+      place: rankedPlace("SI", 1),
+      checked: result as unknown as CountryVerificationResult,
+      parentRunId: "frontier-run-1",
+      profileId: "stored-profile",
+      integrity,
+    })).toThrow("integrity_mismatch");
+  });
+});
+
+describe("Place Frontier profile version pairs", () => {
+  test.each([
+    [
+      "@1/@1",
+      () => confirmRelocationProfile(relocationProfile, () => new Date(NOW)),
+      () => confirmPreferenceProfile(preferenceProfile, () => new Date(NOW)),
+      "cold-start-assessment@1",
+    ],
+    [
+      "@2/@2",
+      () => v2RelocationSnapshot(),
+      () => v2PreferenceSnapshot(),
+      "cold-start-assessment@2",
+    ],
+  ] as const)(
+    "runs and presents a matching %s pair through the union readers",
+    async (_label, relocationFactory, preferenceFactory, assessmentRulesVersion) => {
+      const frontier = profilePairHarness(relocationFactory(), preferenceFactory());
+
+      const run = await frontier.application.runPlaceFrontier(
+        frontier.prepared,
+        () => undefined,
+        new AbortController().signal,
+      );
+      const replay = await frontier.application.presentPlaceFrontier(frontier.prepared.runId);
+
+      expect(run.shortlistSnapshot.markers[0]!.sourceAssessmentRulesVersion).toBe(
+        assessmentRulesVersion,
+      );
+      expect(replay).toEqual(run);
+      expect(frontier.checkCalls()).toBe(1);
+      expect(frontier.presentCalls()).toBe(1);
+    },
+  );
+
+  test.each([
+    [
+      "@1/@2",
+      () => confirmRelocationProfile(relocationProfile, () => new Date(NOW)),
+      () => v2PreferenceSnapshot(),
+    ],
+    [
+      "@2/@1",
+      () => v2RelocationSnapshot(),
+      () => confirmPreferenceProfile(preferenceProfile, () => new Date(NOW)),
+    ],
+  ] as const)(
+    "rejects a mixed %s pair before starting country verification",
+    async (_label, relocationFactory, preferenceFactory) => {
+      const frontier = profilePairHarness(relocationFactory(), preferenceFactory());
+
+      await expect(frontier.application.runPlaceFrontier(
+        frontier.prepared,
+        () => undefined,
+        new AbortController().signal,
+      )).rejects.toThrow("integrity_mismatch");
+      expect(frontier.checkCalls()).toBe(0);
+    },
+  );
+
+  test.each([
+    [
+      "relocation @2 / preference @1",
+      (relocation: RelocationProfileSnapshot, preference: PreferenceProfileSnapshot) => [
+        { ...v2RelocationSnapshot(), id: relocation.id } as RelocationProfileV2Snapshot,
+        preference,
+      ] as const,
+    ],
+    [
+      "relocation @1 / preference @2",
+      (relocation: RelocationProfileSnapshot, preference: PreferenceProfileSnapshot) => [
+        relocation,
+        { ...v2PreferenceSnapshot(), id: preference.id } as PreferenceProfileV2Snapshot,
+      ] as const,
+    ],
+  ] as const)(
+    "rejects a replay with a mixed %s pair before verifier presentation",
+    async (_label, mixedPair) => {
+      const relocation = confirmRelocationProfile(relocationProfile, () => new Date(NOW));
+      const preference = confirmPreferenceProfile(preferenceProfile, () => new Date(NOW));
+      const frontier = profilePairHarness(relocation, preference);
+      await frontier.application.runPlaceFrontier(
+        frontier.prepared,
+        () => undefined,
+        new AbortController().signal,
+      );
+      const [mixedRelocation, mixedPreference] = mixedPair(relocation, preference);
+      frontier.replaceProfiles(mixedRelocation, mixedPreference);
+
+      await expect(frontier.application.presentPlaceFrontier(
+        frontier.prepared.runId,
+      )).rejects.toThrow("integrity_mismatch");
+      expect(frontier.presentCalls()).toBe(0);
+    },
+  );
+});
+
 describe("frozen CountryFrontier", () => {
   test("does not export a caller-selected child preparation surface", () => {
     expect(Object.keys(coldStartApplicationExports)).not.toContain(
@@ -733,6 +1262,62 @@ describe("frozen CountryFrontier", () => {
     expect(replay).toEqual(result);
     expect(requestStep).toHaveBeenCalledTimes(callsBeforeReplay);
     expect(generatedIds).toBe(1);
+  });
+
+  test("production verifier checks and presents a V2 profile through its Any-only boundary", async () => {
+    const database = openEvidenceDatabase(":memory:");
+    const profile = v2RelocationSnapshot();
+    insertRelocationV2Snapshot(database, profile);
+    const requestStep = vi.fn(async () => {
+      throw new Error("network_must_not_run");
+    });
+    const verifier = createCountryVerifierAdapter({
+      database,
+      hmacKey: HMAC_KEY,
+      countrySourceIndex: {
+        lookup: () => ({
+          ok: false as const,
+          kind: "country_not_installed" as const,
+          candidates: [] as const,
+        }),
+      },
+      requestStep,
+      clock: () => new Date(NOW),
+    });
+    const parentRunId = "v2-adapter-parent";
+
+    const checked = await verifier.check({
+      country: rankedPlace("SI", 1),
+      profileId: profile.id,
+      parentRunId,
+      emitProgress: () => undefined,
+      signal: new AbortController().signal,
+    });
+    const presented = await verifier.present({
+      parentRunId,
+      countryCode: "SI",
+      countryCheckRunId: checked.countryCheckRunId,
+      profileId: profile.id,
+    });
+    const expectedPresentation = presentationFromVerification(checked);
+
+    expect(checked).toMatchObject({
+      sourceAssessmentRulesVersion: "cold-start-assessment@2",
+      assessmentProjection: {
+        schemaVersion: "country-assessment-projection@2",
+        profileSnapshotId: profile.id,
+        participantAssessments: [],
+      },
+    });
+    expect(presented).toEqual(expectedPresentation);
+    if (
+      checked.sourceAssessmentRulesVersion !== "cold-start-assessment@2" ||
+      presented.sourceAssessmentRulesVersion !== "cold-start-assessment@2"
+    ) throw new Error("test_fixture_mismatch");
+    expect(checked.assessmentProjection).not.toBe(presented.assessmentProjection);
+    expect(Object.isFrozen(checked.assessmentProjection)).toBe(true);
+    expect(Object.isFrozen(presented.assessmentProjection)).toBe(true);
+    expect(requestStep).not.toHaveBeenCalled();
   });
 
   test("presents the same fully replayed frontier by exact shortlist ID or run ID", async () => {

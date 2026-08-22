@@ -57,9 +57,35 @@ export function reconstructCountryAssessmentProjectionV2(
   expected: ExpectedProjectionOrder,
 ): CountryAssessmentProjectionV2 {
   try {
-    const ownedValue = descriptorSafeCopy(value);
     const ownedExpected = reconstructExpectedOrder(descriptorSafeCopy(expected));
-    const projection = exactRecord(ownedValue, [
+    const projection = reconstructCountryAssessmentProjectionV2Structure(value, {
+      profileSnapshotId: ownedExpected.profileSnapshotId,
+      evidenceSnapshotId: ownedExpected.evidenceSnapshotId,
+    });
+    if (
+      projection.participantAssessments.length !== ownedExpected.orderedPairs.length ||
+      projection.participantAssessments.some((assessment, index) => {
+        const expectedPair = ownedExpected.orderedPairs[index]!;
+        return assessment.routeId !== expectedPair.routeId ||
+          assessment.participantId !== expectedPair.participantId;
+      })
+    ) integrityMismatch();
+    return projection;
+  } catch {
+    return integrityMismatch();
+  }
+}
+
+export function reconstructCountryAssessmentProjectionV2Structure(
+  value: unknown,
+  expected: {
+    readonly profileSnapshotId: string;
+    readonly evidenceSnapshotId: string;
+  },
+): CountryAssessmentProjectionV2 {
+  try {
+    const bindings = reconstructExpectedBindings(descriptorSafeCopy(expected));
+    const projection = exactRecord(descriptorSafeCopy(value), [
       "schemaVersion",
       "profileSnapshotId",
       "evidenceSnapshotId",
@@ -68,25 +94,40 @@ export function reconstructCountryAssessmentProjectionV2(
     if (
       projection.schemaVersion !== "country-assessment-projection@2" ||
       !isNonEmptyString(projection.profileSnapshotId) ||
-      projection.profileSnapshotId !== ownedExpected.profileSnapshotId ||
+      projection.profileSnapshotId !== bindings.profileSnapshotId ||
       !isNonEmptyString(projection.evidenceSnapshotId) ||
-      projection.evidenceSnapshotId !== ownedExpected.evidenceSnapshotId ||
-      !Array.isArray(projection.participantAssessments) ||
-      projection.participantAssessments.length !== ownedExpected.orderedPairs.length
+      projection.evidenceSnapshotId !== bindings.evidenceSnapshotId ||
+      !Array.isArray(projection.participantAssessments)
     ) integrityMismatch();
 
-    const participantAssessments = projection.participantAssessments.map((assessment, index) =>
-      reconstructParticipantAssessment(assessment, ownedExpected.orderedPairs[index]!));
-
+    const participantAssessments = projection.participantAssessments.map(
+      reconstructParticipantAssessment,
+    );
+    validateDenseRouteMajorRectangle(participantAssessments);
     return deepFreeze({
       schemaVersion: "country-assessment-projection@2" as const,
-      profileSnapshotId: ownedExpected.profileSnapshotId,
-      evidenceSnapshotId: ownedExpected.evidenceSnapshotId,
+      profileSnapshotId: bindings.profileSnapshotId,
+      evidenceSnapshotId: bindings.evidenceSnapshotId,
       participantAssessments,
     });
   } catch {
     return integrityMismatch();
   }
+}
+
+function reconstructExpectedBindings(value: unknown): {
+  readonly profileSnapshotId: string;
+  readonly evidenceSnapshotId: string;
+} {
+  const expected = exactRecord(value, ["profileSnapshotId", "evidenceSnapshotId"]);
+  if (
+    !isNonEmptyString(expected.profileSnapshotId) ||
+    !isNonEmptyString(expected.evidenceSnapshotId)
+  ) integrityMismatch();
+  return {
+    profileSnapshotId: expected.profileSnapshotId,
+    evidenceSnapshotId: expected.evidenceSnapshotId,
+  };
 }
 
 function reconstructExpectedOrder(value: unknown): ExpectedProjectionOrder {
@@ -119,7 +160,6 @@ function reconstructExpectedOrder(value: unknown): ExpectedProjectionOrder {
 
 function reconstructParticipantAssessment(
   value: unknown,
-  expectedPair: ExpectedProjectionOrder["orderedPairs"][number],
 ): ParticipantRouteAssessmentV2 {
   const assessment = exactRecord(value, [
     "routeId",
@@ -131,9 +171,7 @@ function reconstructParticipantAssessment(
   ]);
   if (
     !isNonEmptyString(assessment.routeId) ||
-    assessment.routeId !== expectedPair.routeId ||
     !isNonEmptyString(assessment.participantId) ||
-    assessment.participantId !== expectedPair.participantId ||
     !RELATIONSHIPS.has(assessment.relationship as string) ||
     !PARTICIPANT_STATUSES.has(assessment.status as string)
   ) integrityMismatch();
@@ -152,6 +190,47 @@ function reconstructParticipantAssessment(
     reasonCodes: reasonCodes as CountryAssessmentV2ReasonCode[],
     claimIds,
   };
+}
+
+function validateDenseRouteMajorRectangle(
+  assessments: readonly ParticipantRouteAssessmentV2[],
+): void {
+  if (assessments.length === 0) return;
+  const firstRouteId = assessments[0]!.routeId;
+  const firstRouteBoundary = assessments.findIndex(
+    ({ routeId }) => routeId !== firstRouteId,
+  );
+  const firstRoute = assessments.slice(
+    0,
+    firstRouteBoundary === -1 ? assessments.length : firstRouteBoundary,
+  );
+  const participantIds = firstRoute.map(({ participantId }) => participantId);
+  if (
+    participantIds.length === 0 ||
+    new Set(participantIds).size !== participantIds.length ||
+    assessments.length % participantIds.length !== 0 ||
+    new Set(assessments.map(pairKey)).size !== assessments.length
+  ) integrityMismatch();
+
+  const relationships = new Map(firstRoute.map(({ participantId, relationship }) => [
+    participantId,
+    relationship,
+  ]));
+  const routeIds = new Set<string>();
+  for (let offset = 0; offset < assessments.length; offset += participantIds.length) {
+    const routeId = assessments[offset]!.routeId;
+    if (routeIds.has(routeId)) integrityMismatch();
+    routeIds.add(routeId);
+    for (let participantIndex = 0; participantIndex < participantIds.length; participantIndex++) {
+      const assessment = assessments[offset + participantIndex]!;
+      const participantId = participantIds[participantIndex]!;
+      if (
+        assessment.routeId !== routeId ||
+        assessment.participantId !== participantId ||
+        assessment.relationship !== relationships.get(participantId)
+      ) integrityMismatch();
+    }
+  }
 }
 
 function reconstructStringArray(value: unknown, allowEmpty: boolean): string[] {

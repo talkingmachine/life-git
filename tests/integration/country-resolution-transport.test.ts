@@ -147,6 +147,36 @@ function marker(
   };
 }
 
+function markerV2(value: FrontierMarker): FrontierMarker {
+  return {
+    ...value,
+    sourceAssessmentRulesVersion: "cold-start-assessment@2",
+    assessmentProjection: {
+      schemaVersion: "country-assessment-projection@2",
+      profileSnapshotId: PROFILE_ID,
+      evidenceSnapshotId: value.evidenceSnapshotId,
+      participantAssessments: ["primary", "secondary"].flatMap((route) => [
+        {
+          routeId: `${value.country.countryCode}-${route}`,
+          participantId: "participant-self",
+          relationship: "self" as const,
+          status: "verified" as const,
+          reasonCodes: ["route_requirements_verified" as const],
+          claimIds: [`claim-${value.country.countryCode}-${route}-self`],
+        },
+        {
+          routeId: `${value.country.countryCode}-${route}`,
+          participantId: "participant-spouse",
+          relationship: "spouse" as const,
+          status: "unknown" as const,
+          reasonCodes: ["companion_route_unverified" as const],
+          claimIds: [`claim-${value.country.countryCode}-${route}-spouse`],
+        },
+      ]),
+    },
+  };
+}
+
 function multiReplacementProtocolFixture() {
   const codes = ["AA", "BB", "CC", "DD", "EE", "FF", "GG", "HH"];
   const markerStatus = (index: number) => index < 2 ? "yellow" as const : "green" as const;
@@ -451,6 +481,35 @@ function protocolFixture() {
   return { events, initial, replacement, terminal };
 }
 
+function v2ProtocolFixture() {
+  const source = protocolFixture();
+  const sourceMarkers = source.initial.automaticFrontier.shortlistSnapshot.markers.map(markerV2);
+  const replacement = markerV2(source.replacement);
+  const automaticFrontier = {
+    ...source.initial.automaticFrontier,
+    shortlistSnapshot: {
+      ...source.initial.automaticFrontier.shortlistSnapshot,
+      markers: sourceMarkers,
+    },
+  };
+  const revision = {
+    ...source.terminal.revision,
+    replacementMarkers: [replacement],
+  };
+  const initial = { ...source.initial, automaticFrontier };
+  const terminal = { ...source.terminal, automaticFrontier, revision };
+  const events: CountryResolutionContinuationEvent[] = source.events.map((event) => {
+    if (event.type === "resolution_revision_committed") {
+      return { ...event, payload: { marker: replacement, revision } };
+    }
+    if (event.type === "resolution_continuation_completed") {
+      return { ...event, payload: { readModel: terminal } };
+    }
+    return event;
+  });
+  return { events, initial, replacement, terminal };
+}
+
 function eventStream(events: readonly unknown[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -514,6 +573,70 @@ afterEach(() => {
 });
 
 describe("strict finite country-resolution protocol", () => {
+  test("preserves an exact V2 assessment projection through commit and terminal", async () => {
+    const fixture = v2ProtocolFixture();
+
+    const received = await collectResolutionEvents(eventStream(fixture.events), fixture.initial);
+
+    expect(received).toEqual(fixture.events);
+    const commit = received.find(({ type }) => type === "resolution_revision_committed");
+    expect(commit?.type === "resolution_revision_committed" &&
+      commit.payload.marker.assessmentProjection).toEqual(
+      fixture.replacement.assessmentProjection,
+    );
+  });
+
+  test.each([
+    ["profile binding", (projection: Record<string, unknown>) => {
+      projection.profileSnapshotId = "other-profile";
+    }],
+    ["evidence binding", (projection: Record<string, unknown>) => {
+      projection.evidenceSnapshotId = "other-evidence";
+    }],
+    ["extra projection key", (projection: Record<string, unknown>) => {
+      projection.extra = true;
+    }],
+    ["missing participant field", (projection: Record<string, unknown>) => {
+      const assessments = projection.participantAssessments as Array<Record<string, unknown>>;
+      delete assessments[0]!.relationship;
+    }],
+    ["changed reason", (projection: Record<string, unknown>) => {
+      const assessments = projection.participantAssessments as Array<Record<string, unknown>>;
+      assessments[1]!.reasonCodes = ["companion_route_impossible"];
+    }],
+    ["whole-grid reorder", (projection: Record<string, unknown>) => {
+      const assessments = projection.participantAssessments as Array<Record<string, unknown>>;
+      projection.participantAssessments = [
+        ...assessments.slice(2),
+        ...assessments.slice(0, 2),
+      ];
+    }],
+  ] as const)("rejects V2 commit marker drift in %s before yielding it", async (_name, mutate) => {
+    const fixture = v2ProtocolFixture();
+    const events = structuredClone(fixture.events) as CountryResolutionContinuationEvent[];
+    const commit = events[2] as Extract<CountryResolutionContinuationEvent, {
+      readonly type: "resolution_revision_committed";
+    }>;
+    const marker = structuredClone(commit.payload.marker) as unknown as Record<string, unknown>;
+    mutate(marker.assessmentProjection as Record<string, unknown>);
+    events[2] = {
+      ...commit,
+      payload: {
+        ...commit.payload,
+        marker: marker as unknown as FrontierMarker,
+      },
+    };
+    const received: CountryResolutionContinuationEvent[] = [];
+    const consume = async () => {
+      for await (const event of decodeCountryResolutionStream(eventStream(events), fixture.initial)) {
+        received.push(event);
+      }
+    };
+
+    await expect(consume()).rejects.toThrow();
+    expect(received.map(({ type }) => type)).not.toContain("resolution_revision_committed");
+  });
+
   test("accepts one closed stream and holds its terminal until clean EOF", async () => {
     const fixture = protocolFixture();
     const received = await collectResolutionEvents(eventStream(fixture.events), fixture.initial);
@@ -1266,7 +1389,14 @@ describe("country-resolution continuation route", () => {
     });
     release?.();
     const text = await response.text();
-    expect(text.endsWith("\n")).toBe(true);
+    expect(text).toBe(
+      '{"resolutionRunId":"resolution-run-1","sequence":1,' +
+      '"occurredAt":"2026-08-12T08:00:00.000Z",' +
+      '"type":"resolution_continuation_completed","payload":{"readModel":' +
+      '{"resolutionRunId":"resolution-run-1","assessmentAt":"2026-08-12T08:00:00.000Z",' +
+      '"automaticFrontier":{"runId":"automatic-run-1"},' +
+      '"revision":{"id":"revision-1"}}}}\n',
+    );
     expect(text.trimEnd().split("\n").map((eventLine) => JSON.parse(eventLine)))
       .toEqual([completed(terminal)]);
   });

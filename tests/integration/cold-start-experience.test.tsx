@@ -9,7 +9,11 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import type { ColdStartEvent, ColdStartReadModel } from "../../src/application/cold-start";
+import type {
+  ColdStartEventAny,
+  ColdStartReadModel,
+  ColdStartReadModelAny,
+} from "../../src/application/cold-start";
 import {
   COLD_START_MAX_LINE_BYTES,
   coldStartEventSchema,
@@ -27,6 +31,8 @@ import {
 import { ColdStartComparator } from "../../src/experience/components/ColdStartComparator";
 import { ColdStartJourney } from "../../src/experience/components/ColdStartJourney";
 import { ColdStartStart } from "../../src/experience/components/ColdStartStart";
+
+const PROFILE_ID = "relocation-profile-1";
 
 function formalEvidence(sourceId: string, artifactId: string) {
   return {
@@ -241,6 +247,51 @@ const greenReadModel: ColdStartReadModel = {
   },
 };
 
+const participantAssessments = [{
+  routeId: "si-temporary-residence-digital-nomad",
+  participantId: "participant-Мария",
+  relationship: "self" as const,
+  status: "unknown" as const,
+  reasonCodes: ["remote_work_prerequisite_unknown" as const],
+  claimIds: ["private-claim-self"],
+}, {
+  routeId: "si-temporary-residence-digital-nomad",
+  participantId: "participant-secret-spouse",
+  relationship: "spouse" as const,
+  status: "impossible" as const,
+  reasonCodes: ["companion_route_impossible" as const],
+  claimIds: ["private-claim-spouse"],
+}];
+
+const v2ReadModel = {
+  ...redReadModel,
+  assessmentRulesVersion: "cold-start-assessment@2",
+  comparator: {
+    ...redReadModel.comparator,
+    participantAssessments,
+    formula: {
+      formulaId: "FORMULA-VS2-INCOME-EUR-01",
+      formulaVersion: "1",
+      expression: "monthlyIncomeEur < thresholdEur",
+      monthlyIncomeEur: "2500.00",
+      thresholdEur: "3112.00",
+      rounding: "UNROUNDED_THEN_HALF_UP_2DP",
+      sourceClaimIds: ["private-formula-claim"],
+    },
+  },
+  assessmentProjection: {
+    schemaVersion: "country-assessment-projection@2",
+    profileSnapshotId: PROFILE_ID,
+    evidenceSnapshotId: redReadModel.evidenceSnapshotId,
+    participantAssessments,
+  },
+} as const satisfies ColdStartReadModelAny;
+
+const v2TerminalEvent = {
+  ...terminalEvent,
+  payload: { readModel: v2ReadModel },
+} as const satisfies ColdStartEventAny;
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -249,9 +300,12 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-async function collect(stream: ReadableStream<Uint8Array>): Promise<ColdStartEvent[]> {
-  const events: ColdStartEvent[] = [];
-  for await (const event of decodeColdStartStream(stream)) events.push(event);
+async function collect(
+  stream: ReadableStream<Uint8Array>,
+  expectedProfileId = PROFILE_ID,
+): Promise<ColdStartEventAny[]> {
+  const events: ColdStartEventAny[] = [];
+  for await (const event of decodeColdStartStream(stream, expectedProfileId)) events.push(event);
   return events;
 }
 
@@ -271,7 +325,7 @@ function streamOf(...chunks: readonly Uint8Array[]): ReadableStream<Uint8Array> 
 function sourceEvent(
   sequence: number,
   runId = "cold-run-1",
-): ColdStartEvent {
+): ColdStartEventAny {
   return coldStartEventSchema.parse({
     ...terminalEvent,
     runId,
@@ -282,10 +336,10 @@ function sourceEvent(
       url: "https://www.gov.si/teme/vstop-in-prebivanje/",
       claimKinds: ["route_basis"],
     },
-  }) as ColdStartEvent;
+  }) as ColdStartEventAny;
 }
 
-function artifactEvent(sequence: number, sourceId = "si-digital-nomad-route"): ColdStartEvent {
+function artifactEvent(sequence: number, sourceId = "si-digital-nomad-route"): ColdStartEventAny {
   return coldStartEventSchema.parse({
     ...terminalEvent,
     sequence,
@@ -296,10 +350,10 @@ function artifactEvent(sequence: number, sourceId = "si-digital-nomad-route"): C
       resolvedUrl: "https://www.gov.si/teme/vstop-in-prebivanje/",
       sha256: "a".repeat(64),
     },
-  }) as ColdStartEvent;
+  }) as ColdStartEventAny;
 }
 
-function claimEvent(sequence: number, claimId: string): ColdStartEvent {
+function claimEvent(sequence: number, claimId: string): ColdStartEventAny {
   return coldStartEventSchema.parse({
     ...terminalEvent,
     sequence,
@@ -309,10 +363,10 @@ function claimEvent(sequence: number, claimId: string): ColdStartEvent {
       claimKind: "route_basis",
       sourceIds: ["si-digital-nomad-route"],
     },
-  }) as ColdStartEvent;
+  }) as ColdStartEventAny;
 }
 
-function dossierEvent(sequence: number): ColdStartEvent {
+function dossierEvent(sequence: number): ColdStartEventAny {
   return coldStartEventSchema.parse({
     ...terminalEvent,
     sequence,
@@ -322,14 +376,14 @@ function dossierEvent(sequence: number): ColdStartEvent {
       label: "Словения · досье v1",
       created: true,
     },
-  }) as ColdStartEvent;
+  }) as ColdStartEventAny;
 }
 
-function completedEvent(sequence: number): ColdStartEvent {
+function completedEvent(sequence: number): ColdStartEventAny {
   return coldStartEventSchema.parse({
     ...terminalEvent,
     sequence,
-  }) as ColdStartEvent;
+  }) as ColdStartEventAny;
 }
 
 test("decodes a terminal NDJSON event split inside its UTF-8 country label", async () => {
@@ -343,10 +397,91 @@ test("decodes a terminal NDJSON event split inside its UTF-8 country label", asy
     },
   });
 
-  await expect(collect(stream)).resolves.toEqual([terminalEvent]);
+  const decoded = await collect(stream);
+  expect(decoded).toEqual([terminalEvent]);
 });
 
 describe("finite cold-start decoder and reducer", () => {
+  test("accepts the exact V2 terminal and binds it to the externally verified profile", async () => {
+    await expect(collect(streamOf(eventLine(v2TerminalEvent)), PROFILE_ID))
+      .resolves.toEqual([v2TerminalEvent]);
+
+    await expect(collect(streamOf(eventLine(v2TerminalEvent)), "another-profile"))
+      .rejects.toThrow("integrity_mismatch");
+  });
+
+  test("rejects a V2 stream when no externally verified profile is supplied", async () => {
+    const iterator = decodeColdStartStream(
+      streamOf(eventLine(v2TerminalEvent)),
+      undefined as unknown as string,
+    );
+
+    await expect(iterator.next()).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("keeps V1 and V2 as exact discriminated wire branches", () => {
+    expect(coldStartEventSchema.safeParse(v2TerminalEvent).success).toBe(true);
+
+    const v1WithProjection = structuredClone(terminalEvent) as Record<string, unknown>;
+    const v1ReadModel = (v1WithProjection.payload as {
+      readModel: Record<string, unknown>;
+    }).readModel;
+    v1ReadModel.assessmentProjection = v2ReadModel.assessmentProjection;
+    expect(coldStartEventSchema.safeParse(v1WithProjection).success).toBe(false);
+
+    const v2WithoutProjection = structuredClone(v2TerminalEvent) as Record<string, unknown>;
+    delete ((v2WithoutProjection.payload as {
+      readModel: Record<string, unknown>;
+    }).readModel).assessmentProjection;
+    expect(coldStartEventSchema.safeParse(v2WithoutProjection).success).toBe(false);
+  });
+
+  test("rejects V2 evidence and comparator projection drift", async () => {
+    const evidenceDrift = structuredClone(v2TerminalEvent) as Record<string, unknown>;
+    const evidenceReadModel = (evidenceDrift.payload as {
+      readModel: Record<string, unknown>;
+    }).readModel;
+    (evidenceReadModel.assessmentProjection as Record<string, unknown>).evidenceSnapshotId =
+      "different-evidence";
+    await expect(collect(streamOf(eventLine(evidenceDrift))))
+      .rejects.toThrow("integrity_mismatch");
+
+    const comparatorDrift = structuredClone(v2TerminalEvent) as Record<string, unknown>;
+    const comparatorReadModel = (comparatorDrift.payload as {
+      readModel: Record<string, unknown>;
+    }).readModel;
+    const comparator = comparatorReadModel.comparator as {
+      participantAssessments: Array<Record<string, unknown>>;
+    };
+    comparator.participantAssessments = comparator.participantAssessments.map(
+      (assessment) => ({ ...assessment }),
+    );
+    comparator.participantAssessments[0]!.status = "verified";
+    await expect(collect(streamOf(eventLine(comparatorDrift))))
+      .rejects.toThrow("integrity_mismatch");
+  });
+
+  test("discriminates the direct EUR formula from the historical RUB formula", () => {
+    expect(coldStartEventSchema.safeParse(v2TerminalEvent).success).toBe(true);
+
+    const eurFormulaOnV1 = structuredClone({
+      ...terminalEvent,
+      payload: { readModel: redReadModel },
+    }) as Record<string, unknown>;
+    const v1Comparator = ((eurFormulaOnV1.payload as {
+      readModel: Record<string, unknown>;
+    }).readModel.comparator as Record<string, unknown>);
+    v1Comparator.formula = v2ReadModel.comparator.formula;
+    expect(coldStartEventSchema.safeParse(eurFormulaOnV1).success).toBe(false);
+
+    const mixedFormula = structuredClone(v2TerminalEvent) as Record<string, unknown>;
+    const v2Comparator = ((mixedFormula.payload as {
+      readModel: Record<string, unknown>;
+    }).readModel.comparator as Record<string, unknown>);
+    (v2Comparator.formula as Record<string, unknown>).eurRub = "90";
+    expect(coldStartEventSchema.safeParse(mixedFormula).success).toBe(false);
+  });
+
   test("accepts the fixed formal verdict rules version and rejects a mutated version", () => {
     const greenEvent = {
       ...terminalEvent,
@@ -418,7 +553,7 @@ describe("finite cold-start decoder and reducer", () => {
           evidenceSnapshotId: "cold-run-other:evidence",
         },
       },
-    } as ColdStartEvent;
+    } as ColdStartEventAny;
     expect(coldStartEventSchema.safeParse(mismatchedReadModel).success).toBe(false);
     expect(() => reduceColdStartEvent(
       initialColdStartEventState(),
@@ -433,7 +568,7 @@ describe("finite cold-start decoder and reducer", () => {
           evidenceSnapshotId: "another-run:evidence",
         },
       },
-    } as ColdStartEvent;
+    } as ColdStartEventAny;
     expect(coldStartEventSchema.safeParse(mismatchedEvidence).success).toBe(false);
     expect(() => reduceColdStartEvent(
       initialColdStartEventState(),
@@ -454,9 +589,9 @@ describe("finite cold-start decoder and reducer", () => {
     const stream = new ReadableStream<Uint8Array>({
       start(value) { controller = value; },
     });
-    const received: ColdStartEvent[] = [];
+    const received: ColdStartEventAny[] = [];
     const consume = async () => {
-      for await (const event of decodeColdStartStream(stream)) received.push(event);
+      for await (const event of decodeColdStartStream(stream, PROFILE_ID)) received.push(event);
     };
     const consuming = consume();
     controller?.enqueue(eventLine(completedEvent(1)));
@@ -474,7 +609,7 @@ describe("finite cold-start decoder and reducer", () => {
       cancel,
       start(controller) { controller.enqueue(eventLine(sourceEvent(1))); },
     });
-    const iterator = decodeColdStartStream(stream);
+    const iterator = decodeColdStartStream(stream, PROFILE_ID);
 
     await expect(iterator.next()).resolves.toMatchObject({ done: false, value: sourceEvent(1) });
     await iterator.return(undefined);
@@ -487,7 +622,7 @@ describe("finite cold-start decoder and reducer", () => {
     const stream = new ReadableStream<Uint8Array>({ cancel });
     const controller = new AbortController();
     const reason = new Error("screen_replaced");
-    const next = decodeColdStartStream(stream, controller.signal).next();
+    const next = decodeColdStartStream(stream, PROFILE_ID, controller.signal).next();
 
     controller.abort(reason);
 
@@ -497,6 +632,13 @@ describe("finite cold-start decoder and reducer", () => {
 });
 
 describe("honest cold-start view projection", () => {
+  test("requires the external profile binding before presenting a stored V2 result", () => {
+    expect(() => presentColdStartReadModel(v2ReadModel, PROFILE_ID)).not.toThrow();
+    expect(() => presentColdStartReadModel(v2ReadModel, "another-profile"))
+      .toThrow("integrity_mismatch");
+    expect(() => presentColdStartReadModel(v2ReadModel)).toThrow("integrity_mismatch");
+  });
+
   test("starts with a gray full globe and no fabricated timeline item", () => {
     const view = projectColdStartView(createColdStartRunningState("cold-run-1"));
 
@@ -589,6 +731,31 @@ describe("honest cold-start view projection", () => {
 });
 
 describe("cold-start comparator accessibility", () => {
+  test("renders safe Russian participant explanations and the direct EUR formula", () => {
+    const { container } = render(<ColdStartComparator readModel={v2ReadModel} />);
+
+    expect(screen.getByRole("heading", { name: "По участникам" })).toBeTruthy();
+    expect(screen.getByText("Заявитель")).toBeTruthy();
+    expect(screen.getByText("Супруг или супруга")).toBeTruthy();
+    expect(screen.getByText("Нужно уточнить")).toBeTruthy();
+    expect(screen.getByText("Есть подтверждённое несоответствие")).toBeTruthy();
+    expect(screen.getByText("Не подтверждены условия удалённой работы")).toBeTruthy();
+    expect(screen.getByText("Сопровождающий не подходит под условия маршрута")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /почему не подходит/i }));
+    expect(screen.getByText("2500.00")).toBeTruthy();
+    expect(screen.getByText("3112.00")).toBeTruthy();
+    expect(screen.queryByText("Доход RUB")).toBeNull();
+    expect(screen.queryByText("EUR/RUB")).toBeNull();
+
+    expect(container.textContent).not.toContain("participant-Мария");
+    expect(container.textContent).not.toContain("participant-secret-spouse");
+    expect(container.textContent).not.toContain("private-claim");
+    expect(container.textContent).not.toContain("private-formula-claim");
+    expect(container.textContent).not.toContain("вероятност");
+    expect(container.querySelectorAll("[data-marker]")).toHaveLength(1);
+  });
+
   test("shows a green formal route with procedural actions and the city disclaimer", () => {
     const { container } = render(<ColdStartComparator readModel={greenReadModel} />);
 

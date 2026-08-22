@@ -2,11 +2,13 @@ import {
   confirmPreferenceProfile,
   type PreferenceProfileDraft,
   type PreferenceProfileSnapshot,
+  type PreferenceProfileV2Snapshot,
 } from "../decision/preference-profile";
 import {
   confirmRelocationProfile,
   type RelocationProfileDraft,
   type RelocationProfileSnapshot,
+  type RelocationProfileV2Snapshot,
 } from "../decision/relocation-profile";
 export { projectTerminalSummary } from "../decision/place-frontier-summary";
 import {
@@ -79,8 +81,14 @@ export interface PlaceFrontierApplicationPorts {
   readonly profiles: {
     appendRelocation(snapshot: RelocationProfileSnapshot): Promise<void>;
     loadRelocationVerified(id: string): Promise<RelocationProfileSnapshot>;
+    loadRelocationAnyVerified(
+      id: string,
+    ): Promise<RelocationProfileSnapshot | RelocationProfileV2Snapshot>;
     appendPreference(snapshot: PreferenceProfileSnapshot): Promise<void>;
     loadPreferenceVerified(id: string): Promise<PreferenceProfileSnapshot>;
+    loadPreferenceForRankingVerified(
+      id: string,
+    ): Promise<PreferenceProfileSnapshot | PreferenceProfileV2Snapshot>;
   };
   readonly rankingInputs: {
     freezeCurrent(): Promise<{
@@ -309,13 +317,18 @@ async function loadBoundProfiles(
   ranking: RankingSnapshot,
   ports: PlaceFrontierApplicationPorts,
 ): Promise<void> {
-  const profile = await ports.profiles.loadRelocationVerified(ranking.profileSnapshotId);
-  const preferences = await ports.profiles.loadPreferenceVerified(
+  const profile = await ports.profiles.loadRelocationAnyVerified(ranking.profileSnapshotId);
+  const preferences = await ports.profiles.loadPreferenceForRankingVerified(
     ranking.preferenceProfileSnapshotId,
   );
+  const isV1Pair = profile.schemaVersion === "relocation-profile@1" &&
+    preferences.schemaVersion === "preference-profile@1";
+  const isV2Pair = profile.schemaVersion === "relocation-profile@2" &&
+    preferences.schemaVersion === "preference-profile@2";
   if (
     profile.id !== ranking.profileSnapshotId ||
-    preferences.id !== ranking.preferenceProfileSnapshotId
+    preferences.id !== ranking.preferenceProfileSnapshotId ||
+    (!isV1Pair && !isV2Pair)
   ) integrityMismatch();
 }
 

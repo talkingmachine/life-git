@@ -6,6 +6,8 @@ import {
   type CountryVerificationResult,
   type CountryVerifierPort,
 } from "../../src/application/country-verifier";
+import type { CountryAssessmentProjectionV2 } from
+  "../../src/application/country-assessment-projection-v2";
 import {
   createPlaceFrontierApplication,
   type PlaceFrontierApplicationPorts,
@@ -172,9 +174,51 @@ function rankedPlace(countryCode: string, rank: number): RankedPlace {
   };
 }
 
+function assessmentProjection(
+  countryCode: string,
+  profileSnapshotId: string,
+  evidenceSnapshotId: string,
+  status: FormalStatus,
+): CountryAssessmentProjectionV2 {
+  const participantStatus = status === "green"
+    ? "verified" as const
+    : status === "yellow"
+      ? "unknown" as const
+      : "impossible" as const;
+  const participantReason = status === "green"
+    ? "route_requirements_verified" as const
+    : status === "yellow"
+      ? "companion_route_unverified" as const
+      : "companion_route_impossible" as const;
+  return {
+    schemaVersion: "country-assessment-projection@2",
+    profileSnapshotId,
+    evidenceSnapshotId,
+    participantAssessments: ["primary", "secondary"].flatMap((route) => [
+      {
+        routeId: `${countryCode}-${route}`,
+        participantId: "participant-self",
+        relationship: "self" as const,
+        status: "verified" as const,
+        reasonCodes: ["route_requirements_verified" as const],
+        claimIds: [`claim-${countryCode}-${route}-self`],
+      },
+      {
+        routeId: `${countryCode}-${route}`,
+        participantId: "participant-spouse",
+        relationship: "spouse" as const,
+        status: participantStatus,
+        reasonCodes: [participantReason],
+        claimIds: [`claim-${countryCode}-${route}-spouse`],
+      },
+    ]),
+  };
+}
+
 async function fixture(input: {
   readonly ordered: readonly string[];
   readonly statuses: Readonly<Record<string, FormalStatus>>;
+  readonly assessmentVersion?: 1 | 2;
   readonly failCheckFor?: string;
   readonly failPresentFor?: string;
   readonly publishThenFailFor?: string;
@@ -187,6 +231,7 @@ async function fixture(input: {
   const profileStore = new SqliteProfileStore(database);
   const frontierStore = new SqlitePlaceFrontierStore(database, HMAC_KEY, profileStore);
   const results = new Map<string, CountryVerificationResult>();
+  const reorderedPresentations = new Set<string>();
   const checks: Array<{ readonly parentRunId: string; readonly countryCode: string }> = [];
   const officialRequests = vi.fn();
   let freezeCalls = 0;
@@ -205,9 +250,8 @@ async function fixture(input: {
         });
       }
       const evidenceSnapshotId = `evidence-${parentRunId}-${country.countryCode}`;
-      const result = {
+      const common = {
         countryCheckRunId: countryCheckRunId(parentRunId, country.countryCode, integrity),
-        sourceAssessmentRulesVersion: "cold-start-assessment@1" as const,
         verdict: verdict(
           country.countryCode,
           profileId,
@@ -222,6 +266,21 @@ async function fixture(input: {
         } : {}),
         lastCheckedAt: DAY,
       };
+      const result: CountryVerificationResult = input.assessmentVersion === 2
+        ? {
+            ...common,
+            sourceAssessmentRulesVersion: "cold-start-assessment@2",
+            assessmentProjection: assessmentProjection(
+              country.countryCode,
+              profileId,
+              evidenceSnapshotId,
+              input.statuses[country.countryCode] ?? "green",
+            ),
+          }
+        : {
+            ...common,
+            sourceAssessmentRulesVersion: "cold-start-assessment@1",
+          };
       results.set(result.countryCheckRunId, result);
       if (input.publishThenFailFor === country.countryCode) {
         throw new Error("transport_failed_after_evidence_commit");
@@ -235,8 +294,7 @@ async function fixture(input: {
       if (input.failPresentFor === countryCode) throw new Error("replay_failed");
       const result = results.get(childRunId);
       if (result === undefined) throw new Error("evidence_not_found");
-      return {
-        sourceAssessmentRulesVersion: result.sourceAssessmentRulesVersion,
+      const common = {
         verdict: result.verdict,
         evidenceSnapshotId: result.evidenceSnapshotId,
         ...(result.currentKnowledgeRevisionId === undefined ? {} : {
@@ -249,6 +307,23 @@ async function fixture(input: {
           knowledgeUpdatedAt: result.knowledgeUpdatedAt,
         }),
         lastCheckedAt: result.lastCheckedAt,
+      };
+      if (result.sourceAssessmentRulesVersion === "cold-start-assessment@1") {
+        return {
+          ...common,
+          sourceAssessmentRulesVersion: "cold-start-assessment@1",
+        };
+      }
+      const participantAssessments = reorderedPresentations.has(countryCode)
+        ? [...result.assessmentProjection.participantAssessments].reverse()
+        : result.assessmentProjection.participantAssessments;
+      return {
+        ...common,
+        sourceAssessmentRulesVersion: "cold-start-assessment@2",
+        assessmentProjection: {
+          ...result.assessmentProjection,
+          participantAssessments,
+        },
       };
     },
   };
@@ -319,6 +394,9 @@ async function fixture(input: {
     integrity,
     officialRequests,
     resolution,
+    reorderPresentationFor(countryCode: string) {
+      reorderedPresentations.add(countryCode);
+    },
     store,
     verifier,
     counts: {
@@ -875,6 +953,72 @@ describe("country resolution application", () => {
     expect(requestStep).not.toHaveBeenCalled();
     expect(source.checks).toEqual([]);
     expect(source.officialRequests).not.toHaveBeenCalled();
+  });
+
+  test("rejects a structurally valid V2 grid reorder during semantic replacement replay", async () => {
+    const source = await fixture({
+      ordered: ["AA", "BB", "CC", "DD", "EE", "FF"],
+      statuses: { BB: "yellow", FF: "green" },
+      assessmentVersion: 2,
+    });
+    const rejected = await rejectFirstYellow(source);
+    const prepared = await source.resolution.prepareCountryResolutionContinuation({
+      resolutionRunId: rejected.resolutionRunId,
+      expectedRevisionId: rejected.revision.id,
+    });
+    const resolved = await source.resolution.continueCountryResolution(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+    source.reorderPresentationFor("FF");
+
+    await expect(source.resolution.presentCountryResolution(resolved.resolutionRunId))
+      .rejects.toThrow("integrity_mismatch");
+  });
+
+  test("preserves V2 explanations in automatic decisions, replacements, and repeated replay", async () => {
+    const source = await fixture({
+      ordered: ["AA", "BB", "CC", "DD", "EE", "FF"],
+      statuses: { BB: "yellow", FF: "green" },
+      assessmentVersion: 2,
+    });
+    const rejected = await rejectFirstYellow(source);
+    const prepared = await source.resolution.prepareCountryResolutionContinuation({
+      resolutionRunId: rejected.resolutionRunId,
+      expectedRevisionId: rejected.revision.id,
+    });
+    const completed = await source.resolution.continueCountryResolution(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    const first = await source.resolution.presentCountryResolution(completed.resolutionRunId);
+    const second = await source.resolution.presentCountryResolution(completed.resolutionRunId);
+    const automaticYellow = first.automaticFrontier.shortlistSnapshot.markers.find(
+      ({ country }) => country.countryCode === "BB",
+    );
+    const replacement = first.revision.replacementMarkers[0];
+    if (automaticYellow?.sourceAssessmentRulesVersion !== "cold-start-assessment@2" ||
+      replacement?.sourceAssessmentRulesVersion !== "cold-start-assessment@2" ||
+      first.revision.kind !== "resolved") throw new Error("fixture_not_v2_resolved");
+
+    expect(first).toEqual(second);
+    expect(replacement.assessmentProjection.participantAssessments).toEqual(
+      assessmentProjection("FF", first.revision.profileSnapshotId, replacement.evidenceSnapshotId, "green")
+        .participantAssessments,
+    );
+    expect(first.revision.decisions[0]?.formalMarkerDigest).toBe(
+      source.integrity.hash(source.integrity.canonical(automaticYellow)),
+    );
+    expect(first.revision.resolvedEntries.find(({ countryCode }) => countryCode === "FF")
+      ?.formalMarkerDigest).toBe(source.integrity.hash(source.integrity.canonical(replacement)));
+    const storedHead = source.database.prepare(`
+      SELECT payload_json FROM country_resolution_revisions
+      WHERE id = ?
+    `).get(first.revision.id) as { readonly payload_json: string };
+    expect(storedHead.payload_json).toContain('"assessmentProjection"');
   });
 
   test("uses production composition for zero-network start and repeated presentation", async () => {

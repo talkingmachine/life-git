@@ -186,6 +186,65 @@ function terminalFixture(runId = "frontier-run-1") {
   return { events, readModel };
 }
 
+function v2TerminalFixture(runId = "frontier-run-v2") {
+  const fixture = terminalFixture(runId);
+  const participantAssessments = [{
+    routeId: "si-temporary-residence-digital-nomad",
+    participantId: "participant-Мария",
+    relationship: "self",
+    status: "unknown",
+    reasonCodes: ["remote_work_prerequisite_unknown"],
+    claimIds: ["private-claim-self"],
+  }, {
+    routeId: "si-temporary-residence-digital-nomad",
+    participantId: "participant-secret-spouse",
+    relationship: "spouse",
+    status: "impossible",
+    reasonCodes: ["companion_route_impossible"],
+    claimIds: ["private-claim-spouse"],
+  }];
+  const v1Marker = fixture.readModel.shortlistSnapshot.markers[0]!;
+  const marker = {
+    ...v1Marker,
+    sourceAssessmentRulesVersion: "cold-start-assessment@2",
+    formalVerdict: {
+      ...v1Marker.formalVerdict,
+      marker: "yellow",
+      routeOutcomes: v1Marker.formalVerdict.routeOutcomes.map((route) => ({
+        ...route,
+        status: "unknown",
+      })),
+      reasons: [...v1Marker.formalVerdict.reasons, {
+        code: "catalog_completeness_unprovable",
+        summary: "Полнота каталога формальных маршрутов не подтверждена.",
+        claimIds: [],
+        evidence: [],
+        navigation: [],
+      }],
+    },
+    assessmentProjection: {
+      schemaVersion: "country-assessment-projection@2",
+      profileSnapshotId: PROFILE_ID,
+      evidenceSnapshotId: v1Marker.evidenceSnapshotId,
+      participantAssessments,
+    },
+  } as unknown as FrontierMarker;
+  const readModel = {
+    ...fixture.readModel,
+    shortlistSnapshot: {
+      ...fixture.readModel.shortlistSnapshot,
+      markers: [marker],
+    },
+  } as PlaceFrontierReadModel;
+  const events = [
+    fixture.events[0]!,
+    fixture.events[1]!,
+    { ...fixture.events[2]!, payload: { marker } },
+    { ...fixture.events[3]!, payload: { readModel } },
+  ] as PlaceFrontierEvent[];
+  return { events, readModel };
+}
+
 function resolvedCountryResolution(
   automaticFrontier: PlaceFrontierReadModel,
 ): CountryResolutionReadModel {
@@ -654,6 +713,31 @@ describe("place-frontier journey lifecycle", () => {
     expect(journey.container.querySelector('[aria-label="Ход проверки"]')).toBeNull();
   });
 
+  test("shows only safe Russian participant explanations on a V2 country card", () => {
+    const fixture = v2TerminalFixture();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    const journey = render(
+      <PlaceFrontierJourney initialReadModel={fixture.readModel} mode="stored"
+        runId={fixture.readModel.runId} />,
+    );
+
+    const cards = screen.getByRole("region", { name: "Карточки стран" });
+    expect(within(cards).getByRole("heading", { name: "По участникам" })).toBeTruthy();
+    expect(within(cards).getByText("Заявитель")).toBeTruthy();
+    expect(within(cards).getByText("Супруг или супруга")).toBeTruthy();
+    expect(within(cards).getByText("Нужно уточнить")).toBeTruthy();
+    expect(within(cards).getByText("Есть подтверждённое несоответствие")).toBeTruthy();
+    expect(within(cards).getByText("Не подтверждены условия удалённой работы")).toBeTruthy();
+    expect(within(cards).getByText("Сопровождающий не подходит под условия маршрута"))
+      .toBeTruthy();
+    expect(cards.textContent).not.toContain("participant-Мария");
+    expect(cards.textContent).not.toContain("participant-secret-spouse");
+    expect(cards.textContent).not.toContain("private-claim");
+    expect(cards.textContent).not.toContain("вероятност");
+    expect(cards.querySelectorAll("[data-marker]")).toHaveLength(0);
+    expect(journey.container.querySelectorAll("[data-marker]")).toHaveLength(0);
+  });
+
   test("retains received partial history on decoder failure and shows no terminal cards", async () => {
     const fixture = terminalFixture();
     render(
@@ -967,6 +1051,38 @@ describe("frontier projection and workspace", () => {
       reason: { summary: "Все маршруты исключены" },
     },
   ] as const;
+
+  test("projects a V2 marker to a safe explanation DTO without participant lineage", () => {
+    const fixture = v2TerminalFixture();
+    const view = projectPlaceFrontierView({
+      kind: "completed",
+      runId: fixture.readModel.runId,
+      stream: {
+        events: [],
+        lastSequence: 0,
+        countries: [],
+      },
+      readModel: fixture.readModel,
+    });
+
+    expect(view.cards[0]?.assessmentExplanations).toEqual([{
+      routeLabel: "ВНЖ цифрового кочевника",
+      participantLabel: "Заявитель",
+      status: "unknown",
+      reasonLabels: ["Не подтверждены условия удалённой работы"],
+    }, {
+      routeLabel: "ВНЖ цифрового кочевника",
+      participantLabel: "Супруг или супруга",
+      status: "impossible",
+      reasonLabels: ["Сопровождающий не подходит под условия маршрута"],
+    }]);
+    expect(Object.keys(view.cards[0]!.assessmentExplanations![0]!).sort()).toEqual([
+      "participantLabel",
+      "reasonLabels",
+      "routeLabel",
+      "status",
+    ]);
+  });
 
   test("keeps first-seen mixed markers and makes only red/yellow disclosures interactive", () => {
     render(

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { ColdStartReadModel } from "../../application/cold-start";
+import type { ColdStartReadModelAny } from "../../application/cold-start";
 import {
   decodeColdStartStream,
   openColdStartStreamResponse,
@@ -21,7 +21,7 @@ import { ProductShell } from "./ProductShell";
 import { ResearchWorkspace } from "./ResearchWorkspace";
 
 interface ColdStartJourneyProps {
-  readonly initialReadModel?: ColdStartReadModel;
+  readonly initialReadModel?: ColdStartReadModelAny;
   readonly interrupted?: boolean;
   readonly profileId: string;
   readonly runId: string;
@@ -34,9 +34,15 @@ const INTERRUPTED_ERROR = "Запуск был прерван до появле�
 function initialScreen({
   initialReadModel,
   interrupted,
+  profileId,
   runId,
-}: Pick<ColdStartJourneyProps, "initialReadModel" | "interrupted" | "runId">): ColdStartScreenState {
-  if (initialReadModel !== undefined) return presentColdStartReadModel(initialReadModel);
+}: Pick<
+  ColdStartJourneyProps,
+  "initialReadModel" | "interrupted" | "profileId" | "runId"
+>): ColdStartScreenState {
+  if (initialReadModel !== undefined) {
+    return presentColdStartReadModel(initialReadModel, profileId);
+  }
   const running = createColdStartRunningState(runId);
   return interrupted === true ? failColdStartScreen(running, INTERRUPTED_ERROR) : running;
 }
@@ -53,7 +59,7 @@ export function ColdStartJourney(props: ColdStartJourneyProps) {
     if (activeStream === undefined) return;
     let active = true;
     const controller = new AbortController();
-    const iterator = decodeColdStartStream(activeStream, controller.signal);
+    const iterator = decodeColdStartStream(activeStream, profileId, controller.signal);
     const stop = () => {
       active = false;
       controller.abort(new DOMException("Screen stopped consuming research", "AbortError"));
@@ -75,7 +81,7 @@ export function ColdStartJourney(props: ColdStartJourneyProps) {
       if (stopActiveStream.current === stop) stopActiveStream.current = () => undefined;
       void iterator.return(undefined).catch(() => undefined);
     };
-  }, [activeStream]);
+  }, [activeStream, profileId]);
 
   const retry = () => {
     if (retryPending) return;
