@@ -395,6 +395,25 @@ reaches `@2` only through its persisted receipt/profile ID. This preserves the c
 `CountryVerifierPort` surface and keeps schema ownership inside the use case that already loads and
 assesses the profile.
 
+Evidence persistence stays generic internally, while every application read remains versioned and
+closed. The historical Country Knowledge projection accepts only `vs2-si-evidence@2` with the exact
+V1 parser map. A separate V2 projection accepts only `vs2-si-evidence@3` with
+`SLOVENIA_V2_PARSER_VERSIONS`; V1, V3 and unknown rules never cross-cast. V2 replay performs this
+exact verified load before the existing rules-aware replay. The outward Cold Start Knowledge port
+does not widen: its store dispatches internally by the verified stored rules version and rejects
+anything other than the two explicit branches.
+
+Country Knowledge continues to persist `country-knowledge@1` in the same append-only linear chain.
+It fully validates every V3 claim and Evidence reference, but publishes compact references only for
+unscoped V2 country claims. Scoped `duration` and
+`general_statutory_prerequisites` are intentionally absent because the historical
+`FormalKnowledgeReference` has no participant-scope field and permits only one reference per
+`ClaimKind`. When V3 supplies one of those scoped kinds, the corresponding predecessor reference
+and status are retired rather than carried forward or selected by array order. Scope remains in the
+V2 Dossier and Assessment; no optional scope field or new Knowledge schema is introduced here. V1
+revision bytes are unchanged, and a V2-triggered revision may append after a V1 predecessor without
+rewriting it.
+
 Participant explanations remain in the canonical Country Frontier result instead of disappearing
 after `assessColdStartV2`. Cold Start constructs this projection while it still owns both the
 verified profile participant order and reconstructed dossier route order; the outer adapter only

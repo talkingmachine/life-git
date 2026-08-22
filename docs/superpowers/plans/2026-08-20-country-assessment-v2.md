@@ -333,10 +333,12 @@ Money handling is closed: EUR direct; RUB through a fresh sealed CBR claim; any 
 - Modify: `src/infrastructure/cold-start-composition.ts`
 - Modify: `src/infrastructure/sqlite/profile-store.ts`
 - Modify: `src/infrastructure/sqlite/dossier-store.ts`
+- Modify: `src/infrastructure/sqlite/evidence-store.ts`
 - Modify: `src/research/country-knowledge.ts`
 - Modify: `src/infrastructure/sqlite/country-knowledge-store.ts`
 - Modify: `tests/integration/cold-start.test.ts`
 - Modify: `tests/integration/country-knowledge.test.ts`
+- Modify: `tests/integration/evidence-store.test.ts`
 - Modify: `tests/integration/profile-store.test.ts`
 
 **Interfaces:**
@@ -488,8 +490,40 @@ export interface ColdStartApplicationPortsV2 extends Omit<
 
 `Omit` changes only the four versioned seams and preserves the current required `countrySourceIndex`, `knowledge`, `integrity`, `clock`, `nextRunId` and every other unchanged port. `SqliteProfileStore.loadRelocationVerified` remains V1-only for existing Place Frontier consumers; the new `loadRelocationAnyVerified` is used only by Cold Start dispatch. Direct draft preparation and the existing outward `ColdStartReadModel` remain V1 in this task. `createColdStartApplication` with `ColdStartApplicationPortsV2` and `createColdStartComposition` return the exact `ColdStartApplicationAny` surface above. Its ID-only `prepareAny`, `runAny` and `presentAny` verified-load the profile, check the requested/sealed ID, and return `ColdStartReadModelAny`; inherited `prepare`, `run` and `present` remain byte-compatible V1 for historical/direct callers. In the V2 branch Cold Start already owns the verified profile and reconstructed dossier, so it derives `orderedPairs` from dossier route order crossed with profile participant order and calls `reconstructCountryAssessmentProjectionV2` before the read model crosses its port. The resulting fresh frozen `assessmentProjection` is bound to the same profile/Evidence IDs and comparator; no adapter is asked to reload or infer order. Task 5 atomically exposes that projection through Country Verifier and the streams by calling the explicit Any methods. V1 continues to call existing research/dossier/assessor methods. V2 calls the suffixed V2 methods and returns `ColdStartReadModelV2`. `SqliteDossierStore` uses the existing table but reconstructs by exact schema; V1 and V2 predecessor chains never cross. Country Knowledge accepts the exact V3 Evidence projection without rewriting historical revisions and publishes only claims its V2 contract understands.
 
+The generic SQLite Evidence store remains the persistence primitive, but every typed read is an
+exact versioned boundary. The existing `loadVerifiedCountryEvidence` remains V1-only. Task 4 adds
+`loadVerifiedCountryEvidenceV2(database, id, key): VerifiedCountryEvidenceInputV2`, which invokes
+the existing generic verifier with exact `SLOVENIA_V2_PARSER_VERSIONS` and
+`SLOVENIA_V2_EVIDENCE_RULES_VERSION`. Composition owns a separately typed
+`SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaimV2>`: `sealV2` delegates to its generic
+seal, `loadVerifiedBundleV2` always supplies the exact V3 expectations, and `replayV2` first performs
+that exact verified V3 load before delegating to the existing rules-aware replay. A V1 snapshot,
+unknown rules version or parser drift must fail before it can cross a V2-typed port; there is no
+registry or fallback cast.
+
+Country Knowledge keeps its existing outward port, persisted `country-knowledge@1` schema, linear
+chain and canonical HMAC/hash bytes. The domain adds the closed
+`VerifiedCountryEvidenceInputV2` and a suffixed
+`buildSloveniaKnowledgeRevisionV2(...): SloveniaCountryKnowledgeRevision | undefined`. The V2
+builder validates the complete V3 Evidence graph, exact source order, rules/parser versions, claim
+IDs, validators, participant scopes and artifact ownership, but emits compact references only for
+unscoped V2 country claims. `duration` and `general_statutory_prerequisites` are never emitted from
+V3 because `FormalKnowledgeReference` has no participant scope and permits only one reference per
+`ClaimKind`; if a V3 revision contains either scoped kind, any predecessor reference and status for
+that kind is retired instead of being silently reused or last-write-wins. Those scoped facts remain
+only in V2 Dossier/Assessment. No `scope` field is added to `country-knowledge@1`, and no claim value
+or artifact byte enters a Knowledge revision.
+
+`SqliteCountryKnowledgeStore.resolveForEvidence`, `publishCurrentFromEvidence` and revision replay
+keep their current signatures and dispatch only after reading the stored exact rules branch:
+`vs2-si-evidence@2` uses the existing V1 loader/builder, `vs2-si-evidence@3` uses the V2
+loader/builder, and every other value fails `integrity_mismatch`. The same exact branch is used when
+recomputing a persisted revision. A V2 successor may follow a V1 predecessor in the one Knowledge
+chain, but no historical row is rewritten. Composition's unchanged `knowledge.publishCurrent`
+also validates `lastCheckedAt` through the selected exact V1/V2 projection.
+
 - [ ] Write REDs for V1 draft, V1 ID, V2 ID, unknown schema, profile ID mismatch before research, exact V2 Evidence/Dossier replay, the absent order-aware projection module, independently derived route × participant order, projection/comparator binding, partial V2 dossier, no-completeness yellow, and zero adapter schema logic.
-- [ ] Add store REDs for V1/V2 dossier isolation, tamper, lost race and exact retry; add Knowledge REDs for V3 parser/rules bindings and V1 historical bytes.
+- [ ] Add store REDs for V1/V2 dossier isolation, tamper, lost race and exact retry; add Evidence REDs for exact V1/V3 loader and replay separation; add Knowledge REDs for V3 parser/rules bindings, scoped-claim retirement, exact internal dispatch and V1 historical bytes.
 - [ ] Run `pnpm exec vitest run tests/integration/cold-start.test.ts tests/integration/country-knowledge.test.ts tests/integration/profile-store.test.ts`; expect only explicit V2 seams to fail. Add a compile fixture proving existing Place Frontier still receives the unchanged V1 loader, `ColdStartApplicationPortsV2` satisfies every unchanged base member, composition returns `ColdStartApplicationAny`, and inherited V1 methods retain their old result/event types and behavior.
 - [ ] Implement the closed branch with separate suffixed V2 methods; do not genericize the existing V1 API.
 - [ ] Re-run the focused suites, then `pnpm run typecheck`, scoped `pnpm exec eslint`, and `git diff --check`.
