@@ -4,6 +4,15 @@ import type Database from "better-sqlite3";
 
 import { createConfirmedLife } from "../application/confirmed-life";
 import { createHousingBranchApplication } from "../application/fork-housing";
+import {
+  completeOnboarding as completeOnboardingUseCase,
+  extractMessage as extractOnboardingMessageUseCase,
+} from "../application/onboarding";
+import type {
+  ContinueOnboardingCommand,
+  ExtractOnboardingMessageCommand,
+  OnboardingModelPort,
+} from "../application/onboarding-contracts";
 import { createJourneyPresentation } from "../application/present-journey";
 import { createReplayApplication } from "../application/replay";
 import {
@@ -25,6 +34,8 @@ import {
   type EvidenceParsers,
 } from "../research/run";
 import { createEvidenceIntegrity } from "./integrity";
+import { createCodexOnboardingModel } from "./codex-cli/onboarding-model";
+import { getCodexCliModelAdapter } from "./codex-cli/runtime";
 import { createColdStartComposition } from "./cold-start-composition";
 import { createCountryResolutionComposition } from "./country-resolution-composition";
 import { createPlaceFrontierComposition } from "./place-frontier-composition";
@@ -34,6 +45,7 @@ import { openEvidenceDatabase } from "./sqlite/db";
 import { SqliteEvidenceStore } from "./sqlite/evidence-store";
 import { SqliteBranchStore } from "./sqlite/branch-store";
 import { SqliteHousingBranchWriter } from "./sqlite/housing-branch-writer";
+import { SqliteOnboardingStore } from "./sqlite/onboarding-store";
 import { SqliteProfileStore } from "./sqlite/profile-store";
 import { SqliteRunStore } from "./sqlite/run-store";
 
@@ -51,6 +63,11 @@ export interface ConfirmedLifeCompositionOptions {
 export function createConfirmedLifeComposition(options: ConfirmedLifeCompositionOptions) {
   const evidenceStore = new SqliteEvidenceStore(options.database);
   const branchStore = new SqliteBranchStore(options.database, options.hmacKey);
+  const onboardingStore = new SqliteOnboardingStore(
+    options.database,
+    options.hmacKey,
+    options.clock === undefined ? {} : { clock: options.clock },
+  );
   const profileStore = new SqliteProfileStore(options.database);
   const runStore = new SqliteRunStore(options.database, options.hmacKey);
   const housingBranchAppend = new SqliteHousingBranchWriter(options.database, branchStore, runStore);
@@ -63,6 +80,14 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
   const nextId = options.nextId ?? (
     (kind: "run" | "revision" | "assessment") => `${kind}-${randomUUID()}`
   );
+  const nextOnboardingParticipantId = () => randomUUID();
+  const nextOnboardingAssistantMessageId = () => randomUUID();
+  const nextOnboardingCompletionCommandId = () => randomUUID();
+  let onboardingModel: OnboardingModelPort | undefined;
+  const getOnboardingModel = (): OnboardingModelPort => {
+    onboardingModel ??= createCodexOnboardingModel(getCodexCliModelAdapter());
+    return onboardingModel;
+  };
 
   const confirmedLife = createConfirmedLife({
     profileStore,
@@ -104,6 +129,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
   const placeFrontier = createPlaceFrontierComposition({
     database: options.database,
     hmacKey: options.hmacKey,
+    onboardingConfirmations: onboardingStore,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
   });
@@ -157,6 +183,23 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     ...housingBranch,
     ...replay,
     ...journey,
+    extractOnboardingMessage: (
+      command: ExtractOnboardingMessageCommand,
+      signal: AbortSignal,
+    ) => extractOnboardingMessageUseCase(command, {
+      model: getOnboardingModel(),
+      nextParticipantId: nextOnboardingParticipantId,
+      nextAssistantMessageId: nextOnboardingAssistantMessageId,
+      nextCompletionCommandId: nextOnboardingCompletionCommandId,
+    }, signal),
+    completeOnboarding: (
+      command: ContinueOnboardingCommand,
+      signal: AbortSignal,
+    ) => completeOnboardingUseCase(command, {
+      model: getOnboardingModel(),
+      completion: onboardingStore,
+      frontier: placeFrontier,
+    }, signal),
     preparePlaceFrontier: placeFrontier.preparePlaceFrontier,
     runPlaceFrontier: placeFrontier.runPlaceFrontier,
     presentPlaceFrontier: placeFrontier.presentPlaceFrontier,

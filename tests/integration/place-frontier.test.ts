@@ -16,6 +16,13 @@ import {
   type RankingSnapshot,
   type ShortlistSnapshot,
 } from "../../src/application/place-frontier";
+import type {
+  ConfirmedOnboardingFrontierPort,
+  OnboardingConfirmationReadPort,
+  OnboardingModelVersions,
+  OnboardingReceipt,
+  VerifiedOnboardingConfirmation,
+} from "../../src/application/onboarding-contracts";
 import type { ColdStartEvent } from "../../src/application/cold-start";
 import {
   countryVerificationReplayExpectation,
@@ -26,8 +33,23 @@ import {
 import type { FormalEvidenceReference, FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
 import { assessFormalResidence } from "../../src/decision/formal-residence-verdict";
-import { rankPlaces, type RankablePlace, type RankedPlace } from
+import {
+  rankPlaces,
+  rankPlacesForVerifiedPreferences,
+  type RankablePlace,
+  type RankedPlace,
+} from
   "../../src/decision/place-ranker";
+import { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from
+  "../../src/decision/onboarding-catalog";
+import {
+  applyQuestionnaireFieldChange,
+  confirmOnboardingValues,
+  createOnboardingDraft,
+  type ConfirmedOnboardingValues,
+  type OnboardingDraft,
+  type OnboardingFieldId,
+} from "../../src/decision/onboarding-questionnaire";
 import type {
   PreferenceProfileDraft,
   PreferenceProfileSnapshot,
@@ -64,12 +86,24 @@ import {
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqlitePlaceFrontierStore } from
   "../../src/infrastructure/sqlite/place-frontier-store";
-import { insertRelocationV2Snapshot } from
+import { SqliteOnboardingStore } from
+  "../../src/infrastructure/sqlite/onboarding-store";
+import { insertRelocationV2Snapshot, SqliteProfileStore } from
   "../../src/infrastructure/sqlite/profile-store";
 
 const NOW = "2026-08-12T08:00:00.000Z";
 const DAY = "2026-08-12";
 const HMAC_KEY = "frontier-test-key";
+const ONBOARDING_SELF_ID = "00000000-0000-4000-8000-000000000201";
+const ONBOARDING_COMMAND_ID = "00000000-0000-4000-8000-000000000210";
+const ONBOARDING_VERSIONS: OnboardingModelVersions = Object.freeze({
+  invocation: "codex-cli-invocation@1",
+  cliVersion: "codex-cli 0.148.0-alpha.15",
+  extractionPrompt: "onboarding-extract@1",
+  reviewPrompt: "onboarding-review@1",
+  extractionSchema: "onboarding-model-output@1",
+  reviewSchema: "onboarding-review-output@1",
+});
 
 const relocationProfile: RelocationProfileDraft = {
   currentCountryCode: "RU",
@@ -377,6 +411,11 @@ function harness(options: HarnessOptions) {
   let presentCalls = 0;
 
   const ports: PlaceFrontierApplicationPorts = {
+    onboardingConfirmations: {
+      loadBySnapshotBindingsVerified: async () => {
+        throw new Error("unexpected_onboarding_confirmation_load");
+      },
+    },
     profiles: {
       appendRelocation: async (snapshot) => { profiles.set(snapshot.id, snapshot); },
       loadRelocationVerified: async (id) => {
@@ -418,9 +457,13 @@ function harness(options: HarnessOptions) {
     store: options.failShortlistAppend
       ? {
           appendRanking: (snapshot) => store.appendRanking(snapshot),
+          insertOrLoadRanking: (snapshot) => store.insertOrLoadRanking(snapshot),
           appendShortlist: async () => { throw new Error("storage_failed"); },
           loadRankingVerified: (id) => store.loadRankingVerified(id),
+          loadRankingVerifiedIfPresent: (id) => store.loadRankingVerifiedIfPresent(id),
           loadShortlistVerified: (runId) => store.loadShortlistVerified(runId),
+          loadShortlistVerifiedIfPresent: (runId) =>
+            store.loadShortlistVerifiedIfPresent(runId),
         }
       : store,
     knowledge: {
@@ -622,6 +665,240 @@ function v2RelocationSnapshot(): RelocationProfileV2Snapshot {
   });
 }
 
+function setOnboardingField(
+  draft: OnboardingDraft,
+  fieldId: OnboardingFieldId,
+  rawInput: unknown,
+): OnboardingDraft {
+  return applyQuestionnaireFieldChange(draft, { kind: "manual_set", fieldId, rawInput });
+}
+
+function confirmedOnboardingValues(): ConfirmedOnboardingValues {
+  let draft = createOnboardingDraft(() => ONBOARDING_SELF_ID);
+  draft = setOnboardingField(draft, "current_location", { countryCode: "RU", city: "Moscow" });
+  draft = setOnboardingField(draft, "move_horizon", "within_3_months");
+  draft = setOnboardingField(draft, "moving_party", "alone");
+  draft = setOnboardingField(draft, "savings", { min: "10000", max: "20000", currency: "EUR" });
+  draft = setOnboardingField(
+    draft,
+    `participants.${ONBOARDING_SELF_ID}.citizenships`,
+    ["RU"],
+  );
+  draft = setOnboardingField(draft, `participants.${ONBOARDING_SELF_ID}.passport`, {
+    validUntil: "2030-01-01",
+  });
+  draft = setOnboardingField(draft, `participants.${ONBOARDING_SELF_ID}.current_work`, {
+    status: "employment",
+    occupation: "Engineer",
+  });
+  draft = setOnboardingField(
+    draft,
+    `participants.${ONBOARDING_SELF_ID}.remote_continuation`,
+    "yes",
+  );
+  draft = setOnboardingField(draft, `participants.${ONBOARDING_SELF_ID}.monthly_income`, {
+    amount: "3000",
+    currency: "EUR",
+    basis: "net",
+  });
+  draft = setOnboardingField(draft, `participants.${ONBOARDING_SELF_ID}.education`, {
+    level: "higher",
+    field: "Engineering",
+  });
+  draft = setOnboardingField(
+    draft,
+    `participants.${ONBOARDING_SELF_ID}.relevant_experience_years`,
+    8,
+  );
+  for (const criterionId of COUNTRY_PREFERENCE_IDS) {
+    const required = criterionId === "outside_cis" || criterionId === "peace_and_stability";
+    draft = setOnboardingField(
+      draft,
+      `country_preferences.${criterionId}.mode`,
+      required ? "required" : "weighted",
+    );
+    draft = setOnboardingField(draft, `country_preferences.${criterionId}.importance`, 3);
+    draft = setOnboardingField(
+      draft,
+      `country_preferences.${criterionId}.target`,
+      required ? "required_true" : "maximize",
+    );
+  }
+  for (const criterionId of CITY_PREFERENCE_IDS) {
+    draft = setOnboardingField(draft, `city_preferences.${criterionId}.mode`, "weighted");
+    draft = setOnboardingField(draft, `city_preferences.${criterionId}.importance`, 3);
+    draft = setOnboardingField(
+      draft,
+      `city_preferences.${criterionId}.target`,
+      `${criterionId}-target`,
+    );
+  }
+  return confirmOnboardingValues(draft);
+}
+
+interface FuturePlaceFrontierStore {
+  appendRanking(snapshot: RankingSnapshot): Promise<void>;
+  insertOrLoadRanking(snapshot: RankingSnapshot): Promise<RankingSnapshot>;
+  appendShortlist(snapshot: ShortlistSnapshot): Promise<void>;
+  loadRankingVerified(idOrRunId: string): Promise<RankingSnapshot>;
+  loadRankingVerifiedIfPresent(idOrRunId: string): Promise<RankingSnapshot | undefined>;
+  loadShortlistVerified(idOrRunId: string): Promise<ShortlistSnapshot>;
+  loadShortlistVerifiedIfPresent(idOrRunId: string): Promise<ShortlistSnapshot | undefined>;
+}
+
+interface ReceiptHarnessOptions {
+  readonly completionCommandId?: string;
+  readonly transformConfirmation?: (
+    confirmation: VerifiedOnboardingConfirmation,
+  ) => VerifiedOnboardingConfirmation;
+  readonly places?: readonly RankablePlace[];
+}
+
+async function receiptHarness(options: ReceiptHarnessOptions = {}) {
+  const database = openEvidenceDatabase(":memory:");
+  const onboardingStore = new SqliteOnboardingStore(database, HMAC_KEY, {
+    clock: () => new Date(NOW),
+  });
+  const confirmed = confirmedOnboardingValues();
+  const receipt = await onboardingStore.commitOrReplay({
+    completionCommandId: options.completionCommandId ?? ONBOARDING_COMMAND_ID,
+    confirmed,
+    versions: ONBOARDING_VERSIONS,
+  });
+  const profiles = new SqliteProfileStore(database);
+  const placeStore = new SqlitePlaceFrontierStore(database, HMAC_KEY, profiles) as
+    SqlitePlaceFrontierStore & FuturePlaceFrontierStore;
+  let confirmationReads = 0;
+  let freezes = 0;
+  let ranks = 0;
+  let inserts = 0;
+  let rankingReads = 0;
+  let clockReads = 0;
+  let nextIdReads = 0;
+  const onboardingConfirmations: OnboardingConfirmationReadPort = {
+    loadBySnapshotBindingsVerified: async (bindings) => {
+      confirmationReads += 1;
+      const verified = await onboardingStore.loadBySnapshotBindingsVerified(bindings);
+      return options.transformConfirmation?.(verified) ?? verified;
+    },
+  };
+  const store: FuturePlaceFrontierStore = {
+    appendRanking: (snapshot) => placeStore.appendRanking(snapshot),
+    insertOrLoadRanking: async (snapshot) => {
+      inserts += 1;
+      return placeStore.insertOrLoadRanking(snapshot);
+    },
+    appendShortlist: (snapshot) => placeStore.appendShortlist(snapshot),
+    loadRankingVerified: (id) => placeStore.loadRankingVerified(id),
+    loadRankingVerifiedIfPresent: (id) => {
+      rankingReads += 1;
+      return placeStore.loadRankingVerifiedIfPresent(id);
+    },
+    loadShortlistVerified: (id) => placeStore.loadShortlistVerified(id),
+    loadShortlistVerifiedIfPresent: (id) => placeStore.loadShortlistVerifiedIfPresent(id),
+  };
+  const application = createPlaceFrontierApplication({
+    onboardingConfirmations,
+    profiles,
+    rankingInputs: {
+      freezeCurrent: async () => {
+        freezes += 1;
+        const places = options.places ?? [v2RankablePlace("SI", "1"), v2RankablePlace("DE", "0.5")];
+        return {
+          places,
+          knowledgeRevisionIds: Object.fromEntries(
+            places.map(({ countryCode }) => [countryCode, null]),
+          ),
+        };
+      },
+    },
+    rank: rankPlaces,
+    rankVerifiedPreferences: (
+      input: Parameters<typeof rankPlacesForVerifiedPreferences>[0],
+    ) => {
+      ranks += 1;
+      return rankPlacesForVerifiedPreferences(input);
+    },
+    store,
+    knowledge: {
+      loadVerified: async () => { throw new Error("unexpected_knowledge_load"); },
+    },
+    verifier: {
+      check: async () => { throw new Error("unexpected_verifier_check"); },
+      present: async () => { throw new Error("unexpected_verifier_present"); },
+    },
+    integrity: createEvidenceIntegrity(HMAC_KEY),
+    clock: () => {
+      clockReads += 1;
+      throw new Error("unexpected_clock_read");
+    },
+    nextRunId: () => {
+      nextIdReads += 1;
+      throw new Error("unexpected_next_id_read");
+    },
+  } as unknown as PlaceFrontierApplicationPorts) as ReturnType<
+    typeof createPlaceFrontierApplication
+  > & ConfirmedOnboardingFrontierPort;
+
+  return {
+    application,
+    database,
+    onboardingStore,
+    placeStore,
+    profiles,
+    confirmed,
+    receipt,
+    counts: {
+      confirmations: () => confirmationReads,
+      freezes: () => freezes,
+      ranks: () => ranks,
+      inserts: () => inserts,
+      rankingReads: () => rankingReads,
+      clock: () => clockReads,
+      nextId: () => nextIdReads,
+    },
+  };
+}
+
+function receiptRanking(
+  receipt: OnboardingReceipt,
+  confirmation: VerifiedOnboardingConfirmation,
+  places: readonly RankablePlace[],
+): RankingSnapshot {
+  const result = rankPlacesForVerifiedPreferences({
+    assessmentAt: receipt.confirmedAt.slice(0, 10),
+    preferences: confirmation.preferences,
+    places,
+  });
+  const excludedCodes = new Set(result.excluded.map(({ countryCode }) => countryCode));
+  const rankingSnapshotId = `${receipt.frontierRunId}:ranking`;
+  const integrity = createEvidenceIntegrity(HMAC_KEY);
+  return {
+    schemaVersion: "place-ranking@1",
+    id: rankingSnapshotId,
+    runId: receipt.frontierRunId,
+    profileSnapshotId: receipt.profileId,
+    preferenceProfileSnapshotId: receipt.preferenceProfileId,
+    assessmentAt: receipt.confirmedAt,
+    contextHash: integrity.hash(integrity.canonical({
+      runId: receipt.frontierRunId,
+      profileId: receipt.profileId,
+      preferenceProfileId: receipt.preferenceProfileId,
+      assessmentAt: receipt.confirmedAt,
+      rankingSnapshotId,
+    })),
+    knowledgeRevisionIds: Object.fromEntries(places.map(({ countryCode }) => [countryCode, null])),
+    ordered: result.ordered,
+    excludedPlaces: places
+      .filter(({ countryCode }) => excludedCodes.has(countryCode))
+      .map((place) => structuredClone(place))
+      .sort((left, right) => left.countryCode.localeCompare(right.countryCode)),
+    excluded: result.excluded,
+    rulesVersion: result.rulesVersion,
+    createdAt: receipt.confirmedAt,
+  };
+}
+
 type RelocationSnapshotAny = RelocationProfileSnapshot | RelocationProfileV2Snapshot;
 type PreferenceSnapshotAny = PreferenceProfileSnapshot | PreferenceProfileV2Snapshot;
 
@@ -672,19 +949,28 @@ function profilePairHarness(
     loadPreferenceForRankingVerified: async () => structuredClone(preference),
   } as unknown as PlaceFrontierApplicationPorts["profiles"];
   const application = createPlaceFrontierApplication({
+    onboardingConfirmations: {
+      loadBySnapshotBindingsVerified: async () => {
+        throw new Error("unexpected_onboarding_confirmation_load");
+      },
+    },
     profiles,
     rankingInputs: {
       freezeCurrent: async () => { throw new Error("unexpected_ranking_input"); },
     },
-    rank: rankPlaces,
+    rank: rankPlacesForVerifiedPreferences,
     store: {
       appendRanking: async () => { throw new Error("unexpected_ranking_append"); },
+      insertOrLoadRanking: async () => { throw new Error("unexpected_ranking_insert"); },
       appendShortlist: async (snapshot) => { shortlist = structuredClone(snapshot); },
       loadRankingVerified: async () => structuredClone(ranking),
+      loadRankingVerifiedIfPresent: async () => structuredClone(ranking),
       loadShortlistVerified: async () => {
         if (shortlist === undefined) throw new Error("shortlist_not_found");
         return structuredClone(shortlist);
       },
+      loadShortlistVerifiedIfPresent: async () =>
+        shortlist === undefined ? undefined : structuredClone(shortlist),
     },
     knowledge: {
       loadVerified: async () => { throw new Error("unexpected_knowledge_load"); },
@@ -766,6 +1052,31 @@ function resignShortlist(
   resignSnapshot(database, "shortlist", mutate);
 }
 
+function resignShortlistCreatedAt(
+  database: Database.Database,
+  createdAt: string,
+): void {
+  database.exec("DROP TRIGGER place_frontier_snapshots_no_update");
+  const row = database.prepare(`
+    SELECT id, payload_json FROM place_frontier_snapshots WHERE kind = 'shortlist'
+  `).get() as { readonly id: string; readonly payload_json: string };
+  const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+  payload.createdAt = createdAt;
+  const integrity = createEvidenceIntegrity(HMAC_KEY);
+  const payloadJson = integrity.canonical(payload);
+  database.prepare(`
+    UPDATE place_frontier_snapshots
+    SET payload_json = ?, payload_hash = ?, hmac = ?, created_at = ?
+    WHERE id = ?
+  `).run(
+    payloadJson,
+    integrity.hash(payloadJson),
+    integrity.sign(payloadJson),
+    createdAt,
+    row.id,
+  );
+}
+
 function nonTerminalProgressEvents(): readonly CountryVerificationProgress[] {
   const base = {
     runId: "child-run",
@@ -794,8 +1105,8 @@ function nonTerminalProgressEvents(): readonly CountryVerificationProgress[] {
 
 async function concurrentStoreWrites(input: {
   readonly path: string;
-  readonly method: "appendRanking" | "appendShortlist";
-  readonly preference: PreferenceProfileSnapshot;
+  readonly method: "appendRanking" | "insertOrLoadRanking" | "appendShortlist";
+  readonly preference: PreferenceProfileSnapshot | PreferenceProfileV2Snapshot;
   readonly snapshots: readonly [
     RankingSnapshot | ShortlistSnapshot,
     RankingSnapshot | ShortlistSnapshot,
@@ -826,9 +1137,12 @@ async function concurrentStoreWrites(input: {
       preferences,
     )[workerData.method](
       workerData.snapshot,
-    )).then(() => {
+    )).then((result) => {
       database.close();
-      parentPort.postMessage({ type: "done" });
+      parentPort.postMessage({
+        type: "done",
+        result: result === undefined ? undefined : JSON.stringify(result),
+      });
     }, (error) => {
       database.close();
       parentPort.postMessage({ type: "error", message: error.message });
@@ -871,7 +1185,11 @@ async function concurrentStoreWrites(input: {
       };
       for (const worker of workers) {
         worker.on("error", (error) => finish(error));
-        worker.on("message", (message: { readonly type: string; readonly message?: string }) => {
+        worker.on("message", (message: {
+          readonly type: string;
+          readonly message?: string;
+          readonly result?: string;
+        }) => {
           if (message.type === "ready") {
             ready += 1;
             if (ready === workers.length) {
@@ -883,7 +1201,7 @@ async function concurrentStoreWrites(input: {
           if (message.type === "error") {
             outcomes.push(message.message ?? "unknown_worker_error");
           } else {
-            outcomes.push("done");
+            outcomes.push(message.result ?? "done");
           }
           finish();
         });
@@ -894,6 +1212,211 @@ async function concurrentStoreWrites(input: {
   }
   return outcomes.sort();
 }
+
+describe("Onboarding receipt Place Frontier", () => {
+  test("prepares the exact verified V2 receipt at its fixed run and time, then fast-replays it", async () => {
+    const fixture = await receiptHarness();
+
+    const first = await fixture.application.prepareFromOnboardingReceipt(fixture.receipt);
+    expect(first).toEqual({
+      runId: fixture.receipt.frontierRunId,
+      profileId: fixture.receipt.profileId,
+      preferenceProfileId: fixture.receipt.preferenceProfileId,
+      assessmentAt: fixture.receipt.confirmedAt,
+      rankingSnapshotId: `${fixture.receipt.frontierRunId}:ranking`,
+      contextHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    const ranking = await fixture.placeStore.loadRankingVerified(first.rankingSnapshotId);
+    expect(ranking).toEqual(expect.objectContaining({
+      runId: fixture.receipt.frontierRunId,
+      profileSnapshotId: fixture.receipt.profileId,
+      preferenceProfileSnapshotId: fixture.receipt.preferenceProfileId,
+      assessmentAt: fixture.receipt.confirmedAt,
+      createdAt: fixture.receipt.confirmedAt,
+    }));
+    expect(ranking.ordered[0]?.contributions.map(({ criterionId }) => criterionId)).toEqual([
+      "outside_cis",
+      "europe",
+      "personal_safety",
+      "infrastructure",
+      "peace_and_stability",
+    ]);
+    expect(fixture.counts.confirmations()).toBe(1);
+    expect(fixture.counts.freezes()).toBe(1);
+    expect(fixture.counts.ranks()).toBe(1);
+    expect(fixture.counts.inserts()).toBe(1);
+    expect(fixture.counts.clock()).toBe(0);
+    expect(fixture.counts.nextId()).toBe(0);
+
+    await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
+      .resolves.toEqual(first);
+    expect(fixture.counts.confirmations()).toBe(2);
+    expect(fixture.counts.freezes()).toBe(1);
+    expect(fixture.counts.ranks()).toBe(1);
+    expect(fixture.counts.inserts()).toBe(1);
+    expect(fixture.counts.clock()).toBe(0);
+    expect(fixture.counts.nextId()).toBe(0);
+  });
+
+  test("accepts an authoritative v7 completion UUID through verified receipt preparation", async () => {
+    const fixture = await receiptHarness({
+      completionCommandId: "018f3d2e-7b6c-7abc-8def-0123456789ab",
+    });
+
+    const prepared = await fixture.application.prepareFromOnboardingReceipt(fixture.receipt);
+    expect(prepared).toEqual(expect.objectContaining({
+      runId: fixture.receipt.frontierRunId,
+      profileId: fixture.receipt.profileId,
+      preferenceProfileId: fixture.receipt.preferenceProfileId,
+      assessmentAt: fixture.receipt.confirmedAt,
+    }));
+    expect(fixture.counts.confirmations()).toBe(1);
+    expect(fixture.counts.rankingReads()).toBe(1);
+    expect(fixture.counts.freezes()).toBe(1);
+    expect(fixture.counts.ranks()).toBe(1);
+    expect(fixture.counts.inserts()).toBe(1);
+  });
+
+  test("rejects non-exact and accessor-backed borrowed receipts without evaluating them", async () => {
+    const fixture = await receiptHarness();
+    let getterReads = 0;
+    const accessorReceipt = { ...fixture.receipt } as Record<string, unknown>;
+    Object.defineProperty(accessorReceipt, "profileId", {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return fixture.receipt.profileId;
+      },
+    });
+    const extraReceipt = { ...fixture.receipt, unexpected: true };
+
+    await expect(fixture.application.prepareFromOnboardingReceipt(
+      accessorReceipt as unknown as OnboardingReceipt,
+    )).rejects.toThrow("integrity_mismatch");
+    await expect(fixture.application.prepareFromOnboardingReceipt(
+      extraReceipt as unknown as OnboardingReceipt,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(getterReads).toBe(0);
+    expect(fixture.counts.confirmations()).toBe(0);
+    expect(fixture.counts.freezes()).toBe(0);
+    expect(fixture.counts.ranks()).toBe(0);
+    expect(fixture.counts.inserts()).toBe(0);
+  });
+
+  test("rejects a valid forged provenance with its stale receipt digest before ranking access", async () => {
+    const fixture = await receiptHarness({
+      transformConfirmation: (confirmation) => {
+        let changed = false;
+        return {
+          ...confirmation,
+          provenance: {
+            ...confirmation.provenance,
+            fields: confirmation.provenance.fields.map((field) => {
+              if (
+                changed || field.applicability !== "required" ||
+                field.reviewState !== "accepted" || field.origin !== "manual"
+              ) return field;
+              changed = true;
+              return { ...field, origin: "model" };
+            }),
+          },
+        };
+      },
+    });
+
+    await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
+      .rejects.toThrow("integrity_mismatch");
+    expect(fixture.counts.confirmations()).toBe(1);
+    expect(fixture.counts.rankingReads()).toBe(0);
+    expect(fixture.counts.freezes()).toBe(0);
+    expect(fixture.counts.ranks()).toBe(0);
+    expect(fixture.counts.inserts()).toBe(0);
+  });
+
+  test.each([
+    ["receipt", (value: VerifiedOnboardingConfirmation) => ({
+      ...value,
+      receipt: { ...value.receipt, confirmationDigest: "f".repeat(64) },
+    })],
+    ["profile", (value: VerifiedOnboardingConfirmation) => ({
+      ...value,
+      profile: { ...value.profile, id: "f".repeat(64) },
+    })],
+    ["preferences", (value: VerifiedOnboardingConfirmation) => ({
+      ...value,
+      preferences: { ...value.preferences, id: "e".repeat(64) },
+    })],
+    ["provenance", (value: VerifiedOnboardingConfirmation) => ({
+      ...value,
+      provenance: { ...value.provenance, fields: value.provenance.fields.slice(1) },
+    })],
+    ["versions", (value: VerifiedOnboardingConfirmation) => ({
+      ...value,
+      versions: { ...value.versions, reviewPrompt: "onboarding-review@999" },
+    })],
+  ] as const)("rejects a verified response with a conflicting %s binding", async (_field, mutate) => {
+    const fixture = await receiptHarness({
+      transformConfirmation: (confirmation) =>
+        mutate(confirmation) as unknown as VerifiedOnboardingConfirmation,
+    });
+
+    await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
+      .rejects.toThrow("integrity_mismatch");
+    expect(fixture.counts.freezes()).toBe(0);
+    expect(fixture.counts.ranks()).toBe(0);
+    expect(fixture.counts.inserts()).toBe(0);
+  });
+
+  test("rejects an existing fixed run bound to another verified confirmation", async () => {
+    const fixture = await receiptHarness();
+    const secondReceipt = await fixture.onboardingStore.commitOrReplay({
+      completionCommandId: "00000000-0000-4000-8000-000000000211",
+      confirmed: fixture.confirmed,
+      versions: ONBOARDING_VERSIONS,
+    });
+    const second = await fixture.onboardingStore.loadBySnapshotBindingsVerified({
+      profileId: secondReceipt.profileId,
+      preferenceProfileId: secondReceipt.preferenceProfileId,
+    });
+    const places = [v2RankablePlace("SI", "1")];
+    await fixture.placeStore.appendRanking(receiptRanking({
+      ...secondReceipt,
+      frontierRunId: fixture.receipt.frontierRunId,
+    }, second, places));
+
+    await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
+      .rejects.toThrow("integrity_mismatch");
+    expect(fixture.counts.freezes()).toBe(0);
+    expect(fixture.counts.ranks()).toBe(0);
+    expect(fixture.counts.inserts()).toBe(0);
+  });
+
+  test("production composition ranks only @2 country criteria and exposes receipt preparation", async () => {
+    const fixture = await receiptHarness();
+    const application = createPlaceFrontierComposition({
+      database: fixture.database,
+      hmacKey: HMAC_KEY,
+      onboardingConfirmations: fixture.onboardingStore,
+      clock: () => { throw new Error("unexpected_clock_read"); },
+      nextRunId: () => { throw new Error("unexpected_next_id_read"); },
+    } as unknown as Parameters<typeof createPlaceFrontierComposition>[0]) as ReturnType<
+      typeof createPlaceFrontierComposition
+    > & ConfirmedOnboardingFrontierPort;
+
+    const prepared = await application.prepareFromOnboardingReceipt(fixture.receipt);
+    const ranking = await fixture.placeStore.loadRankingVerified(prepared.rankingSnapshotId);
+    expect(ranking.ordered).not.toHaveLength(0);
+    expect(ranking.ordered[0]?.factors.map(({ criterionId }) => criterionId)).toEqual([
+      "outside_cis",
+      "europe",
+      "personal_safety",
+      "infrastructure",
+      "peace_and_stability",
+    ]);
+    expect(ranking.ordered[0]?.factors.map(({ criterionId }) => criterionId))
+      .not.toEqual(expect.arrayContaining([...CITY_PREFERENCE_IDS]));
+  });
+});
 
 describe("Country Frontier V2 marker contract", () => {
   test("materializes and replays an exact fresh frozen V2 projection", () => {
@@ -1347,6 +1870,25 @@ describe("frozen CountryFrontier", () => {
     expect(state.terminal).toEqual(result);
   });
 
+  test("floors live shortlist issuance at assessment time when the clock rolls back", async () => {
+    let clockReads = 0;
+    const fixture = harness({
+      rankedCountries: ["SI"],
+      clock: () => new Date(clockReads++ === 0 ? NOW : "2026-08-12T07:59:00.000Z"),
+    });
+    const prepared = await fixture.prepare();
+    let state = initialPlaceFrontierEventState();
+
+    const result = await fixture.application.runPlaceFrontier(
+      prepared,
+      (event) => { state = reducePlaceFrontierEvent(state, event); },
+      new AbortController().signal,
+    );
+
+    expect(result.shortlistSnapshot.createdAt).toBe(NOW);
+    expect(state.terminal).toEqual(result);
+  });
+
   test("isolates completed event payloads from persisted and returned frontier state", async () => {
     const fixture = harness({ rankedCountries: ["SI"] });
     const prepared = await fixture.prepare();
@@ -1496,6 +2038,85 @@ describe("frozen CountryFrontier", () => {
     expect(await fixture.application.presentPlaceFrontier(prepared.runId)).toEqual(result);
     expect(fixture.counts.rank()).toBe(1);
     expect(fixture.counts.currentInput()).toBe(1);
+  });
+
+  test("replays a completed shortlist through present-only semantic verification and protocol events", async () => {
+    let clockReads = 0;
+    const fixture = harness({
+      rankedCountries: ["DE", "ES", "FR", "IT", "PT", "SI"],
+      markerByCountry: {
+        DE: "red",
+        ES: "green",
+        FR: "green",
+        IT: "green",
+        PT: "green",
+        SI: "green",
+      },
+      clock: () => {
+        clockReads += 1;
+        return new Date(NOW);
+      },
+    });
+    const live = await fixture.run();
+    const checksAfterLiveRun = [...fixture.checks];
+    const clockReadsAfterLiveRun = clockReads;
+    const appendRanking = vi.spyOn(fixture.store, "appendRanking");
+    const appendShortlist = vi.spyOn(fixture.store, "appendShortlist");
+    const replayEvents: PlaceFrontierEvent[] = [];
+
+    const replayed = await fixture.application.runPlaceFrontier(
+      live.prepared,
+      (event) => { replayEvents.push(event); },
+      new AbortController().signal,
+    );
+
+    expect(replayed).toEqual(live.result);
+    expect(fixture.checks).toEqual(checksAfterLiveRun);
+    expect(fixture.counts.present()).toBe(live.result.shortlistSnapshot.markers.length);
+    expect(fixture.counts.rank()).toBe(1);
+    expect(fixture.counts.currentInput()).toBe(1);
+    expect(appendRanking).not.toHaveBeenCalled();
+    expect(appendShortlist).not.toHaveBeenCalled();
+    expect(clockReads).toBe(clockReadsAfterLiveRun);
+    expect(replayEvents.map(({ type }) => type)).toEqual([
+      "ranking_sealed",
+      "country_activated",
+      "country_activated",
+      "country_activated",
+      "country_activated",
+      "country_activated",
+      "country_completed",
+      "country_activated",
+      "country_completed",
+      "country_completed",
+      "country_completed",
+      "country_completed",
+      "country_completed",
+      "frontier_completed",
+    ]);
+    expect(replayEvents.some(({ type }) => type === "country_progress")).toBe(false);
+    let state = initialPlaceFrontierEventState();
+    for (const event of replayEvents) state = reducePlaceFrontierEvent(state, event);
+    expect(state.terminal).toEqual(live.result);
+  });
+
+  test("rejects an earlier completed shortlist at the application replay boundary", async () => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const live = await fixture.run();
+    vi.spyOn(fixture.store, "loadShortlistVerifiedIfPresent").mockResolvedValue({
+      ...live.result.shortlistSnapshot,
+      createdAt: "2026-08-12T07:59:00.000Z",
+    });
+    const presentCallsBeforeReplay = fixture.counts.present();
+    const replayEvents: PlaceFrontierEvent[] = [];
+
+    await expect(fixture.application.runPlaceFrontier(
+      live.prepared,
+      (event) => { replayEvents.push(event); },
+      new AbortController().signal,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(fixture.counts.present()).toBe(presentCallsBeforeReplay);
+    expect(replayEvents).toEqual([]);
   });
 
   test("honestly exhausts the installed SI-only coverage with one preliminary country", async () => {
@@ -1711,6 +2332,15 @@ describe("frozen CountryFrontier", () => {
 });
 
 describe("frontier snapshot integrity", () => {
+  test("rejects a re-signed shortlist issued before its ranking assessment", async () => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const { prepared } = await fixture.run();
+    resignShortlistCreatedAt(fixture.database, "2026-08-12T07:59:00.000Z");
+
+    await expect(fixture.store.loadShortlistVerified(prepared.runId))
+      .rejects.toThrow("integrity_mismatch");
+  });
+
   test("verifies persisted @1 ranking semantics against its actual @2 preference snapshot ID", async () => {
     // Break caught: hard-wiring Frontier replay to the historical @1 preference loader.
     const database = openEvidenceDatabase(":memory:");
@@ -2071,6 +2701,46 @@ describe("frontier snapshot integrity", () => {
         .toContain(canonicalJson(winner));
       expect(database.prepare(
         "SELECT COUNT(*) AS count FROM place_frontier_snapshots",
+      ).get()).toEqual({ count: 1 });
+      database.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("returns the same first winner for differing valid insert-or-load rankings", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "place-frontier-insert-or-load-race-"));
+    const path = join(directory, "frontier.sqlite");
+    try {
+      const database = openEvidenceDatabase(path);
+      const fixture = harness({ rankedCountries: ["SI"] });
+      const prepared = await fixture.prepare();
+      const ranking = await fixture.store.loadRankingVerified(prepared.rankingSnapshotId);
+      const differingValidCandidate = {
+        ...ranking,
+        ordered: ranking.ordered.map((place) => ({ ...place, label: "Slovenia" })),
+      };
+
+      const outcomes = await concurrentStoreWrites({
+        path,
+        method: "insertOrLoadRanking",
+        preference: fixture.preferences.get(ranking.preferenceProfileSnapshotId) as
+          PreferenceProfileSnapshot,
+        snapshots: [ranking, differingValidCandidate],
+      });
+      expect(outcomes).toHaveLength(2);
+      expect(outcomes[0]).toBe(outcomes[1]);
+      const winner = JSON.parse(outcomes[0]!) as RankingSnapshot;
+      expect([canonicalJson(ranking), canonicalJson(differingValidCandidate)])
+        .toContain(canonicalJson(winner));
+      expect(await new SqlitePlaceFrontierStore(database, HMAC_KEY, {
+        loadPreferenceForRankingVerified: async () => structuredClone(
+          fixture.preferences.get(ranking.preferenceProfileSnapshotId) as
+            PreferenceProfileSnapshot,
+        ),
+      }).loadRankingVerified(prepared.runId)).toEqual(winner);
+      expect(database.prepare(
+        "SELECT COUNT(*) AS count FROM place_frontier_snapshots WHERE kind = 'ranking'",
       ).get()).toEqual({ count: 1 });
       database.close();
     } finally {

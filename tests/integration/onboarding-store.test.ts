@@ -133,6 +133,15 @@ async function commit(
   return store.commitOrReplay({ completionCommandId, confirmed, versions });
 }
 
+async function replay(
+  store: SqliteOnboardingStore,
+  completionCommandId = COMMAND_1,
+  confirmed = confirmedValues(),
+  versions: OnboardingModelVersions = VERSIONS,
+) {
+  return store.replayCommitted({ completionCommandId, confirmed, versions });
+}
+
 describe("SQLite onboarding confirmation persistence", () => {
   test("atomically writes exact content IDs, domain-separated IDs, full HMAC, and verified pair", async () => {
     // Break caught: omitting any part of the durable confirmation binding or duplicating issuance work.
@@ -206,6 +215,122 @@ describe("SQLite onboarding confirmation persistence", () => {
       .toEqual({ count: 2 });
     expect(database.prepare("SELECT COUNT(*) AS count FROM onboarding_confirmations").get())
       .toEqual({ count: 1 });
+  });
+
+  test("returns undefined for an absent command without issuance work or persistence", async () => {
+    // Break caught: turning the read-only replay probe into a second commit path.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const clock = vi.fn(() => new Date(NOW));
+    const materialize = vi.fn(materializeOnboardingSnapshots);
+    const store = createStore(database, { clock, materialize });
+    const changesBefore = database.prepare("SELECT total_changes() AS count").get();
+
+    await expect(replay(store)).resolves.toBeUndefined();
+
+    expect(clock).not.toHaveBeenCalled();
+    expect(materialize).not.toHaveBeenCalled();
+    expect(database.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM profile_snapshots").get())
+      .toEqual({ count: 0 });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM onboarding_confirmations").get())
+      .toEqual({ count: 0 });
+  });
+
+  test("returns the exact committed receipt without another clock, materialization, or write", async () => {
+    // Break caught: replaying by rematerializing values or mutating the durable confirmation.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const clock = vi.fn(() => new Date(NOW));
+    const materialize = vi.fn(materializeOnboardingSnapshots);
+    const store = createStore(database, { clock, materialize });
+    const confirmed = confirmedValues();
+    const receipt = await commit(store, COMMAND_1, confirmed);
+    clock.mockClear();
+    materialize.mockClear();
+    const changesBefore = database.prepare("SELECT total_changes() AS count").get();
+
+    const replayed = await replay(
+      store,
+      COMMAND_1,
+      structuredClone(confirmed),
+      { ...VERSIONS },
+    );
+
+    expect(replayed).toEqual(receipt);
+    expect(Object.isFrozen(replayed)).toBe(true);
+    expect(clock).not.toHaveBeenCalled();
+    expect(materialize).not.toHaveBeenCalled();
+    expect(database.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
+  });
+
+  test("rejects changed replay values and fixed versions without issuance work", async () => {
+    // Break caught: using command identity alone as authorization to replay a different completion.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const clock = vi.fn(() => new Date(NOW));
+    const materialize = vi.fn(materializeOnboardingSnapshots);
+    const store = createStore(database, { clock, materialize });
+    await commit(store);
+    clock.mockClear();
+    materialize.mockClear();
+    const changesBefore = database.prepare("SELECT total_changes() AS count").get();
+
+    await expect(replay(store, COMMAND_1, confirmedValues("Kazan")))
+      .rejects.toThrow("onboarding_completion_conflict");
+    await expect(replay(store, COMMAND_1, confirmedValues(), {
+      ...VERSIONS,
+      reviewPrompt: "onboarding-review@2" as never,
+    })).rejects.toThrow(TypeError);
+
+    expect(clock).not.toHaveBeenCalled();
+    expect(materialize).not.toHaveBeenCalled();
+    expect(database.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
+  });
+
+  test("owns replay input without invoking a borrowed accessor", async () => {
+    // Break caught: probing persistence after evaluating hostile caller-owned values.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const clock = vi.fn(() => new Date(NOW));
+    const materialize = vi.fn(materializeOnboardingSnapshots);
+    const store = createStore(database, { clock, materialize });
+    const hostile = structuredClone(confirmedValues());
+    let accessorReads = 0;
+    Object.defineProperty(hostile.profile.profile.currentLocation, "city", {
+      enumerable: true,
+      get: () => {
+        accessorReads += 1;
+        return "Moscow";
+      },
+    });
+    const changesBefore = database.prepare("SELECT total_changes() AS count").get();
+
+    await expect(replay(store, COMMAND_1, hostile))
+      .rejects.toThrow("Invalid onboarding completion");
+
+    expect(accessorReads).toBe(0);
+    expect(clock).not.toHaveBeenCalled();
+    expect(materialize).not.toHaveBeenCalled();
+    expect(database.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
+  });
+
+  test("rejects a tampered committed receipt during read-only replay", async () => {
+    // Break caught: returning a row by command ID without reconstructing its full HMAC binding.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const clock = vi.fn(() => new Date(NOW));
+    const materialize = vi.fn(materializeOnboardingSnapshots);
+    const store = createStore(database, { clock, materialize });
+    const receipt = await commit(store);
+    database.exec("DROP TRIGGER onboarding_confirmations_no_update");
+    database.prepare(`
+      UPDATE onboarding_confirmations SET confirmation_digest = ? WHERE receipt_id = ?
+    `).run("0".repeat(64), receipt.receiptId);
+    clock.mockClear();
+    materialize.mockClear();
+    const changesBefore = database.prepare("SELECT total_changes() AS count").get();
+
+    await expect(replay(store)).rejects.toThrow("integrity_mismatch");
+
+    expect(clock).not.toHaveBeenCalled();
+    expect(materialize).not.toHaveBeenCalled();
+    expect(database.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
   });
 
   test("detects a tampered command through its deterministic receipt binding before replay work", async () => {

@@ -95,6 +95,22 @@ export class SqliteOnboardingStore implements OnboardingStore {
     this.materialize = options.materialize ?? materializeOnboardingSnapshots;
   }
 
+  async replayCommitted(input: {
+    readonly completionCommandId: string;
+    readonly confirmed: ConfirmedOnboardingValues;
+    readonly versions: OnboardingModelVersions;
+  }): Promise<OnboardingReceipt | undefined> {
+    const command = snapshotCompletionInput(input);
+    const existing = this.loadByDeterministicCommandBindings(command.completionCommandId);
+    if (existing === undefined) return undefined;
+    const verified = this.verifyRow(existing);
+    if (verified.receipt.completionCommandId !== command.completionCommandId) {
+      integrityMismatch();
+    }
+    assertReplayMatches(verified, command.confirmed, command.versions);
+    return verified.receipt;
+  }
+
   async commitOrReplay(input: {
     readonly completionCommandId: string;
     readonly confirmed: ConfirmedOnboardingValues;

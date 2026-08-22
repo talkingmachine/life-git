@@ -14,6 +14,8 @@ import type {
   PlaceFrontierReadModel,
   RankingSnapshot,
 } from "../../src/application/place-frontier";
+import { createPlaceFrontierStreamResponse } from
+  "../../src/app/api/place-frontier/stream-response";
 import type { FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
 import {
@@ -1032,6 +1034,33 @@ describe("place-frontier HTTP adapter", () => {
   afterEach(() => {
     vi.doUnmock("../../src/infrastructure/composition-root");
     vi.restoreAllMocks();
+  });
+
+  test("shared response preserves the exact historical headers and NDJSON bytes", async () => {
+    const fixture = validFixture();
+    const runPlaceFrontier = vi.fn(async (_prepared, emit) => {
+      for (const event of fixture.events) await emit(event);
+      return fixture.readModel;
+    });
+
+    const response = createPlaceFrontierStreamResponse({
+      signal: new AbortController().signal,
+      prepared,
+      runPlaceFrontier,
+    });
+
+    expect(Object.fromEntries(response.headers.entries())).toEqual({
+      "cache-control": "no-store, no-transform",
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "x-content-type-options": "nosniff",
+      "x-life-preference-profile-id": prepared.preferenceProfileId,
+      "x-life-profile-id": prepared.profileId,
+      "x-life-run-id": prepared.runId,
+    });
+    expect(await response.text()).toBe(
+      fixture.events.map((event) => `${JSON.stringify(event)}\n`).join(""),
+    );
+    expect(runPlaceFrontier).toHaveBeenCalledOnce();
   });
 
   test("rejects media, JSON and strict-union errors without preparing or running", async () => {

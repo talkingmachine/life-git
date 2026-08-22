@@ -86,6 +86,11 @@ export interface VerifiedOnboardingConfirmation {
 }
 
 export interface OnboardingCompletionPort {
+  replayCommitted(input: {
+    readonly completionCommandId: string;
+    readonly confirmed: ConfirmedOnboardingValues;
+    readonly versions: OnboardingModelVersions;
+  }): Promise<OnboardingReceipt | undefined>;
   commitOrReplay(input: {
     readonly completionCommandId: string;
     readonly confirmed: ConfirmedOnboardingValues;

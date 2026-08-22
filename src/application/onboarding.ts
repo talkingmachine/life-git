@@ -33,10 +33,13 @@ export function reconstructExtractOnboardingMessageCommand(
 ): ExtractOnboardingMessageCommand {
   const command = exactRecord(value, ["schemaVersion", "session", "message"]);
   if (command.schemaVersion !== "onboarding-message-command@1") throw invalidCommand();
+  const session = reconstructOnboardingSessionState(command.session);
+  const message = reconstructUserMessage(command.message);
+  assertUserMessageAdmissible(session, message);
   return freeze({
     schemaVersion: "onboarding-message-command@1" as const,
-    session: reconstructOnboardingSessionState(command.session),
-    message: reconstructUserMessage(command.message),
+    session,
+    message,
   });
 }
 
@@ -97,6 +100,24 @@ export async function completeOnboarding(
 ): Promise<CompleteOnboardingResult> {
   const current = reconstructContinueOnboardingCommand(command);
   abortIfNeeded(signal);
+  const deterministicIssues = reviewQuestionnaire(current.session.draft).issues;
+  const confirmed = deterministicIssues.length === 0
+    ? confirmOnboardingValues(current.session.draft)
+    : undefined;
+  if (confirmed !== undefined) {
+    abortIfNeeded(signal);
+    const replayed = await ports.completion.replayCommitted({
+      completionCommandId: current.session.completionCommandId,
+      confirmed,
+      versions: ports.model.versions,
+    });
+    abortIfNeeded(signal);
+    if (replayed !== undefined) {
+      const prepared = await ports.frontier.prepareFromOnboardingReceipt(replayed);
+      abortIfNeeded(signal);
+      return freeze({ kind: "launched" as const, receipt: replayed, prepared });
+    }
+  }
   const corroborated = await callModel(async () => {
     const output = await ports.model.review({
       questionnaire: projectQuestionnaireForModel(current.session),
@@ -106,7 +127,7 @@ export async function completeOnboarding(
     return corroborateModelReview({ session: current.session, rawModelOutput: output });
   }, signal);
   abortIfNeeded(signal);
-  const issues = canonicalIssueUnion(reviewQuestionnaire(current.session.draft).issues, corroborated);
+  const issues = canonicalIssueUnion(deterministicIssues, corroborated);
   if (issues.length > 0) {
     return freeze({
       kind: "blocked" as const,
@@ -116,11 +137,11 @@ export async function completeOnboarding(
     });
   }
 
-  const confirmed = confirmOnboardingValues(current.session.draft);
+  const ready = confirmed ?? confirmOnboardingValues(current.session.draft);
   abortIfNeeded(signal);
   const receipt = await ports.completion.commitOrReplay({
     completionCommandId: current.session.completionCommandId,
-    confirmed,
+    confirmed: ready,
     versions: ports.model.versions,
   });
   abortIfNeeded(signal);

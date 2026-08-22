@@ -139,6 +139,27 @@ describe("onboarding application use cases", () => {
     expect(() => reconstructContinueOnboardingCommand({ ...continued, schemaVersion: "wrong" })).toThrow(TypeError);
   });
 
+  test.each([
+    [
+      "a user-assistant pair without two remaining transcript slots",
+      () => sessionWithMessages(ONBOARDING_SESSION_LIMITS.maxMessages - 1),
+      USER_MESSAGE,
+    ],
+    ["a message ID owned by the completion command", emptySession, COMMAND_1],
+    ["a message ID owned by a participant", emptySession, SELF_ID],
+    [
+      "a message ID owned by the prior transcript",
+      () => sessionWithMessages(1),
+      "20000000-0000-4000-8000-000000000100",
+    ],
+  ] as const)("rejects %s during command reconstruction", (_case, currentSession, messageId) => {
+    expect(() => reconstructExtractOnboardingMessageCommand({
+      schemaVersion: "onboarding-message-command@1",
+      session: currentSession(),
+      message: { messageId, role: "user", text: "New message" },
+    })).toThrow(TypeError);
+  });
+
   test("rejects a coercible message ID without invoking it or the extraction model", async () => {
     const toString = vi.fn(() => USER_MESSAGE);
     const localModel = model();
@@ -323,7 +344,8 @@ describe("onboarding application use cases", () => {
         ],
       },
     });
-    const completion = { commitOrReplay: vi.fn() };
+    const replayCommitted = vi.fn(async () => receipt);
+    const completion = { replayCommitted, commitOrReplay: vi.fn() };
     const frontier = { prepareFromOnboardingReceipt: vi.fn() };
 
     const result = await completeOnboarding({ schemaVersion: "onboarding-continue-command@1", session }, {
@@ -338,13 +360,15 @@ describe("onboarding application use cases", () => {
       expect(result.issues[0]).toEqual({ fieldId: "current_location", reasonCode: "required_empty" });
       expect(result.followUpQuestion).toBe("Please complete the highlighted fields.");
     }
+    expect(replayCommitted).not.toHaveBeenCalled();
     expect(completion.commitOrReplay).not.toHaveBeenCalled();
     expect(frontier.prepareFromOnboardingReceipt).not.toHaveBeenCalled();
     expect(session).toEqual(emptySession());
   });
 
   test("keeps deterministic blockers when the model omits every issue", async () => {
-    const completion = { commitOrReplay: vi.fn() };
+    const replayCommitted = vi.fn(async () => receipt);
+    const completion = { replayCommitted, commitOrReplay: vi.fn() };
     const frontier = { prepareFromOnboardingReceipt: vi.fn() };
 
     const result = await completeOnboarding({
@@ -360,8 +384,77 @@ describe("onboarding application use cases", () => {
     if (result.kind === "blocked") {
       expect(result.issues[0]).toEqual({ fieldId: "current_location", reasonCode: "required_empty" });
     }
+    expect(replayCommitted).not.toHaveBeenCalled();
     expect(completion.commitOrReplay).not.toHaveBeenCalled();
     expect(frontier.prepareFromOnboardingReceipt).not.toHaveBeenCalled();
+  });
+
+  test("replays an exact durable completion before model review and launches its fixed receipt", async () => {
+    // Break caught: asking the model again after the same completion command became durable.
+    const session = completeSession();
+    const durableReceipt = Object.freeze({
+      ...receipt,
+      completionCommandId: session.completionCommandId,
+    });
+    const replayCommitted = vi.fn(async () => durableReceipt);
+    const commitOrReplay = vi.fn(async () => {
+      throw new Error("writer_must_not_run");
+    });
+    const prepareFromOnboardingReceipt = vi.fn(async () => prepared);
+    const localModel = model({ reviewError: new Error("model_must_not_run") });
+    const review = vi.spyOn(localModel, "review");
+
+    const result = await completeOnboarding({
+      schemaVersion: "onboarding-continue-command@1",
+      session,
+    }, {
+      model: localModel,
+      completion: { replayCommitted, commitOrReplay },
+      frontier: { prepareFromOnboardingReceipt },
+    }, new AbortController().signal);
+
+    expect(result).toEqual({ kind: "launched", receipt: durableReceipt, prepared });
+    expect(replayCommitted).toHaveBeenCalledOnce();
+    expect(replayCommitted).toHaveBeenCalledWith(expect.objectContaining({
+      completionCommandId: session.completionCommandId,
+      confirmed: expect.objectContaining({ schemaVersion: "confirmed-onboarding-values@1" }),
+      versions: localModel.versions,
+    }));
+    expect(review).not.toHaveBeenCalled();
+    expect(commitOrReplay).not.toHaveBeenCalled();
+    expect(prepareFromOnboardingReceipt).toHaveBeenCalledWith(durableReceipt);
+  });
+
+  test("reviews and commits once when no durable completion exists", async () => {
+    // Break caught: skipping the read probe or invoking the model more than once after a replay miss.
+    const session = completeSession();
+    const durableReceipt = Object.freeze({
+      ...receipt,
+      completionCommandId: session.completionCommandId,
+    });
+    const replayCommitted = vi.fn(async () => undefined);
+    const commitOrReplay = vi.fn(async () => durableReceipt);
+    const prepareFromOnboardingReceipt = vi.fn(async () => prepared);
+    const localModel = model();
+    const review = vi.spyOn(localModel, "review");
+
+    const result = await completeOnboarding({
+      schemaVersion: "onboarding-continue-command@1",
+      session,
+    }, {
+      model: localModel,
+      completion: { replayCommitted, commitOrReplay },
+      frontier: { prepareFromOnboardingReceipt },
+    }, new AbortController().signal);
+
+    expect(result).toEqual({ kind: "launched", receipt: durableReceipt, prepared });
+    expect(replayCommitted).toHaveBeenCalledOnce();
+    expect(review).toHaveBeenCalledOnce();
+    expect(commitOrReplay).toHaveBeenCalledOnce();
+    expect(replayCommitted.mock.invocationCallOrder[0])
+      .toBeLessThan(review.mock.invocationCallOrder[0] ?? 0);
+    expect(review.mock.invocationCallOrder[0])
+      .toBeLessThan(commitOrReplay.mock.invocationCallOrder[0] ?? 0);
   });
 
   test("commits timestamp-free confirmed values once, publishes unresolved yellow provenance, then prepares from its receipt", async () => {
@@ -386,13 +479,14 @@ describe("onboarding application use cases", () => {
       committedInputs.push(input);
       return receipt;
     });
+    const replayCommitted = vi.fn(async () => undefined);
     const prepareFromOnboardingReceipt = vi.fn(async () => prepared);
     const localModel = model();
     const review = vi.spyOn(localModel, "review");
 
     const result = await completeOnboarding({ schemaVersion: "onboarding-continue-command@1", session }, {
       model: localModel,
-      completion: { commitOrReplay },
+      completion: { replayCommitted, commitOrReplay },
       frontier: { prepareFromOnboardingReceipt },
     }, new AbortController().signal);
 
@@ -423,7 +517,7 @@ describe("onboarding application use cases", () => {
       session: completeSession(),
     }, {
       model: model({ reviewError: new Error("secret model transcript") }),
-      completion,
+      completion: { replayCommitted: vi.fn(async () => undefined), ...completion },
       frontier,
     }, new AbortController().signal)).rejects.toMatchObject({
       name: "OnboardingModelError",
@@ -435,7 +529,10 @@ describe("onboarding application use cases", () => {
 
   test("preserves a typed model error without completion or Frontier writes", async () => {
     const typedError = new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout");
-    const completion = { commitOrReplay: vi.fn() };
+    const completion = {
+      replayCommitted: vi.fn(async () => undefined),
+      commitOrReplay: vi.fn(),
+    };
     const frontier = { prepareFromOnboardingReceipt: vi.fn() };
 
     await expect(completeOnboarding({
@@ -451,7 +548,10 @@ describe("onboarding application use cases", () => {
   });
 
   test("closes malformed review output before completion or Frontier writes", async () => {
-    const completion = { commitOrReplay: vi.fn() };
+    const completion = {
+      replayCommitted: vi.fn(async () => undefined),
+      commitOrReplay: vi.fn(),
+    };
     const frontier = { prepareFromOnboardingReceipt: vi.fn() };
 
     await expect(completeOnboarding({
@@ -470,6 +570,9 @@ describe("onboarding application use cases", () => {
   });
 
   test("surfaces a Frontier handoff failure after the receipt becomes durable and reuses the command on retry", async () => {
+    const replayCommitted = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(receipt);
     const commitOrReplay = vi.fn(async () => receipt);
     const handoff = new Error("frontier unavailable");
     const prepareFromOnboardingReceipt = vi.fn()
@@ -477,19 +580,20 @@ describe("onboarding application use cases", () => {
       .mockResolvedValueOnce(prepared);
     const ports = {
       model: model(),
-      completion: { commitOrReplay },
+      completion: { replayCommitted, commitOrReplay },
       frontier: { prepareFromOnboardingReceipt },
     };
+    const review = vi.spyOn(ports.model, "review");
     const command = { schemaVersion: "onboarding-continue-command@1" as const, session: completeSession() };
 
     await expect(completeOnboarding(command, ports, new AbortController().signal)).rejects.toBe(handoff);
     await expect(completeOnboarding(command, ports, new AbortController().signal)).resolves.toEqual({
       kind: "launched", receipt, prepared,
     });
-    expect(commitOrReplay).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      completionCommandId: command.session.completionCommandId,
-    }));
-    expect(commitOrReplay).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    expect(replayCommitted).toHaveBeenCalledTimes(2);
+    expect(review).toHaveBeenCalledOnce();
+    expect(commitOrReplay).toHaveBeenCalledOnce();
+    expect(commitOrReplay).toHaveBeenCalledWith(expect.objectContaining({
       completionCommandId: command.session.completionCommandId,
     }));
   });
@@ -500,7 +604,10 @@ describe("onboarding application use cases", () => {
     controller.abort(aborted);
     const localModel = model();
     const review = vi.spyOn(localModel, "review");
-    const completion = { commitOrReplay: vi.fn() };
+    const completion = {
+      replayCommitted: vi.fn(async () => undefined),
+      commitOrReplay: vi.fn(),
+    };
     const frontier = { prepareFromOnboardingReceipt: vi.fn() };
 
     await expect(completeOnboarding({
@@ -508,6 +615,7 @@ describe("onboarding application use cases", () => {
       session: completeSession(),
     }, { model: localModel, completion, frontier }, controller.signal)).rejects.toBe(aborted);
     expect(review).not.toHaveBeenCalled();
+    expect(completion.replayCommitted).not.toHaveBeenCalled();
     expect(completion.commitOrReplay).not.toHaveBeenCalled();
     expect(frontier.prepareFromOnboardingReceipt).not.toHaveBeenCalled();
     expect(completeOnboarding.length).toBe(3);
