@@ -29,10 +29,10 @@ import type { EvidenceIntegrity } from "../research/research-plan";
 import type {
   ConfirmedOnboardingFrontierPort,
   OnboardingConfirmationReadPort,
-  OnboardingModelVersions,
   OnboardingReceipt,
   VerifiedOnboardingConfirmation,
 } from "./onboarding-contracts";
+import { reconstructOnboardingModelVersions } from "./onboarding-model-versions";
 import {
   countryVerificationReplayExpectation,
   materializeFrontierMarker,
@@ -205,22 +205,6 @@ const VERIFIED_CONFIRMATION_KEYS = [
   "provenance",
   "versions",
 ] as const;
-const ONBOARDING_VERSION_KEYS = [
-  "invocation",
-  "cliVersion",
-  "extractionPrompt",
-  "reviewPrompt",
-  "extractionSchema",
-  "reviewSchema",
-] as const;
-const FIXED_ONBOARDING_VERSIONS: OnboardingModelVersions = Object.freeze({
-  invocation: "codex-cli-invocation@1",
-  cliVersion: "codex-cli 0.148.0-alpha.15",
-  extractionPrompt: "onboarding-extract@1",
-  reviewPrompt: "onboarding-review@1",
-  extractionSchema: "onboarding-model-output@1",
-  reviewSchema: "onboarding-review-output@1",
-});
 const LOWERCASE_UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const RECEIPT_ID = /^onboarding-receipt:[a-f0-9]{64}$/;
@@ -309,14 +293,6 @@ function reconstructOnboardingReceipt(
   });
 }
 
-function reconstructOnboardingVersions(value: unknown): OnboardingModelVersions {
-  const versions = exactDescriptorRecord(value, ONBOARDING_VERSION_KEYS);
-  for (const key of ONBOARDING_VERSION_KEYS) {
-    if (versions[key] !== FIXED_ONBOARDING_VERSIONS[key]) integrityMismatch();
-  }
-  return FIXED_ONBOARDING_VERSIONS;
-}
-
 function secureSha256Equal(left: string, right: string): boolean {
   if (!SHA256.test(left) || !SHA256.test(right)) return false;
   let mismatch = 0;
@@ -340,7 +316,7 @@ function verifyOnboardingConfirmation(
     const profile = reconstructRelocationProfileV2(confirmation.profile);
     const preferences = reconstructPreferenceProfileV2(confirmation.preferences);
     const provenance = reconstructQuestionnaireProvenance(confirmation.provenance);
-    const versions = reconstructOnboardingVersions(confirmation.versions);
+    const versions = reconstructOnboardingModelVersions(confirmation.versions);
     rehydrateOnboardingDraft({ profile, preferences, provenance });
     const expectedDigest = integrity.sign(integrity.canonical({
       schemaVersion: "onboarding-confirmation-binding@1",

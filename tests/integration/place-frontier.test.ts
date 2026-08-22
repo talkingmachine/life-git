@@ -23,6 +23,10 @@ import type {
   OnboardingReceipt,
   VerifiedOnboardingConfirmation,
 } from "../../src/application/onboarding-contracts";
+import {
+  ONBOARDING_MODEL_VERSIONS_V1,
+  ONBOARDING_MODEL_VERSIONS_V2,
+} from "../../src/application/onboarding-model-versions";
 import type { ColdStartEvent } from "../../src/application/cold-start";
 import {
   countryVerificationReplayExpectation,
@@ -96,14 +100,7 @@ const DAY = "2026-08-12";
 const HMAC_KEY = "frontier-test-key";
 const ONBOARDING_SELF_ID = "00000000-0000-4000-8000-000000000201";
 const ONBOARDING_COMMAND_ID = "00000000-0000-4000-8000-000000000210";
-const ONBOARDING_VERSIONS: OnboardingModelVersions = Object.freeze({
-  invocation: "codex-cli-invocation@1",
-  cliVersion: "codex-cli 0.148.0-alpha.15",
-  extractionPrompt: "onboarding-extract@1",
-  reviewPrompt: "onboarding-review@1",
-  extractionSchema: "onboarding-model-output@1",
-  reviewSchema: "onboarding-review-output@1",
-});
+const ONBOARDING_VERSIONS: OnboardingModelVersions = ONBOARDING_MODEL_VERSIONS_V2;
 
 const relocationProfile: RelocationProfileDraft = {
   currentCountryCode: "RU",
@@ -748,6 +745,7 @@ interface FuturePlaceFrontierStore {
 
 interface ReceiptHarnessOptions {
   readonly completionCommandId?: string;
+  readonly versions?: OnboardingModelVersions;
   readonly transformConfirmation?: (
     confirmation: VerifiedOnboardingConfirmation,
   ) => VerifiedOnboardingConfirmation;
@@ -763,7 +761,7 @@ async function receiptHarness(options: ReceiptHarnessOptions = {}) {
   const receipt = await onboardingStore.commitOrReplay({
     completionCommandId: options.completionCommandId ?? ONBOARDING_COMMAND_ID,
     confirmed,
-    versions: ONBOARDING_VERSIONS,
+    versions: options.versions ?? ONBOARDING_VERSIONS,
   });
   const profiles = new SqliteProfileStore(database);
   const placeStore = new SqlitePlaceFrontierStore(database, HMAC_KEY, profiles) as
@@ -1214,7 +1212,7 @@ async function concurrentStoreWrites(input: {
 }
 
 describe("Onboarding receipt Place Frontier", () => {
-  test("prepares the exact verified V2 receipt at its fixed run and time, then fast-replays it", async () => {
+  test("prepares current V2 lineage at its fixed run and time, then fast-replays it", async () => {
     const fixture = await receiptHarness();
 
     const first = await fixture.application.prepareFromOnboardingReceipt(fixture.receipt);
@@ -1256,6 +1254,30 @@ describe("Onboarding receipt Place Frontier", () => {
     expect(fixture.counts.inserts()).toBe(1);
     expect(fixture.counts.clock()).toBe(0);
     expect(fixture.counts.nextId()).toBe(0);
+  });
+
+  test("prepares a reopened historical V1 lineage confirmation", async () => {
+    // Break caught: allowing only the current tuple at the receipt-to-Frontier boundary.
+    const fixture = await receiptHarness({ versions: ONBOARDING_MODEL_VERSIONS_V1 });
+    const historical = await fixture.onboardingStore.loadBySnapshotBindingsVerified({
+      profileId: fixture.receipt.profileId,
+      preferenceProfileId: fixture.receipt.preferenceProfileId,
+    });
+
+    const prepared = await fixture.application.prepareFromOnboardingReceipt(fixture.receipt);
+
+    expect(historical.versions).toBe(ONBOARDING_MODEL_VERSIONS_V1);
+    expect(prepared).toEqual(expect.objectContaining({
+      runId: fixture.receipt.frontierRunId,
+      profileId: fixture.receipt.profileId,
+      preferenceProfileId: fixture.receipt.preferenceProfileId,
+      assessmentAt: fixture.receipt.confirmedAt,
+    }));
+    expect(fixture.counts.confirmations()).toBe(1);
+    expect(fixture.counts.rankingReads()).toBe(1);
+    expect(fixture.counts.freezes()).toBe(1);
+    expect(fixture.counts.ranks()).toBe(1);
+    expect(fixture.counts.inserts()).toBe(1);
   });
 
   test("accepts an authoritative v7 completion UUID through verified receipt preparation", async () => {
@@ -1362,9 +1384,165 @@ describe("Onboarding receipt Place Frontier", () => {
 
     await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
       .rejects.toThrow("integrity_mismatch");
+    expect(fixture.counts.rankingReads()).toBe(0);
     expect(fixture.counts.freezes()).toBe(0);
     expect(fixture.counts.ranks()).toBe(0);
     expect(fixture.counts.inserts()).toBe(0);
+  });
+
+  test.each([
+    ["V2 prompt with V1 schema", {
+      ...ONBOARDING_MODEL_VERSIONS_V1,
+      extractionPrompt: ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt,
+    }],
+    ["V1 prompt with V2 schema", {
+      ...ONBOARDING_MODEL_VERSIONS_V1,
+      extractionSchema: ONBOARDING_MODEL_VERSIONS_V2.extractionSchema,
+    }],
+  ] as const)("rejects the %s hybrid before ranking reads or writes", async (
+    _hybridName,
+    versions,
+  ) => {
+    // Break caught: independently accepting prompt and schema labels at Frontier.
+    const fixture = await receiptHarness({
+      transformConfirmation: (confirmation) => ({
+        ...confirmation,
+        versions: versions as unknown as OnboardingModelVersions,
+      }),
+    });
+
+    await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
+      .rejects.toThrow("integrity_mismatch");
+    expect(fixture.counts.confirmations()).toBe(1);
+    expect(fixture.counts.rankingReads()).toBe(0);
+    expect(fixture.counts.freezes()).toBe(0);
+    expect(fixture.counts.ranks()).toBe(0);
+    expect(fixture.counts.inserts()).toBe(0);
+  });
+
+  test("rejects decorated version tuples before ranking reads or writes", async () => {
+    // Break caught: normalizing missing, extra, symbol, accessor, or custom-prototype metadata.
+    let accessorReads = 0;
+    const accessor = { ...ONBOARDING_MODEL_VERSIONS_V2 } as Record<string, unknown>;
+    Object.defineProperty(accessor, "extractionSchema", {
+      enumerable: true,
+      get: () => {
+        accessorReads += 1;
+        return ONBOARDING_MODEL_VERSIONS_V2.extractionSchema;
+      },
+    });
+    const missing = { ...ONBOARDING_MODEL_VERSIONS_V2 } as Record<string, unknown>;
+    delete missing.reviewSchema;
+    const symbol = Symbol("decorated");
+    const customPrototype = Object.assign(
+      Object.create({ inherited: true }) as Record<string, unknown>,
+      ONBOARDING_MODEL_VERSIONS_V2,
+    );
+    const invalidTuples: readonly unknown[] = [
+      { ...ONBOARDING_MODEL_VERSIONS_V2, unexpected: true },
+      missing,
+      { ...ONBOARDING_MODEL_VERSIONS_V2, [symbol]: true },
+      accessor,
+      customPrototype,
+    ];
+
+    for (const versions of invalidTuples) {
+      const fixture = await receiptHarness({
+        transformConfirmation: (confirmation) => ({
+          ...confirmation,
+          versions: versions as OnboardingModelVersions,
+        }),
+      });
+      await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
+        .rejects.toThrow("integrity_mismatch");
+      expect(fixture.counts.rankingReads()).toBe(0);
+      expect(fixture.counts.freezes()).toBe(0);
+      expect(fixture.counts.ranks()).toBe(0);
+      expect(fixture.counts.inserts()).toBe(0);
+      fixture.database.close();
+    }
+    expect(accessorReads).toBe(0);
+  });
+
+  test("rejects a versions Proxy without invoking any Proxy trap", async () => {
+    // Break caught: reflecting into hostile lineage metadata before Proxy rejection.
+    let trapCalls = 0;
+    const trap = (): never => {
+      trapCalls += 1;
+      throw new Error("frontier_versions_proxy_trap");
+    };
+    const versions = new Proxy({ ...ONBOARDING_MODEL_VERSIONS_V2 }, {
+      get: trap,
+      getOwnPropertyDescriptor: trap,
+      getPrototypeOf: trap,
+      ownKeys: trap,
+    }) as OnboardingModelVersions;
+    const fixture = await receiptHarness({
+      transformConfirmation: (confirmation) => ({ ...confirmation, versions }),
+    });
+
+    await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
+      .rejects.toThrow("integrity_mismatch");
+
+    expect(trapCalls).toBe(0);
+    expect(fixture.counts.rankingReads()).toBe(0);
+    expect(fixture.counts.freezes()).toBe(0);
+    expect(fixture.counts.ranks()).toBe(0);
+    expect(fixture.counts.inserts()).toBe(0);
+  });
+
+  test("rejects unsigned exact-tuple tamper and a re-signed hybrid before ranking access", async () => {
+    // Break caught: omitting lineage from HMAC input or treating a valid HMAC as tuple validity.
+    const unsigned = await receiptHarness({
+      transformConfirmation: (confirmation) => ({
+        ...confirmation,
+        versions: ONBOARDING_MODEL_VERSIONS_V1,
+      }),
+    });
+    await expect(unsigned.application.prepareFromOnboardingReceipt(unsigned.receipt))
+      .rejects.toThrow("integrity_mismatch");
+    expect(unsigned.counts.rankingReads()).toBe(0);
+    expect(unsigned.counts.freezes()).toBe(0);
+    expect(unsigned.counts.ranks()).toBe(0);
+    expect(unsigned.counts.inserts()).toBe(0);
+
+    const resigned = await receiptHarness({
+      transformConfirmation: (confirmation) => {
+        const versions = {
+          ...ONBOARDING_MODEL_VERSIONS_V1,
+          extractionPrompt: ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt,
+        };
+        const receipt = {
+          schemaVersion: confirmation.receipt.schemaVersion,
+          receiptId: confirmation.receipt.receiptId,
+          completionCommandId: confirmation.receipt.completionCommandId,
+          profileId: confirmation.receipt.profileId,
+          preferenceProfileId: confirmation.receipt.preferenceProfileId,
+          frontierRunId: confirmation.receipt.frontierRunId,
+          confirmedAt: confirmation.receipt.confirmedAt,
+        };
+        const integrity = createEvidenceIntegrity(HMAC_KEY);
+        const confirmationDigest = integrity.sign(integrity.canonical({
+          schemaVersion: "onboarding-confirmation-binding@1",
+          receipt,
+          profile: confirmation.profile,
+          preferences: confirmation.preferences,
+          provenance: confirmation.provenance,
+          versions,
+        }));
+        return {
+          ...confirmation,
+          receipt: { ...confirmation.receipt, confirmationDigest },
+          versions: versions as unknown as OnboardingModelVersions,
+        };
+      },
+    });
+    await expect(resigned.application.prepareFromOnboardingReceipt(resigned.receipt))
+      .rejects.toThrow("integrity_mismatch");
+    expect(resigned.counts.rankingReads()).toBe(0);
+    expect(resigned.counts.freezes()).toBe(0);
+    expect(resigned.counts.ranks()).toBe(0);
+    expect(resigned.counts.inserts()).toBe(0);
   });
 
   test("rejects an existing fixed run bound to another verified confirmation", async () => {
