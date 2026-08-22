@@ -1632,6 +1632,14 @@ aliases. The schema retains eighteen paired `f`/`v` branches and `maxItems:100`;
 an independent union of addresses and values. Catalog order is wire meaning and therefore any future
 reorder requires a new wire version.
 
+The extraction prompt contains the compact algebraic codebook generated from those same catalog
+tuples; it does not hand-maintain 172 duplicate literals. Its payload is exactly
+`{currentUserMessage:{text},questionnaire}`: the full reconstructed questionnaire projection remains
+unchanged, while message role/UUID and every durable ID remain absent. The decoder independently
+requires the stamped `messageId` to be a lowercase RFC-variant UUID version 1–8, accepts the
+null-prototype owned JSON returned by the runtime, and rejects Proxy/accessor/symbol/non-enumerable/
+custom-prototype/sparse/cyclic wire graphs without invoking borrowed accessors.
+
 Production exports `ONBOARDING_MODEL_VERSIONS_V2` as `ONBOARDING_MODEL_VERSIONS`. Historical storage
 and Frontier verification accept only the two whole canonical tuples and reject every mixed tuple,
 extra/missing key, accessor, symbol, custom prototype or Proxy before using values. Existing
