@@ -41,6 +41,74 @@ export type ParticipantRequirementScopeV2 =
       readonly relationship: "spouse" | "minor_child" | "other_family";
     };
 
+export interface CitizenshipApplicabilityV2 {
+  readonly classifications: readonly {
+    readonly countryCode: string;
+    readonly status: "eligible" | "excluded";
+  }[];
+}
+
+export interface CompanionEntryV2 {
+  readonly relationshipClassifications: readonly {
+    readonly relationship: "spouse" | "minor_child" | "other_family";
+    readonly status: "eligible" | "excluded";
+  }[];
+}
+
+export interface IncomeRequirementV2 {
+  readonly metric: "latest_official_average_monthly_net_salary";
+  readonly multiplier: "2";
+  readonly thresholdEur: string;
+  readonly currency: "EUR";
+  readonly basis: "net";
+  readonly appliesTo: "applicant";
+  readonly period: string;
+}
+
+export const SLOVENIA_V2_RESEARCH_SCOPE =
+  "VS-2 Slovenia cold start" as const;
+
+export const SLOVENIA_V2_SOURCE_ORDER = Object.freeze([
+  "si-digital-nomad-route",
+  "si-income-threshold",
+  "si-companion-employment",
+  "cbr-eur",
+] as const);
+
+export const SLOVENIA_V2_PARSER_VERSIONS = Object.freeze({
+  "si-digital-nomad-route": "si-route@3",
+  "si-income-threshold": "si-income@3",
+  "si-companion-employment": "si-companion@3",
+  "cbr-eur": "cbr-eur@1",
+} as const);
+
+export const SLOVENIA_V2_EVIDENCE_RULES_VERSION =
+  "vs2-si-evidence@3" as const;
+
+export const SLOVENIA_V2_CLAIM_SOURCE = Object.freeze({
+  route_basis: "si-digital-nomad-route",
+  citizenship_applicability: "si-digital-nomad-route",
+  remote_work_relations: "si-digital-nomad-route",
+  income: "si-income-threshold",
+  qualification: "si-digital-nomad-route",
+  companion_entry: "si-digital-nomad-route",
+  companion_local_work_access: "si-companion-employment",
+  duration: "si-digital-nomad-route",
+  general_statutory_prerequisites: "si-digital-nomad-route",
+} as const satisfies Readonly<Record<ClaimKind, Exclude<SloveniaSourceId, "cbr-eur">>>);
+
+export const SLOVENIA_V2_CLAIM_VALIDATOR = Object.freeze({
+  route_basis: "si-route@3",
+  citizenship_applicability: "si-route@3",
+  remote_work_relations: "si-route@3",
+  income: "si-income@3",
+  qualification: "si-route@3",
+  companion_entry: "si-route@3",
+  companion_local_work_access: "si-companion@3",
+  duration: "si-route@3",
+  general_statutory_prerequisites: "si-route@3",
+} as const satisfies Readonly<Record<ClaimKind, string>>);
+
 export interface ClaimValueByKindV2 {
   readonly route_basis: ClaimValueByKind["route_basis"];
   readonly citizenship_applicability: CitizenshipApplicabilityV2;
@@ -109,9 +177,25 @@ export interface DossierPublishResultV2 {
   readonly version: DossierVersionV2;
   readonly created: boolean;
 }
+
+export function buildCountryDossierV2(
+  preparedEvidence: SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaimV2>,
+): CountryDossierPayloadV2;
+
+export function reconstructCountryDossierPayloadV2(
+  value: unknown,
+): CountryDossierPayloadV2;
 ```
 
 V2 dossier publication requires exactly one verified `route_basis`. Every non-scoped V2 claim kind may occur zero or one time. `duration` and `general_statutory_prerequisites` may each occur once per distinct `ParticipantRequirementScopeV2`, so one dossier can carry the applicant requirement plus separately proved spouse/minor-child/other-family requirements. Unscoped claim IDs remain `${sourceId}:${claimKind}:${validatorVersion}`. Applicant-scoped IDs use `${sourceId}:${claimKind}:applicant:${validatorVersion}`; companion-scoped IDs use `${sourceId}:${claimKind}:companion-${relationship}:${validatorVersion}`. Present claims follow the existing `REQUIRED_CLAIM_KINDS` order; scoped claims then order applicant first and companion relationships as `spouse`, `minor_child`, `other_family`. Duplicate kind/scope pairs fail. Missing optional claims are not blockers disguised as values, and catalog completeness is never inferred from dossier cardinality.
+
+Task 1 owns the complete persisted V2 identity policy above. The Task 2 Slovenia plan imports and
+re-exports those constants; it must not duplicate them. `companion-entry-classifier@1` is an
+internal classifier within the retained route-source parser `si-route@3`, so the persisted
+`companion_entry.validatorVersion` and claim ID use `si-route@3`. The inherited `Claim.scope`
+remains `SLOVENIA_V2_RESEARCH_SCOPE`; scoped identity, duplicate detection and ordering use only
+`claim.value.scope`. `buildCountryDossierV2` throws `publication_not_allowed`; the persisted-value
+reconstructor throws `integrity_mismatch`.
 
 - [ ] Write RED tests for every exact V2 claim shape, simultaneous applicant/companion scopes, dense canonical kind/scope order, duplicate kind/scope and extra claim rejection, missing `route_basis`, artifact/source/anchor ownership, fresh frozen copies and V1/V2 cross-version rejection.
 - [ ] Add historical assertions that the current V1 payload, manifest and dossier bytes are unchanged.
@@ -139,15 +223,12 @@ V2 dossier publication requires exactly one verified `route_basis`. Every non-sc
 - Produces: `validateSloveniaV2Entry`, `createSloveniaPlanV2`, `createSloveniaResearchV2`.
 
 ```ts
-export const SLOVENIA_V2_PARSER_VERSIONS = Object.freeze({
-  "si-digital-nomad-route": "si-route@3",
-  "si-income-threshold": "si-income@3",
-  "si-companion-employment": "si-companion@3",
-  "cbr-eur": "cbr-eur@1",
-} as const);
-
-export const SLOVENIA_V2_EVIDENCE_RULES_VERSION =
-  "vs2-si-evidence@3" as const;
+export {
+  SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_PARSER_VERSIONS,
+  SLOVENIA_V2_RESEARCH_SCOPE,
+  SLOVENIA_V2_SOURCE_ORDER,
+} from "./cold-start-contracts-v2";
 
 export type SloveniaV2ValidationResult =
   | { readonly ok: true; readonly claims: readonly ColdStartEvidenceClaimV2[] }

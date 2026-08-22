@@ -168,6 +168,10 @@ export interface ParticipantRouteAssessmentV2 {
 - Для Slovenia V2 package отдельный `companion-entry-classifier@1` parser заполняет
   `relationshipClassifications` только из retained official text. Он не изменяет V1 claim;
   до доказанного V2 classifier companion path честно `unknown`.
+- `companion-entry-classifier@1` является внутренним классификатором source parser
+  `si-route@3`; persisted `companion_entry.validatorVersion` и claim ID используют
+  `si-route@3`, а Evidence `parserVersions["si-digital-nomad-route"]` остаётся единственным
+  source-level parser binding.
 - `other_family` не приравнивается к spouse/minor child; без отдельного official rule это `unknown`.
 - Работа, доход и образование companion не влияют на основной route, если официальный claim явно
   их не потребляет.
