@@ -478,12 +478,25 @@ returns the `@2` read model. The adapter only checks the same profile and Eviden
 copies that already verified projection; it never infers order from opaque IDs.
 `materializeFrontierMarker`, `countryVerificationReplayExpectation`, marker persistence, stream
 normalization and view-model reconstruction retain that exact dense ordered projection. A pure
-`reconstructCountryAssessmentProjectionV2` checks exact keys, both ID bindings, closed reason codes,
-unique `(routeId, participantId)` pairs and canonical participant order before returning a private
-frozen copy. `@1` result/marker bytes have no `assessmentProjection` key. Missing/extra projection
-data, mixed rules versions, changed participant/route/status/reason/claim IDs or reordered entries
-fail reconstruction as `integrity_mismatch`. The projection explains a verdict; it never
-participates in marker calculation a second time.
+structural reconstructor checks exact keys, both ID bindings, closed reason codes, unique
+`(routeId, participantId)` pairs, stable relationships and a dense route-major rectangle before
+returning a private frozen copy. The existing order-aware `reconstructCountryAssessmentProjectionV2`
+additionally requires the independent profile-participant × dossier-route order and remains the only
+semantic order oracle. Persisted and wire boundaries cannot recover that order from an opaque
+profile ID and MUST NOT derive it from the projection under test: they perform structural validation
+and rely on their existing enclosing integrity where present. A schema-valid whole-grid reorder is
+rejected when Place Frontier or Country Resolution calls semantic `present`, obtains the freshly
+order-verified Cold Start result and canonical-compares the complete marker. `@1` result/marker
+bytes have no `assessmentProjection` key. Missing/extra projection data, mixed rules versions and
+changed participant/route/status/reason/claim IDs fail reconstruction as `integrity_mismatch`. The
+projection explains a verdict; it never participates in marker calculation a second time.
+
+For the live Cold Start stream, `x-life-profile-id` and the Journey profile prop are the external
+profile binding: every V2 terminal projection must match that profile ID and the terminal Evidence
+ID before rendering. The browser uses a local strict schema and never runtime-imports the
+Node-backed Application reconstructor. Place Frontier direct preparation remains V1-only, while
+run/present exact-load the persisted profile pair and accept only matching `@1/@1` or `@2/@2`
+relocation/preference versions before invoking country verification; mixed pairs fail closed.
 
 `SqliteProfileStore` has separate `@1` and `@2` reconstruction branches. `@1` hashes/bytes are
 unchanged. `@2` assessment and participant projections are canonical, immutable and replayed with

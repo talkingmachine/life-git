@@ -566,14 +566,17 @@ also validates `lastCheckedAt` through the selected exact V1/V2 projection.
 - Modify: `src/infrastructure/country-verifier-adapter.ts`
 - Modify: `src/experience/cold-start-stream.ts`
 - Modify: `src/experience/cold-start-view-model.ts`
+- Create: `src/experience/country-assessment-projection-v2.ts`
 - Modify: `src/experience/place-frontier-stream.ts`
 - Modify: `src/experience/place-frontier-view-model.ts`
 - Modify: `src/experience/country-resolution-stream.ts`
 - Modify: `src/experience/country-resolution-view-model.ts`
 - Modify: `src/experience/components/ColdStartComparator.tsx`
+- Modify: `src/experience/components/ColdStartJourney.tsx`
 - Modify: `src/experience/components/PlaceFrontierJourney.tsx`
 - Modify: `src/experience/components/CountryResolutionPanel.tsx`
 - Modify: `tests/integration/cold-start-experience.test.tsx`
+- Modify: `tests/integration/country-assessment-projection-v2.test.ts`
 - Modify: `tests/integration/place-frontier.test.ts`
 - Modify: `tests/integration/place-frontier-transport.test.ts`
 - Modify: `tests/integration/place-frontier-experience.test.tsx`
@@ -588,8 +591,32 @@ also validates `lastCheckedAt` through the selected exact V1/V2 projection.
 
 Task 4 owns the exact `CountryAssessmentProjectionV2` and its order-aware reconstructor because Cold Start is the boundary that simultaneously holds the verified profile and dossier. Keep the current `CountryVerifierPort.check/present` input signatures. In this task, widen its result and the adapter together; `country-verifier-adapter.ts` calls `ColdStartApplicationAny.prepareAny/runAny/presentAny` explicitly and branches on `ColdStartReadModelAny`, so no intermediate union is assigned to the historical literal-`@1` result. Historical direct Cold Start callers keep the inherited V1 methods. For V2, the adapter requires the read model's already reconstructed `assessmentProjection` IDs to equal its profile/Evidence IDs and copies that fresh frozen projection; it has no profile/dossier loader and never derives order from opaque IDs or the projection being checked. It adds no projection key for V1. Result, presentation and marker are exact discriminated unions from the approved spec. Marker materialization, replay expectation, SQLite JSON, stream schemas and view-model normalization preserve the exact projection. Persisted marker/revision readers verify their own HMAC and structural density/unique-pair rules; any semantic `present` path obtains the order-verified projection again from Cold Start. Country Resolution digests the complete reconstructed marker, so accepted-yellow/replacement replay cannot drop or change participant explanations.
 
+Projection validation has two explicit trust levels. The Application structural reconstructor checks
+exact keys and ID bindings, closed values, unique pairs, stable participant relationships and a
+dense route-major rectangle, then returns a fresh frozen copy. The existing Task 4 order-aware
+reconstructor remains the only semantic order oracle and additionally compares against profile
+participant order crossed with dossier route order. Persisted shortlist/resolution readers and
+browser wire schemas perform only the structural checks they can honestly prove; their enclosing
+canonical HMAC rejects ordinary persisted tamper. A schema-valid whole-grid reorder is rejected by
+`presentPlaceFrontier` / `presentCountryResolution`, which call `CountryVerifierPort.present`, obtain
+the independently order-verified Cold Start projection again and canonical-compare the complete
+marker. Neither storage nor wire derives an expected order from the projection under test. Browser
+streams share a local browser-safe strict projection schema and never runtime-import the Node-backed
+Application reconstructor.
+
+Live Cold Start additionally binds V2 `assessmentProjection.profileSnapshotId` to the profile ID
+already verified in the response header and Journey props; its Evidence ID must equal the terminal
+read model Evidence ID. `decodeColdStartStream` receives that expected profile ID, and stored initial
+presentation validates the same binding before rendering. A V2 terminal without this external
+profile binding is rejected. Finally, Place Frontier keeps direct preparation strictly V1, but its
+run/present replay boundary exact-loads both bound snapshots through the closed union readers and
+accepts only `relocation-profile@1 + preference-profile@1` or
+`relocation-profile@2 + preference-profile@2`. Mixed-version pairs fail before any country verifier
+call. This makes persisted V2 shortlist and Country Resolution replay reachable without moving the
+later receipt-to-fixed-run preparation work into this task.
+
 - [ ] Write REDs for exact V2 check/present/materialization, profile/evidence bindings, preservation of Task 4's independently ordered dense projection, unique `(routeId, participantId)`, closed reasons and fresh frozen copies; prove the adapter has no loader and IDs alone are never accepted as an ordering oracle.
-- [ ] Mutate/remove/add/reorder every projection field at marker, shortlist, resolution revision and wire boundaries; require `integrity_mismatch`. Assert V1 output contains no projection key and historical stream bytes remain exact.
+- [ ] Mutate/remove/add every projection field and introduce duplicate/sparse/non-dense pairs at marker, shortlist, resolution revision and wire boundaries; require `integrity_mismatch`. A schema-valid whole-grid reorder may cross a structural store/wire reader only when its enclosing integrity is valid, but must fail semantic `present` replay against the independently reconstructed Cold Start projection. Assert V1 output contains no projection key and historical stream bytes remain exact.
 - [ ] Add UI REDs in `ColdStartComparator`, `PlaceFrontierJourney` and `CountryResolutionPanel` showing concise route/participant unknown or mismatch explanations without exposing names, legal probability or a second marker.
 - [ ] Run `pnpm exec vitest run tests/integration/cold-start-experience.test.tsx tests/integration/place-frontier.test.ts tests/integration/place-frontier-transport.test.ts tests/integration/place-frontier-experience.test.tsx tests/integration/country-resolution.test.ts tests/integration/country-resolution-transport.test.ts tests/integration/country-resolution-store.test.ts tests/integration/country-resolution-experience.test.tsx`; expect only V2 union/projection failures.
 - [ ] Implement the exact union and projection; do not change port inputs or `country-frontier@1` calculation.
