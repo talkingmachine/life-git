@@ -85,6 +85,9 @@ export const SLOVENIA_V2_PARSER_VERSIONS = Object.freeze({
 export const SLOVENIA_V2_EVIDENCE_RULES_VERSION =
   "vs2-si-evidence@3" as const;
 
+export const SLOVENIA_V2_FORMAL_ROUTE_ID =
+  "si-temporary-residence-digital-nomad" as const;
+
 export const SLOVENIA_V2_CLAIM_SOURCE = Object.freeze({
   route_basis: "si-digital-nomad-route",
   citizenship_applicability: "si-digital-nomad-route",
@@ -197,6 +200,12 @@ remains `SLOVENIA_V2_RESEARCH_SCOPE`; scoped identity, duplicate detection and o
 `claim.value.scope`. `buildCountryDossierV2` throws `publication_not_allowed`; the persisted-value
 reconstructor throws `integrity_mismatch`.
 
+Task 1 also owns the singleton formal-route mapping
+`temporary_residence_digital_nomad -> si-temporary-residence-digital-nomad` through
+`SLOVENIA_V2_FORMAL_ROUTE_ID`. Dossier claim order is not route order. The V2 assessment derives
+that one route only when the reconstructed dossier contains the exact route basis and must not
+invent any other route ID.
+
 - [ ] Write RED tests for every exact V2 claim shape, simultaneous applicant/companion scopes, dense canonical kind/scope order, duplicate kind/scope and extra claim rejection, missing `route_basis`, artifact/source/anchor ownership, fresh frozen copies and V1/V2 cross-version rejection.
 - [ ] Add historical assertions that the current V1 payload, manifest and dossier bytes are unchanged.
 - [ ] Run `pnpm exec vitest run tests/research/cold-start-v2-contracts.test.ts tests/research/cold-start.test.ts`; expect the V2 module to be missing while V1 remains green.
@@ -280,6 +289,8 @@ Unlike V1 all-or-nothing dossier rules, V2 Evidence keeps every independently ve
 - Create: `src/decision/cold-start-assessment-v2.ts`
 - Create: `tests/domain/cold-start-assessment-v2.test.ts`
 - Modify: `tests/domain/formal-residence-verdict.test.ts`
+- Modify: `src/research/cold-start-contracts-v2.ts`
+- Modify: `tests/research/cold-start-v2-contracts.test.ts`
 
 **Interfaces:**
 - Consumes: `CountryAssessmentInputV2`, V2 Evidence/Dossier, optional exact `CatalogCompletenessAttestation`, existing `assessFormalResidence` and CBR facts.
@@ -294,11 +305,17 @@ export function assessColdStartV2(
 ): ColdStartComparatorV2;
 ```
 
-The pure algorithm follows the approved order: reconstruct all borrowed inputs; require exactly one `self`; derive the UTC-clamped move interval; evaluate each route in dossier order and each participant in profile order; apply exact citizenship, companion, passport, work and income claims; aggregate `impossible > unknown > verified`; pass only decisive proved mismatch reasons into an impossible `ResidenceRouteOutcome`; then call existing `assessFormalResidence`. Production passes no completeness attestation until an installed exact attestation exists, so missing catalog proof cannot become red.
+The pure algorithm follows the approved order: reconstruct all borrowed inputs; require exactly one `self`; derive the UTC-clamped move interval; derive only the singleton route owned by `SLOVENIA_V2_FORMAL_ROUTE_ID`; evaluate each participant in profile order; apply exact citizenship, companion, passport, work and income claims; aggregate `impossible > unknown > verified`; pass only decisive proved mismatch reasons into an impossible `ResidenceRouteOutcome`; then call existing `assessFormalResidence` exactly once. Without a dossier, the assessor derives no route, returns an empty participant projection and reaches the existing yellow/research-incomplete path rather than fabricating a placeholder route.
+
+The current `@2` input contains no exact remote-work relation or route-specific legality proof. Consequently, for the installed digital-nomad route, `remote_continuation: "yes"` remains `unknown` and no viable `@2` route is reachable in Tasks 1–5. A viable path is deferred until a separately sealed route-specific relation/legality fact is added; `assessColdStartV2` must not infer one from `current_work` or `remote_continuation`.
+
+Completeness is accepted only after a descriptor-safe exact copy proves `jurisdiction === "SI"`, the profile ID, an effective interval covering `assessmentAt`, the exact Evidence Snapshot ID, the singleton derived route set, and Evidence references whose snapshot IDs equal the assessment Evidence ID and whose artifact IDs exist in that Evidence Snapshot. A mismatch is omitted before the formal call. No verified producer/loader exists yet and the installed Slovenia catalog remains `unproven`, so production passes `undefined`; synthetic attestations exist only to exercise the formal seam.
+
+Every move boundary is computed first with UTC month clamping. The passport-required boundary is then computed from that already-clamped move boundary by adding the permit maximum plus passport reserve; the offsets are never collapsed. For example, `2026-01-31 + 3 months = 2026-04-30`, then `+ 15 months = 2027-07-30`, not July 31.
 
 Money handling is closed: EUR direct; RUB through a fresh sealed CBR claim; any other ISO currency, stale/missing FX or gross/net mismatch is `unknown`. `not_working` and explicit remote `no` are current mismatches only for a route that proves remote work is required. Applicant permit terms never apply to a companion without companion-scoped claims.
 
-- [ ] Write RED table tests for self-only and self+companion, exact relationship classification, proven exclusion, all four move horizons, absent/early/overlap/late passport, `not_working`, remote yes/no, direct EUR, fresh/stale RUB, unsupported ISO currency, income basis, zero income, and missing route claims.
+- [ ] Write RED table tests for self-only and self+companion, exact relationship classification, proven exclusion, all four move horizons including the sequential January-31 clamp, absent/early/overlap/late passport, `not_working`, remote yes/no, direct EUR, fresh/stale RUB, unsupported ISO currency, income basis, zero income, missing route claims and the no-dossier zero-route path. Prove that current onboarding-only inputs cannot produce a viable route.
 - [ ] Assert hard mismatch dominance, deterministic route/participant order, unique pairs, non-empty decisive claim/evidence references, exact formula bytes and caller immutability.
 - [ ] Prove synthetic exact completeness plus all-impossible can be red, while absent/mismatched completeness is yellow. Prove `assessFormalResidence` and all V1 fixtures remain unchanged.
 - [ ] Run `pnpm exec vitest run tests/domain/cold-start-assessment-v2.test.ts tests/domain/formal-residence-verdict.test.ts`; expect a missing V2 assessor.

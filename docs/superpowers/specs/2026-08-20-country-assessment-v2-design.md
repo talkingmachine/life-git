@@ -85,6 +85,15 @@ profile ID, effective interval, catalog routes and all sealed Evidence reference
 соответствовать assessment profile/date/Evidence. Только этот объект передаётся в
 `assessFormalResidence`; отсутствие или mismatch не может привести к red.
 
+Для Slovenia accepted attestation дополнительно требует `jurisdiction === "SI"`, exact
+`profileSnapshotId`, `evidenceSnapshotId === evidence.id`, effective interval, покрывающий
+`assessmentAt`, и catalog route IDs, точно равные derived formal route IDs. Каждая catalog Evidence
+reference использует `evidence.id`, а её `artifactId` существует в `evidence.artifactIds`.
+Descriptor-safe mismatch отбрасывается до formal call, а не превращается в domain result. Пока
+verified catalog-attestation producer/loader отсутствует и installed Slovenia catalog имеет
+`completeness: "unproven"`, production передаёт `undefined`; synthetic test attestation проверяет
+только formal seam и не является production completeness proof.
+
 ### Отдельные Evidence/Dossier V2
 
 Исторические `ColdStartEvidenceClaim`, `vs2-si-evidence@2` и `si-dossier@1` не расширяются. Для
@@ -146,6 +155,13 @@ statutory claims scoped to that companion relationship. These V2 values do not a
 If official capture cannot prove any new typed classifier/scope, that V2 claim is unavailable and
 the corresponding assessment component is `unknown`.
 
+Country Assessment V2 является singleton-route contract. `cold-start-contracts-v2` владеет exact
+mapping `temporary_residence_digital_nomad -> si-temporary-residence-digital-nomad`, экспортирует
+`SLOVENIA_V2_FORMAL_ROUTE_ID`, и тем самым задаёт единственный route и его порядок. Dossier claim
+order не является route order, и `assessColdStartV2` не придумывает другие route IDs. Без dossier
+route не выводится: formal input содержит пустой routes, `participantAssessments` пуст, а результат
+остаётся yellow с `research_incomplete`.
+
 ## 5. Participant assessment
 
 Для каждого route строится participant-scoped внутренний результат:
@@ -184,8 +200,8 @@ Route aggregation имеет фиксированный порядок:
 2. иначе хотя бы один participant или route prerequisite `unknown` -> `unknown`;
 3. иначе route -> `viable`.
 
-Canonical projection order is the sealed dossier route order, then the exact participant order from
-`RelocationProfileV2Snapshot` within each route. Every `(routeId, participantId)` pair occurs
+Canonical projection order is the singleton derived route order, then the exact participant order
+from `RelocationProfileV2Snapshot` within that route. Every `(routeId, participantId)` pair occurs
 exactly once; missing, duplicate or reordered pairs fail reconstruction.
 
 Hard mismatch является достаточным доказательством невозможности конкретного route и не
@@ -221,6 +237,15 @@ Calendar addition использует существующее UTC month-clampi
 `general_statutory_prerequisites.passportBeyondPermitMonths` образуют необходимый запас после
 предполагаемой даты переезда.
 
+Каждая move boundary сначала вычисляется через `addUtcMonthsClamped(assessmentAt, horizonOffset)`.
+Passport-required date затем вычисляется от уже clamped move boundary добавлением
+`maximumMonths + passportBeyondPermitMonths`; horizon и permit offsets не объединяются в одно
+сложение. Поэтому `2026-01-31 + 3 months = 2026-04-30`, затем `+ 15 months = 2027-07-30`, а не
+`2027-07-31`. Expiry раньше required early boundary означает `impossible`; finite late boundary и
+expiry не раньше неё означают `verified`; остальные случаи, включая open late boundary, дают
+`unknown`. `passport: absent` становится `impossible` только когда оба exact scoped claims
+доказывают требование. Applicant scope никогда не обслуживает companion.
+
 Для companion используются только claims с `ParticipantRequirementScopeV2` для его exact
 relationship. Если companion path не имеет собственных scoped duration/statutory claims, его
 passport component и весь participant path остаются `unknown`; applicant terms не копируются.
@@ -249,6 +274,11 @@ passport component и весь participant path остаются `unknown`; appl
   `remote_work_prerequisite_unknown` и route `unknown`.
 - Route-specific legality не собирается onboarding и всегда остаётся unknown до отдельного
   route-specific подтверждения.
+- Текущий `@2` input не содержит exact remote-work relation или route-specific legality proof.
+  Поэтому установленный digital-nomad route не может стать `viable` в Tasks 1–5:
+  `remote_continuation: yes` остаётся `unknown`, а relation/legality нельзя выводить из
+  `current_work` или намерения продолжить работу. Viable path откладывается до отдельно sealed
+  route-specific факта.
 - Не собранная health insurance не делает route impossible/unknown: при официальном требовании
   она остаётся существующим procedural action `insurance`.
 
@@ -429,7 +459,9 @@ exact profile/evidence/dossier/assessment-date bindings.
 ## 13. Acceptance scenarios
 
 1. Canonical `self + spouse` never drops or merges participant data.
-2. A verified self route plus verified spouse companion path can be `viable`.
+2. Route может быть `viable` только когда каждый participant и route prerequisite verified.
+   Текущий onboarding-only digital-nomad input не может выполнить это условие, потому что exact
+   remote relation/legality отсутствует.
 3. The same self route with an unclassified spouse path is `unknown`, not green.
 4. A proven companion exclusion makes that route `impossible`.
 5. A passport valid through the late interval passes; one expiring before the early interval fails;
@@ -440,8 +472,9 @@ exact profile/evidence/dossier/assessment-date bindings.
    employment/service.
 8. EUR uses direct comparison; fresh CBR supports RUB; unsupported/unsealed FX remains unknown.
 9. Missing insurance appears only as a procedural action.
-10. Any viable route produces green; an unknown route produces yellow; all impossible produce red
-    only with verified complete catalog.
+10. Любой viable route, когда будущий separately sealed legality input сделает его достижимым,
+    produces green; текущий route остаётся unknown/yellow. All impossible produce red only with
+    verified complete catalog.
 11. Historical `@1` fixtures, hashes, stream bytes and replay remain unchanged.
 12. Cold Start rejects a requested/sealed profile ID mismatch before research calls; the
     Infrastructure adapter transfers only the opaque ID and never schema-dispatches it.
