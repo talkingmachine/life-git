@@ -339,6 +339,7 @@ Money handling is closed: EUR direct; RUB through a fresh sealed CBR claim; any 
 - Create: `tests/integration/country-assessment-projection-v2.test.ts`
 - Modify: `tests/integration/cold-start.test.ts`
 - Modify: `tests/integration/country-knowledge.test.ts`
+- Create: `tests/integration/dossier-store-v2.test.ts`
 - Modify: `tests/integration/evidence-store.test.ts`
 - Modify: `tests/integration/profile-store.test.ts`
 
