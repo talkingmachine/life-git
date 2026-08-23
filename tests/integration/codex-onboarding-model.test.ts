@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+
 import { describe, expect, test, vi } from "vitest";
 
 import {
@@ -15,6 +18,10 @@ import {
 } from "../../src/infrastructure/codex-cli/contracts";
 import type { CodexCliModelAdapter } from "../../src/infrastructure/codex-cli/model-adapter";
 import { snapshotOwnedJson } from "../../src/infrastructure/codex-cli/owned-json";
+import {
+  ONBOARDING_EXTRACTION_WIRE_ALGEBRA,
+  ONBOARDING_EXTRACTION_WIRE_CODEBOOK,
+} from "../../src/infrastructure/codex-cli/onboarding-extraction-wire";
 import {
   createCodexOnboardingModel,
   ONBOARDING_EXTRACTION_LIMITS,
@@ -94,7 +101,7 @@ function extractionMetadata(): CodexJsonResult["metadata"] {
   return {
     invocationVersion: CODEX_INVOCATION_VERSION,
     cliVersion: CODEX_CLI_VERSION,
-    templateVersion: "onboarding-extract@2",
+    templateVersion: "onboarding-extract@3",
     schemaVersion: "onboarding-extraction-wire@2",
   };
 }
@@ -182,7 +189,7 @@ describe("Codex onboarding model", () => {
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
       invocation: "codex-cli-invocation@1",
       cliVersion: "codex-cli 0.148.0-alpha.15",
-      extractionPrompt: "onboarding-extract@2",
+      extractionPrompt: "onboarding-extract@3",
       reviewPrompt: "onboarding-review@1",
       extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
@@ -228,7 +235,7 @@ describe("Codex onboarding model", () => {
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
       capability: "onboarding_extract",
-      templateVersion: "onboarding-extract@2",
+      templateVersion: "onboarding-extract@3",
       schemaVersion: "onboarding-extraction-wire@2",
       limits: ONBOARDING_EXTRACTION_LIMITS,
     });
@@ -240,16 +247,40 @@ describe("Codex onboarding model", () => {
     expect(invocation?.prompt).not.toContain(USER_MESSAGE_ID);
     expect(invocation?.prompt).not.toContain("messageId");
     expect(invocation?.prompt).toContain("onboarding-questionnaire-projection@1");
-    expect(invocation?.prompt).toContain(
-      "pD.L",
+    const staticTemplate = ONBOARDING_EXTRACTION_PROMPT_TEMPLATE;
+    expect(utf8Bytes(staticTemplate)).toBe(1_962);
+    expect(createHash("sha256").update(staticTemplate).digest("hex")).toBe(
+      "943f208c6b53ee409a21425d372b456a253e9ddcfd9d3f004c35be2d8c719435",
     );
-    expect(invocation?.prompt).toContain("b0=current_location");
-    expect(invocation?.prompt).toContain("p0.0=participants.self.citizenships");
-    expect(invocation?.prompt).toContain(
-      "p19.6=participants.companion.18.relevant_experience_years",
+    expect(utf8Bytes(staticTemplate)).toBeLessThanOrEqual(2_500);
+    expect(staticTemplate).toContain(ONBOARDING_EXTRACTION_WIRE_ALGEBRA);
+    for (const line of ONBOARDING_EXTRACTION_WIRE_ALGEBRA.split("\n")) {
+      expect(staticTemplate).toContain(line);
+    }
+    expect(staticTemplate).not.toContain("Exact catalog-order codebook:");
+    for (const { code, fieldId } of ONBOARDING_EXTRACTION_WIRE_CODEBOOK) {
+      expect(staticTemplate).not.toContain(`${code}=${fieldId}`);
+    }
+    const canonicalFixture = JSON.parse(readFileSync(
+      new URL("../../evals/fixtures/onboarding/canonical-journey.json", import.meta.url),
+      "utf8",
+    )) as {
+      ids: { initialParticipantId: string; initialCompletionCommandId: string };
+      messages: readonly [{ text: string }];
+    };
+    const emptySession = createOnboardingSession({
+      nextParticipantId: () => canonicalFixture.ids.initialParticipantId,
+      nextCompletionCommandId: () => canonicalFixture.ids.initialCompletionCommandId,
+    });
+    const canonicalPrompt = ONBOARDING_EXTRACTION_PROMPT_TEMPLATE.replace(
+      "{{ONBOARDING_INPUT_JSON}}",
+      JSON.stringify({
+        currentUserMessage: { text: canonicalFixture.messages[0].text },
+        questionnaire: projectQuestionnaireForModel(emptySession),
+      }),
     );
-    expect(invocation?.prompt).toContain("k4.2=country_preferences.peace_and_stability.target");
-    expect(invocation?.prompt).toContain("c3.2=city_preferences.fixed_broadband.target");
+    expect(utf8Bytes(canonicalPrompt)).toBe(8_158);
+    expect(utf8Bytes(canonicalPrompt)).toBeLessThanOrEqual(9_000);
     expect(invocation?.prompt).toContain("Never emit the same f twice");
     expect(invocation?.prompt).toContain(
       "Normalize city names to their canonical nominative Russian form",

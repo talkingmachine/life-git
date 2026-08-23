@@ -15,6 +15,7 @@ import { parseLocalExtractionOutput } from "../../decision/onboarding-model-outp
 import type { JsonObject, JsonValue } from "./owned-json";
 
 const MAX_PROPOSALS = 100;
+const PARTICIPANT_DESCRIPTOR_COUNT = 20;
 const LOWERCASE_RFC_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -23,9 +24,24 @@ export interface OnboardingExtractionWireCodebookEntry {
   readonly fieldId: OnboardingModelFieldId;
 }
 
+export const ONBOARDING_EXTRACTION_WIRE_ALGEBRA = [
+  "Address algebra (all indices are zero-based ASCII decimal with no leading zeroes; + is string concatenation):",
+  `B=[${ONBOARDING_BASE_FIELD_IDS.join(",")}];`,
+  `L=[${PARTICIPANT_LEAF_IDS.join(",")}];`,
+  `K=[${COUNTRY_PREFERENCE_IDS.join(",")}];`,
+  `C=[${CITY_PREFERENCE_IDS.join(",")}];`,
+  `P=[${PREFERENCE_PARTS.join(",")}].`,
+  `decode("b"+N)=B[N], N=0..${ONBOARDING_BASE_FIELD_IDS.length - 1}.`,
+  `participant(0)="self"; participant(D)="companion."+(D-1), D=1..${PARTICIPANT_DESCRIPTOR_COUNT - 1}.`,
+  `decode("p"+D+"."+J)="participants."+participant(D)+"."+L[J], D=0..${PARTICIPANT_DESCRIPTOR_COUNT - 1},J=0..${PARTICIPANT_LEAF_IDS.length - 1}.`,
+  `decode("k"+I+"."+J)="country_preferences."+K[I]+"."+P[J], I=0..${COUNTRY_PREFERENCE_IDS.length - 1},J=0..${PREFERENCE_PARTS.length - 1}.`,
+  `decode("c"+I+"."+J)="city_preferences."+C[I]+"."+P[J], I=0..${CITY_PREFERENCE_IDS.length - 1},J=0..${PREFERENCE_PARTS.length - 1}.`,
+  "No other f is valid.",
+].join("\n");
+
 export const ONBOARDING_EXTRACTION_WIRE_CODEBOOK = Object.freeze([
   ...ONBOARDING_BASE_FIELD_IDS.map((fieldId, index) => codebookEntry(`b${index}`, fieldId)),
-  ...Array.from({ length: 20 }, (_, descriptorIndex) =>
+  ...Array.from({ length: PARTICIPANT_DESCRIPTOR_COUNT }, (_, descriptorIndex) =>
     PARTICIPANT_LEAF_IDS.map((leafId, leafIndex) => codebookEntry(
       `p${descriptorIndex}.${leafIndex}`,
       `participants.${participantDescriptor(descriptorIndex)}.${leafId}`,

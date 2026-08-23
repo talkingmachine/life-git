@@ -10,6 +10,7 @@ import {
 } from "../../src/application/onboarding-model-versions";
 import {
   decodeOnboardingExtractionWire,
+  ONBOARDING_EXTRACTION_WIRE_ALGEBRA,
   ONBOARDING_EXTRACTION_WIRE_CODEBOOK,
 } from "../../src/infrastructure/codex-cli/onboarding-extraction-wire";
 
@@ -45,6 +46,21 @@ const CITY_CRITERIA = [
   "fixed_broadband",
 ] as const;
 const PREFERENCE_PARTS = ["mode", "importance", "target"] as const;
+
+const EXPECTED_ALGEBRA = [
+  "Address algebra (all indices are zero-based ASCII decimal with no leading zeroes; + is string concatenation):",
+  "B=[current_location,move_horizon,moving_party,participants,savings];",
+  "L=[citizenships,passport,current_work,remote_continuation,monthly_income,education,relevant_experience_years];",
+  "K=[outside_cis,europe,personal_safety,infrastructure,peace_and_stability];",
+  "C=[safety,long_term_rent,urban_transit,fixed_broadband];",
+  "P=[mode,importance,target].",
+  "decode(\"b\"+N)=B[N], N=0..4.",
+  "participant(0)=\"self\"; participant(D)=\"companion.\"+(D-1), D=1..19.",
+  "decode(\"p\"+D+\".\"+J)=\"participants.\"+participant(D)+\".\"+L[J], D=0..19,J=0..6.",
+  "decode(\"k\"+I+\".\"+J)=\"country_preferences.\"+K[I]+\".\"+P[J], I=0..4,J=0..2.",
+  "decode(\"c\"+I+\".\"+J)=\"city_preferences.\"+C[I]+\".\"+P[J], I=0..3,J=0..2.",
+  "No other f is valid.",
+].join("\n");
 
 const EXPECTED_CODEBOOK = Object.freeze([
   ...BASE_FIELDS.map((fieldId, index) => ({ code: `b${index}`, fieldId })),
@@ -122,6 +138,11 @@ function assertDeepFrozen(value: unknown): void {
 }
 
 describe("onboarding extraction wire codebook", () => {
+  test("pins the exact generated address algebra and byte length", () => {
+    expect(ONBOARDING_EXTRACTION_WIRE_ALGEBRA).toBe(EXPECTED_ALGEBRA);
+    expect(new TextEncoder().encode(ONBOARDING_EXTRACTION_WIRE_ALGEBRA)).toHaveLength(785);
+  });
+
   test("pins all 172 injective catalog addresses and their ordinal boundaries", () => {
     expect(ONBOARDING_EXTRACTION_WIRE_CODEBOOK).toEqual(EXPECTED_CODEBOOK);
     expect(ONBOARDING_EXTRACTION_WIRE_CODEBOOK).toHaveLength(172);
@@ -138,6 +159,41 @@ describe("onboarding extraction wire codebook", () => {
     expect(Object.isFrozen(ONBOARDING_EXTRACTION_WIRE_CODEBOOK)).toBe(true);
     for (const entry of ONBOARDING_EXTRACTION_WIRE_CODEBOOK) expect(Object.isFrozen(entry)).toBe(true);
   });
+
+  const CATALOG_PROBES = [
+    ["ONBOARDING_BASE_FIELD_IDS", "current_location_v3_probe", "B=[current_location_v3_probe,", "b0", "current_location_v3_probe"],
+    ["PARTICIPANT_LEAF_IDS", "citizenships_v3_probe", "L=[citizenships_v3_probe,", "p0.0", "participants.self.citizenships_v3_probe"],
+    ["COUNTRY_PREFERENCE_IDS", "outside_cis_v3_probe", "K=[outside_cis_v3_probe,", "k0.0", "country_preferences.outside_cis_v3_probe.mode"],
+    ["CITY_PREFERENCE_IDS", "safety_v3_probe", "C=[safety_v3_probe,", "c0.0", "city_preferences.safety_v3_probe.mode"],
+    ["PREFERENCE_PARTS", "mode_v3_probe", "P=[mode_v3_probe,", "k0.0", "country_preferences.outside_cis.mode_v3_probe"],
+  ] as const;
+
+  test.each(CATALOG_PROBES)(
+    "derives algebra and codebook from perturbed %s without ordinal drift",
+    async (exportName, probe, algebraNeedle, code, fieldId) => {
+      vi.resetModules();
+      vi.doMock("../../src/decision/onboarding-catalog", async (importOriginal) => {
+        const actual = await importOriginal<typeof import(
+          "../../src/decision/onboarding-catalog"
+        )>();
+        const original = actual[exportName] as readonly string[];
+        return {
+          ...actual,
+          [exportName]: Object.freeze([probe, ...original.slice(1)]),
+        };
+      });
+      try {
+        const generated = await import(
+          "../../src/infrastructure/codex-cli/onboarding-extraction-wire"
+        );
+        expect(generated.ONBOARDING_EXTRACTION_WIRE_ALGEBRA).toContain(algebraNeedle);
+        expect(generated.ONBOARDING_EXTRACTION_WIRE_CODEBOOK).toContainEqual({ code, fieldId });
+      } finally {
+        vi.doUnmock("../../src/decision/onboarding-catalog");
+        vi.resetModules();
+      }
+    },
+  );
 });
 
 describe("onboarding model version lineage", () => {

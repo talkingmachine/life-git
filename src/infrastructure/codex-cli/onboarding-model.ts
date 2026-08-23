@@ -2,7 +2,7 @@ import {
   OnboardingModelError,
   type OnboardingModelPort,
 } from "../../application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V2 } from "../../application/onboarding-model-versions";
+import { ONBOARDING_MODEL_VERSIONS_V3 } from "../../application/onboarding-model-versions";
 import { reconstructOnboardingQuestionnaireProjection } from "../../decision/onboarding-model-contract";
 import {
   parseLocalReviewOutput,
@@ -16,14 +16,14 @@ import {
 import type { CodexCliModelAdapter } from "./model-adapter";
 import {
   decodeOnboardingExtractionWire,
-  ONBOARDING_EXTRACTION_WIRE_CODEBOOK,
+  ONBOARDING_EXTRACTION_WIRE_ALGEBRA,
 } from "./onboarding-extraction-wire";
 import {
   ONBOARDING_EXTRACTION_SCHEMA,
   ONBOARDING_REVIEW_SCHEMA,
 } from "./onboarding-schema";
 
-export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V2;
+export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V3;
 
 export const ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES = 65_536;
 export const ONBOARDING_REVIEW_MAX_PROMPT_BYTES = 98_304;
@@ -46,9 +46,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const ABORTED = Symbol("onboarding-model-aborted");
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const INPUT_JSON_PLACEHOLDER = "{{ONBOARDING_INPUT_JSON}}";
-const EXTRACTION_WIRE_CODEBOOK = ONBOARDING_EXTRACTION_WIRE_CODEBOOK
-  .map(({ code, fieldId }) => `${code}=${fieldId}`)
-  .join(",");
 
 export const ONBOARDING_EXTRACTION_PROMPT_TEMPLATE = [
   "Extract only explicit, conscious facts from currentUserMessage.text into the exact JSON schema.",
@@ -56,8 +53,7 @@ export const ONBOARDING_EXTRACTION_PROMPT_TEMPLATE = [
   "Use questionnaire only as context; do not copy facts that are absent from the current message.",
   "Return only {schemaVersion,proposals,nextQuestion}; every proposal is exactly {f,v,s,e}.",
   "s and e are exact UTF-16 offsets for supporting text in currentUserMessage.text.",
-  "Address algebra: bN is base ordinal N (0..4); pD.L is participant ordinal D (0=self, 1..19=companion.(D-1)) and leaf ordinal L (0..6); kC.P is country criterion C (0..4) and part P (0..2); cC.P is city criterion C (0..3) and part P (0..2).",
-  `Exact catalog-order codebook: ${EXTRACTION_WIRE_CODEBOOK}`,
+  ONBOARDING_EXTRACTION_WIRE_ALGEBRA,
   "For a participants roster value, use self/self first, then companion.0, companion.1, and so on in mention order; never use self for a companion.",
   "Use those same participant descriptors in participant values. Never emit the same f twice.",
   "Normalize city names to their canonical nominative Russian form, for example: в Москве -> Москва, в Белграде -> Белград, в Сиднее -> Сидней.",

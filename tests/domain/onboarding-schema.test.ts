@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, test } from "vitest";
 
 import {
@@ -28,6 +30,7 @@ import {
   ONBOARDING_EXTRACTION_SCHEMA,
   ONBOARDING_REVIEW_SCHEMA,
 } from "../../src/infrastructure/codex-cli/onboarding-schema";
+import { canonicalJson } from "../../src/infrastructure/integrity";
 
 type Schema = Readonly<Record<string, unknown>>;
 
@@ -225,6 +228,8 @@ describe("onboarding Codex schemas and contracts", () => {
   });
 
   test("covers every closed field family and derives review reasons from the catalog", () => {
+    expect(createHash("sha256").update(canonicalJson(ONBOARDING_EXTRACTION_SCHEMA)).digest("hex"))
+      .toBe("77fa76052dededa561a0ec596678efd067e89eb106aada6e0f68b88a33cf9c94");
     const branches = proposalBranches();
     expect(branches).toHaveLength(18);
     expect(branches.map((branch) => properties(branch).f)).toEqual(expect.arrayContaining([
