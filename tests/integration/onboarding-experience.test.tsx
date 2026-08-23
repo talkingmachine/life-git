@@ -33,6 +33,8 @@ const INITIAL_COMMAND_ID = "10000000-0000-4000-8000-000000000001";
 const MODEL_COMMAND_ID = "10000000-0000-4000-8000-000000000002";
 const MANUAL_COMMAND_ID = "10000000-0000-4000-8000-000000000003";
 const RESOLUTION_COMMAND_ID = "10000000-0000-4000-8000-000000000004";
+const SECOND_MANUAL_COMMAND_ID = "10000000-0000-4000-8000-000000000005";
+const SECOND_MODEL_COMMAND_ID = "10000000-0000-4000-8000-000000000006";
 const USER_MESSAGE_ID = "20000000-0000-4000-8000-000000000001";
 const ASSISTANT_MESSAGE_ID = "30000000-0000-4000-8000-000000000001";
 
@@ -130,6 +132,27 @@ function yellowRosterSession(): OnboardingSessionState {
       ],
     },
     nextCompletionCommandId: () => MANUAL_COMMAND_ID,
+  });
+}
+
+function twoYellowSession(): OnboardingSessionState {
+  const secondManual = applySessionFieldChange({
+    session: yellowSession(),
+    change: {
+      kind: "manual_set",
+      fieldId: "moving_party",
+      rawInput: "alone",
+    },
+    nextCompletionCommandId: () => SECOND_MANUAL_COMMAND_ID,
+  });
+  return applySessionFieldChange({
+    session: secondManual,
+    change: {
+      kind: "guarded_model_set",
+      fieldId: "moving_party",
+      normalizedValue: "with_companions",
+    },
+    nextCompletionCommandId: () => SECOND_MODEL_COMMAND_ID,
   });
 }
 
@@ -356,6 +379,51 @@ describe("onboarding questionnaire", () => {
     },
   );
 
+  test("keeps one overwrite modal and makes every background action inert", async () => {
+    const backgroundAction = vi.fn();
+    const { OnboardingQuestionnaire } = await import(
+      "../../src/experience/components/OnboardingQuestionnaire"
+    );
+    render(
+      <div data-testid="onboarding-background">
+        <button data-testid="background-action" onClick={backgroundAction} type="button">
+          Фоновое действие
+        </button>
+        <OnboardingQuestionnaire
+          disabled={false}
+          draft={twoYellowSession().draft}
+          expanded
+          issues={[]}
+          onAddParticipant={() => undefined}
+          onChange={() => undefined}
+          onRemoveParticipant={() => undefined}
+          onRelationshipChange={() => undefined}
+        />
+      </div>,
+    );
+
+    const triggers = screen.getAllByRole("button", { name: /Проверить изменение:/ });
+    expect(triggers).toHaveLength(2);
+    fireEvent.click(triggers[0]!);
+    fireEvent.click(triggers[1]!);
+
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    const background = screen.getByTestId("onboarding-background");
+    const inertRoot = background.closest("[inert]");
+    expect(inertRoot).not.toBeNull();
+    expect(screen.getByTestId("background-action").closest("[inert]")).toBe(inertRoot);
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(background.closest("[inert]")).toBeNull();
+      expect(document.activeElement).toBe(triggers[0]);
+    });
+    fireEvent.click(screen.getByTestId("background-action"));
+    expect(backgroundAction).toHaveBeenCalledOnce();
+  });
+
   test("describes a yellow participant-roster overwrite without exposing participant IDs", async () => {
     const { OnboardingQuestionnaire } = await import(
       "../../src/experience/components/OnboardingQuestionnaire"
@@ -500,12 +568,40 @@ describe("onboarding start", () => {
 
     expect(await screen.findByDisplayValue("Berlin")).toBeTruthy();
     expect(screen.getByDisplayValue("DE")).toBeTruthy();
-    expect(screen.getByText("Когда вы планируете переезд?")).toBeTruthy();
+    expect(within(screen.getByRole("log", { name: "Диалог анкеты" }))
+      .getByText("Когда вы планируете переезд?")).toBeTruthy();
     expect(fetch).toHaveBeenCalledOnce();
     expect(fetch).toHaveBeenCalledWith("/api/onboarding/message", expect.objectContaining({
       headers: { "content-type": "application/json" },
       method: "POST",
     }));
+  });
+
+  test("includes the exact returned assistant question in the pinned shortcut", async () => {
+    const question = "Какой срок переезда для вас реалистичен?";
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const command = requestBody(init) as unknown as {
+        session: OnboardingSessionState;
+        message: SessionMessage;
+      };
+      return jsonResponse(messageResult({ command, nextQuestion: question }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    await renderStart();
+
+    const composer = screen.getByLabelText("Расскажите о вашей ситуации и цели");
+    fireEvent.change(composer, { target: { value: "Уточним срок" } });
+    fireEvent.click(screen.getByRole("button", { name: "Отправить" }));
+
+    const shortcut = await screen.findByRole("button", {
+      name: `К последнему вопросу ${question}`,
+    });
+    expect(within(shortcut).getByText(question)).toBeTruthy();
+    composer.blur();
+    fireEvent.click(shortcut);
+    expect(document.activeElement).toBe(composer);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
   });
 
   test("locks a deferred message action to one request and preserves composer text on failure", async () => {
@@ -553,7 +649,7 @@ describe("onboarding start", () => {
       target: { value: "within_3_months" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Продолжить" }));
-    await screen.findByText(FOLLOW_UP);
+    await within(screen.getByRole("log", { name: "Диалог анкеты" })).findByText(FOLLOW_UP);
     fireEvent.click(screen.getByRole("button", { name: "Продолжить" }));
     await waitFor(() => expect(continueCommands).toHaveLength(2));
 
@@ -577,7 +673,8 @@ describe("onboarding start", () => {
     await renderStart();
 
     fireEvent.click(screen.getByRole("button", { name: "Продолжить" }));
-    expect(await screen.findByText(FOLLOW_UP)).toBeTruthy();
+    expect(await within(screen.getByRole("log", { name: "Диалог анкеты" }))
+      .findByText(FOLLOW_UP)).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByLabelText("Страна текущего проживания"));
     expect(submitted[0]?.messages).toEqual([]);
 
@@ -630,7 +727,7 @@ describe("onboarding start", () => {
     expect((composer as HTMLTextAreaElement).value).toBe("private-before-adoption");
 
     fireEvent.click(screen.getByRole("button", { name: "Продолжить" }));
-    await screen.findByText(FOLLOW_UP);
+    await within(screen.getByRole("log", { name: "Диалог анкеты" })).findByText(FOLLOW_UP);
     expect(commands).toHaveLength(2);
     expect(commands[1]?.completionCommandId).toBe(commands[0]?.completionCommandId);
   });

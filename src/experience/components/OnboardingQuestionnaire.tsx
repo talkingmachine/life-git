@@ -1,12 +1,16 @@
 "use client";
 
 import {
+  createContext,
+  useCallback,
+  useContext,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import {
   CITY_PREFERENCE_IDS,
@@ -42,6 +46,97 @@ export interface OnboardingQuestionnaireProps {
     participantId: ParticipantId,
     relationship: Exclude<ParticipantRelationship, "self">,
   ) => void;
+}
+
+interface OverwriteModalBoundaryValue {
+  readonly activeFieldId?: OnboardingFieldId;
+  readonly close: (
+    fieldId: OnboardingFieldId,
+    focusAfterClose?: () => void,
+  ) => void;
+  readonly open: (fieldId: OnboardingFieldId) => void;
+  readonly portalHost: HTMLElement | null;
+}
+
+const OverwriteModalContext = createContext<OverwriteModalBoundaryValue | undefined>(undefined);
+
+function useOverwriteModal(): OverwriteModalBoundaryValue {
+  const value = useContext(OverwriteModalContext);
+  if (value === undefined) throw new Error("Missing onboarding overwrite modal boundary");
+  return value;
+}
+
+function OverwriteModalBoundary({ children }: { readonly children: ReactNode }) {
+  const [activeFieldId, setActiveFieldId] = useState<OnboardingFieldId>();
+  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
+  const activeFieldIdRef = useRef<OnboardingFieldId | undefined>(undefined);
+  const pendingFocus = useRef<(() => void) | undefined>(undefined);
+
+  useLayoutEffect(() => {
+    const host = document.createElement("div");
+    host.dataset.onboardingOverwriteLayer = "";
+    document.body.append(host);
+    setPortalHost(host);
+    return () => host.remove();
+  }, []);
+
+  useLayoutEffect(() => {
+    if (activeFieldId === undefined || portalHost === null) return;
+    const previousInert = new Map<HTMLElement, boolean>();
+    const makeInert = (element: HTMLElement) => {
+      if (element === portalHost || previousInert.has(element)) return;
+      previousInert.set(element, element.hasAttribute("inert"));
+      element.setAttribute("inert", "");
+    };
+    const makeBodyChildrenInert = () => {
+      for (const child of document.body.children) {
+        if (child instanceof HTMLElement) makeInert(child);
+      }
+    };
+    makeBodyChildrenInert();
+    const observer = new MutationObserver(makeBodyChildrenInert);
+    observer.observe(document.body, { childList: true });
+    return () => {
+      observer.disconnect();
+      for (const [element, wasInert] of previousInert) {
+        if (!wasInert) element.removeAttribute("inert");
+      }
+    };
+  }, [activeFieldId, portalHost]);
+
+  useLayoutEffect(() => {
+    if (activeFieldId !== undefined) return;
+    const focus = pendingFocus.current;
+    pendingFocus.current = undefined;
+    focus?.();
+  }, [activeFieldId]);
+
+  const open = useCallback((fieldId: OnboardingFieldId) => {
+    if (activeFieldIdRef.current !== undefined) return;
+    activeFieldIdRef.current = fieldId;
+    setActiveFieldId(fieldId);
+  }, []);
+  const close = useCallback((
+    fieldId: OnboardingFieldId,
+    focusAfterClose?: () => void,
+  ) => {
+    if (activeFieldIdRef.current !== fieldId) return;
+    activeFieldIdRef.current = undefined;
+    pendingFocus.current = focusAfterClose;
+    setActiveFieldId(undefined);
+  }, []);
+  const value = useMemo<OverwriteModalBoundaryValue>(() => ({
+    activeFieldId,
+    close,
+    open,
+    portalHost,
+  }), [activeFieldId, close, open, portalHost]);
+
+  return (
+    <OverwriteModalContext.Provider value={value}>
+      {children}
+    </OverwriteModalContext.Provider>
+  );
 }
 
 const MOVE_HORIZON_LABELS = Object.freeze({
@@ -157,13 +252,13 @@ function FieldFrame({
   label,
   onChange,
 }: FieldFrameProps) {
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const modal = useOverwriteModal();
   const frame = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const dialog = useRef<HTMLElement>(null);
-  const resolutionFocusPending = useRef(false);
   const yellow = field.overwrite?.reviewState === "model_overwrite_unreviewed";
+  const dialogOpen = modal.activeFieldId === field.fieldId;
   const baseId = `onboarding-field-${safeId(field.fieldId)}`;
   const errorId = issue === undefined ? undefined : `${baseId}-error`;
   const dialogId = `${baseId}-overwrite`;
@@ -172,17 +267,14 @@ function FieldFrame({
     if (dialogOpen) heading.current?.focus();
   }, [dialogOpen]);
 
-  useLayoutEffect(() => {
-    if (yellow || !resolutionFocusPending.current) return;
-    resolutionFocusPending.current = false;
-    frame.current?.querySelector<HTMLElement>(
-      "input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
-    )?.focus();
-  }, [yellow]);
-
   const closeDialog = () => {
-    setDialogOpen(false);
-    trigger.current?.focus();
+    modal.close(field.fieldId, () => trigger.current?.focus());
+  };
+  const resolveDialog = (change: QuestionnaireFieldChange) => {
+    modal.close(field.fieldId, () => frame.current?.querySelector<HTMLElement>(
+      "input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
+    )?.focus());
+    onChange(change);
   };
 
   const accessibility = issue === undefined
@@ -205,7 +297,7 @@ function FieldFrame({
           aria-label={`Проверить изменение: ${label}`}
           className="onboarding-field__overwrite-trigger"
           disabled={disabled}
-          onClick={() => setDialogOpen(true)}
+          onClick={() => modal.open(field.fieldId)}
           ref={trigger}
           type="button"
         >
@@ -217,7 +309,8 @@ function FieldFrame({
           {ISSUE_LABELS[issue.reasonCode]}
         </p>
       )}
-      {!yellow || !dialogOpen || field.overwrite === null ? null : (
+      {!yellow || !dialogOpen || field.overwrite === null || modal.portalHost === null ? null
+        : createPortal(
         <section
           aria-labelledby={`${dialogId}-heading`}
           aria-modal="true"
@@ -262,21 +355,18 @@ function FieldFrame({
           </dl>
           <div className="onboarding-field__overwrite-actions">
             <button disabled={disabled} onClick={() => {
-              resolutionFocusPending.current = true;
-              closeDialog();
-              onChange({ kind: "confirm_model_overwrite", fieldId: field.fieldId });
+              resolveDialog({ kind: "confirm_model_overwrite", fieldId: field.fieldId });
             }} type="button">
               Подтвердить
             </button>
             <button disabled={disabled} onClick={() => {
-              resolutionFocusPending.current = true;
-              closeDialog();
-              onChange({ kind: "revert_model_overwrite", fieldId: field.fieldId });
+              resolveDialog({ kind: "revert_model_overwrite", fieldId: field.fieldId });
             }} type="button">
               Вернуть
             </button>
           </div>
-        </section>
+        </section>,
+        modal.portalHost,
       )}
     </div>
   );
@@ -328,6 +418,7 @@ export function OnboardingQuestionnaire({
   });
 
   return (
+    <OverwriteModalBoundary>
     <section
       aria-labelledby="onboarding-questionnaire-heading"
       className="onboarding-questionnaire"
@@ -500,6 +591,7 @@ export function OnboardingQuestionnaire({
         )}
       </section>
     </section>
+    </OverwriteModalBoundary>
   );
 }
 

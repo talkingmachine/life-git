@@ -450,6 +450,7 @@ export function OnboardingStart() {
         <p className="onboarding__disclosure">{DISCLOSURE}</p>
         {latestQuestion === undefined ? null : (
           <button
+            aria-label={`К последнему вопросу ${latestQuestion}`}
             className="onboarding__latest-question"
             onClick={() => {
               chatRef.current?.scrollIntoView({ block: "end" });
@@ -457,7 +458,8 @@ export function OnboardingStart() {
             }}
             type="button"
           >
-            К последнему вопросу
+            <span>К последнему вопросу</span>
+            <small>{latestQuestion}</small>
           </button>
         )}
         <div className="onboarding__questionnaire-pane">
