@@ -524,6 +524,11 @@ export interface CityFrontierApplication {
 
 The setup read model contains the verified country entry, installed package/definition metadata and a four-criterion draft derived from the exact relocation and Preference Profile snapshots bound by the resolved-country source; it performs no HTTP. Start input contains resolved-country revision ID, country code, Criteria draft and command ID. Prepared continuation contains only verified run/head/active-city/check IDs and source context; HTTP bodies never carry facts or ranking data.
 
+**Offline-installation port amendment (2026-08-24):** latest installed-root reads use the separately
+injected `InstalledCityCatalogReadPort.latestInstalledVerified(countryCode)`. Exact historical reads
+continue to use `CityCatalogStorePort.loadVerified(id)`. Core composition injects both inward ports and
+never obtains latest state from raw Catalog rows.
+
 - [ ] **Step 1: Write Start/Present RED tests**
 
 Assert setup and Start reject automatic/working/empty/tampered/effective-red inputs; accepted
@@ -560,7 +565,7 @@ Registry entry/root or catalog candidate/member/coverage drift; the pure reconst
 those cases. Separately build a fully valid alternate Registry+catalog root with its membership and both
 hash-derived IDs recomputed. Prove pure `reconstructVerifiedCityCatalog` accepts that alternate as
 self-consistent but Setup and Start still reject it because it differs from the independent
-`CityCatalogStorePort.latestInstalledVerified(countryCode)` projection. Require exact Registry ID,
+`InstalledCityCatalogReadPort.latestInstalledVerified(countryCode)` projection. Require exact Registry ID,
 catalog ID and canonical full-`{ registry, catalog }` equality with that trusted root. The authenticated
 catalog-store read is the only permitted persistence call after `findReady` in this initial trust gate;
 until equality succeeds, observe no package manifest/member/plan/directory/default, country guard,
@@ -623,7 +628,7 @@ plan or directory, pass exactly
 `reconstructVerifiedCityCatalog` with a narrowed `CityDecisionIntegrity { canonical, hash }` view.
 This establishes only self-consistency. Next, as the sole additional persistence read after the
 installed-package lookup in this trust gate, call the injected inward
-`CityCatalogStorePort.latestInstalledVerified(countryCode)`. Absence, a non-current root or any mismatch
+`InstalledCityCatalogReadPort.latestInstalledVerified(countryCode)`. Absence, a non-current root or any mismatch
 fails closed. Require exact equality of both Registry and catalog IDs and
 `integrity.canonical({ registry, catalog })` for the reconstructed package projection and the complete
 trusted store projection. A fully valid rehashed alternate therefore passes pure reconstruction but
@@ -834,8 +839,9 @@ the same bounded four-fact research call. Recovery and fresh research therefore 
 historical installed package after restart and cannot be redirected to the latest package. The raw
 installed package merely supplies its immutable per-member `CityFixedSourcePlan` values,
 Registry+catalog projection, safety plan/directory and validators; it never constructs or imports an
-adapter. Composition injects the inward `CityCatalogStorePort` into Application for the latest/exact
-trust-anchor reads above; Application knows no SQLite type, and that port is not added to the City
+adapter. Composition injects the inward `InstalledCityCatalogReadPort` for latest installed-root reads
+and `CityCatalogStorePort` for exact historical reads; Application knows no SQLite type, and neither
+port is added to the City
 Evidence store constructor. Composition also exposes the Task 7
 `CityEvidencePackageReplayPort` projection from
 that same installed value and injects it, together with the same `EvidenceIntegrity`, into the

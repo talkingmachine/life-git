@@ -1,8 +1,11 @@
 # VS-4A City Package Offline Installation Boundary
 
-**Status:** approved direction; written contract pending final user review  
-**Approval:** user selected option 1 on 2026-08-24  
-**Parent spec:** `docs/superpowers/specs/2026-08-13-vs-4a-city-frontier-design.md`  
+**Status:** approved
+
+**Approval:** user selected option 1 and approved the written contract on 2026-08-24
+
+**Parent spec:** `docs/superpowers/specs/2026-08-13-vs-4a-city-frontier-design.md`
+
 **Affected plan:** `docs/superpowers/plans/2026-08-13-vs-4a-city-frontier-knowledge.md`, Tasks 9–10
 
 ## Purpose
@@ -55,10 +58,12 @@ Historical catalog compatibility remains exact: persisted schema is `city-catalo
 rules `city-catalog@1` are load-only; new administrative append and installed-package roots require
 `CITY_CATALOG_RULES_VERSION === "city-catalog@2"`.
 
-`latestInstalledVerified(countryCode)` is not a raw latest-catalog-row query. It is an
-installation-scoped read capability that first verifies the signed installed-package head and then
-loads the exact referenced Catalog projection from `CityCatalogStorePort.loadVerified`. Unreferenced
-catalog rows never become current.
+`InstalledCityCatalogReadPort.latestInstalledVerified(countryCode)` is not a raw latest-catalog-row
+query. It is an installation-scoped read capability that first verifies the signed installed-package
+head and then loads the exact referenced Catalog projection from
+`CityCatalogStorePort.loadVerified`. Unreferenced catalog rows never become current. Later Core
+composition injects this port for latest installed-root reads and the Catalog store separately for
+exact historical ID reads.
 
 ## Exact installation use case
 
@@ -90,7 +95,7 @@ export interface InstallCityPackagePorts {
     CityPackageAdministrativeEvidenceClaim,
     "administrative"
   >;
-  readonly manifests: InstalledCityPackageManifestStorePort;
+  readonly manifests: InstalledCityPackageManifestAppendPort;
   readonly installedPackages: InstalledCityPackageLookupPort;
   readonly approvedDefaults: ApprovedCityCriteriaDefaultsRegistry;
   readonly integrity: EvidenceIntegrity;
@@ -100,6 +105,24 @@ export function installCityPackage(
   input: InstallCityPackageInput,
   ports: InstallCityPackagePorts,
 ): Promise<InstalledCityResearchPackage>;
+
+export interface InstalledCityPackageManifestAppendInput {
+  readonly ready: CityResearchPackageReadyCandidate;
+  readonly catalog: VerifiedCityCatalogBundle;
+  readonly administrativeEvidence: SealedCityPackageAdministrativeEvidence;
+  readonly fixedPlansByCityId: InstallCityPackageInput["fixedPlansByCityId"];
+  readonly safetySourcePlan: CitySafetySourcePlan;
+  readonly officialAuthorityDirectory: OfficialAuthorityDirectory;
+  readonly criteriaDefaults: InstalledCityCriteriaDefaults;
+  readonly criterionDefinitions: InstalledCityCriterionDefinitionTuple;
+  readonly installedAt: string;
+}
+
+export interface InstalledCityPackageManifestAppendPort {
+  appendPrepared(
+    input: InstalledCityPackageManifestAppendInput,
+  ): InstalledCityPackageManifest;
+}
 ```
 
 The use case snapshots the complete input and rejects accessors, symbols, sparse arrays, custom
@@ -115,7 +138,8 @@ integrity callback. It then:
 5. appends and reloads the exact Catalog projection;
 6. derives the five-field `InstalledCityPackageExactKey` and canonical member order;
 7. seals one administrative package Evidence bundle;
-8. appends the immutable package manifest/head;
+8. calls `manifests.appendPrepared(...)` exactly once; Application never supplies a predecessor or
+   executable behavior-version identifier;
 9. loads the result through `installedPackages.findExact(key)` and returns only that fresh verified
    package.
 
@@ -125,9 +149,19 @@ successful manifest append, drift between any returned projection/key, or malfor
 `integrity_mismatch`. The interface contains no source, search, HTTP, browser, model, clock, or ID
 generator capability.
 
-The composition root supplies the production availability resolver. Tests may inject a closed
-synthetic ready resolver and compiled test-only defaults/behavior registries. No runtime caller may
-supply availability through serialized input.
+The manifest adapter constructs the inherited exact thirteen-key persisted payload inside one
+`BEGIN IMMEDIATE`. It independently selects exactly one compiled behavior entry by the approved
+package definition, verifies evaluator bindings against the reconstructed definitions, derives every
+behavior-version field, loads the verified current country head to derive
+`predecessorManifestId`, signs the payload, inserts it and compare-and-swap advances the head. Missing
+or ambiguous compiled behavior is `city_package_behavior_unavailable` with zero manifest/head rows.
+The full-payload insert is private Infrastructure code.
+
+This slice has no production installation entry point. It does not create an installation eval, modify
+the user-facing composition root, or re-export an installer/Catalog-write capability. A dedicated
+administrative factory receives the availability resolver as a code dependency and is invoked only by
+integration tests with a closed synthetic ready resolver. No runtime caller may supply availability
+through serialized input. A later Catalog Evidence publisher must add its own reviewed invocation.
 
 ## Task ownership
 
@@ -152,4 +186,3 @@ live-source or signing capability. Production wiring may be added only by a late
   pending.
 - Task 10 proves exact offline Evidence replay after restart and successor installation, with zero live
   calls and no fallback from historical package A to current package B.
-
