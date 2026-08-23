@@ -55,7 +55,7 @@ describe("production onboarding composition", () => {
         kind: "blocked",
         session: command.session,
         issues: [{ fieldId: "current_location", reasonCode: "required_empty" }],
-        followUpQuestion: "Please complete the highlighted fields.",
+        followUpQuestion: "Заполните выделенные поля.",
       };
     });
     vi.doMock("../../src/application/onboarding", () => ({

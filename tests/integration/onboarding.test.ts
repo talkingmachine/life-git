@@ -358,7 +358,7 @@ describe("onboarding application use cases", () => {
     if (result.kind === "blocked") {
       expect(result.session).toEqual(session);
       expect(result.issues[0]).toEqual({ fieldId: "current_location", reasonCode: "required_empty" });
-      expect(result.followUpQuestion).toBe("Please complete the highlighted fields.");
+      expect(result.followUpQuestion).toBe("Заполните выделенные поля.");
     }
     expect(replayCommitted).not.toHaveBeenCalled();
     expect(completion.commitOrReplay).not.toHaveBeenCalled();

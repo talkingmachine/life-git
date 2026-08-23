@@ -78,6 +78,18 @@ export interface WorkspaceGlobePresentation {
   readonly routes: readonly GlobeRoute[];
 }
 
+export interface NeutralWorkspaceGlobePresentation {
+  readonly scene: "neutral";
+  readonly ariaLabel: string;
+  readonly backgroundColor?: string;
+  readonly overview: GlobeOverview;
+  readonly routes: readonly [];
+}
+
+export type WorkspaceGlobeScene =
+  | WorkspaceGlobePresentation
+  | NeutralWorkspaceGlobePresentation;
+
 export interface ResearchProgressItem {
   readonly key: string;
   readonly label: string;

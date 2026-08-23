@@ -57,7 +57,8 @@ export type {
 export interface ResearchGlobeCanvasProps {
   readonly activeFlight?: GlobeRoute;
   readonly backgroundColor?: string;
-  readonly origin: GlobeOrigin;
+  readonly idleRotation?: boolean;
+  readonly origin?: GlobeOrigin;
   readonly overview: GlobeOverview;
   readonly routes: readonly GlobeRoute[];
   readonly onFlightComplete: (flightKey: string) => void;
@@ -102,6 +103,7 @@ const AIRCRAFT_FADE_START_PROGRESS = (FLIGHT_DURATION_MS - AIRCRAFT_FADE_DURATIO
   / FLIGHT_DURATION_MS;
 const TRAIL_SETTLE_DURATION_MS = 250;
 const CITY_LABEL_ALTITUDE = 0;
+const IDLE_AUTO_ROTATE_SPEED = 0.25;
 const statusLabels = {
   pending: "Проверка",
   green: "Подтверждено",
@@ -302,6 +304,7 @@ function orientPlane(
 export function ResearchGlobeCanvas({
   activeFlight,
   backgroundColor = "#061014",
+  idleRotation = false,
   origin,
   overview,
   routes,
@@ -340,6 +343,7 @@ export function ResearchGlobeCanvas({
   viewport.current = { width: size.width, height: size.height };
   const routeScene = useMemo(createGlobeRouteScene, []);
   const lighting = useMemo(createGlobeLighting, []);
+  const needsAirliner = origin !== undefined;
   const activeFlightKey = activeFlight?.key;
   const readActiveFlight = useEffectEvent(() => activeFlight);
   const readRoutes = useEffectEvent(() => routes);
@@ -369,18 +373,22 @@ export function ResearchGlobeCanvas({
         }]
         : []
     ));
-    return [{
-      altitude: CITY_LABEL_ALTITUDE,
-      flag: origin.flag,
-      key: "research-origin",
-      kind: "origin" as const,
-      label: origin.label,
-      lat: origin.coordinate.lat,
-      lng: origin.coordinate.lng,
-      placeKind: origin.kind,
-      selected: false,
-      status: "green" as const,
-    }, ...destinations];
+    if (origin === undefined) return destinations;
+    return [
+      {
+        altitude: CITY_LABEL_ALTITUDE,
+        flag: origin.flag,
+        key: "research-origin",
+        kind: "origin" as const,
+        label: origin.label,
+        lat: origin.coordinate.lat,
+        lng: origin.coordinate.lng,
+        placeKind: origin.kind,
+        selected: false,
+        status: "green" as const,
+      },
+      ...destinations,
+    ];
   }, [destinationEpoch, origin, routeLayerData, routes, selectedRouteKey]);
   const selectedRoute = routes.find((route) => route.key === selectedRouteKey);
   const selectedLatitude = selectedRoute?.to.lat;
@@ -538,12 +546,19 @@ export function ResearchGlobeCanvas({
   }, []);
 
   useEffect(() => {
-    if (!globeReady || realisticEarth === undefined || planeTemplate === undefined) return;
-    if (readyReported.current) return;
-    readyReported.current = true;
-    onReadyRef.current();
-    setReadyForFlights(true);
-  }, [globeReady, planeTemplate, realisticEarth]);
+    const assetsReady = globeReady
+      && realisticEarth !== undefined
+      && (!needsAirliner || planeTemplate !== undefined);
+    if (!assetsReady) {
+      setReadyForFlights(false);
+      return;
+    }
+    if (!readyReported.current) {
+      readyReported.current = true;
+      onReadyRef.current();
+    }
+    setReadyForFlights(needsAirliner);
+  }, [globeReady, needsAirliner, planeTemplate, realisticEarth]);
 
   useEffect(() => {
     if (realisticEarth === undefined) return;
@@ -597,6 +612,11 @@ export function ResearchGlobeCanvas({
   }, [globeReady, realisticEarth]);
 
   useEffect(() => {
+    if (!needsAirliner) {
+      setPlaneTemplate(undefined);
+      return;
+    }
+
     let active = true;
     let loadedPlane: Object3D | undefined;
     const loader = new GLTFLoader();
@@ -621,7 +641,7 @@ export function ResearchGlobeCanvas({
       active = false;
       if (loadedPlane !== undefined) disposeObject(loadedPlane);
     };
-  }, []);
+  }, [needsAirliner]);
 
   const initializeGlobe = useCallback((): boolean => {
     if (globeInitialized.current) return true;
@@ -672,6 +692,22 @@ export function ResearchGlobeCanvas({
       requestFrame: (callback) => window.setTimeout(() => callback(window.performance.now()), 16),
     });
   }, [initializeGlobe]);
+
+  useLayoutEffect(() => {
+    const currentGlobe = globe.current;
+    if (!globeReady || currentGlobe === undefined) return;
+    const controls = currentGlobe.controls();
+    controls.autoRotate = false;
+    if (!idleRotation || reducedMotion) return;
+
+    const previousSpeed = controls.autoRotateSpeed;
+    controls.autoRotateSpeed = IDLE_AUTO_ROTATE_SPEED;
+    controls.autoRotate = true;
+    return () => {
+      controls.autoRotate = false;
+      controls.autoRotateSpeed = previousSpeed;
+    };
+  }, [globeReady, idleRotation, reducedMotion]);
 
   useEffect(() => () => {
     stopGlobeInitialization.current?.();
