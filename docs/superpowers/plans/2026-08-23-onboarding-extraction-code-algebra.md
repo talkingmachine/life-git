@@ -27,8 +27,11 @@
 - Keep fixture schemas and bytes at `onboarding-cases@1` and `onboarding-canonical-journey@1`. Do not edit either fixture.
 - Keep one extraction, one review, per-call limits `30_000` / `15_000` ms, total limit `35_000` ms, and zero retry/fallback/replay/model pin/service-tier pin/sharding/prefill/manual seed/alternate fixture.
 - Passing artifacts remain sanitized, ignored, mode `0600`, final-LF JSON. Never commit prompts, model output, transcripts, or the ignored raw diagnostic.
-- No real Codex/model call occurs until all fake/static gates pass and an independent frozen-diff review reports Critical 0 / Important 0. Announce each authorized external invocation before running it.
-- Run the real gates exactly once in order: feasibility first; timing only if feasibility passes. Any failure leaves the corresponding passing target absent and ends this plan without retry.
+- Tasks 1–5 complete V3 implementation with zero Codex/OpenAI calls. Real feasibility and timing are
+  not V3 implementation or Task 8 resumption prerequisites. Their exact feasibility-first,
+  timing-conditional protocol is relocated to the final-project gate, requires
+  `--final-project-live-model-gate` on both commands, and requires fresh explicit user authorization.
+  Earlier diagnostic authorization is revoked.
 
 ---
 
@@ -126,12 +129,11 @@ Insert immediately after `### Task 10: Compact the extraction wire without chang
 Replace Task 8's `**Execution split:**` paragraph with:
 
 ```markdown
-**Execution split:** Steps 1–4 provide the UI, fixture, and timing-contract scaffold. Completed Task
-10 remains the historical V2 wire/evidence upgrade. Before resuming Steps 5–8, execute the approved
-V3 successor in `docs/superpowers/plans/2026-08-23-onboarding-extraction-code-algebra.md`: it owns
-the single compact prompt-algebra candidate, exact V3 lineage, regenerated `@3` evidence, and the
-one-feasibility/one-conditional-timing gate. Task 8 may resume only after both reviewed V3 artifacts
-pass; it must not stage the V3 slice or supply another prompt/fixture/runtime path.
+Tasks 1–5 complete V3 implementation with zero Codex/OpenAI calls. Real feasibility and timing are
+not V3 implementation or Task 8 resumption prerequisites. Their exact feasibility-first,
+timing-conditional protocol is relocated to the final-project gate, requires
+`--final-project-live-model-gate` on both commands, and requires fresh explicit user authorization.
+Earlier diagnostic authorization is revoked.
 ```
 
 Insert this section immediately before `## Completion Gate`:
@@ -147,22 +149,32 @@ Task 11 preserves the completed Task 10 `onboarding-extraction-wire@2`, schema, 
 semantics. It adds exact V3 lineage whose only V2→V3 change is
 `extractionPrompt:"onboarding-extract@3"`, replaces the prompt's 172 expanded pairs with the exact
 catalog-generated 785-byte algebra, advances sanitized feasibility/diagnostic/timing evidence to
-`@3`, and keeps V1/V2 verification byte-exact.
+`@3`, and keeps V1/V2 verification byte-exact. Tasks 1–5 complete V3 implementation with zero
+Codex/OpenAI calls. Real feasibility and timing are not V3 implementation or Task 8 resumption
+prerequisites. Their exact feasibility-first, timing-conditional protocol is relocated to the
+final-project gate, requires `--final-project-live-model-gate` on both commands, and requires fresh
+explicit user authorization. Earlier diagnostic authorization is revoked.
 
 - [ ] Commit the tracked successor documentation before production RED.
 - [ ] Complete the V3 lineage, algebra and evidence RED→GREEN commits without Task 8 files.
-- [ ] Require full static GREEN and independent Critical 0 / Important 0 review before external calls.
-- [ ] Run one real seven-case feasibility gate; only on pass, run one canonical timing gate; stop on
-  failure without retry, fallback, alternate prompt, timeout increase or model pin.
+- [ ] Require full static GREEN and independent Critical 0 / Important 0 review before the static
+  implementation handoff.
+- [ ] Record the static V3 handoff without an external call and relocate the live protocol to the
+  final-project gate.
 ```
 
 In `## Completion Gate`, replace only the current evidence clause with:
 
 ```markdown
-Onboarding is complete when the authorized real Codex extraction/review eval passes and the reviewed
-prepared-Mac `onboarding-model-feasibility@3` and `onboarding-journey-timing@3` artifacts bind the
-exact V3 model tuple, all seven semantic cases, and an accepted Frontier handoff in no more
-than `35_000` ms;
+Onboarding implementation is complete when the approved UI/product behavior, fake/static contracts,
+full offline suite, typecheck, lint, production build, diff checks and independent Critical 0 /
+Important 0 review pass. Real feasibility/timing artifacts are not required for this state.
+
+The project is complete only after all implementation work is finished, fresh explicit user
+authorization is obtained, and exactly one `onboarding-model-feasibility@3` run passes 7/7 followed
+by exactly one conditional `onboarding-journey-timing@3` run with the exact V3 tuple, two model calls,
+an accepted strict handoff and `elapsedMs <= 35_000`. Both commands require
+`--final-project-live-model-gate`; failure stops without retry or debugging.
 ```
 
 Retain the rest of the completion paragraph byte-for-byte.
@@ -178,8 +190,11 @@ Create `task-brief.md` with this exact content:
 
 **Current candidate:** exact `onboarding-extract@3` over unchanged `onboarding-extraction-wire@2`.
 
-**Execution rule:** documentation commit first; fake/static RED→GREEN; independent frozen review;
-one real feasibility run; only on pass, one real timing run; stop on any failure without retry.
+**Execution rule:** Tasks 1–5 complete V3 implementation with zero Codex/OpenAI calls. Real feasibility
+and timing are not V3 implementation or Task 8 resumption prerequisites. Their exact
+feasibility-first, timing-conditional protocol is relocated to the final-project gate, requires
+`--final-project-live-model-gate` on both commands, and requires fresh explicit user authorization.
+Earlier diagnostic authorization is revoked.
 
 ## Allowed production files
 
@@ -211,7 +226,8 @@ one real feasibility run; only on pass, one real timing run; stop on any failure
 3. RED→GREEN and commit generated prompt algebra/current V3 alias.
 4. RED→GREEN and commit @3 eval contracts.
 5. Full static verification and independent Critical 0 / Important 0 review.
-6. One real feasibility run; only on pass, one real timing run; stop on failure.
+6. Reserve the real feasibility-first, timing-conditional protocol for the final-project gate after
+   fresh explicit user authorization.
 ```
 
 Create `progress.md` with concrete empty state, not placeholders:
@@ -225,9 +241,9 @@ Create `progress.md` with concrete empty state, not placeholders:
 - Prompt algebra: not started
 - Eval contracts: not started
 - Static review: not started
-- Real feasibility: not run
-- Real timing: not run
-- External calls made in this slice: 0
+- Real feasibility: deferred to final-project live-model gate
+- Real timing: deferred to final-project live-model gate
+- External Codex/OpenAI calls made: 0
 ```
 
 - [ ] **Step 5: Verify the documentation boundary**
@@ -1035,7 +1051,7 @@ Expected staged paths: exactly the four listed files.
 
 **Interfaces:**
 - Consumes: committed documentation, lineage, prompt algebra, and V3 eval contracts.
-- Produces: one frozen commit range approved with Critical 0 / Important 0 before any external call.
+- Produces: one frozen commit range approved with Critical 0 / Important 0 for the static V3 handoff.
 
 - [ ] **Step 1: Run the full focused gate**
 
@@ -1105,16 +1121,25 @@ For each confirmed Critical/Important finding: add one focused failing regressio
 Append exact commit IDs, focused/full counts, typecheck/lint/build/diff results, and reviewer verdict to the ignored progress ledger. End with:
 
 ```markdown
-- External calls made in this slice: 0
-- Frozen review: APPROVE — Critical 0 / Important 0
-- Ready for real feasibility: yes
+- External Codex/OpenAI calls made: 0
+- V3 static/review evidence: PASS
+- Real feasibility artifact: absent — deferred to final project live-model gate
+- Real timing artifact: absent — deferred to final project live-model gate
+- Ready to resume Task 8 offline Steps 5, 7 and 8: yes
+- Task 8 live Step 6: relocated to final project live-model gate
+- Project completion gate: pending
 ```
 
 Do not create a commit for the ignored ledger.
 
 ---
 
-### Task 6: Execute exactly one authorized feasibility gate and one conditional timing gate
+### Task 6: Deferred final-project live-model gate — do not execute during V3 implementation
+
+This task is documentation-only until project end. Do not run its preflight, remove stale evidence
+or initialize runtime work until all implementation/review work is complete and the user gives fresh
+explicit authorization. The earlier diagnostic boundary is revoked and authorizes none of these
+actions.
 
 **Files:**
 - Write (ignored passing target): `data/evals/onboarding-model-feasibility.json`
@@ -1139,10 +1164,12 @@ Expected: `stale-timing-cleared`; no Codex/model/runtime/browser/research call. 
 
 - [ ] **Step 2: Announce and run the feasibility command once**
 
-Before execution, state that this command invokes the installed Codex CLI/OpenAI seven times under the already authorized diagnostic boundary. Then run exactly:
+After fresh explicit user authorization, state immediately before execution that this command invokes
+the installed Codex CLI/OpenAI seven times under the final-project live-model gate. Then run exactly:
 
 ```bash
 pnpm exec tsx evals/onboarding-feasibility.ts \
+  --final-project-live-model-gate \
   --artifact data/evals/onboarding-model-feasibility.json \
   --diagnostic data/evals/onboarding-model-feasibility-diagnostic.json
 ```
@@ -1263,10 +1290,13 @@ If the command fails, require the runner to have left the passing artifact absen
 
 - [ ] **Step 4: Announce and run the timing command once, only after Step 3 passes**
 
-State that this command invokes exactly one extraction and one final review through Codex CLI/OpenAI, without browser, Frontier research, retry, or fallback. Then run exactly:
+State that this command invokes exactly one extraction and one final review through Codex CLI/OpenAI,
+without browser, Frontier research, retry, or fallback, under the final-project live-model gate. Then
+run exactly:
 
 ```bash
 pnpm run eval:onboarding-journey-timing -- \
+  --final-project-live-model-gate \
   --artifact data/evals/onboarding-journey-timing.json
 ```
 
@@ -1370,64 +1400,40 @@ Expected: static contracts remain green; no source/test tracked diff appears; pa
 
 ---
 
-### Task 7: Hand the result back to Task 8 without expanding scope
+### Task 7: Record the static implementation handoff
 
 **Files:**
 - Update (ignored): `.superpowers/sdd/2026-08-23-onboarding-extraction-code-algebra/progress.md`
 - Verify only: `docs/superpowers/plans/2026-08-21-local-conversational-onboarding.md`
 
 **Interfaces:**
-- Consumes: Task 6's validated success or exact stopped failure.
+- Consumes: the static V3 implementation evidence and independent review.
 - Produces: a factual handoff to the original Task 8 execution; no source edit, no commit, and no automatic alternative design.
 
-- [ ] **Step 1: Record the terminal outcome**
-
-For success, append:
-
-```markdown
-- Real feasibility: PASS — onboarding-model-feasibility@3, 7/7
-- Real timing: PASS — onboarding-journey-timing@3, modelInvocationCount 2, accepted handoff; append the literal validated `elapsedMs` integer and `/ 35000` on this line
-- Retry/fallback/model pin/browser/research: none
-- Ready to resume Task 8 Steps 5–8: yes
-```
-
-For failure, append the exact failed gate, sanitized code/stage, passing-target absence, and:
-
-```markdown
-- Retry/fallback/model pin/browser/research: none
-- Ready to resume Task 8 Steps 5–8: no
-- Further design work requires a new user-approved amendment.
-```
-
-- [ ] **Step 2: Audit commit and workspace boundaries**
-
-```bash
-git log --oneline 1710bcd..HEAD
-git status --short
-git diff --cached --name-only
-```
-
-Expected: documentation, lineage, prompt, and evidence commits are present; index is empty; Task 8/protected paths remain exactly as owned by their original slice; no push/PR/merge occurred.
-
-- [ ] **Step 3: Resume only the pre-approved Task 8 path on success**
-
-If and only if both real artifacts validate, return control to Task 8 Steps 5–8 in `docs/superpowers/plans/2026-08-21-local-conversational-onboarding.md`. Do not fold Task 8 UI files into a V3 commit. If either gate failed, stop and present the evidence boundary to the user.
+- [ ] Append the exact zero-call Task 5 handoff to the ignored ledger.
+- [ ] Audit commits, the empty index and untouched Task 8/protected paths.
+- [ ] Resume Task 8 offline Steps 5, 7 and 8 without either real artifact.
+- [ ] Reserve future pass/failure artifact recording for project completion; it never controls Task 8 resumption.
 
 ---
 
-## Completion Criteria
+## V3 Implementation Complete
 
-This plan is complete only when all of the following are true:
+1. Tracked runtime/onboarding authority preserves V2 history and authorizes the one V3 candidate.
+2. The closed V1/V2/V3 model-version union and hostile/hybrid rejection are green.
+3. The exact catalog-generated algebra, byte/digest pins and unchanged wire/Decision boundary pass.
+4. Historical V1/V2 persistence/HMAC replay and V3 persistence/Frontier integration pass.
+5. Focused/full fake-static tests, typecheck, lint, build, diff-check and independent Critical 0 /
+   Important 0 review pass.
+6. External Codex/OpenAI calls are exactly zero; real passing artifacts remain absent.
+7. No retry, fallback, alternate prompt, timeout increase, model pin, sharding, replay, prefill,
+   browser, research, raw-data commit, Task 8 staging, push, PR or merge occurs.
 
-1. The tracked runtime design/onboarding plan authorize the single V3 candidate and preserve V2 history.
-2. `OnboardingModelVersions` is a closed exact V1/V2/V3 union; production is V3; every hybrid/hostile tuple fails closed.
-3. The prompt algebra is generated from the same five catalog arrays and one participant count as the unchanged 172-entry codebook.
-4. The algebra is exactly 785 bytes; the template is exactly 1,962 bytes with SHA-256 `943f208c6b53ee409a21425d372b456a253e9ddcfd9d3f004c35be2d8c719435`; the canonical prompt is exactly 8,158 bytes and within the 9,000-byte ceiling.
-5. `onboarding-extraction-wire@2`, its exact schema digest, decoder, Decision semantics, review contract, input payload, privacy boundary, and limits are unchanged.
-6. Historical V1/V2 rows and HMAC fixtures reopen byte-exactly; V3 persists and reaches Frontier; all cross-lineage same-command attempts conflict before issuance.
-7. Fake/static focused/full/typecheck/lint/build/diff gates pass and independent review reports Critical 0 / Important 0.
-8. Exactly one real feasibility `@3` run passes 7/7 and exactly one conditional timing `@3` run passes with two model calls, accepted strict handoff, and `elapsedMs <= 35_000`.
-9. No retry, fallback, alternate prompt, timeout increase, model/service-tier pin, sharding, replay, prefill, manual seed, browser, research, raw-data commit, Task 8 stage, push, PR, or merge occurs.
+## Project Complete
+
+V3 implementation is complete, all remaining project implementation is complete, fresh explicit
+authorization is obtained, and current real-artifact criterion 8 passes through the flagged final
+gate. A failed final gate stops project completion without retry or debugging.
 
 ## Execution Handoff
 

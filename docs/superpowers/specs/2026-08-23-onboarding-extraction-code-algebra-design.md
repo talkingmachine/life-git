@@ -3,6 +3,14 @@
 **Status:** proposed after the real V2 timing diagnostic; independent review approved; implementation
 is not authorized until the user reviews this specification.
 
+**Live-gate deferral amendment (2026-08-23):**
+`docs/superpowers/specs/2026-08-23-onboarding-live-model-gate-deferral-design.md`
+supersedes this document only for external-call timing, authorization and completion semantics.
+V3 may become implementation-complete through offline gates. The exact real feasibility and
+conditional timing protocol moves to project end. Prior diagnostic-call authorization is revoked
+and does not carry forward; fresh explicit user authorization is required immediately before the
+final-project gate.
+
 ## Decision
 
 Keep the existing `onboarding-extraction-wire@2`, its 172 valid field addresses, the exact typed
@@ -10,8 +18,8 @@ values, the 18 paired schema branches, the decoder and all Decision semantics un
 only the prompt's expanded `code=fieldId` table with one compact, catalog-generated ordinal
 declaration and publish that prompt as `onboarding-extract@3`.
 
-This is one versioned prompt candidate, not a prompt sweep. If its single real timing gate fails,
-the work stops. It does not automatically fall through to a second prompt, a larger timeout, a
+This is one versioned prompt candidate, not a prompt sweep. If its single final-project real timing
+gate fails, project completion stops. It does not automatically fall through to a second prompt, a
 different model, sharding or a compact questionnaire.
 
 ## Evidence and root cause boundary
@@ -159,7 +167,7 @@ The complete tuple remains in `versions_json` and in the unchanged
 rewrite. New confirmations bind V3. Reusing the same completion command with different V1/V2/V3
 lineage is `onboarding_completion_conflict` before clock, materialization or writes.
 
-## Evidence lineage and real gates
+## Evidence lineage
 
 The evidence formats advance because they now certify a different current prompt lineage:
 
@@ -173,7 +181,27 @@ timing artifact keeps its exact 12-key layout. Schema/current-lineage fields, ru
 values and consequent digests are regenerated. Historical `@2` artifacts are not current V3
 evidence.
 
-Before any real call, fake/static tests and an independent frozen-diff review must pass. Then:
+## Final-project live-model gate
+
+This section is non-executable during V3 or Task 8 implementation. It becomes eligible only after
+all approved implementation, offline verification and independent review are complete and the user
+gives fresh explicit authorization. The flag is necessary but is not authorization by itself.
+Run feasibility exactly once; validate 7/7 locally; only then run timing exactly once. Any failure
+leaves the passing target absent and stops without retry or debugging.
+
+```bash
+pnpm exec tsx evals/onboarding-feasibility.ts \
+  --final-project-live-model-gate \
+  --artifact data/evals/onboarding-model-feasibility.json \
+  --diagnostic data/evals/onboarding-model-feasibility-diagnostic.json
+
+pnpm run eval:onboarding-journey-timing -- \
+  --final-project-live-model-gate \
+  --artifact data/evals/onboarding-journey-timing.json
+```
+
+At the final-project gate, fake/static tests and an independent frozen-diff review must have passed.
+Then:
 
 1. Remove stale passing feasibility/timing targets through the existing alias-safe writers.
 2. Run exactly one seven-case feasibility gate and require exact `onboarding-model-feasibility@3`.
@@ -183,8 +211,10 @@ Before any real call, fake/static tests and an independent frozen-diff review mu
 4. On any failure, leave the corresponding passing target absent and stop. No automatic or manual
    prompt variant, retry or fallback is allowed under this design.
 
-The chat already authorizes diagnostic Codex CLI calls. Each external call is still announced
-before execution; no browser is used.
+- V3 implementation acceptance: unchanged algebra, lineage, HMAC, fake/static/full offline gates,
+  build and Critical 0 / Important 0 review, with zero external calls.
+- Project acceptance: the existing one-feasibility/one-conditional-timing V3 protocol after fresh
+  authorization, with no retry, fallback or debugging.
 
 ## Dependency direction and ownership
 
@@ -242,7 +272,7 @@ the protected brainstorm directories and the ignored raw diagnostic remain outsi
 10. **Static gate:** focused suites, full tests, typecheck, full lint, production build and diff-check.
 11. **Review gate:** independent review must report no Critical or Important finding before real
     calls.
-12. **Real gate:** one feasibility run, then conditionally one timing run. The timing result, not the
+12. **Final-project real gate:** one feasibility run, then conditionally one timing run. The timing result, not the
     byte reduction, decides success.
 
 ## Alternatives deliberately deferred
@@ -264,9 +294,9 @@ A larger extraction timeout cannot satisfy the 35-second journey limit. A model/
 changes availability, cost and lineage and is separately forbidden. Neither addresses this design's
 root cause boundary.
 
-## Stop condition
+## Deferred final-gate stop condition
 
-Passing fake/static checks proves only contract preservation. If the one V3 real timing run does not
-produce an accepted handoff in at most 35,000 ms, V3 remains a failed performance experiment. Do not
-raise limits or silently proceed to another optimization. Return to product design with the new
-evidence.
+If the future flagged feasibility or timing gate fails, its passing target remains absent and project
+completion stops. Completed V3 implementation remains valid. No retry, debugging, prompt variant,
+fallback, timeout increase or model pin is authorized; further optimization requires a new
+user-approved design.

@@ -1163,12 +1163,13 @@ git commit -m "feat: launch frontier from onboarding"
 
 ### Task 8: Deliver the questionnaire/chat workspace as the default route
 
-**Execution split:** Steps 1–4 provide the UI, fixture, and timing-contract scaffold. Completed Task
-10 remains the historical V2 wire/evidence upgrade. Before resuming Steps 5–8, execute the approved
-V3 successor in `docs/superpowers/plans/2026-08-23-onboarding-extraction-code-algebra.md`: it owns
-the single compact prompt-algebra candidate, exact V3 lineage, regenerated `@3` evidence, and the
-one-feasibility/one-conditional-timing gate. Task 8 may resume only after both reviewed V3 artifacts
-pass; it must not stage the V3 slice or supply another prompt/fixture/runtime path.
+**Live-model gate deferral (2026-08-23):** The confirmed design in
+`docs/superpowers/specs/2026-08-23-onboarding-live-model-gate-deferral-design.md`
+supersedes only the immediate execution timing and prior authorization for the real V3 gates.
+After V3 fake/static GREEN and independent Critical 0 / Important 0 review, Task 8 resumes offline
+Steps 5, 7 and 8. Step 6 is not executed here: it moves to the final-project live-model gate with
+unchanged V3 acceptance semantics and the mandatory `--final-project-live-model-gate` launch flag.
+The missing real `@3` artifacts do not block Task 8 implementation completion.
 
 **Files:**
 - Create: `src/experience/components/OnboardingStart.tsx`
@@ -1329,7 +1330,9 @@ tracked file; there is no fixture CLI override, stdin fixture or environment sub
 - [ ] **Step 3: Write the timing-gate RED contract.** With an injected monotonic clock and fake journey, require exact count `2` and `35_000` ms to pass; `35_000.0001` (ceiled to `35_001`), clock rollback/non-finite values, any other count or an unaccepted handoff fails without a passing artifact. Pin the exact closed keys, fixture/digest bindings, stale-target removal, `0600` atomic final-LF write, fixed content-free failure, no retry and zero prompt/output/transcript content.
 - [ ] **Step 4: Run timing RED.** Run `pnpm exec vitest run tests/integration/onboarding-journey-timing-contract.test.ts`; expect the eval module to be absent.
 - [ ] **Step 5: Implement and run fake GREEN.** Add `"eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts"`. The real script uses only the closed `onboarding-canonical-journey@1` fixture, requires the full exact V2 model-version tuple, starts its monotonic timer immediately before the first extraction call, and stops when the production strict opener/single-use handoff accepts an inert Frontier envelope constructed from the exact launched receipt/prepared identities. It never calls `runPlaceFrontier` and writes only the closed `onboarding-journey-timing@2` artifact. Re-run the timing contract test.
-- [ ] **Step 6: Obtain explicit authorization for the prepared-Mac OpenAI calls, then run the timing gate.** First require the authorized real `onboarding-model-feasibility@2` gate for all seven unchanged semantic cases. Then run `pnpm run eval:onboarding-journey-timing -- --artifact data/evals/onboarding-journey-timing.json`; require the exact V2 tuple, an accepted handoff and `elapsedMs <= 35_000`. Missing authorization, model/runtime failure, an unobserved handoff, a stale `@1` artifact, or `35_001+` ms writes no passing artifact and blocks completion.
+- [ ] **Step 6: Deferred final-project live-model gate — do not execute during Task 8.** The exact
+  feasibility-first/conditional-timing protocol is owned by the final-project gate. Earlier chat
+  authorization is revoked; a fresh explicit authorization is required immediately before that gate.
 - [ ] **Step 7: Run `pnpm test`, `pnpm run typecheck`, `pnpm run lint`, `pnpm run build`, and `git diff --check`.**
 - [ ] **Step 8: Commit.**
 
@@ -1734,20 +1737,32 @@ semantics. It adds exact V3 lineage whose only V2→V3 change is
 catalog-generated 785-byte algebra, advances sanitized feasibility/diagnostic/timing evidence to
 `@3`, and keeps V1/V2 verification byte-exact.
 
+Task 11 authorizes the single V3 prompt candidate and offline implementation only. It does not
+authorize an external call. Earlier diagnostic authorization is revoked; the final-project gate
+requires fresh explicit user authorization.
+
 - [ ] Commit the tracked successor documentation before production RED.
 - [ ] Complete the V3 lineage, algebra and evidence RED→GREEN commits without Task 8 files.
-- [ ] Require full static GREEN and independent Critical 0 / Important 0 review before external calls.
-- [ ] Run one real seven-case feasibility gate; only on pass, run one canonical timing gate; stop on
-  failure without retry, fallback, alternate prompt, timeout increase or model pin.
+- [ ] Require full static GREEN and independent Critical 0 / Important 0 review before the static
+  implementation handoff.
+- [ ] Defer the one-feasibility/one-conditional-timing V3 protocol to the final-project live-model
+  gate; Task 8 offline Steps 5, 7 and 8 may proceed after static/review evidence passes.
 
-## Completion Gate
+## Implementation Completion Gate
 
-Onboarding is complete when the authorized real Codex extraction/review eval passes and the reviewed
-prepared-Mac `onboarding-model-feasibility@3` and `onboarding-journey-timing@3` artifacts bind the
-exact V3 model tuple, all seven semantic cases, and an accepted Frontier handoff in no more
-than `35_000` ms; `/` shows the approved
-questionnaire/chat/globe layout; manual edits and reversible yellow overwrite work; unusable required
+Onboarding implementation is complete when the approved UI/product behavior, fake/static contracts,
+full offline suite, typecheck, lint, production build, diff checks and independent Critical 0 /
+Important 0 review pass. Real feasibility/timing artifacts are not required for this state. `/` shows
+the approved questionnaire/chat/globe layout; manual edits and reversible yellow overwrite work; unusable required
 values block on server review; one successful Continue atomically stores only structured `@2`
 snapshots/provenance and enters V2-capable Country Frontier in the same action; transcript/raw model
 content is purged; replay makes zero Codex calls; and the eventual resolved-country mapping persists
 all four City Criteria without a second confirmation screen.
+
+## Project Completion Gate
+
+The project is complete only after all implementation work is finished, fresh explicit user
+authorization is obtained, and exactly one `onboarding-model-feasibility@3` run passes 7/7 followed
+by exactly one conditional `onboarding-journey-timing@3` run with the exact V3 tuple, two model calls,
+an accepted strict handoff and `elapsedMs <= 35_000`. Both commands require
+`--final-project-live-model-gate`; failure stops without retry or debugging.
