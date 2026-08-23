@@ -26,11 +26,13 @@ import {
   assertCanonicalOnboardingJourneySession,
   parseOnboardingJourneyTimingArguments,
   readOnboardingCanonicalJourneyFixture,
+  removeStaleOnboardingJourneyTimingArtifact,
   runOnboardingJourneyTimingForTest,
 } from "../../evals/onboarding-journey-timing";
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
+  ONBOARDING_MODEL_VERSIONS_V3,
 } from "../../src/application/onboarding-model-versions";
 import type { OnboardingSessionState } from "../../src/decision/onboarding-session";
 
@@ -173,6 +175,7 @@ describe("onboarding canonical journey fixture", () => {
       await expect(runOnboardingJourneyTimingForTest({
         artifactPath: await freshArtifactPath(),
         fixtureBytes: new TextEncoder().encode(duplicateFixture),
+        modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
         runCanonicalJourney: callback,
         monotonicNowMs: clock(0, 1),
       })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -186,19 +189,20 @@ describe("onboarding journey timing artifact", () => {
     const directory = await temporaryDirectory();
     const artifactPath = join(directory, "timing.json");
     await writeFile(artifactPath, `stale ${PRIVATE_SENTINEL}\n`, "utf8");
-    const bytes = fixtureBytes();
+    const bytes = new Uint8Array(await readFile(FIXTURE_URL));
     const runCanonicalJourney = vi.fn(async () => {
       await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
       return {
         acceptedFrontierHandoff: true,
         modelInvocationCount: 2,
-        modelVersions: ONBOARDING_MODEL_VERSIONS_V2,
+        modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       };
     });
 
     const artifact = await runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: bytes,
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney,
       monotonicNowMs: clock(100.25, 35_100.25),
     });
@@ -207,10 +211,10 @@ describe("onboarding journey timing artifact", () => {
     expect(runCanonicalJourney).toHaveBeenCalledOnce();
     expect(Object.keys(artifact).sort()).toEqual(ARTIFACT_KEYS);
     expect(artifact).toMatchObject({
-      schemaVersion: "onboarding-journey-timing@2",
+      schemaVersion: "onboarding-journey-timing@3",
       fixtureVersion: "onboarding-canonical-journey@1",
-      fixtureDigest: sha256(bytes),
-      modelVersions: ONBOARDING_MODEL_VERSIONS_V2,
+      fixtureDigest: "f42948b6283f42903df4e576fc08a2cb490bfc7b74db23fb1d91f37bb8ebfaa1",
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       elapsedMs: 35_000,
       limitMs: 35_000,
       acceptedFrontierHandoff: true,
@@ -219,6 +223,7 @@ describe("onboarding journey timing artifact", () => {
       rawOutputStored: false,
       transcriptStored: false,
     });
+    expect(artifact.modelVersions).toBe(ONBOARDING_MODEL_VERSIONS_V3);
     const { artifactDigest, ...withoutDigest } = artifact;
     expect(artifactDigest).toBe(sha256(new TextEncoder().encode(canonicalJson(withoutDigest))));
     expect(Object.isFrozen(artifact)).toBe(true);
@@ -243,6 +248,7 @@ describe("onboarding journey timing artifact", () => {
     const artifact = await runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: acceptedJourney,
       monotonicNowMs: clock(10, 35_009.1),
     });
@@ -269,6 +275,7 @@ describe("onboarding journey timing artifact", () => {
     await expect(runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: callback,
       monotonicNowMs: clock(0, 1),
     })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -290,6 +297,7 @@ describe("onboarding journey timing artifact", () => {
     await expect(runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: acceptedJourney,
       monotonicNowMs: clock(values[0], values[1]),
     })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -304,6 +312,7 @@ describe("onboarding journey timing artifact", () => {
     await expect(runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: new TextEncoder().encode('{"schemaVersion":"wrong"}'),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: callback,
       monotonicNowMs: clock(0, 1),
     })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -312,31 +321,37 @@ describe("onboarding journey timing artifact", () => {
     await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  test("removes a syntactically valid V1 artifact and writes only the exact V2 artifact", async () => {
+  test("removes a syntactically valid V2 artifact and writes only the exact V3 artifact", async () => {
     const artifactPath = await freshArtifactPath();
     await writeFile(artifactPath, `${JSON.stringify(legacyTimingArtifact())}\n`, "utf8");
 
     const artifact = await runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: acceptedJourney,
       monotonicNowMs: clock(0, 1),
     });
 
-    expect(artifact.schemaVersion).toBe("onboarding-journey-timing@2");
+    expect(artifact.schemaVersion).toBe("onboarding-journey-timing@3");
     const serialized = await readFile(artifactPath, "utf8");
-    expect(serialized).not.toContain("onboarding-journey-timing@1");
+    expect(serialized).not.toContain("onboarding-journey-timing@2");
     expect(JSON.parse(serialized)).not.toHaveProperty("cliVersion");
   });
 
   test.each([
     ["historical V1", ONBOARDING_MODEL_VERSIONS_V1],
+    ["historical V2", ONBOARDING_MODEL_VERSIONS_V2],
     ["V1 prompt with V2 schema", {
       ...ONBOARDING_MODEL_VERSIONS_V2,
       extractionPrompt: ONBOARDING_MODEL_VERSIONS_V1.extractionPrompt,
     }],
     ["V2 prompt with V1 schema", {
       ...ONBOARDING_MODEL_VERSIONS_V2,
+      extractionSchema: ONBOARDING_MODEL_VERSIONS_V1.extractionSchema,
+    }],
+    ["V3 prompt with V1 schema", {
+      ...ONBOARDING_MODEL_VERSIONS_V3,
       extractionSchema: ONBOARDING_MODEL_VERSIONS_V1.extractionSchema,
     }],
   ])("rejects callback result lineage %s and leaves no passing artifact", async (_name, modelVersions) => {
@@ -347,12 +362,50 @@ describe("onboarding journey timing artifact", () => {
     await expect(runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: callback,
       monotonicNowMs: clock(0, 1),
     })).rejects.toEqual(new OnboardingJourneyTimingError());
 
     expect(callback).toHaveBeenCalledOnce();
     await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test.each([
+    ["historical V1", ONBOARDING_MODEL_VERSIONS_V1],
+    ["historical V2", ONBOARDING_MODEL_VERSIONS_V2],
+    ["V1 prompt with V2 schema", {
+      ...ONBOARDING_MODEL_VERSIONS_V2,
+      extractionPrompt: ONBOARDING_MODEL_VERSIONS_V1.extractionPrompt,
+    }],
+    ["V2 prompt with V1 schema", {
+      ...ONBOARDING_MODEL_VERSIONS_V2,
+      extractionSchema: ONBOARDING_MODEL_VERSIONS_V1.extractionSchema,
+    }],
+    ["V3 prompt with V1 schema", {
+      ...ONBOARDING_MODEL_VERSIONS_V3,
+      extractionSchema: ONBOARDING_MODEL_VERSIONS_V1.extractionSchema,
+    }],
+  ])("rejects input lineage %s before reading time or running the journey", async (
+    _name,
+    modelVersions,
+  ) => {
+    const artifactPath = await freshArtifactPath();
+    await writeFile(artifactPath, `${JSON.stringify(legacyTimingArtifact())}\n`, "utf8");
+    const monotonicNowMs = vi.fn(() => 0);
+    const runCanonicalJourney = vi.fn(acceptedJourney);
+
+    await expect(runOnboardingJourneyTimingForTest({
+      artifactPath,
+      fixtureBytes: fixtureBytes(),
+      modelVersions,
+      runCanonicalJourney,
+      monotonicNowMs,
+    })).rejects.toEqual(new OnboardingJourneyTimingError());
+
+    expect(monotonicNowMs).not.toHaveBeenCalled();
+    expect(runCanonicalJourney).not.toHaveBeenCalled();
+    await expect(stat(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("rejects hostile callback result roots without invoking a getter or Proxy trap", async () => {
@@ -398,6 +451,7 @@ describe("onboarding journey timing artifact", () => {
       await expect(runOnboardingJourneyTimingForTest({
         artifactPath: await freshArtifactPath(),
         fixtureBytes: fixtureBytes(),
+        modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
         runCanonicalJourney: async () => result,
         monotonicNowMs: clock(0, 1),
       })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -408,29 +462,29 @@ describe("onboarding journey timing artifact", () => {
 
   test("rejects hostile nested model tuples without invoking a getter or Proxy trap", async () => {
     let getterCalls = 0;
-    const accessorTuple = { ...ONBOARDING_MODEL_VERSIONS_V2 };
+    const accessorTuple = { ...ONBOARDING_MODEL_VERSIONS_V3 };
     Object.defineProperty(accessorTuple, "extractionPrompt", {
       enumerable: true,
       get: () => {
         getterCalls += 1;
-        return ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt;
+        return ONBOARDING_MODEL_VERSIONS_V3.extractionPrompt;
       },
     });
     const symbolTuple = Object.assign(
-      { ...ONBOARDING_MODEL_VERSIONS_V2 },
+      { ...ONBOARDING_MODEL_VERSIONS_V3 },
       { [Symbol("hidden")]: true },
     );
-    const nonEnumerableTuple = { ...ONBOARDING_MODEL_VERSIONS_V2 };
+    const nonEnumerableTuple = { ...ONBOARDING_MODEL_VERSIONS_V3 };
     Object.defineProperty(nonEnumerableTuple, "reviewSchema", {
       enumerable: false,
-      value: ONBOARDING_MODEL_VERSIONS_V2.reviewSchema,
+      value: ONBOARDING_MODEL_VERSIONS_V3.reviewSchema,
     });
     const customPrototypeTuple = Object.assign(
       Object.create({ inherited: true }),
-      ONBOARDING_MODEL_VERSIONS_V2,
+      ONBOARDING_MODEL_VERSIONS_V3,
     );
     let proxyTrapCalls = 0;
-    const proxyTuple = new Proxy({ ...ONBOARDING_MODEL_VERSIONS_V2 }, {
+    const proxyTuple = new Proxy({ ...ONBOARDING_MODEL_VERSIONS_V3 }, {
       getPrototypeOf: () => {
         proxyTrapCalls += 1;
         throw new Error("versions_proxy_trap");
@@ -453,13 +507,19 @@ describe("onboarding journey timing artifact", () => {
       proxyTuple,
     ]) {
       const artifactPath = await freshArtifactPath();
+      await writeFile(artifactPath, `${JSON.stringify(legacyTimingArtifact())}\n`, "utf8");
+      const monotonicNowMs = vi.fn(() => 0);
+      const runCanonicalJourney = vi.fn(acceptedJourney);
       await expect(runOnboardingJourneyTimingForTest({
         artifactPath,
         fixtureBytes: fixtureBytes(),
-        runCanonicalJourney: async () => journeyResult({ modelVersions }),
-        monotonicNowMs: clock(0, 1),
+        modelVersions,
+        runCanonicalJourney,
+        monotonicNowMs,
       })).rejects.toEqual(new OnboardingJourneyTimingError());
-      await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(monotonicNowMs).not.toHaveBeenCalled();
+      expect(runCanonicalJourney).not.toHaveBeenCalled();
+      await expect(stat(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
     }
     expect(getterCalls).toBe(0);
     expect(proxyTrapCalls).toBe(0);
@@ -473,6 +533,7 @@ describe("onboarding journey timing artifact", () => {
     const caught = await runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: callback,
       monotonicNowMs: clock(0, 1),
     }).catch((error: unknown) => error);
@@ -487,6 +548,7 @@ describe("onboarding journey timing artifact", () => {
     const filesystemFailure = await runOnboardingJourneyTimingForTest({
       artifactPath: blockedArtifact,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: acceptedJourney,
       monotonicNowMs: clock(0, 1),
     }).catch((error: unknown) => error);
@@ -505,6 +567,7 @@ describe("onboarding journey timing artifact", () => {
     await expect(runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: callback,
       monotonicNowMs: clock(0, 1),
     })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -524,6 +587,7 @@ describe("onboarding journey timing artifact", () => {
       await expect(runOnboardingJourneyTimingForTest({
         artifactPath: join(fixturePath, "..", "canonical-journey.json"),
         fixtureBytes: originalBytes,
+        modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
         runCanonicalJourney: callback,
         monotonicNowMs: clock(0, 1),
       })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -554,6 +618,7 @@ describe("onboarding journey timing artifact", () => {
       await expect(runOnboardingJourneyTimingForTest({
         artifactPath: join(aliasedFixtureDirectory, "canonical-journey.json"),
         fixtureBytes: originalBytes,
+        modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
         runCanonicalJourney: callback,
         monotonicNowMs: clock(0, 1),
       })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -582,6 +647,7 @@ describe("onboarding journey timing artifact", () => {
     await expect(runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: originalBytes,
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: callback,
       monotonicNowMs: clock(0, 1),
     })).rejects.toEqual(new OnboardingJourneyTimingError());
@@ -594,6 +660,44 @@ describe("onboarding journey timing artifact", () => {
       .toEqual([originalIdentity.dev, originalIdentity.ino]);
   });
 
+  test("removes only an alias-safe stale journey timing artifact", async () => {
+    const ordinaryPath = await freshArtifactPath();
+    await writeFile(ordinaryPath, `${JSON.stringify(legacyTimingArtifact())}\n`, "utf8");
+    await removeStaleOnboardingJourneyTimingArtifact(ordinaryPath);
+    await expect(stat(ordinaryPath)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const fixturePath = fileURLToPath(FIXTURE_URL);
+    const originalFixtureBytes = new Uint8Array(await readFile(fixturePath));
+    const originalFixtureMode = (await stat(fixturePath)).mode & 0o777;
+    const aliasRoot = await temporaryDirectory();
+    const symlinkedFixtureDirectory = join(aliasRoot, "fixture-alias");
+    await symlink(dirname(fixturePath), symlinkedFixtureDirectory, "dir");
+    const hardLinkPath = join(aliasRoot, "fixture-hard-link.json");
+    await link(fixturePath, hardLinkPath);
+
+    try {
+      for (const candidate of [
+        fixturePath,
+        join(symlinkedFixtureDirectory, "canonical-journey.json"),
+        hardLinkPath,
+      ]) {
+        await expect(removeStaleOnboardingJourneyTimingArtifact(candidate))
+          .rejects.toEqual(new OnboardingJourneyTimingError());
+        expect(new Uint8Array(await readFile(fixturePath))).toEqual(originalFixtureBytes);
+        expect(new Uint8Array(await readFile(candidate))).toEqual(originalFixtureBytes);
+      }
+    } finally {
+      const currentFixtureBytes = await readFile(fixturePath).catch(() => undefined);
+      if (
+        currentFixtureBytes === undefined ||
+        !Buffer.from(currentFixtureBytes).equals(Buffer.from(originalFixtureBytes))
+      ) await writeFile(fixturePath, originalFixtureBytes);
+      if (((await stat(fixturePath)).mode & 0o777) !== originalFixtureMode) {
+        await chmod(fixturePath, originalFixtureMode);
+      }
+    }
+  });
+
   test("keeps supporting a new nested artifact leaf below a symlinked existing parent", async () => {
     const realOutputRoot = await temporaryDirectory();
     const aliasRoot = await temporaryDirectory();
@@ -604,6 +708,7 @@ describe("onboarding journey timing artifact", () => {
     const artifact = await runOnboardingJourneyTimingForTest({
       artifactPath,
       fixtureBytes: fixtureBytes(),
+      modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
       runCanonicalJourney: acceptedJourney,
       monotonicNowMs: clock(0, 1),
     });
@@ -815,7 +920,7 @@ function journeyResult(overrides: Record<string, unknown> = {}): {
   return {
     acceptedFrontierHandoff: true,
     modelInvocationCount: 2,
-    modelVersions: ONBOARDING_MODEL_VERSIONS_V2,
+    modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
     ...overrides,
   };
 }
@@ -863,10 +968,10 @@ function canonicalJson(value: unknown): string {
 
 function legacyTimingArtifact(): Record<string, unknown> {
   return {
-    schemaVersion: "onboarding-journey-timing@1",
+    schemaVersion: "onboarding-journey-timing@2",
     fixtureVersion: "onboarding-canonical-journey@1",
     fixtureDigest: "0".repeat(64),
-    cliVersion: ONBOARDING_MODEL_VERSIONS_V1.cliVersion,
+    modelVersions: ONBOARDING_MODEL_VERSIONS_V2,
     elapsedMs: 1,
     limitMs: 35_000,
     acceptedFrontierHandoff: true,

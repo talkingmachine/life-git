@@ -12,9 +12,9 @@ import {
 import type { OnboardingModelPort } from
   "../src/application/onboarding-contracts";
 import {
-  ONBOARDING_MODEL_VERSIONS_V2,
+  ONBOARDING_MODEL_VERSIONS_V3,
   reconstructOnboardingModelVersions,
-  type OnboardingModelVersionsV2,
+  type OnboardingModelVersionsV3,
 } from "../src/application/onboarding-model-versions";
 import {
   createOnboardingSession,
@@ -33,7 +33,7 @@ import { getCodexCliModelAdapter } from
 
 export const ONBOARDING_CANONICAL_JOURNEY_LIMIT_MS = 35_000;
 
-const ARTIFACT_VERSION = "onboarding-journey-timing@2" as const;
+const ARTIFACT_VERSION = "onboarding-journey-timing@3" as const;
 const FIXTURE_VERSION = "onboarding-canonical-journey@1" as const;
 const FIXED_FAILURE = "onboarding_journey_timing_failed";
 const IN_MEMORY_HMAC_KEY = "onboarding-journey-timing-integrity@1";
@@ -46,7 +46,7 @@ export interface OnboardingJourneyTimingArtifact {
   readonly schemaVersion: typeof ARTIFACT_VERSION;
   readonly fixtureVersion: typeof FIXTURE_VERSION;
   readonly fixtureDigest: string;
-  readonly modelVersions: OnboardingModelVersionsV2;
+  readonly modelVersions: OnboardingModelVersionsV3;
   readonly elapsedMs: number;
   readonly limitMs: typeof ONBOARDING_CANONICAL_JOURNEY_LIMIT_MS;
   readonly acceptedFrontierHandoff: true;
@@ -82,7 +82,7 @@ interface BorrowedCanonicalJourneyResult {
 interface CanonicalJourneyResult {
   readonly acceptedFrontierHandoff: boolean;
   readonly modelInvocationCount: number;
-  readonly modelVersions: OnboardingModelVersionsV2;
+  readonly modelVersions: OnboardingModelVersionsV3;
 }
 
 export class OnboardingJourneyTimingError extends Error {
@@ -159,6 +159,7 @@ export function parseOnboardingJourneyTimingArguments(args: readonly string[]): 
 export async function runOnboardingJourneyTimingForTest(input: {
   readonly artifactPath: string;
   readonly fixtureBytes: Uint8Array;
+  readonly modelVersions: unknown;
   readonly runCanonicalJourney: () => Promise<BorrowedCanonicalJourneyResult>;
   readonly monotonicNowMs: () => number;
 }): Promise<OnboardingJourneyTimingArtifact> {
@@ -169,8 +170,11 @@ export async function runOnboardingJourneyTimingForTest(input: {
 
     const fixtureBytes = Uint8Array.from(input.fixtureBytes);
     const fixture = readOnboardingCanonicalJourneyFixture(fixtureBytes);
+    const expectedModelVersions = reconstructOnboardingModelVersions(input.modelVersions);
+    if (expectedModelVersions !== ONBOARDING_MODEL_VERSIONS_V3) throw failed();
     const startedAt = readMonotonicClock(input.monotonicNowMs);
     const result = readCanonicalJourneyResult(await input.runCanonicalJourney());
+    if (result.modelVersions !== expectedModelVersions) throw failed();
     const finishedAt = readMonotonicClock(input.monotonicNowMs);
     if (finishedAt < startedAt) throw failed();
     const elapsedMs = Math.ceil(finishedAt - startedAt);
@@ -209,7 +213,15 @@ export async function runOnboardingJourneyTimingForTest(input: {
   }
 }
 
+export async function removeStaleOnboardingJourneyTimingArtifact(
+  borrowedArtifactPath: string,
+): Promise<void> {
+  const artifactPath = await requireArtifactPath(borrowedArtifactPath);
+  await rm(artifactPath, { force: true });
+}
+
 async function prepareProductionJourney(fixture: OnboardingCanonicalJourneyFixture): Promise<{
+  readonly modelVersions: unknown;
   readonly run: () => Promise<BorrowedCanonicalJourneyResult>;
   readonly close: () => void;
 }> {
@@ -271,6 +283,7 @@ async function prepareProductionJourney(fixture: OnboardingCanonicalJourneyFixtu
     let started = false;
 
     return Object.freeze({
+      modelVersions: model.versions,
       run: async () => {
         if (started) throw failed();
         started = true;
@@ -545,7 +558,7 @@ function readCanonicalJourneyResult(value: unknown): CanonicalJourneyResult {
     typeof result.modelInvocationCount !== "number"
   ) throw failed();
   const modelVersions = reconstructOnboardingModelVersions(result.modelVersions);
-  if (modelVersions !== ONBOARDING_MODEL_VERSIONS_V2) throw failed();
+  if (modelVersions !== ONBOARDING_MODEL_VERSIONS_V3) throw failed();
   return Object.freeze({
     acceptedFrontierHandoff: result.acceptedFrontierHandoff,
     modelInvocationCount: result.modelInvocationCount,
@@ -901,6 +914,7 @@ async function main(): Promise<void> {
       await runOnboardingJourneyTimingForTest({
         artifactPath,
         fixtureBytes,
+        modelVersions: production.modelVersions,
         runCanonicalJourney: production.run,
         monotonicNowMs: () => performance.now(),
       });

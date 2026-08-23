@@ -10,9 +10,9 @@ import {
   type OnboardingRuntimeErrorCode,
 } from "../src/application/onboarding-contracts";
 import {
-  ONBOARDING_MODEL_VERSIONS_V2,
+  ONBOARDING_MODEL_VERSIONS_V3,
   reconstructOnboardingModelVersions,
-  type OnboardingModelVersionsV2,
+  type OnboardingModelVersionsV3,
 } from "../src/application/onboarding-model-versions";
 import {
   PARTICIPANT_LEAF_IDS,
@@ -60,8 +60,8 @@ import {
 
 const FIXTURE_VERSION = "onboarding-cases@1" as const;
 const SESSION_SEED_VERSION = "onboarding-feasibility-session-seed@1" as const;
-const ARTIFACT_VERSION = "onboarding-model-feasibility@2" as const;
-const DIAGNOSTIC_VERSION = "onboarding-model-feasibility-diagnostic@2" as const;
+const ARTIFACT_VERSION = "onboarding-model-feasibility@3" as const;
+const DIAGNOSTIC_VERSION = "onboarding-model-feasibility-diagnostic@3" as const;
 const FEASIBILITY_FIXTURE_URL = new URL("./fixtures/onboarding/cases.json", import.meta.url);
 const FEASIBILITY_FIXTURE_PATH = resolve(fileURLToPath(FEASIBILITY_FIXTURE_URL));
 const CASE_IDS = [
@@ -118,12 +118,12 @@ export interface OnboardingModelFeasibilityArtifact {
   readonly schemaVersion: typeof ARTIFACT_VERSION;
   readonly fixtureVersion: typeof FIXTURE_VERSION;
   readonly fixtureDigest: string;
-  readonly invocationVersion: OnboardingModelVersionsV2["invocation"];
-  readonly cliVersion: OnboardingModelVersionsV2["cliVersion"];
-  readonly extractionPromptVersion: OnboardingModelVersionsV2["extractionPrompt"];
-  readonly reviewPromptVersion: OnboardingModelVersionsV2["reviewPrompt"];
-  readonly extractionSchemaVersion: OnboardingModelVersionsV2["extractionSchema"];
-  readonly reviewSchemaVersion: OnboardingModelVersionsV2["reviewSchema"];
+  readonly invocationVersion: OnboardingModelVersionsV3["invocation"];
+  readonly cliVersion: OnboardingModelVersionsV3["cliVersion"];
+  readonly extractionPromptVersion: OnboardingModelVersionsV3["extractionPrompt"];
+  readonly reviewPromptVersion: OnboardingModelVersionsV3["reviewPrompt"];
+  readonly extractionSchemaVersion: OnboardingModelVersionsV3["extractionSchema"];
+  readonly reviewSchemaVersion: OnboardingModelVersionsV3["reviewSchema"];
   readonly extractionPromptDigest: string;
   readonly reviewPromptDigest: string;
   readonly extractionSchemaDigest: string;
@@ -258,6 +258,13 @@ export async function runOnboardingFeasibilityForTest(input: {
     }
     throw failed();
   }
+}
+
+export async function removeStaleOnboardingFeasibilityArtifact(
+  borrowedArtifactPath: string,
+): Promise<void> {
+  const { artifactPath } = await requireOutputPaths(borrowedArtifactPath, undefined);
+  await rm(artifactPath, { force: true });
 }
 
 async function runCase(
@@ -607,10 +614,10 @@ function requireDistinctDiagnosticPath(value: unknown, artifactPath: string): st
   return diagnosticPath;
 }
 
-function requireCurrentModelVersions(value: unknown): OnboardingModelVersionsV2 {
+function requireCurrentModelVersions(value: unknown): OnboardingModelVersionsV3 {
   try {
     const versions = reconstructOnboardingModelVersions(value);
-    if (versions !== ONBOARDING_MODEL_VERSIONS_V2) throw failed();
+    if (versions !== ONBOARDING_MODEL_VERSIONS_V3) throw failed();
     return versions;
   } catch {
     throw failed();
