@@ -251,12 +251,17 @@ Onboarding production использует компактный Codex-facing ext
 существующий parser/guard. Questionnaire projection, Decision/session/provenance contracts и их
 authority не меняются.
 
-Новый exact production tuple равен `codex-cli-invocation@1` / `codex-cli 0.148.0-alpha.15` /
-`onboarding-extract@2` / `onboarding-review@1` / `onboarding-extraction-wire@2` /
-`onboarding-review-output@1`. Verified historical data принимает также только прежний полный
-`@1` tuple. Поля tuple нельзя независимо смешивать: любой `@1`/`@2` hybrid отклоняется. Оба tuple
-остаются частью immutable confirmation lineage и HMAC; новый wire не разрешает повторную генерацию
-исторического результата.
+Verified historical data принимает только два прежних полных tuple: V1 с
+`onboarding-extract@1` / `onboarding-model-output@1` и V2 с
+`onboarding-extract@2` / `onboarding-extraction-wire@2`. Exact current production tuple равен
+`codex-cli-invocation@1` / `codex-cli 0.148.0-alpha.15` /
+`onboarding-extract@3` / `onboarding-review@1` / `onboarding-extraction-wire@2` /
+`onboarding-review-output@1`. V3 меняет относительно V2 только extraction prompt: внешний wire,
+schema и Decision semantics остаются прежними. Prompt @3 представляет те же 172 адреса через exact
+catalog-generated algebra из `2026-08-23-onboarding-extraction-code-algebra-design.md`, а не через
+172 повторённых `code=fieldId` пары. Поля tuple нельзя независимо смешивать: любой V1/V2/V3 hybrid
+отклоняется. Все три полных tuple остаются частью immutable confirmation lineage и HMAC; новый prompt
+не разрешает повторную генерацию или перепись исторического результата.
 
 Remote Codex generation не считается byte-deterministic. Replay всегда использует сохранённый
 guarded output и не запускает Codex повторно. В Life Git причинными называются deterministic

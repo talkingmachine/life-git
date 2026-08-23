@@ -1163,11 +1163,12 @@ git commit -m "feat: launch frontier from onboarding"
 
 ### Task 8: Deliver the questionnaire/chat workspace as the default route
 
-**Execution split:** complete the UI, fixture and timing-contract preparation in Steps 1–4, then
-execute Task 10 in full before resuming Steps 5–8. Task 10 owns the V2 wire/evidence upgrade and its
-timing changes satisfy the implementation half of Step 5; Task 8 re-runs that fake gate, runs the
-authorized real gates and commits the remaining UI slice. This split keeps the unchanged canonical
-fixture available to Task 10 without making completed Task 8 depend on a future type or artifact.
+**Execution split:** Steps 1–4 provide the UI, fixture, and timing-contract scaffold. Completed Task
+10 remains the historical V2 wire/evidence upgrade. Before resuming Steps 5–8, execute the approved
+V3 successor in `docs/superpowers/plans/2026-08-23-onboarding-extraction-code-algebra.md`: it owns
+the single compact prompt-algebra candidate, exact V3 lineage, regenerated `@3` evidence, and the
+one-feasibility/one-conditional-timing gate. Task 8 may resume only after both reviewed V3 artifacts
+pass; it must not stage the V3 slice or supply another prompt/fixture/runtime path.
 
 **Files:**
 - Create: `src/experience/components/OnboardingStart.tsx`
@@ -1553,6 +1554,14 @@ git commit -m "feat: bind onboarding to city criteria"
 
 ### Task 10: Compact the extraction wire without changing onboarding semantics
 
+> **V3 successor amendment (2026-08-23):** Task 10 below remains the exact historical V2 build and
+> diagnostic record. Current execution continues through
+> `docs/superpowers/specs/2026-08-23-onboarding-extraction-code-algebra-design.md` and
+> `docs/superpowers/plans/2026-08-23-onboarding-extraction-code-algebra.md`. They authorize one
+> catalog-generated `onboarding-extract@3` prompt candidate over the unchanged
+> `onboarding-extraction-wire@2`; no prompt sweep, retry, fallback, timeout increase, model pin,
+> sharding, prefill, or alternate fixture is authorized.
+
 **Files:**
 - Create: `src/application/onboarding-model-versions.ts`
 - Create: `src/infrastructure/codex-cli/onboarding-extraction-wire.ts`
@@ -1713,11 +1722,29 @@ git add src/application/onboarding-model-versions.ts \
 git commit -m "feat: compact onboarding extraction wire"
 ```
 
+### Task 11: Replace the expanded prompt table with the approved V3 algebra
+
+**Authority:**
+`docs/superpowers/specs/2026-08-23-onboarding-extraction-code-algebra-design.md` and
+`docs/superpowers/plans/2026-08-23-onboarding-extraction-code-algebra.md`.
+
+Task 11 preserves the completed Task 10 `onboarding-extraction-wire@2`, schema, decoder and Decision
+semantics. It adds exact V3 lineage whose only V2→V3 change is
+`extractionPrompt:"onboarding-extract@3"`, replaces the prompt's 172 expanded pairs with the exact
+catalog-generated 785-byte algebra, advances sanitized feasibility/diagnostic/timing evidence to
+`@3`, and keeps V1/V2 verification byte-exact.
+
+- [ ] Commit the tracked successor documentation before production RED.
+- [ ] Complete the V3 lineage, algebra and evidence RED→GREEN commits without Task 8 files.
+- [ ] Require full static GREEN and independent Critical 0 / Important 0 review before external calls.
+- [ ] Run one real seven-case feasibility gate; only on pass, run one canonical timing gate; stop on
+  failure without retry, fallback, alternate prompt, timeout increase or model pin.
+
 ## Completion Gate
 
 Onboarding is complete when the authorized real Codex extraction/review eval passes and the reviewed
-prepared-Mac `onboarding-model-feasibility@2` and `onboarding-journey-timing@2` artifacts bind the
-exact V2 model tuple, all seven semantic cases, and an accepted Frontier handoff in no more
+prepared-Mac `onboarding-model-feasibility@3` and `onboarding-journey-timing@3` artifacts bind the
+exact V3 model tuple, all seven semantic cases, and an accepted Frontier handoff in no more
 than `35_000` ms; `/` shows the approved
 questionnaire/chat/globe layout; manual edits and reversible yellow overwrite work; unusable required
 values block on server review; one successful Continue atomically stores only structured `@2`
