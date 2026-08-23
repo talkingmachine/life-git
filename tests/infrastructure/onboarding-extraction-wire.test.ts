@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
+  ONBOARDING_MODEL_VERSIONS_V3,
   reconstructOnboardingModelVersions,
 } from "../../src/application/onboarding-model-versions";
 import {
@@ -140,7 +141,7 @@ describe("onboarding extraction wire codebook", () => {
 });
 
 describe("onboarding model version lineage", () => {
-  test("retains the historical tuple and pins the current tuple as two frozen wholes", () => {
+  test("retains the historical tuples and pins each supported lineage as a frozen whole", () => {
     expect(ONBOARDING_MODEL_VERSIONS_V1).toEqual({
       invocation: "codex-cli-invocation@1",
       cliVersion: "codex-cli 0.148.0-alpha.15",
@@ -157,59 +158,92 @@ describe("onboarding model version lineage", () => {
       extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
     });
+    expect(ONBOARDING_MODEL_VERSIONS_V3).toEqual({
+      invocation: "codex-cli-invocation@1",
+      cliVersion: "codex-cli 0.148.0-alpha.15",
+      extractionPrompt: "onboarding-extract@3",
+      reviewPrompt: "onboarding-review@1",
+      extractionSchema: "onboarding-extraction-wire@2",
+      reviewSchema: "onboarding-review-output@1",
+    });
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V1)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V2)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V3)).toBe(true);
     expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V1 }))
       .toBe(ONBOARDING_MODEL_VERSIONS_V1);
     expect(reconstructOnboardingModelVersions(Object.assign(
       Object.create(null) as object,
       ONBOARDING_MODEL_VERSIONS_V2,
     ))).toBe(ONBOARDING_MODEL_VERSIONS_V2);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V3 }))
+      .toBe(ONBOARDING_MODEL_VERSIONS_V3);
+  });
+
+  test("accepts exact whole tuples and rejects every meaningful prompt/schema mismatch", () => {
+    const exactTuples = [
+      ONBOARDING_MODEL_VERSIONS_V1,
+      ONBOARDING_MODEL_VERSIONS_V2,
+      ONBOARDING_MODEL_VERSIONS_V3,
+    ] as const;
+
+    for (const tuple of exactTuples) {
+      expect(reconstructOnboardingModelVersions({ ...tuple })).toBe(tuple);
+    }
+
+    for (const hybrid of [
+      { ...ONBOARDING_MODEL_VERSIONS_V1, extractionSchema: "onboarding-extraction-wire@2" },
+      { ...ONBOARDING_MODEL_VERSIONS_V2, extractionSchema: "onboarding-model-output@1" },
+      { ...ONBOARDING_MODEL_VERSIONS_V3, extractionSchema: "onboarding-model-output@1" },
+    ]) {
+      expect(() => reconstructOnboardingModelVersions(hybrid)).toThrow(TypeError);
+    }
   });
 
   test.each([
-    {
-      ...ONBOARDING_MODEL_VERSIONS_V1,
-      extractionPrompt: ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt,
-    },
-    {
-      ...ONBOARDING_MODEL_VERSIONS_V1,
-      extractionSchema: ONBOARDING_MODEL_VERSIONS_V2.extractionSchema,
-    },
-  ])("rejects every V1/V2 hybrid tuple", (hybrid) => {
-    expect(() => reconstructOnboardingModelVersions(hybrid)).toThrow();
-  });
+    ["V2", ONBOARDING_MODEL_VERSIONS_V2],
+    ["V3", ONBOARDING_MODEL_VERSIONS_V3],
+  ] as const)(
+    "rejects extra, missing, accessor, symbol, non-enumerable, custom-prototype and Proxy tuples for %s",
+    (_lineage, versions) => {
+      const getter = vi.fn(() => versions.invocation);
+      const missing = Object.fromEntries(
+        Object.entries(versions).filter(([key]) => key !== "invocation"),
+      );
+      const accessor = Object.defineProperty({ ...versions }, "invocation", {
+        enumerable: true,
+        get: getter,
+      });
+      const symbol = Object.assign({ ...versions }, { [Symbol("hostile")]: true });
+      const nonEnumerable = Object.defineProperty({ ...versions }, "invocation", {
+        enumerable: false,
+      });
+      const customPrototype = Object.assign(Object.create({ inherited: true }), versions);
+      const trap = vi.fn(() => {
+        throw new Error("versions_proxy_trap");
+      });
+      const proxy = new Proxy({ ...versions }, {
+        get: trap,
+        getOwnPropertyDescriptor: trap,
+        getPrototypeOf: trap,
+        ownKeys: trap,
+      });
+      expect(types.isProxy(proxy)).toBe(true);
 
-  test("rejects extra, missing, accessor, symbol, non-enumerable, custom-prototype and Proxy tuples", () => {
-    const getter = vi.fn(() => ONBOARDING_MODEL_VERSIONS_V2.invocation);
-    const missing = Object.fromEntries(
-      Object.entries(ONBOARDING_MODEL_VERSIONS_V2).filter(([key]) => key !== "invocation"),
-    );
-    const accessor = Object.defineProperty({ ...ONBOARDING_MODEL_VERSIONS_V2 }, "invocation", {
-      enumerable: true,
-      get: getter,
-    });
-    const symbol = Object.assign({ ...ONBOARDING_MODEL_VERSIONS_V2 }, { [Symbol("hostile")]: true });
-    const nonEnumerable = Object.defineProperty({ ...ONBOARDING_MODEL_VERSIONS_V2 }, "invocation", {
-      enumerable: false,
-    });
-    const customPrototype = Object.assign(Object.create({ inherited: true }), ONBOARDING_MODEL_VERSIONS_V2);
-    const proxy = new Proxy({ ...ONBOARDING_MODEL_VERSIONS_V2 }, {});
-    expect(types.isProxy(proxy)).toBe(true);
-
-    for (const hostile of [
-      { ...ONBOARDING_MODEL_VERSIONS_V2, extra: true },
-      missing,
-      accessor,
-      symbol,
-      nonEnumerable,
-      customPrototype,
-      proxy,
-    ]) {
-      expect(() => reconstructOnboardingModelVersions(hostile)).toThrow();
-    }
-    expect(getter).not.toHaveBeenCalled();
-  });
+      for (const hostile of [
+        { ...versions, extra: true },
+        missing,
+        accessor,
+        symbol,
+        nonEnumerable,
+        customPrototype,
+        proxy,
+      ]) {
+        expect(() => reconstructOnboardingModelVersions(hostile)).toThrow();
+      }
+      expect(getter).not.toHaveBeenCalled();
+      expect(trap).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("onboarding extraction wire decoder", () => {

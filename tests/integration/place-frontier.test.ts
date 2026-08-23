@@ -26,6 +26,7 @@ import type {
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
+  ONBOARDING_MODEL_VERSIONS_V3,
 } from "../../src/application/onboarding-model-versions";
 import type { ColdStartEvent } from "../../src/application/cold-start";
 import {
@@ -1212,8 +1213,15 @@ async function concurrentStoreWrites(input: {
 }
 
 describe("Onboarding receipt Place Frontier", () => {
-  test("prepares current V2 lineage at its fixed run and time, then fast-replays it", async () => {
-    const fixture = await receiptHarness();
+  test.each([
+    ["historical V1", ONBOARDING_MODEL_VERSIONS_V1],
+    ["current V2", ONBOARDING_MODEL_VERSIONS_V2],
+    ["current V3", ONBOARDING_MODEL_VERSIONS_V3],
+  ] as const)("prepares the exact %s lineage at its fixed run and time, then fast-replays it", async (
+    _lineage,
+    versions,
+  ) => {
+    const fixture = await receiptHarness({ versions });
 
     const first = await fixture.application.prepareFromOnboardingReceipt(fixture.receipt);
     expect(first).toEqual({
@@ -1391,24 +1399,49 @@ describe("Onboarding receipt Place Frontier", () => {
   });
 
   test.each([
-    ["V2 prompt with V1 schema", {
-      ...ONBOARDING_MODEL_VERSIONS_V1,
-      extractionPrompt: ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt,
-    }],
-    ["V1 prompt with V2 schema", {
+    ["@1/@2", {
       ...ONBOARDING_MODEL_VERSIONS_V1,
       extractionSchema: ONBOARDING_MODEL_VERSIONS_V2.extractionSchema,
     }],
-  ] as const)("rejects the %s hybrid before ranking reads or writes", async (
+    ["@2/@1", {
+      ...ONBOARDING_MODEL_VERSIONS_V2,
+      extractionSchema: ONBOARDING_MODEL_VERSIONS_V1.extractionSchema,
+    }],
+    ["@3/@1", {
+      ...ONBOARDING_MODEL_VERSIONS_V3,
+      extractionSchema: ONBOARDING_MODEL_VERSIONS_V1.extractionSchema,
+    }],
+  ] as const)("rejects the fully re-signed %s prompt/schema pair before ranking reads or writes", async (
     _hybridName,
     versions,
   ) => {
     // Break caught: independently accepting prompt and schema labels at Frontier.
     const fixture = await receiptHarness({
-      transformConfirmation: (confirmation) => ({
-        ...confirmation,
-        versions: versions as unknown as OnboardingModelVersions,
-      }),
+      transformConfirmation: (confirmation) => {
+        const receipt = {
+          schemaVersion: confirmation.receipt.schemaVersion,
+          receiptId: confirmation.receipt.receiptId,
+          completionCommandId: confirmation.receipt.completionCommandId,
+          profileId: confirmation.receipt.profileId,
+          preferenceProfileId: confirmation.receipt.preferenceProfileId,
+          frontierRunId: confirmation.receipt.frontierRunId,
+          confirmedAt: confirmation.receipt.confirmedAt,
+        };
+        const integrity = createEvidenceIntegrity(HMAC_KEY);
+        const confirmationDigest = integrity.sign(integrity.canonical({
+          schemaVersion: "onboarding-confirmation-binding@1",
+          receipt,
+          profile: confirmation.profile,
+          preferences: confirmation.preferences,
+          provenance: confirmation.provenance,
+          versions,
+        }));
+        return {
+          ...confirmation,
+          receipt: { ...confirmation.receipt, confirmationDigest },
+          versions: versions as unknown as OnboardingModelVersions,
+        };
+      },
     });
 
     await expect(fixture.application.prepareFromOnboardingReceipt(fixture.receipt))
@@ -1491,8 +1524,8 @@ describe("Onboarding receipt Place Frontier", () => {
     expect(fixture.counts.inserts()).toBe(0);
   });
 
-  test("rejects unsigned exact-tuple tamper and a re-signed hybrid before ranking access", async () => {
-    // Break caught: omitting lineage from HMAC input or treating a valid HMAC as tuple validity.
+  test("rejects an unsigned exact-tuple tamper before ranking access", async () => {
+    // Break caught: omitting lineage from the confirmation HMAC input.
     const unsigned = await receiptHarness({
       transformConfirmation: (confirmation) => ({
         ...confirmation,
@@ -1506,43 +1539,6 @@ describe("Onboarding receipt Place Frontier", () => {
     expect(unsigned.counts.ranks()).toBe(0);
     expect(unsigned.counts.inserts()).toBe(0);
 
-    const resigned = await receiptHarness({
-      transformConfirmation: (confirmation) => {
-        const versions = {
-          ...ONBOARDING_MODEL_VERSIONS_V1,
-          extractionPrompt: ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt,
-        };
-        const receipt = {
-          schemaVersion: confirmation.receipt.schemaVersion,
-          receiptId: confirmation.receipt.receiptId,
-          completionCommandId: confirmation.receipt.completionCommandId,
-          profileId: confirmation.receipt.profileId,
-          preferenceProfileId: confirmation.receipt.preferenceProfileId,
-          frontierRunId: confirmation.receipt.frontierRunId,
-          confirmedAt: confirmation.receipt.confirmedAt,
-        };
-        const integrity = createEvidenceIntegrity(HMAC_KEY);
-        const confirmationDigest = integrity.sign(integrity.canonical({
-          schemaVersion: "onboarding-confirmation-binding@1",
-          receipt,
-          profile: confirmation.profile,
-          preferences: confirmation.preferences,
-          provenance: confirmation.provenance,
-          versions,
-        }));
-        return {
-          ...confirmation,
-          receipt: { ...confirmation.receipt, confirmationDigest },
-          versions: versions as unknown as OnboardingModelVersions,
-        };
-      },
-    });
-    await expect(resigned.application.prepareFromOnboardingReceipt(resigned.receipt))
-      .rejects.toThrow("integrity_mismatch");
-    expect(resigned.counts.rankingReads()).toBe(0);
-    expect(resigned.counts.freezes()).toBe(0);
-    expect(resigned.counts.ranks()).toBe(0);
-    expect(resigned.counts.inserts()).toBe(0);
   });
 
   test("rejects an existing fixed run bound to another verified confirmation", async () => {

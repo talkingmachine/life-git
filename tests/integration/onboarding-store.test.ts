@@ -10,6 +10,7 @@ import type { OnboardingModelVersions } from "../../src/application/onboarding-c
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
+  ONBOARDING_MODEL_VERSIONS_V3,
 } from "../../src/application/onboarding-model-versions";
 import { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from
   "../../src/decision/onboarding-catalog";
@@ -41,8 +42,16 @@ const V2_VERSIONS_JSON =
   '{"cliVersion":"codex-cli 0.148.0-alpha.15","extractionPrompt":"onboarding-extract@2",' +
   '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@1",' +
   '"reviewPrompt":"onboarding-review@1","reviewSchema":"onboarding-review-output@1"}';
+const V3_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli 0.148.0-alpha.15","extractionPrompt":"onboarding-extract@3",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@1",' +
+  '"reviewPrompt":"onboarding-review@1","reviewSchema":"onboarding-review-output@1"}';
 const V1_CONFIRMATION_DIGEST =
   "f1714bd3354b4a05f2f6ebee7ad6d28d2fd1d6f1702aa21d7856fa3e15e5ff32";
+const V2_CONFIRMATION_DIGEST =
+  "55e1bcc2b73c1f7b09dcf46f7be2065b957eb494eebd5a3b1dae61a2887485df";
+const V3_CONFIRMATION_DIGEST =
+  "b7bccce0fbec4090df4296afb3ef2d4fcefe1df6e8e1012efe0870873063e525";
 
 const databases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
@@ -212,12 +221,14 @@ describe("SQLite onboarding confirmation persistence", () => {
   });
 
   test.each([
-    ["historical V1", ONBOARDING_MODEL_VERSIONS_V1, V1_VERSIONS_JSON],
-    ["current V2", ONBOARDING_MODEL_VERSIONS_V2, V2_VERSIONS_JSON],
+    ["historical V1", ONBOARDING_MODEL_VERSIONS_V1, V1_VERSIONS_JSON, V1_CONFIRMATION_DIGEST],
+    ["current V2", ONBOARDING_MODEL_VERSIONS_V2, V2_VERSIONS_JSON, V2_CONFIRMATION_DIGEST],
+    ["current V3", ONBOARDING_MODEL_VERSIONS_V3, V3_VERSIONS_JSON, V3_CONFIRMATION_DIGEST],
   ] as const)("persists and reopens the exact %s tuple without rewriting its row", async (
     _lineage,
     versions,
     expectedVersionsJson,
+    expectedConfirmationDigest,
   ) => {
     // Break caught: migrating historical rows or failing to persist the current whole tuple.
     const path = temporaryDatabasePath("onboarding-lineage-");
@@ -237,9 +248,13 @@ describe("SQLite onboarding confirmation persistence", () => {
     });
 
     expect(verified.versions).toBe(versions);
+    expect(receipt.confirmationDigest).toBe(expectedConfirmationDigest);
     expect(reopened.prepare(`
-      SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?
-    `).get(receipt.receiptId)).toEqual({ versions_json: expectedVersionsJson });
+      SELECT versions_json, confirmation_digest FROM onboarding_confirmations WHERE receipt_id = ?
+    `).get(receipt.receiptId)).toEqual({
+      versions_json: expectedVersionsJson,
+      confirmation_digest: expectedConfirmationDigest,
+    });
     expect(reopened.prepare(`
       SELECT * FROM onboarding_confirmations WHERE receipt_id = ?
     `).get(receipt.receiptId)).toEqual(rowBefore);
@@ -436,7 +451,11 @@ describe("SQLite onboarding confirmation persistence", () => {
 
   test.each([
     ["V1 then V2", ONBOARDING_MODEL_VERSIONS_V1, ONBOARDING_MODEL_VERSIONS_V2],
+    ["V1 then V3", ONBOARDING_MODEL_VERSIONS_V1, ONBOARDING_MODEL_VERSIONS_V3],
     ["V2 then V1", ONBOARDING_MODEL_VERSIONS_V2, ONBOARDING_MODEL_VERSIONS_V1],
+    ["V2 then V3", ONBOARDING_MODEL_VERSIONS_V2, ONBOARDING_MODEL_VERSIONS_V3],
+    ["V3 then V1", ONBOARDING_MODEL_VERSIONS_V3, ONBOARDING_MODEL_VERSIONS_V1],
+    ["V3 then V2", ONBOARDING_MODEL_VERSIONS_V3, ONBOARDING_MODEL_VERSIONS_V2],
   ] as const)("classifies a same-command %s replay as conflict before issuance or writes", async (
     _direction,
     committedVersions,
