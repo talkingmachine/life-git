@@ -27,6 +27,19 @@ const CURRENT_STAGE_SHAPE_CHECK = `
     )
   )`;
 
+const CURRENT_ARTIFACT_ORIGIN_CHECK = `CHECK (
+    (origin = 'live'
+      AND url IS NOT NULL AND captured_at IS NOT NULL AND response_status IS NOT NULL
+      AND response_url IS NOT NULL AND request_json IS NOT NULL
+      AND producer IS NULL AND created_at IS NULL)
+    OR
+    (origin = 'administrative'
+      AND url IS NULL AND captured_at IS NULL AND response_status IS NULL
+      AND response_url IS NULL AND request_json IS NULL
+      AND producer IS NOT NULL AND length(producer) > 0
+      AND created_at IS NOT NULL AND length(created_at) > 0)
+  )`;
+
 afterEach(() => {
   for (const database of databases.splice(0)) {
     if (database.open) database.close();
@@ -120,7 +133,254 @@ function createRunRevisionsSchema(
   return database;
 }
 
+interface DirectArtifactRow {
+  readonly run_id: string;
+  readonly artifact_id: string;
+  readonly source_id: string;
+  readonly role: string;
+  readonly url: string | null;
+  readonly media_type: string;
+  readonly sha256: string;
+  readonly bytes: Uint8Array;
+  readonly byte_length: number;
+  readonly origin: string | null;
+  readonly captured_at: string | null;
+  readonly response_status: number | null;
+  readonly response_url: string | null;
+  readonly request_json: string | null;
+  readonly producer: string | null;
+  readonly created_at: string | null;
+  readonly sealed: number;
+}
+
+function directArtifactRow(
+  artifactId: string,
+  origin: "live" | "administrative",
+  overrides: Partial<DirectArtifactRow> = {},
+): DirectArtifactRow {
+  const live = origin === "live";
+  return {
+    run_id: "direct-schema-run",
+    artifact_id: artifactId,
+    source_id: "direct-schema-source",
+    role: "official-document",
+    url: live ? "https://official.example/source" : null,
+    media_type: "application/octet-stream",
+    sha256: "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+    bytes: Uint8Array.of(1),
+    byte_length: 1,
+    origin,
+    captured_at: live ? "2026-08-24T10:00:00.000Z" : null,
+    response_status: live ? 200 : null,
+    response_url: live ? "https://official.example/source" : null,
+    request_json: live ? '{"method":"GET","url":"https://official.example/source"}' : null,
+    producer: live ? null : "install-city-package@1",
+    created_at: live ? null : "2026-08-24T10:00:00.000Z",
+    sealed: 0,
+    ...overrides,
+  };
+}
+
+function insertDirectArtifact(database: Database.Database, row: DirectArtifactRow): void {
+  database.prepare(`
+    INSERT INTO artifacts (
+      run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
+      byte_length, origin, captured_at, response_status, response_url, request_json,
+      producer, created_at, sealed
+    ) VALUES (
+      @run_id, @artifact_id, @source_id, @role, @url, @media_type, @sha256, @bytes,
+      @byte_length, @origin, @captured_at, @response_status, @response_url, @request_json,
+      @producer, @created_at, @sealed
+    )
+  `).run(row);
+}
+
 describe("database schema preflight", () => {
+  test("installs the exact live or administrative artifact discriminator", () => {
+    // Break caught: a weaker SQL shape accepting mixed HTTP and administrative provenance.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const artifactSql = database.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'artifacts'",
+    ).pluck().get() as string;
+
+    expect(artifactSql).toContain("CHECK (origin IN ('live', 'administrative'))");
+    expect(artifactSql).toContain(
+      "CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599)",
+    );
+    expect(artifactSql).toContain(CURRENT_ARTIFACT_ORIGIN_CHECK);
+    expect(database.prepare("PRAGMA table_info(artifacts)").all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "url", notnull: 0 }),
+        expect.objectContaining({ name: "captured_at", notnull: 0 }),
+        expect.objectContaining({ name: "response_status", notnull: 0 }),
+        expect.objectContaining({ name: "response_url", notnull: 0 }),
+        expect.objectContaining({ name: "request_json", notnull: 0 }),
+        expect.objectContaining({ name: "producer", notnull: 0 }),
+        expect.objectContaining({ name: "created_at", notnull: 0 }),
+      ]),
+    );
+
+    expect(() => insertDirectArtifact(
+      database,
+      directArtifactRow("valid-live", "live"),
+    )).not.toThrow();
+    expect(() => insertDirectArtifact(
+      database,
+      directArtifactRow("valid-administrative", "administrative"),
+    )).not.toThrow();
+  });
+
+  test.each([
+    ["NULL origin", "live", { origin: null }],
+    ["unknown origin", "live", { origin: "imported" }],
+    ["live NULL url", "live", { url: null }],
+    ["live NULL captured_at", "live", { captured_at: null }],
+    ["live NULL response_status", "live", { response_status: null }],
+    ["live NULL response_url", "live", { response_url: null }],
+    ["live NULL request_json", "live", { request_json: null }],
+    ["live administrative producer", "live", { producer: "mixed" }],
+    ["live administrative created_at", "live", { created_at: "2026-08-24T10:00:00.000Z" }],
+    ["live response status below HTTP range", "live", { response_status: 99 }],
+    ["live response status above HTTP range", "live", { response_status: 600 }],
+    ["administrative live url", "administrative", { url: "https://mixed.example" }],
+    ["administrative live captured_at", "administrative", {
+      captured_at: "2026-08-24T10:00:00.000Z",
+    }],
+    ["administrative live response_status", "administrative", { response_status: 200 }],
+    ["administrative live response_url", "administrative", {
+      response_url: "https://mixed.example",
+    }],
+    ["administrative live request_json", "administrative", { request_json: "{}" }],
+    ["administrative NULL producer", "administrative", { producer: null }],
+    ["administrative empty producer", "administrative", { producer: "" }],
+    ["administrative NULL created_at", "administrative", { created_at: null }],
+    ["administrative empty created_at", "administrative", { created_at: "" }],
+    ["NULL common run_id", "live", { run_id: null }],
+    ["NULL common artifact_id", "live", { artifact_id: null }],
+    ["NULL common source_id", "administrative", { source_id: null }],
+    ["NULL common role", "live", { role: null }],
+    ["NULL common media_type", "administrative", { media_type: null }],
+    ["NULL common sha256", "live", { sha256: null }],
+    ["NULL common bytes", "administrative", { bytes: null }],
+    ["NULL common byte_length", "live", { byte_length: null }],
+    ["invalid sealed discriminator", "live", { sealed: 2 }],
+  ] as const)("rejects direct SQL %s", (_name, origin, overrides) => {
+    // Break caught: relying on adapter validation while direct SQL admits an invalid union row.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const row = directArtifactRow(
+      `invalid-${_name.replaceAll(" ", "-")}`,
+      origin,
+      overrides as Partial<DirectArtifactRow>,
+    );
+    expect(() => insertDirectArtifact(database, row)).toThrow();
+  });
+
+  test("rejects the prior live-only artifact table before any schema execution and preserves it", () => {
+    // Break caught: CREATE IF NOT EXISTS silently accepting or automatically resetting old evidence.
+    const path = temporaryDatabasePath();
+    const legacy = track(new Database(path));
+    legacy.exec(`
+      CREATE TABLE artifacts (
+        run_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        url TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        bytes BLOB NOT NULL,
+        byte_length INTEGER NOT NULL,
+        origin TEXT NOT NULL CHECK (origin = 'live'),
+        captured_at TEXT NOT NULL,
+        response_status INTEGER NOT NULL,
+        response_url TEXT NOT NULL,
+        request_json TEXT NOT NULL,
+        sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+        PRIMARY KEY (run_id, artifact_id)
+      )
+    `);
+    legacy.prepare(`
+      INSERT INTO artifacts (
+        run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
+        byte_length, origin, captured_at, response_status, response_url, request_json, sealed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?, 0)
+    `).run(
+      "legacy-run",
+      "legacy-artifact",
+      "legacy-source",
+      "official-document",
+      "https://official.example/legacy",
+      "application/octet-stream",
+      "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+      Uint8Array.of(1),
+      1,
+      "2026-08-24T10:00:00.000Z",
+      200,
+      "https://official.example/legacy",
+      '{"method":"GET","url":"https://official.example/legacy"}',
+    );
+    const before = storedSchema(legacy);
+    legacy.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+    expect(verification.prepare(
+      "SELECT artifact_id, bytes FROM artifacts",
+    ).get()).toEqual({ artifact_id: "legacy-artifact", bytes: Buffer.from([1]) });
+    expect(verification.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all()).toEqual([{ name: "artifacts" }]);
+  });
+
+  test("rejects a new-column artifact table with a weakened discriminator without changing it", () => {
+    // Break caught: preflighting columns while accepting a missing producer/created-time constraint.
+    const path = temporaryDatabasePath();
+    const weakened = track(new Database(path));
+    weakened.exec(`
+      CREATE TABLE artifacts (
+        run_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        url TEXT,
+        media_type TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        bytes BLOB NOT NULL,
+        byte_length INTEGER NOT NULL,
+        origin TEXT NOT NULL CHECK (origin IN ('live', 'administrative')),
+        captured_at TEXT,
+        response_status INTEGER,
+        response_url TEXT,
+        request_json TEXT,
+        producer TEXT,
+        created_at TEXT,
+        sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+        CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599),
+        CHECK (
+          (origin = 'live' AND url IS NOT NULL AND captured_at IS NOT NULL
+            AND response_status IS NOT NULL AND response_url IS NOT NULL
+            AND request_json IS NOT NULL AND producer IS NULL AND created_at IS NULL)
+          OR
+          (origin = 'administrative' AND url IS NULL AND captured_at IS NULL
+            AND response_status IS NULL AND response_url IS NULL AND request_json IS NULL)
+        ),
+        PRIMARY KEY (run_id, artifact_id)
+      )
+    `);
+    const before = storedSchema(weakened);
+    weakened.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+    expect(verification.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all()).toEqual([{ name: "artifacts" }]);
+  });
+
   test("rejects an existing incompatible country Knowledge table before schema execution", () => {
     const path = temporaryDatabasePath();
     const incompatible = track(new Database(path));

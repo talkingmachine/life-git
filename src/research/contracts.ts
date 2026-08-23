@@ -127,13 +127,18 @@ export interface EvidenceSnapshot<
   readonly hmac: string;
 }
 
-export interface ArtifactBytes {
+export type EvidenceOrigin = "live" | "administrative";
+
+export interface ArtifactContent {
   readonly artifactId: string;
   readonly role: string;
-  readonly url: string;
   readonly mediaType: string;
   readonly sha256: string;
   readonly bytes: Uint8Array;
+}
+
+export interface ArtifactBytes extends ArtifactContent {
+  readonly url: string;
 }
 
 export interface LiveCapturedArtifact<S extends string = SourceId> extends ArtifactBytes {
@@ -150,6 +155,20 @@ export interface LiveCapturedArtifact<S extends string = SourceId> extends Artif
     readonly bodySha256?: string;
   };
 }
+
+export interface AdministrativeCapturedArtifact<S extends string = SourceId>
+  extends ArtifactContent {
+  readonly runId: string;
+  readonly sourceId: S;
+  readonly origin: "administrative";
+  readonly producer: string;
+  readonly createdAt: string;
+}
+
+export type CapturedArtifactForOrigin<
+  S extends string = SourceId,
+  O extends EvidenceOrigin = "live",
+> = O extends "live" ? LiveCapturedArtifact<S> : AdministrativeCapturedArtifact<S>;
 
 export interface CaptureRequest<S extends string = SourceId> {
   readonly runId: string;

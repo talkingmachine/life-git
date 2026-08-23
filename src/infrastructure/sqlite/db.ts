@@ -5,6 +5,42 @@ import Database from "better-sqlite3";
 
 const schema = readFileSync(resolve("src/infrastructure/sqlite/schema.sql"), "utf8");
 
+const CURRENT_ARTIFACTS_TABLE = normalizeExactSchemaSql(`
+CREATE TABLE IF NOT EXISTS artifacts (
+  run_id TEXT NOT NULL,
+  artifact_id TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  url TEXT,
+  media_type TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  bytes BLOB NOT NULL,
+  byte_length INTEGER NOT NULL,
+  origin TEXT NOT NULL CHECK (origin IN ('live', 'administrative')),
+  captured_at TEXT,
+  response_status INTEGER,
+  response_url TEXT,
+  request_json TEXT,
+  producer TEXT,
+  created_at TEXT,
+  sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+  CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599),
+  CHECK (
+    (origin = 'live'
+      AND url IS NOT NULL AND captured_at IS NOT NULL AND response_status IS NOT NULL
+      AND response_url IS NOT NULL AND request_json IS NOT NULL
+      AND producer IS NULL AND created_at IS NULL)
+    OR
+    (origin = 'administrative'
+      AND url IS NULL AND captured_at IS NULL AND response_status IS NULL
+      AND response_url IS NULL AND request_json IS NULL
+      AND producer IS NOT NULL AND length(producer) > 0
+      AND created_at IS NOT NULL AND length(created_at) > 0)
+  ),
+  PRIMARY KEY (run_id, artifact_id)
+);
+`);
+
 const CURRENT_RUN_REVISIONS_STAGE_CHECK = normalizeSchemaSql(`
   CHECK (
     (
@@ -210,6 +246,17 @@ function normalizeExactSchemaSql(value: string): string {
   return withoutOptionalExistence.endsWith(";")
     ? withoutOptionalExistence.slice(0, -1).trimEnd()
     : withoutOptionalExistence;
+}
+
+function preflightExistingArtifacts(database: Database.Database): void {
+  const entry = database.prepare(`
+    SELECT type, sql FROM sqlite_master WHERE name = 'artifacts'
+  `).get() as SchemaEntry | undefined;
+  if (entry === undefined) return;
+  if (
+    entry.type !== "table" || entry.sql === null ||
+    normalizeExactSchemaSql(entry.sql) !== CURRENT_ARTIFACTS_TABLE
+  ) throw new Error("database_schema_reset_required");
 }
 
 function hasCurrentBranchCommitForeignKey(database: Database.Database): boolean {
@@ -448,6 +495,7 @@ export function openEvidenceDatabase(path: string): Database.Database {
   const database = new Database(path);
   try {
     database.pragma("foreign_keys = ON");
+    preflightExistingArtifacts(database);
     preflightExistingRunRevisions(database);
     preflightExistingCityEvidence(database);
     preflightExistingCountryKnowledge(database);

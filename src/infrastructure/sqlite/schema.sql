@@ -3,17 +3,32 @@ CREATE TABLE IF NOT EXISTS artifacts (
   artifact_id TEXT NOT NULL,
   source_id TEXT NOT NULL,
   role TEXT NOT NULL,
-  url TEXT NOT NULL,
+  url TEXT,
   media_type TEXT NOT NULL,
   sha256 TEXT NOT NULL,
   bytes BLOB NOT NULL,
   byte_length INTEGER NOT NULL,
-  origin TEXT NOT NULL CHECK (origin = 'live'),
-  captured_at TEXT NOT NULL,
-  response_status INTEGER NOT NULL,
-  response_url TEXT NOT NULL,
-  request_json TEXT NOT NULL,
+  origin TEXT NOT NULL CHECK (origin IN ('live', 'administrative')),
+  captured_at TEXT,
+  response_status INTEGER,
+  response_url TEXT,
+  request_json TEXT,
+  producer TEXT,
+  created_at TEXT,
   sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+  CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599),
+  CHECK (
+    (origin = 'live'
+      AND url IS NOT NULL AND captured_at IS NOT NULL AND response_status IS NOT NULL
+      AND response_url IS NOT NULL AND request_json IS NOT NULL
+      AND producer IS NULL AND created_at IS NULL)
+    OR
+    (origin = 'administrative'
+      AND url IS NULL AND captured_at IS NULL AND response_status IS NULL
+      AND response_url IS NULL AND request_json IS NULL
+      AND producer IS NOT NULL AND length(producer) > 0
+      AND created_at IS NOT NULL AND length(created_at) > 0)
+  ),
   PRIMARY KEY (run_id, artifact_id)
 );
 
