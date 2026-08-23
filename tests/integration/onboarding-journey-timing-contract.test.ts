@@ -27,6 +27,7 @@ import {
   parseOnboardingJourneyTimingArguments,
   readOnboardingCanonicalJourneyFixture,
   removeStaleOnboardingJourneyTimingArtifact,
+  runOnboardingJourneyTimingEntrypointForTest,
   runOnboardingJourneyTimingForTest,
 } from "../../evals/onboarding-journey-timing";
 import {
@@ -790,36 +791,288 @@ describe("canonical timing session oracle", () => {
   });
 });
 
-describe("onboarding journey timing CLI boundary", () => {
-  test("accepts the exact leading separator forwarded by the approved pnpm command", () => {
-    expect(parseOnboardingJourneyTimingArguments([
-      "--",
-      "--artifact",
-      "data/evals/onboarding-journey-timing.json",
-    ])).toEqual({ artifactPath: "data/evals/onboarding-journey-timing.json" });
+describe("onboarding journey timing live-model launch gate", () => {
+  test.each([
+    ["direct", ["--artifact", "artifact.json"]],
+    ["package", ["--", "--artifact", "artifact.json"]],
+  ])("defers %s legacy timing argv after stale cleanup", async (_name, rawArguments) => {
+    const artifactPath = join(await temporaryDirectory(), "artifact.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    const runFinalProjectLiveModelGate = vi.fn();
+    const args = rawArguments.map((value) => value === "artifact.json" ? artifactPath : value);
+
+    const result = await runOnboardingJourneyTimingEntrypointForTest({
+      rawArguments: args,
+      runFinalProjectLiveModelGate,
+    });
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  test("accepts only the artifact path and exposes no fixture or retry override", () => {
-    expect(parseOnboardingJourneyTimingArguments([
-      "--artifact",
-      "data/evals/onboarding-journey-timing.json",
-    ])).toEqual({ artifactPath: "data/evals/onboarding-journey-timing.json" });
-    for (const args of [
-      [],
-      ["--artifact"],
-      ["--artifact", ""],
-      ["--artifact", "artifact.json", "--retry"],
-      ["--artifact", "artifact.json", "--fixture", "other.json"],
-      ["--fixture", "other.json"],
-      ["--"],
-      ["--", "--artifact"],
-      ["--", "artifact.json", "--artifact"],
-      ["--", "--", "--artifact", "artifact.json"],
-      ["--", "--artifact", "artifact.json", "--retry"],
-      ["--", "--artifact", "first.json", "--artifact", "second.json"],
-    ]) expect(() => parseOnboardingJourneyTimingArguments(args))
-      .toThrow(OnboardingJourneyTimingError);
+  test.each([
+    ["direct", false],
+    ["package", true],
+  ])("runs the enabled %s timing gate once with the resolved path", async (_name, packaged) => {
+    const artifactPath = join(await temporaryDirectory(), "artifact.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    const runFinalProjectLiveModelGate = vi.fn(async () => undefined);
+    const body = ["--final-project-live-model-gate", "--artifact", artifactPath];
+
+    const result = await runOnboardingJourneyTimingEntrypointForTest({
+      rawArguments: packaged ? ["--", ...body] : body,
+      runFinalProjectLiveModelGate,
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    expect(runFinalProjectLiveModelGate).toHaveBeenCalledTimes(1);
+    expect(runFinalProjectLiveModelGate).toHaveBeenCalledWith(artifactPath);
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  test.each([
+    ["direct", false],
+    ["package", true],
+  ])("contains an enabled %s timing callback rejection", async (_name, packaged) => {
+    const artifactPath = join(await temporaryDirectory(), "artifact.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    const observed: string[] = [];
+    const runFinalProjectLiveModelGate = vi.fn(async (canonicalArtifactPath: string) => {
+      observed.push(canonicalArtifactPath);
+      throw new Error(PRIVATE_SENTINEL);
+    });
+    const body = ["--final-project-live-model-gate", "--artifact", artifactPath];
+
+    const result = await runOnboardingJourneyTimingEntrypointForTest({
+      rawArguments: packaged ? ["--", ...body] : body,
+      runFinalProjectLiveModelGate,
+    });
+
+    expect(observed).toEqual([artifactPath]);
+    expect(runFinalProjectLiveModelGate).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "onboarding_journey_timing_failed\n",
+    });
+    expect(JSON.stringify(result)).not.toContain(PRIVATE_SENTINEL);
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("parses and freezes only the exact direct and package launch shapes", () => {
+    const legacyDirect = parseOnboardingJourneyTimingArguments(["--artifact", "artifact.json"]);
+    const legacyPackage = parseOnboardingJourneyTimingArguments(["--", "--artifact", "artifact.json"]);
+    const enabledDirect = parseOnboardingJourneyTimingArguments([
+      "--final-project-live-model-gate",
+      "--artifact",
+      "artifact.json",
+    ]);
+    const enabledPackage = parseOnboardingJourneyTimingArguments([
+      "--",
+      "--final-project-live-model-gate",
+      "--artifact",
+      "artifact.json",
+    ]);
+
+    expect(legacyDirect).toEqual({ mode: "deferred", artifactPath: "artifact.json" });
+    expect(legacyPackage).toEqual({ mode: "deferred", artifactPath: "artifact.json" });
+    expect(enabledDirect).toEqual({
+      mode: "final-project-live-model-gate",
+      artifactPath: "artifact.json",
+    });
+    expect(enabledPackage).toEqual({
+      mode: "final-project-live-model-gate",
+      artifactPath: "artifact.json",
+    });
+    expect([
+      legacyDirect,
+      legacyPackage,
+      enabledDirect,
+      enabledPackage,
+    ].every(Object.isFrozen)).toBe(true);
+  });
+
+  test.each([
+    ["empty", []],
+    ["missing artifact value", ["--artifact"]],
+    ["missing enabled artifact value", ["--final-project-live-model-gate", "--artifact"]],
+    ["duplicate flag", [
+      "--final-project-live-model-gate",
+      "--final-project-live-model-gate",
+      "--artifact",
+      "A",
+    ]],
+    ["misspelled flag", ["--final-project-live-model-gat", "--artifact", "A"]],
+    ["decorated flag", ["--final-project-live-model-gate=true", "--artifact", "A"]],
+    ["reordered flag", ["--artifact", "A", "--final-project-live-model-gate"]],
+    ["extra retry", ["--artifact", "A", "--retry"]],
+    ["extra artifact", ["--artifact", "A", "--artifact", "A"]],
+    ["repeated separator", ["--", "--", "--artifact", "A"]],
+    ["misplaced separator", ["--artifact", "A", "--"]],
+    ["separator after flag", ["--final-project-live-model-gate", "--", "--artifact", "A"]],
+  ])("rejects malformed timing argv: %s", async (_name, shape) => {
+    const artifactPath = join(await temporaryDirectory(), "artifact.json");
+    await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+    const rawArguments = shape.map((value) => value === "A" ? artifactPath : value);
+    const runFinalProjectLiveModelGate = vi.fn();
+
+    expect(() => parseOnboardingJourneyTimingArguments(rawArguments))
+      .toThrow(OnboardingJourneyTimingError);
+    const result = await runOnboardingJourneyTimingEntrypointForTest({
+      rawArguments,
+      runFinalProjectLiveModelGate,
+    });
+
+    expect(result).toEqual(deferredTimingLaunchResult());
+    expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+  });
+
+  test("rejects hostile timing argv without invoking traps or getters", async () => {
+    const hostileCases: { value: unknown; touched: () => number }[] = [];
+    let proxyTouches = 0;
+    hostileCases.push({
+      value: new Proxy(["--artifact", "artifact.json"], {
+        getPrototypeOf: () => { proxyTouches += 1; throw new Error(PRIVATE_SENTINEL); },
+        ownKeys: () => { proxyTouches += 1; throw new Error(PRIVATE_SENTINEL); },
+        getOwnPropertyDescriptor: () => { proxyTouches += 1; throw new Error(PRIVATE_SENTINEL); },
+      }),
+      touched: () => proxyTouches,
+    });
+    let getterTouches = 0;
+    const getterArray = ["--artifact", "artifact.json"];
+    Object.defineProperty(getterArray, "1", {
+      enumerable: true,
+      get: () => { getterTouches += 1; return "artifact.json"; },
+    });
+    hostileCases.push({ value: getterArray, touched: () => getterTouches });
+    const symbolArray = ["--artifact", "artifact.json"];
+    Object.defineProperty(symbolArray, Symbol("hostile"), { value: true });
+    hostileCases.push({ value: symbolArray, touched: () => 0 });
+    hostileCases.push({ value: new Array(2), touched: () => 0 });
+    const decoratedPrototype = ["--artifact", "artifact.json"];
+    Object.setPrototypeOf(decoratedPrototype, null);
+    hostileCases.push({ value: decoratedPrototype, touched: () => 0 });
+
+    for (const hostile of hostileCases) {
+      const runFinalProjectLiveModelGate = vi.fn();
+      const result = await runOnboardingJourneyTimingEntrypointForTest({
+        rawArguments: hostile.value,
+        runFinalProjectLiveModelGate,
+      });
+      expect(result).toEqual(deferredTimingLaunchResult());
+      expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+      expect(hostile.touched()).toBe(0);
+    }
+  });
+
+  test.each([
+    ["deferred", false],
+    ["deferred", true],
+    ["final-project-live-model-gate", false],
+    ["final-project-live-model-gate", true],
+  ] as const)(
+    "maps %s timing path failures for package=%s without destructive mutation",
+    async (mode, packaged) => {
+      const expected = mode === "deferred"
+        ? deferredTimingLaunchResult()
+        : {
+            exitCode: 1 as const,
+            stdout: "" as const,
+            stderr: "onboarding_journey_timing_failed\n" as const,
+          };
+      const fixturePath = fileURLToPath(FIXTURE_URL);
+      const originalFixture = new Uint8Array(await readFile(fixturePath));
+
+      for (const failure of ["fixture-alias", "extension", "directory"] as const) {
+        const directory = await temporaryDirectory();
+        let artifactPath = join(directory, "artifact.json");
+        if (failure === "fixture-alias") artifactPath = fixturePath;
+        if (failure === "extension") artifactPath = join(directory, "artifact.txt");
+        if (failure === "directory") await mkdir(artifactPath);
+        else if (failure !== "fixture-alias") await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+        const runFinalProjectLiveModelGate = vi.fn(async () => {
+          throw new Error(PRIVATE_SENTINEL);
+        });
+        const body = [
+          ...(mode === "deferred" ? [] : ["--final-project-live-model-gate"]),
+          "--artifact",
+          artifactPath,
+        ];
+
+        const result = await runOnboardingJourneyTimingEntrypointForTest({
+          rawArguments: packaged ? ["--", ...body] : body,
+          runFinalProjectLiveModelGate,
+        });
+
+        expect(result).toEqual(expected);
+        expect(JSON.stringify(result)).not.toContain(PRIVATE_SENTINEL);
+        expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+        if (failure === "fixture-alias") {
+          expect(new Uint8Array(await readFile(fixturePath))).toEqual(originalFixture);
+        } else if (failure === "directory") {
+          expect((await stat(artifactPath)).isDirectory()).toBe(true);
+        } else {
+          expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+        }
+      }
+    },
+  );
+
+  test("fails a decorated timing subprocess with only the deferred public result", async () => {
+    const artifactPath = join(await temporaryDirectory(), "artifact.json");
+    await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+
+    const result = await failingExecFile(process.execPath, [
+      "--import",
+      fileURLToPath(TSX_LOADER_URL),
+      fileURLToPath(MODULE_URL),
+      "--final-project-live-model-gate=true",
+      "--artifact",
+      artifactPath,
+    ]);
+
+    expect(result).toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+  });
+
+  test.each([
+    ["direct", false],
+    ["package", true],
+  ])("defers the canonical legacy %s timing subprocess and removes stale A", async (
+    _name,
+    packaged,
+  ) => {
+    const artifactPath = join(await temporaryDirectory(), "artifact.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    const legacyArguments = ["--artifact", artifactPath];
+
+    const result = await failingExecFile(process.execPath, [
+      "--import",
+      fileURLToPath(TSX_LOADER_URL),
+      fileURLToPath(MODULE_URL),
+      ...(packaged ? ["--", ...legacyArguments] : legacyArguments),
+    ]);
+
+    expect(result).toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("onboarding journey timing CLI boundary", () => {
 
   test("pins the package command, tracked fixture, and a no-research production boundary", async () => {
     const packageJson = JSON.parse(await readFile(PACKAGE_URL, "utf8")) as {
@@ -943,6 +1196,36 @@ async function temporaryDirectory(): Promise<string> {
 
 async function freshArtifactPath(): Promise<string> {
   return join(await temporaryDirectory(), "timing.json");
+}
+
+function deferredTimingLaunchResult() {
+  return {
+    exitCode: 1 as const,
+    stdout: "" as const,
+    stderr: "onboarding_live_model_gate_deferred\n" as const,
+  };
+}
+
+async function failingExecFile(file: string, args: string[]): Promise<{
+  readonly code: number | string | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
+  try {
+    await execFileAsync(file, args, { encoding: "utf8" });
+  } catch (error) {
+    const failure = error as Error & {
+      readonly code?: number | string | null;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
+    return {
+      code: failure.code ?? null,
+      stdout: failure.stdout ?? "",
+      stderr: failure.stderr ?? "",
+    };
+  }
+  throw new Error("expected subprocess failure");
 }
 
 function sha256(value: Uint8Array): string {

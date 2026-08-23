@@ -36,6 +36,8 @@ export const ONBOARDING_CANONICAL_JOURNEY_LIMIT_MS = 35_000;
 const ARTIFACT_VERSION = "onboarding-journey-timing@3" as const;
 const FIXTURE_VERSION = "onboarding-canonical-journey@1" as const;
 const FIXED_FAILURE = "onboarding_journey_timing_failed";
+const FINAL_PROJECT_LIVE_MODEL_GATE_FLAG = "--final-project-live-model-gate";
+const LIVE_MODEL_GATE_DEFERRED = "onboarding_live_model_gate_deferred\n";
 const IN_MEMORY_HMAC_KEY = "onboarding-journey-timing-integrity@1";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const JSON_NUMBER = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
@@ -93,6 +95,41 @@ export class OnboardingJourneyTimingError extends Error {
   }
 }
 
+export type OnboardingJourneyTimingLaunchMode =
+  | "deferred"
+  | "final-project-live-model-gate";
+
+export interface OnboardingJourneyTimingLaunchArguments {
+  readonly mode: OnboardingJourneyTimingLaunchMode;
+  readonly artifactPath: string;
+}
+
+export type OnboardingJourneyTimingEntrypointResult =
+  | Readonly<{ exitCode: 0; stdout: ""; stderr: "" }>
+  | Readonly<{
+      exitCode: 1;
+      stdout: "";
+      stderr:
+        | "onboarding_live_model_gate_deferred\n"
+        | "onboarding_journey_timing_failed\n";
+    }>;
+
+const TIMING_SUCCESS_RESULT: OnboardingJourneyTimingEntrypointResult = Object.freeze({
+  exitCode: 0,
+  stdout: "",
+  stderr: "",
+});
+const TIMING_DEFERRED_RESULT: OnboardingJourneyTimingEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: LIVE_MODEL_GATE_DEFERRED,
+});
+const TIMING_FAILURE_RESULT: OnboardingJourneyTimingEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: `${FIXED_FAILURE}\n`,
+});
+
 export function readOnboardingCanonicalJourneyFixture(
   borrowedBytes: Uint8Array,
 ): OnboardingCanonicalJourneyFixture {
@@ -142,17 +179,77 @@ export function readOnboardingCanonicalJourneyFixture(
   }
 }
 
-export function parseOnboardingJourneyTimingArguments(args: readonly string[]): {
-  readonly artifactPath: string;
-} {
+function readOwnedStringArguments(value: unknown, maximumLength: number): readonly string[] {
+  if (
+    types.isProxy(value) ||
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0 ||
+    value.length > maximumLength
+  ) throw failed();
+
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const allowed = new Set([
+    ...Array.from({ length: value.length }, (_, index) => String(index)),
+    "length",
+  ]);
+  if (Object.keys(descriptors).some((key) => !allowed.has(key))) throw failed();
+
+  const copy: string[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (
+      descriptor === undefined ||
+      !("value" in descriptor) ||
+      descriptor.enumerable !== true ||
+      typeof descriptor.value !== "string"
+    ) throw failed();
+    copy.push(descriptor.value);
+  }
+  return Object.freeze(copy);
+}
+
+export function parseOnboardingJourneyTimingArguments(
+  input: unknown,
+): OnboardingJourneyTimingLaunchArguments {
+  const rawArguments = readOwnedStringArguments(input, 4);
+  const offset = rawArguments[0] === "--" ? 1 : 0;
+  const args = rawArguments.slice(offset);
+  if (args.length === 2 && args[0] === "--artifact") {
+    return Object.freeze({ mode: "deferred", artifactPath: args[1]! });
+  }
+  if (
+    args.length === 3 &&
+    args[0] === FINAL_PROJECT_LIVE_MODEL_GATE_FLAG &&
+    args[1] === "--artifact"
+  ) return Object.freeze({
+    mode: "final-project-live-model-gate",
+    artifactPath: args[2]!,
+  });
+  throw failed();
+}
+
+export async function runOnboardingJourneyTimingEntrypointForTest(input: {
+  readonly rawArguments: unknown;
+  readonly runFinalProjectLiveModelGate: (
+    canonicalArtifactPath: string,
+  ) => Promise<void>;
+}): Promise<OnboardingJourneyTimingEntrypointResult> {
+  let parsed: OnboardingJourneyTimingLaunchArguments;
   try {
-    const values = denseArray(args, 3);
-    const offset = values[0] === "--" ? 1 : 0;
-    if (values.length !== offset + 2 || values[offset] !== "--artifact") throw failed();
-    const artifactPath = readArtifactArgument(values[offset + 1]);
-    return Object.freeze({ artifactPath });
+    parsed = parseOnboardingJourneyTimingArguments(input.rawArguments);
   } catch {
-    throw failed();
+    return TIMING_DEFERRED_RESULT;
+  }
+
+  try {
+    const artifactPath = await requireArtifactPath(parsed.artifactPath);
+    await removeStaleOnboardingJourneyTimingArtifact(artifactPath);
+    if (parsed.mode === "deferred") return TIMING_DEFERRED_RESULT;
+    await input.runFinalProjectLiveModelGate(artifactPath);
+    return TIMING_SUCCESS_RESULT;
+  } catch {
+    return parsed.mode === "deferred" ? TIMING_DEFERRED_RESULT : TIMING_FAILURE_RESULT;
   }
 }
 
@@ -821,6 +918,7 @@ function exactRecord(value: unknown, keys: readonly string[]): Record<string, un
 
 function denseArray(value: unknown, maximumLength: number): readonly unknown[] {
   if (
+    types.isProxy(value) ||
     !Array.isArray(value) ||
     Object.getPrototypeOf(value) !== Array.prototype ||
     Object.getOwnPropertySymbols(value).length !== 0 ||
@@ -900,12 +998,8 @@ function failed(): OnboardingJourneyTimingError {
   return new OnboardingJourneyTimingError();
 }
 
-async function main(): Promise<void> {
-  let artifactPath: string | undefined;
+async function runFinalProjectLiveModelGate(artifactPath: string): Promise<void> {
   try {
-    const parsed = parseOnboardingJourneyTimingArguments(process.argv.slice(2));
-    artifactPath = await requireArtifactPath(parsed.artifactPath);
-    await rm(artifactPath, { force: true });
     const fixtureBytes = new Uint8Array(await readFile(CANONICAL_FIXTURE_URL));
     const fixture = readOnboardingCanonicalJourneyFixture(fixtureBytes);
     await registerNodeCodexRuntime();
@@ -922,11 +1016,19 @@ async function main(): Promise<void> {
       production.close();
     }
   } catch {
-    if (artifactPath !== undefined) {
-      await rm(artifactPath, { force: true }).catch(() => undefined);
-    }
+    await rm(artifactPath, { force: true }).catch(() => undefined);
     throw failed();
   }
+}
+
+async function main(): Promise<void> {
+  const result = await runOnboardingJourneyTimingEntrypointForTest({
+    rawArguments: process.argv.slice(2),
+    runFinalProjectLiveModelGate,
+  });
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.exitCode;
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

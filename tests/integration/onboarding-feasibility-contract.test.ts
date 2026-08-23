@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
+  access,
   chmod,
   link,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -13,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
@@ -21,6 +25,7 @@ import {
   parseOnboardingFeasibilityArguments,
   readOnboardingFeasibilityFixture,
   removeStaleOnboardingFeasibilityArtifact,
+  runOnboardingFeasibilityEntrypointForTest,
   runOnboardingFeasibilityForTest,
 } from "../../evals/onboarding-feasibility";
 import type { OnboardingModelPort } from "../../src/application/onboarding-contracts";
@@ -49,6 +54,9 @@ import {
 
 const fixtureUrl = new URL("../../evals/fixtures/onboarding/cases.json", import.meta.url);
 const fixturePath = fileURLToPath(fixtureUrl);
+const MODULE_URL = new URL("../../evals/onboarding-feasibility.ts", import.meta.url);
+const TSX_LOADER_URL = new URL("../../node_modules/tsx/dist/loader.mjs", import.meta.url);
+const PRIVATE_LAUNCH_SENTINEL = "PRIVATE_FEASIBILITY_LAUNCH_SENTINEL_91a2f6";
 const ARTIFACT_KEYS = Object.freeze([
   "artifactDigest",
   "caseResults",
@@ -72,6 +80,7 @@ const ARTIFACT_KEYS = Object.freeze([
   "transcriptStored",
 ]);
 const temporaryDirectories: string[] = [];
+const execFileAsync = promisify(execFile);
 let fixtureBytes: Uint8Array;
 
 beforeAll(async () => {
@@ -486,22 +495,295 @@ describe("onboarding feasibility contract", () => {
     expect(calls).toBe(0);
   });
 
-  test("accepts only the single artifact argument", () => {
-    expect(parseOnboardingFeasibilityArguments(["--artifact", "data/evals/onboarding-model-feasibility.json"]))
-      .toEqual({ artifactPath: "data/evals/onboarding-model-feasibility.json" });
-    expect(parseOnboardingFeasibilityArguments([
-      "--artifact",
-      "data/evals/onboarding-model-feasibility.json",
-      "--diagnostic",
-      "data/evals/onboarding-model-feasibility-diagnostic.json",
-    ])).toEqual({
-      artifactPath: "data/evals/onboarding-model-feasibility.json",
-      diagnosticPath: "data/evals/onboarding-model-feasibility-diagnostic.json",
+});
+
+describe("onboarding feasibility live-model launch gate", () => {
+  test("defers legacy feasibility argv before any live callback, removes A, and preserves D", async () => {
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    const diagnosticPath = join(directory, "diagnostic.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    await writeFile(diagnosticPath, "historical diagnostic\n", "utf8");
+    const runFinalProjectLiveModelGate = vi.fn();
+
+    const result = await runOnboardingFeasibilityEntrypointForTest({
+      rawArguments: ["--artifact", artifactPath, "--diagnostic", diagnosticPath],
+      runFinalProjectLiveModelGate,
     });
-    expect(() => parseOnboardingFeasibilityArguments([])).toThrow(OnboardingFeasibilityError);
-    expect(() => parseOnboardingFeasibilityArguments(["--artifact", "a", "--retry"])).toThrow(
-      OnboardingFeasibilityError,
-    );
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
+  });
+
+  test("runs the enabled feasibility gate exactly once with resolved paths", async () => {
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    const diagnosticPath = join(directory, "diagnostic.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    await writeFile(diagnosticPath, "stale diagnostic\n", "utf8");
+    const runFinalProjectLiveModelGate = vi.fn(async () => undefined);
+
+    const result = await runOnboardingFeasibilityEntrypointForTest({
+      rawArguments: [
+        "--final-project-live-model-gate",
+        "--artifact",
+        artifactPath,
+        "--diagnostic",
+        diagnosticPath,
+      ],
+      runFinalProjectLiveModelGate,
+    });
+
+    expect(result).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    expect(runFinalProjectLiveModelGate).toHaveBeenCalledTimes(1);
+    expect(runFinalProjectLiveModelGate).toHaveBeenCalledWith({ artifactPath, diagnosticPath });
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(diagnosticPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("contains an enabled feasibility callback failure", async () => {
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    const diagnosticPath = join(directory, "diagnostic.json");
+    const runFinalProjectLiveModelGate = vi.fn(async () => {
+      throw new Error(PRIVATE_LAUNCH_SENTINEL);
+    });
+
+    const result = await runOnboardingFeasibilityEntrypointForTest({
+      rawArguments: [
+        "--final-project-live-model-gate",
+        "--artifact",
+        artifactPath,
+        "--diagnostic",
+        diagnosticPath,
+      ],
+      runFinalProjectLiveModelGate,
+    });
+
+    expect(runFinalProjectLiveModelGate).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "onboarding_model_feasibility_failed\n",
+    });
+    expect(JSON.stringify(result)).not.toContain(PRIVATE_LAUNCH_SENTINEL);
+  });
+
+  test.each([
+    ["empty argv", []],
+    ["artifact only", ["--artifact", "A"]],
+    ["missing diagnostic value", ["--artifact", "A", "--diagnostic"]],
+    ["duplicate flag", [
+      "--final-project-live-model-gate",
+      "--final-project-live-model-gate",
+      "--artifact",
+      "A",
+      "--diagnostic",
+      "D",
+    ]],
+    ["misspelled flag", [
+      "--final-project-live-model-gat",
+      "--artifact",
+      "A",
+      "--diagnostic",
+      "D",
+    ]],
+    ["decorated flag", [
+      "--final-project-live-model-gate=true",
+      "--artifact",
+      "A",
+      "--diagnostic",
+      "D",
+    ]],
+    ["retry", ["--artifact", "A", "--diagnostic", "D", "--retry"]],
+    ["separator", ["--", "--artifact", "A", "--diagnostic", "D"]],
+    ["flag after artifact", [
+      "--artifact",
+      "A",
+      "--final-project-live-model-gate",
+      "--diagnostic",
+      "D",
+    ]],
+    ["reordered outputs", ["--diagnostic", "D", "--artifact", "A"]],
+  ])("rejects malformed %s without touching untrusted paths", async (_name, shape) => {
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    const diagnosticPath = join(directory, "diagnostic.json");
+    await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+    await writeFile(diagnosticPath, "untrusted diagnostic\n", "utf8");
+    const rawArguments = shape.map((value) => value === "A"
+      ? artifactPath
+      : value === "D" ? diagnosticPath : value);
+    const runFinalProjectLiveModelGate = vi.fn();
+
+    expect(() => parseOnboardingFeasibilityArguments(rawArguments))
+      .toThrow(OnboardingFeasibilityError);
+    const result = await runOnboardingFeasibilityEntrypointForTest({
+      rawArguments,
+      runFinalProjectLiveModelGate,
+    });
+
+    expect(result).toEqual(deferredLaunchResult());
+    expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+    expect(await readFile(diagnosticPath, "utf8")).toBe("untrusted diagnostic\n");
+  });
+
+  test("rejects hostile feasibility argv without invoking traps or getters", async () => {
+    const hostileCases: { value: unknown; touched: () => number }[] = [];
+    let proxyTouches = 0;
+    hostileCases.push({
+      value: new Proxy(["--artifact", "a.json", "--diagnostic", "d.json"], {
+        getPrototypeOf: () => { proxyTouches += 1; throw new Error(PRIVATE_LAUNCH_SENTINEL); },
+        ownKeys: () => { proxyTouches += 1; throw new Error(PRIVATE_LAUNCH_SENTINEL); },
+        getOwnPropertyDescriptor: () => {
+          proxyTouches += 1;
+          throw new Error(PRIVATE_LAUNCH_SENTINEL);
+        },
+      }),
+      touched: () => proxyTouches,
+    });
+    let getterTouches = 0;
+    const getterArray = ["--artifact", "a.json", "--diagnostic", "d.json"];
+    Object.defineProperty(getterArray, "1", {
+      enumerable: true,
+      get: () => { getterTouches += 1; return "a.json"; },
+    });
+    hostileCases.push({ value: getterArray, touched: () => getterTouches });
+    const symbolArray = ["--artifact", "a.json", "--diagnostic", "d.json"];
+    Object.defineProperty(symbolArray, Symbol("hostile"), { value: true });
+    hostileCases.push({ value: symbolArray, touched: () => 0 });
+    hostileCases.push({ value: new Array(4), touched: () => 0 });
+    const decoratedPrototype = ["--artifact", "a.json", "--diagnostic", "d.json"];
+    Object.setPrototypeOf(decoratedPrototype, null);
+    hostileCases.push({ value: decoratedPrototype, touched: () => 0 });
+
+    for (const hostile of hostileCases) {
+      const runFinalProjectLiveModelGate = vi.fn();
+      const result = await runOnboardingFeasibilityEntrypointForTest({
+        rawArguments: hostile.value,
+        runFinalProjectLiveModelGate,
+      });
+      expect(result).toEqual(deferredLaunchResult());
+      expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+      expect(hostile.touched()).toBe(0);
+    }
+  });
+
+  test.each(["deferred", "final-project-live-model-gate"] as const)(
+    "maps recognized feasibility path failures in %s mode without destructive mutation",
+    async (mode) => {
+      const expected = mode === "deferred"
+        ? deferredLaunchResult()
+        : {
+            exitCode: 1 as const,
+            stdout: "" as const,
+            stderr: "onboarding_model_feasibility_failed\n" as const,
+          };
+      const originalFixture = new Uint8Array(await readFile(fixturePath));
+
+      for (const failure of ["same", "fixture-alias", "extension", "directory"] as const) {
+        const directory = await temporaryDirectory();
+        let artifactPath = join(directory, "artifact.json");
+        let diagnosticPath = join(directory, "diagnostic.json");
+        if (failure === "same") diagnosticPath = artifactPath;
+        if (failure === "fixture-alias") artifactPath = fixturePath;
+        if (failure === "extension") artifactPath = join(directory, "artifact.txt");
+        if (failure === "directory") await mkdir(artifactPath);
+        else if (failure !== "fixture-alias") await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+        if (failure !== "same") await writeFile(diagnosticPath, "historical diagnostic\n", "utf8");
+        const runFinalProjectLiveModelGate = vi.fn(async () => {
+          throw new Error(PRIVATE_LAUNCH_SENTINEL);
+        });
+        const prefix = mode === "deferred" ? [] : ["--final-project-live-model-gate"];
+
+        const result = await runOnboardingFeasibilityEntrypointForTest({
+          rawArguments: [
+            ...prefix,
+            "--artifact",
+            artifactPath,
+            "--diagnostic",
+            diagnosticPath,
+          ],
+          runFinalProjectLiveModelGate,
+        });
+
+        expect(result).toEqual(expected);
+        expect(JSON.stringify(result)).not.toContain(PRIVATE_LAUNCH_SENTINEL);
+        expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+        if (failure === "same") {
+          expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+        } else if (failure === "fixture-alias") {
+          expect(new Uint8Array(await readFile(fixturePath))).toEqual(originalFixture);
+          expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
+        } else if (failure === "directory") {
+          expect((await stat(artifactPath)).isDirectory()).toBe(true);
+          expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
+        } else {
+          expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+          expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
+        }
+      }
+    },
+  );
+
+  test("fails a decorated feasibility subprocess with only the deferred public result", async () => {
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    const diagnosticPath = join(directory, "diagnostic.json");
+    await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+    await writeFile(diagnosticPath, "historical diagnostic\n", "utf8");
+
+    const result = await failingExecFile(process.execPath, [
+      "--import",
+      fileURLToPath(TSX_LOADER_URL),
+      fileURLToPath(MODULE_URL),
+      "--final-project-live-model-gate=true",
+      "--artifact",
+      artifactPath,
+      "--diagnostic",
+      diagnosticPath,
+    ]);
+
+    expect(result).toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+    expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
+  });
+
+  test("defers the canonical legacy feasibility subprocess and removes only stale A", async () => {
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    const diagnosticPath = join(directory, "diagnostic.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    await writeFile(diagnosticPath, "historical diagnostic\n", "utf8");
+
+    const result = await failingExecFile(process.execPath, [
+      "--import",
+      fileURLToPath(TSX_LOADER_URL),
+      fileURLToPath(MODULE_URL),
+      "--artifact",
+      artifactPath,
+      "--diagnostic",
+      diagnosticPath,
+    ]);
+
+    expect(result).toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
   });
 });
 
@@ -599,6 +881,36 @@ async function temporaryDirectory(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), "onboarding-feasibility-test-"));
   temporaryDirectories.push(path);
   return path;
+}
+
+function deferredLaunchResult() {
+  return {
+    exitCode: 1 as const,
+    stdout: "" as const,
+    stderr: "onboarding_live_model_gate_deferred\n" as const,
+  };
+}
+
+async function failingExecFile(file: string, args: readonly string[]): Promise<{
+  readonly code: number | string | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
+  try {
+    await execFileAsync(file, args, { encoding: "utf8" });
+  } catch (error) {
+    const failure = error as Error & {
+      readonly code?: number | string | null;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
+    return {
+      code: failure.code ?? null,
+      stdout: failure.stdout ?? "",
+      stderr: failure.stderr ?? "",
+    };
+  }
+  throw new Error("expected subprocess failure");
 }
 
 function digestBytes(value: Uint8Array): string {

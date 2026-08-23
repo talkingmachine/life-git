@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { types } from "node:util";
 
 import {
   OnboardingModelError,
@@ -83,6 +84,9 @@ const MAX_CASES = CASE_IDS.length;
 const MAX_CHANGES = 172;
 const MAX_EXPECTED_VALUES = 172;
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
+const FINAL_PROJECT_LIVE_MODEL_GATE_FLAG = "--final-project-live-model-gate";
+const LIVE_MODEL_GATE_DEFERRED = "onboarding_live_model_gate_deferred\n";
+const FEASIBILITY_FAILURE = "onboarding_model_feasibility_failed\n";
 
 interface SessionSeed {
   readonly schemaVersion: typeof SESSION_SEED_VERSION;
@@ -168,6 +172,42 @@ export class OnboardingFeasibilityError extends Error {
     super("onboarding_model_feasibility_failed");
   }
 }
+
+export type OnboardingFeasibilityLaunchMode =
+  | "deferred"
+  | "final-project-live-model-gate";
+
+export interface OnboardingFeasibilityLaunchArguments {
+  readonly mode: OnboardingFeasibilityLaunchMode;
+  readonly artifactPath: string;
+  readonly diagnosticPath: string;
+}
+
+export type OnboardingFeasibilityEntrypointResult =
+  | Readonly<{ exitCode: 0; stdout: ""; stderr: "" }>
+  | Readonly<{
+      exitCode: 1;
+      stdout: "";
+      stderr:
+        | "onboarding_live_model_gate_deferred\n"
+        | "onboarding_model_feasibility_failed\n";
+    }>;
+
+const FEASIBILITY_SUCCESS_RESULT: OnboardingFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 0,
+  stdout: "",
+  stderr: "",
+});
+const FEASIBILITY_DEFERRED_RESULT: OnboardingFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: LIVE_MODEL_GATE_DEFERRED,
+});
+const FEASIBILITY_FAILURE_RESULT: OnboardingFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: FEASIBILITY_FAILURE,
+});
 
 export function readOnboardingFeasibilityFixture(value: unknown): OnboardingFeasibilityFixture {
   try {
@@ -733,40 +773,112 @@ function failed(): OnboardingFeasibilityError {
   return new OnboardingFeasibilityError();
 }
 
-export function parseOnboardingFeasibilityArguments(args: readonly string[]): {
-  readonly artifactPath: string;
-  readonly diagnosticPath?: string;
-} {
-  if (args[0] !== "--artifact" || args[1] === undefined) throw failed();
-  if (args.length === 2) return { artifactPath: args[1] };
-  if (args.length !== 4 || args[2] !== "--diagnostic" || args[3] === undefined) throw failed();
-  return { artifactPath: args[1], diagnosticPath: args[3] };
+function readOwnedStringArguments(value: unknown, maximumLength: number): readonly string[] {
+  if (
+    types.isProxy(value) ||
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0 ||
+    value.length > maximumLength
+  ) throw failed();
+
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const allowed = new Set([
+    ...Array.from({ length: value.length }, (_, index) => String(index)),
+    "length",
+  ]);
+  if (Object.keys(descriptors).some((key) => !allowed.has(key))) throw failed();
+
+  const copy: string[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (
+      descriptor === undefined ||
+      !("value" in descriptor) ||
+      descriptor.enumerable !== true ||
+      typeof descriptor.value !== "string"
+    ) throw failed();
+    copy.push(descriptor.value);
+  }
+  return Object.freeze(copy);
 }
 
-async function main(): Promise<void> {
-  const parsed = parseOnboardingFeasibilityArguments(process.argv.slice(2));
-  const { artifactPath, diagnosticPath } = await requireOutputPaths(
-    parsed.artifactPath,
-    parsed.diagnosticPath,
-  );
-  await rm(artifactPath, { force: true });
-  if (diagnosticPath !== undefined) await rm(diagnosticPath, { force: true });
+export function parseOnboardingFeasibilityArguments(
+  input: unknown,
+): OnboardingFeasibilityLaunchArguments {
+  const args = readOwnedStringArguments(input, 5);
+  if (args.length === 4 && args[0] === "--artifact" && args[2] === "--diagnostic") {
+    return Object.freeze({
+      mode: "deferred",
+      artifactPath: args[1]!,
+      diagnosticPath: args[3]!,
+    });
+  }
+  if (
+    args.length === 5 &&
+    args[0] === FINAL_PROJECT_LIVE_MODEL_GATE_FLAG &&
+    args[1] === "--artifact" &&
+    args[3] === "--diagnostic"
+  ) return Object.freeze({
+    mode: "final-project-live-model-gate",
+    artifactPath: args[2]!,
+    diagnosticPath: args[4]!,
+  });
+  throw failed();
+}
+
+export async function runOnboardingFeasibilityEntrypointForTest(input: {
+  readonly rawArguments: unknown;
+  readonly runFinalProjectLiveModelGate: (paths: Readonly<{
+    artifactPath: string;
+    diagnosticPath: string;
+  }>) => Promise<void>;
+}): Promise<OnboardingFeasibilityEntrypointResult> {
+  let parsed: OnboardingFeasibilityLaunchArguments;
+  try {
+    parsed = parseOnboardingFeasibilityArguments(input.rawArguments);
+  } catch {
+    return FEASIBILITY_DEFERRED_RESULT;
+  }
+
+  try {
+    const paths = await requireOutputPaths(parsed.artifactPath, parsed.diagnosticPath);
+    if (paths.diagnosticPath === undefined) throw failed();
+    await removeStaleOnboardingFeasibilityArtifact(paths.artifactPath);
+    if (parsed.mode === "deferred") return FEASIBILITY_DEFERRED_RESULT;
+    await rm(paths.diagnosticPath, { force: true });
+    await input.runFinalProjectLiveModelGate(Object.freeze({
+      artifactPath: paths.artifactPath,
+      diagnosticPath: paths.diagnosticPath,
+    }));
+    return FEASIBILITY_SUCCESS_RESULT;
+  } catch {
+    return parsed.mode === "deferred"
+      ? FEASIBILITY_DEFERRED_RESULT
+      : FEASIBILITY_FAILURE_RESULT;
+  }
+}
+
+async function runFinalProjectLiveModelGate(paths: Readonly<{
+  artifactPath: string;
+  diagnosticPath: string;
+}>): Promise<void> {
   let runnerStarted = false;
   try {
     const fixtureBytes = new Uint8Array(await readFile(FEASIBILITY_FIXTURE_URL));
     await registerNodeCodexRuntime();
     runnerStarted = true;
     await runOnboardingFeasibilityForTest({
-      artifactPath,
-      ...(diagnosticPath === undefined ? {} : { diagnosticPath }),
+      artifactPath: paths.artifactPath,
+      diagnosticPath: paths.diagnosticPath,
       fixtureBytes,
       model: createCodexOnboardingModel(getCodexCliModelAdapter()),
       signal: new AbortController().signal,
     });
   } catch (error) {
-    await rm(artifactPath, { force: true });
-    if (!runnerStarted && diagnosticPath !== undefined) {
-      await writeFailureDiagnostic(diagnosticPath, {
+    await rm(paths.artifactPath, { force: true });
+    if (!runnerStarted) {
+      await writeFailureDiagnostic(paths.diagnosticPath, {
         caseId: null,
         stage: "runtime_initialization",
         error,
@@ -776,9 +888,19 @@ async function main(): Promise<void> {
   }
 }
 
+async function main(): Promise<void> {
+  const result = await runOnboardingFeasibilityEntrypointForTest({
+    rawArguments: process.argv.slice(2),
+    runFinalProjectLiveModelGate,
+  });
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.exitCode;
+}
+
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch(() => {
-    process.stderr.write("onboarding_model_feasibility_failed\n");
+    process.stderr.write(FEASIBILITY_FAILURE);
     process.exitCode = 1;
   });
 }
