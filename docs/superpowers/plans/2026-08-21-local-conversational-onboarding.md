@@ -1329,7 +1329,7 @@ tracked file; there is no fixture CLI override, stdin fixture or environment sub
 - [ ] **Step 2: Run RED, implement, and run GREEN.** Run `pnpm exec vitest run tests/integration/onboarding-experience.test.tsx tests/integration/product-shell.test.tsx tests/integration/research-globe-canvas.test.tsx tests/integration/visual-system.test.ts`; expect the onboarding components and neutral globe seam to be absent, implement them, and re-run it.
 - [ ] **Step 3: Write the timing-gate RED contract.** With an injected monotonic clock and fake journey, require exact count `2` and `35_000` ms to pass; `35_000.0001` (ceiled to `35_001`), clock rollback/non-finite values, any other count or an unaccepted handoff fails without a passing artifact. Pin the exact closed keys, fixture/digest bindings, stale-target removal, `0600` atomic final-LF write, fixed content-free failure, no retry and zero prompt/output/transcript content.
 - [ ] **Step 4: Run timing RED.** Run `pnpm exec vitest run tests/integration/onboarding-journey-timing-contract.test.ts`; expect the eval module to be absent.
-- [ ] **Step 5: Implement and run fake GREEN.** Add `"eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts"`. The real script uses only the closed `onboarding-canonical-journey@1` fixture, requires the full exact V2 model-version tuple, starts its monotonic timer immediately before the first extraction call, and stops when the production strict opener/single-use handoff accepts an inert Frontier envelope constructed from the exact launched receipt/prepared identities. It never calls `runPlaceFrontier` and writes only the closed `onboarding-journey-timing@2` artifact. Re-run the timing contract test.
+- [ ] **Step 5: Implement and run fake GREEN.** Add `"eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts"`. The real script uses only the closed `onboarding-canonical-journey@1` fixture, requires the full exact V3 model-version tuple, starts its monotonic timer immediately before the first extraction call, and stops when the production strict opener/single-use handoff accepts an inert Frontier envelope constructed from the exact launched receipt/prepared identities. It never calls `runPlaceFrontier` and writes only the closed `onboarding-journey-timing@3` artifact. Re-run the timing contract test.
 - [ ] **Step 6: Deferred final-project live-model gate — do not execute during Task 8.** The exact
   feasibility-first/conditional-timing protocol is owned by the final-project gate. Earlier chat
   authorization is revoked; a fresh explicit authorization is required immediately before that gate.
@@ -1745,8 +1745,14 @@ requires fresh explicit user authorization.
 - [ ] Complete the V3 lineage, algebra and evidence RED→GREEN commits without Task 8 files.
 - [ ] Require full static GREEN and independent Critical 0 / Important 0 review before the static
   implementation handoff.
-- [ ] Defer the one-feasibility/one-conditional-timing V3 protocol to the final-project live-model
-  gate; Task 8 offline Steps 5, 7 and 8 may proceed after static/review evidence passes.
+- [ ] Record the static V3 handoff without an external call:
+  - External Codex/OpenAI calls made: 0
+  - V3 static/review evidence: PASS
+  - Real feasibility artifact: absent — deferred to final project live-model gate
+  - Real timing artifact: absent — deferred to final project live-model gate
+  - Ready to resume Task 8 offline Steps 5, 7 and 8: yes
+  - Task 8 live Step 6: relocated to final project live-model gate
+  - Project completion gate: pending
 
 ## Implementation Completion Gate
 
