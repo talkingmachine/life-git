@@ -1,3 +1,5 @@
+import { types } from "node:util";
+
 import type { CityDecisionIntegrity } from "./city-integrity";
 import type { PreferenceProfileSnapshot } from "./preference-profile";
 import type { RelocationProfileSnapshot } from "./relocation-profile";
@@ -85,7 +87,9 @@ function installedMismatch(): never {
 }
 
 function installedPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || types.isProxy(value) || Array.isArray(value)) {
+    return false;
+  }
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
@@ -98,10 +102,14 @@ function installedOwnSnapshot<T>(borrowed: T): T {
   const active = new Set<object>();
   const visit = (value: unknown): unknown => {
     if (value === null || value === undefined || typeof value === "string" ||
-      typeof value === "number" || typeof value === "boolean" || typeof value === "function") {
+      typeof value === "number" || typeof value === "boolean") {
       return value;
     }
-    if (typeof value !== "object" || active.has(value) ||
+    if (typeof value === "function") {
+      if (types.isProxy(value)) installedMismatch();
+      return value;
+    }
+    if (typeof value !== "object" || types.isProxy(value) || active.has(value) ||
       Object.getOwnPropertySymbols(value).length !== 0) installedMismatch();
     active.add(value);
     try {
@@ -125,6 +133,7 @@ function installedOwnSnapshot<T>(borrowed: T): T {
       if (!installedPlainRecord(value)) installedMismatch();
       const copy: Record<string, unknown> = {};
       for (const key of Object.getOwnPropertyNames(value)) {
+        if (key === "__proto__") installedMismatch();
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
           installedMismatch();
@@ -177,9 +186,9 @@ function installedDefinition(value: unknown, index: number): CityCriterionDefini
     (definition.direction !== "at_least" && definition.direction !== "at_most")) {
     installedMismatch();
   }
-  const scopes = installedDenseArray(definition.compatibleGeoScopes, (
-    definition.compatibleGeoScopes as readonly unknown[]
-  ).length).map(installedText);
+  const scopesValue = definition.compatibleGeoScopes;
+  if (!Array.isArray(scopesValue)) installedMismatch();
+  const scopes = installedDenseArray(scopesValue, scopesValue.length).map(installedText);
   if (scopes.length === 0 || new Set(scopes).size !== scopes.length) installedMismatch();
   return {
     criterionId: criterionId as CityCriterionId,
@@ -225,12 +234,31 @@ export function reconstructInstalledCityCriterionDefinitions(
   expectedEvaluatorVersionIds: Readonly<Record<CityCriterionId, string>>,
 ): InstalledCityCriterionDefinitionTuple {
   try {
-    const definitions = installedDefinitionTuple(installedOwnSnapshot(value));
-    const definitionIds = installedExpectedMap(installedOwnSnapshot(expectedDefinitionIds));
+    const definitions = reconstructInstalledCityCriterionDefinitionsStructure(
+      value,
+      expectedDefinitionIds,
+    );
     const evaluatorVersionIds = installedExpectedMap(installedOwnSnapshot(expectedEvaluatorVersionIds));
     for (const definition of definitions) {
-      if (definition.definitionId !== definitionIds[definition.criterionId] ||
-        definition.evaluatorVersion !== evaluatorVersionIds[definition.criterionId]) installedMismatch();
+      if (definition.evaluatorVersion !== evaluatorVersionIds[definition.criterionId]) {
+        installedMismatch();
+      }
+    }
+    return freeze(definitions);
+  } catch {
+    installedMismatch();
+  }
+}
+
+export function reconstructInstalledCityCriterionDefinitionsStructure(
+  value: unknown,
+  expectedDefinitionIds: Readonly<Record<CityCriterionId, string>>,
+): InstalledCityCriterionDefinitionTuple {
+  try {
+    const definitionIds = installedExpectedMap(installedOwnSnapshot(expectedDefinitionIds));
+    const definitions = installedDefinitionTuple(installedOwnSnapshot(value));
+    for (const definition of definitions) {
+      if (definition.definitionId !== definitionIds[definition.criterionId]) installedMismatch();
     }
     return freeze(definitions);
   } catch {

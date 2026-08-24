@@ -6,6 +6,7 @@ import {
   deriveCityCriteriaDraft,
   reconstructInstalledCityCriteriaDefaults,
   reconstructInstalledCityCriterionDefinitions,
+  reconstructInstalledCityCriterionDefinitionsStructure,
   reconstructCityCriteria,
   type CityCriterionDefinition,
   type CityCriterionEvaluatorRegistry,
@@ -67,6 +68,235 @@ const preferences = { schemaVersion: "preference-profile@1" as const, id: "prefe
 ] };
 
 describe("city criteria policy", () => {
+  test("structurally reconstructs installed definitions without executable behavior", () => {
+    // Break caught: making Application supply compiled evaluators just to validate sealed data.
+    const borrowed = structuredClone(installedDefinitions);
+    const withUnapprovedCompiledVersions = borrowed.map((definition) => ({
+      ...definition,
+      evaluatorVersion: `${definition.criterionId}-structural-only@9`,
+    })) as unknown as InstalledCityCriterionDefinitionTuple;
+    const result = reconstructInstalledCityCriterionDefinitionsStructure(
+      withUnapprovedCompiledVersions,
+      Object.fromEntries([...CITY_CRITERION_IDS].reverse().map((criterionId) => [
+        criterionId,
+        expectedDefinitionIds[criterionId],
+      ])) as Readonly<Record<(typeof CITY_CRITERION_IDS)[number], string>>,
+    );
+
+    expect(result).toEqual(withUnapprovedCompiledVersions);
+    expect(result).not.toBe(withUnapprovedCompiledVersions);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result[0])).toBe(true);
+    expect(Object.isFrozen(result[0].compatibleGeoScopes)).toBe(true);
+    expect(Object.isFrozen(withUnapprovedCompiledVersions[0])).toBe(false);
+  });
+
+  test("owns and exact-closes expected definition ids before reading definitions", () => {
+    // Break caught: a hostile expected map triggering or observing reads from the borrowed tuple.
+    let expectedBoundaryCalls = 0;
+    const expectedMapMutations: unknown[] = [
+      { ...expectedDefinitionIds, extra: "extra-definition@1" },
+      Object.fromEntries(CITY_CRITERION_IDS.slice(1).map((criterionId) => [
+        criterionId,
+        expectedDefinitionIds[criterionId],
+      ])),
+      { ...expectedDefinitionIds, safety: expectedDefinitionIds.long_term_rent },
+      { ...expectedDefinitionIds, safety: " invalid-definition" },
+      Object.assign({ ...expectedDefinitionIds }, { [Symbol("extra")]: true }),
+      Object.assign(Object.create({ inherited: true }), expectedDefinitionIds),
+      new Proxy({ ...expectedDefinitionIds }, {
+        ownKeys() {
+          expectedBoundaryCalls += 1;
+          throw new Error("expected_map_proxy_trap_invoked");
+        },
+        getOwnPropertyDescriptor() {
+          expectedBoundaryCalls += 1;
+          throw new Error("expected_map_proxy_trap_invoked");
+        },
+      }),
+    ];
+    const accessorExpectedIds = { ...expectedDefinitionIds };
+    Object.defineProperty(accessorExpectedIds, "safety", {
+      enumerable: true,
+      get() {
+        expectedBoundaryCalls += 1;
+        throw new Error("expected_map_getter_invoked");
+      },
+    });
+    expectedMapMutations.push(accessorExpectedIds);
+
+    for (const expectedMap of expectedMapMutations) {
+      let definitionReads = 0;
+      const guardedDefinitions = structuredClone(installedDefinitions) as unknown as unknown[];
+      Object.defineProperty(guardedDefinitions[0] as object, "definitionId", {
+        enumerable: true,
+        get() {
+          definitionReads += 1;
+          return expectedDefinitionIds.safety;
+        },
+      });
+
+      expect(() => reconstructInstalledCityCriterionDefinitionsStructure(
+        guardedDefinitions,
+        expectedMap as Readonly<Record<(typeof CITY_CRITERION_IDS)[number], string>>,
+      )).toThrow("integrity_mismatch");
+      expect(definitionReads).toBe(0);
+      expect(expectedBoundaryCalls).toBe(0);
+    }
+  });
+
+  test("rejects hostile structural definition graphs and keeps full evaluator binding", () => {
+    // Break caught: structural validation accepting reordered/open data or weakening Task 4 binding.
+    let tupleBoundaryCalls = 0;
+    let executableCalls = 0;
+    const executableVersion = new Proxy(function invalidExecutableVersion() {
+      executableCalls += 1;
+      return "invalid";
+    }, {
+      apply() {
+        executableCalls += 1;
+        return "invalid";
+      },
+    });
+    const mutations: unknown[] = [
+      [...installedDefinitions].reverse(),
+      installedDefinitions.slice(0, 3),
+      [...installedDefinitions, installedDefinitions[0]],
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, extra: undefined }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, definitionId: "wrong-definition@1" }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, criterionId: "unknown" }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, direction: "sideways" }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, unit: "bad\nunit" }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, denominator: "" }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, compatibleGeoScopes: [] }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, compatibleGeoScopes: ["municipality", "municipality"] }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, freshnessPolicyVersion: " invalid" }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, evaluatorVersion: " invalid" }
+        : definition),
+      installedDefinitions.map((definition, index) => index === 0
+        ? { ...definition, evaluatorVersion: executableVersion }
+        : definition),
+      Object.assign([...installedDefinitions], { [Symbol("extra")]: true }),
+      new Proxy([...installedDefinitions], {
+        ownKeys() {
+          tupleBoundaryCalls += 1;
+          throw new Error("definition_proxy_trap_invoked");
+        },
+        getOwnPropertyDescriptor() {
+          tupleBoundaryCalls += 1;
+          throw new Error("definition_proxy_trap_invoked");
+        },
+      }),
+    ];
+    const customPrototype = [...installedDefinitions];
+    Object.setPrototypeOf(customPrototype, Object.create(Array.prototype));
+    mutations.push(customPrototype);
+    const sparse = [...installedDefinitions] as unknown[];
+    delete sparse[2];
+    mutations.push(sparse);
+    const cyclic = structuredClone(installedDefinitions) as unknown as Array<Record<string, unknown>>;
+    cyclic[0]!.cycle = cyclic;
+    mutations.push(cyclic);
+    const missingDefinitionField = structuredClone(installedDefinitions) as unknown as
+      Array<Record<string, unknown>>;
+    delete missingDefinitionField[0]!.denominator;
+    mutations.push(missingDefinitionField);
+    const customDefinition = structuredClone(installedDefinitions) as unknown as
+      Array<Record<string, unknown>>;
+    Object.setPrototypeOf(customDefinition[0], { inherited: true });
+    mutations.push(customDefinition);
+    const customScopes = structuredClone(installedDefinitions) as unknown as
+      Array<CityCriterionDefinition>;
+    Object.setPrototypeOf(
+      customScopes[0]!.compatibleGeoScopes,
+      Object.create(Array.prototype),
+    );
+    mutations.push(customScopes);
+    const accessor = structuredClone(installedDefinitions) as unknown as Array<Record<string, unknown>>;
+    Object.defineProperty(accessor[0], "unit", {
+      enumerable: true,
+      get() {
+        tupleBoundaryCalls += 1;
+        throw new Error("definition_getter_invoked");
+      },
+    });
+    mutations.push(accessor);
+    const proxyScopes = structuredClone(installedDefinitions) as unknown as
+      Array<CityCriterionDefinition>;
+    (proxyScopes[0] as unknown as { compatibleGeoScopes: readonly string[] }).compatibleGeoScopes =
+      new Proxy(["municipality"], {
+        ownKeys() {
+          tupleBoundaryCalls += 1;
+          throw new Error("scope_proxy_trap_invoked");
+        },
+      });
+    mutations.push(proxyScopes);
+    const accessorScopes = structuredClone(installedDefinitions) as unknown as
+      Array<CityCriterionDefinition>;
+    Object.defineProperty(accessorScopes[0]!.compatibleGeoScopes, "0", {
+      enumerable: true,
+      get() {
+        tupleBoundaryCalls += 1;
+        throw new Error("scope_getter_invoked");
+      },
+    });
+    mutations.push(accessorScopes);
+    const callableScopes = structuredClone(installedDefinitions) as unknown as
+      Array<CityCriterionDefinition>;
+    const hostileScopes = function hostileScopes() {};
+    Object.defineProperty(hostileScopes, "length", {
+      configurable: true,
+      get() {
+        tupleBoundaryCalls += 1;
+        throw new Error("callable_scope_length_getter_invoked");
+      },
+    });
+    (callableScopes[0] as unknown as { compatibleGeoScopes: unknown }).compatibleGeoScopes =
+      hostileScopes;
+    mutations.push(callableScopes);
+
+    for (const mutation of mutations) {
+      expect(() => reconstructInstalledCityCriterionDefinitionsStructure(
+        mutation,
+        expectedDefinitionIds,
+      )).toThrow("integrity_mismatch");
+      expect(tupleBoundaryCalls).toBe(0);
+      expect(executableCalls).toBe(0);
+    }
+
+    const compiledDrift = installedDefinitions.map((definition, index) => index === 3
+      ? { ...definition, evaluatorVersion: "compiled-drift@1" }
+      : definition);
+    expect(reconstructInstalledCityCriterionDefinitionsStructure(
+      compiledDrift,
+      expectedDefinitionIds,
+    )).toEqual(compiledDrift);
+    expect(() => reconstructInstalledCityCriterionDefinitions(
+      compiledDrift,
+      expectedDefinitionIds,
+      expectedEvaluatorVersionIds,
+    )).toThrow("integrity_mismatch");
+  });
+
   test("reconstructs the installed definition tuple and canonical defaults without aliases", () => {
     // Break caught: trusting installed order/version bindings or returning mutable package values.
     const borrowedDefinitions = structuredClone(installedDefinitions);
