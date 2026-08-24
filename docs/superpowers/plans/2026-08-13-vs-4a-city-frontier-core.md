@@ -12,6 +12,10 @@
 
 **Required safety amendment:** [`VS-4A Safety Source Discovery`](2026-08-14-vs-4a-safety-source-discovery.md). Marker, Continue, replay and selection behavior below use its yellow-selectable and accepted/reviewed-link semantics.
 
+**Approved Task 11 architectural amendment (2026-08-24):** Application supplies only verified plain
+Knowledge/Evidence authority; Decision derives marker semantics from frozen Ranking assessment plus
+Criteria/evaluators, and Task 12 owns the marker digest formula before frontier binding.
+
 **Format metadata:** `review-matrix` — executable five-task checklist whose apparent length comes from mandatory per-task file, interface, RED/GREEN and commit cells; it is linked from the short master index and is not a narrative specification.
 
 ## Constraints specific to this plan
@@ -41,6 +45,40 @@
 **Interfaces:**
 
 ```ts
+export type CityMarkerDisposition = "selectable" | "excluded";
+export type CityCommittedMarkerVisualStatus = "green" | "yellow" | "red";
+export type CityCandidateViewStatus = "pending" | CityCommittedMarkerVisualStatus;
+export type CityFrontierStopCondition =
+  | "three_selectable"
+  | "catalog_exhausted"
+  | "live_candidate_limit_reached";
+
+export interface CityFrontierVerificationBudget {
+  readonly liveCityCandidateLimit: 10;
+  readonly targetSelectableCities: 3;
+  readonly rulesVersion: "city-frontier-budget@1";
+}
+
+// Decision owns this closed union. Application maps the structurally identical verified Research
+// rejection at its anti-corruption boundary; Task 11 never imports Research.
+export type CityFactLinkRejectionReason =
+  | "http_not_found"
+  | "transport_unavailable"
+  | "authority_untrusted"
+  | "stale"
+  | "scope_mismatch"
+  | "definition_mismatch"
+  | "missing_numerator"
+  | "denominator_missing"
+  | "denominator_zero"
+  | "denominator_period_mismatch"
+  | "denominator_scope_mismatch"
+  | "wrong_media_type"
+  | "too_large"
+  | "untrusted_redirect"
+  | "retention_unapproved"
+  | "conflict";
+
 export interface CityLiveMarker {
   readonly cityId: string;
   readonly rank: number;
@@ -48,21 +86,40 @@ export interface CityLiveMarker {
   readonly visualStatus: CityCommittedMarkerVisualStatus;
   readonly knowledgeRevisionId: string;
   readonly evidenceSnapshotId: string;
+  readonly lastCheckedAt: string;
   readonly requiredMismatches: readonly CityRequiredMismatch[];
   readonly unknownBasis: readonly CityUnknownWarning[];
   readonly verificationCoverage: string;
   readonly facts: CityCommittedFactProjectionTuple;
 }
 
-export interface CityFactLinkProjection {
-  readonly sourceId: string;
-  readonly label: string;
-  readonly disposition: "accepted" | "reviewed_rejected";
-  readonly navigationUrl: string;
-  readonly resolvedEvidenceUrl?: string;
-  readonly referenceYear?: number;
-  readonly rejectionReason?: CitySafetyCandidateRejectionReason;
-}
+export type CityFactLinkProjection =
+  | {
+      readonly sourceId: string;
+      readonly disposition: "accepted";
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl: string;
+      // Contextually required when the enclosing fact criterionId is "safety".
+      readonly referenceYear?: number;
+    }
+  | {
+      readonly sourceId: string;
+      readonly disposition: "reviewed_rejected";
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl?: string;
+      readonly referenceYear?: number;
+      // Required for safety facts and forbidden for every non-safety fact.
+      readonly rejectionReason?: CityFactLinkRejectionReason;
+    };
+
+export type CityAcceptedFactLinkProjection = Extract<
+  CityFactLinkProjection,
+  { readonly disposition: "accepted" }
+>;
+export type CityReviewedFactLinkProjection = Extract<
+  CityFactLinkProjection,
+  { readonly disposition: "reviewed_rejected" }
+>;
 
 export interface CityUnknownWarning {
   readonly criterionId: CityCriterionId;
@@ -74,10 +131,39 @@ export interface CityCommittedFactProjection extends Omit<CityRankingFactInput, 
   readonly outcome:
     | { readonly kind: "verified"; readonly basis: CityVerifiedFactBasis }
     | { readonly kind: "unknown"; readonly reason: CityUnknownReason };
-  readonly evidenceLinks: readonly CityFactLinkProjection[];
-  readonly manualCheckLinks: readonly CityFactLinkProjection[];
+  readonly evidenceLinks: readonly CityAcceptedFactLinkProjection[];
+  readonly manualCheckLinks: readonly CityReviewedFactLinkProjection[];
 }
 export type CityCommittedFactProjectionTuple = readonly [CityCommittedFactProjection, CityCommittedFactProjection, CityCommittedFactProjection, CityCommittedFactProjection];
+
+export interface CityMarkerAuthorityProjection {
+  readonly cityId: string;
+  readonly knowledgeRevisionId: string;
+  readonly evidenceSnapshotId: string;
+  readonly lastCheckedAt: string;
+  readonly facts: CityCommittedFactProjectionTuple;
+}
+
+export interface CityMarkerBinding {
+  readonly marker: CityLiveMarker;
+  readonly markerDigest: string;
+  readonly authority: CityMarkerAuthorityProjection;
+}
+
+export interface CityFrontierRankingProjection {
+  readonly assessmentAt: string;
+  readonly orderedCityIds: readonly string[];
+  readonly screenedExclusionCityIds: readonly string[];
+}
+
+export interface ReconstructCityLiveMarkerInput {
+  readonly assessmentAt: string;
+  readonly criteria: CityCriteriaSnapshot;
+  readonly evaluators: CityCriterionEvaluatorRegistry;
+  readonly rank: number;
+  readonly authority: CityMarkerAuthorityProjection;
+  readonly persisted?: CityLiveMarker;
+}
 
 export interface CityTerminalEntry {
   readonly cityId: string;
@@ -88,16 +174,47 @@ export interface CityTerminalEntry {
   readonly unknownBasis: readonly CityUnknownWarning[];
 }
 
-export interface CityFrontierProjection {
-  readonly nextUncheckedRank: number;
-  readonly selectableCityIds: readonly string[];
-  readonly phase?: "verification_required";
-  readonly terminal?: {
-    readonly entries: readonly CityTerminalEntry[];
-    readonly stopCondition: CityFrontierStopCondition;
-  };
+export type CityFrontierProjection =
+  | {
+      readonly kind: "working";
+      readonly nextUncheckedRank: number;
+      readonly selectableCityIds: readonly string[];
+      readonly phase: "verification_required";
+    }
+  | {
+      readonly kind: "terminal";
+      readonly nextUncheckedRank: number;
+      readonly selectableCityIds: readonly string[];
+      readonly entries: readonly CityTerminalEntry[];
+      readonly stopCondition: CityFrontierStopCondition;
+    };
+
+export interface ReconstructCityFrontierInput {
+  readonly ranking: CityFrontierRankingProjection;
+  readonly criteria: CityCriteriaSnapshot;
+  readonly evaluators: CityCriterionEvaluatorRegistry;
+  readonly predecessorMarkers: null | readonly CityLiveMarker[];
+  readonly markerBindings: readonly CityMarkerBinding[];
+  readonly persisted?: CityFrontierProjection;
 }
 
+export interface CitySelectionRequestProjection {
+  readonly cityId: string;
+  readonly warningCopyVersion?: "city-unknown-risk@1";
+}
+
+export interface ReconstructCitySelectionInput {
+  readonly frontier: ReconstructCityFrontierInput;
+  readonly request: CitySelectionRequestProjection;
+}
+
+export interface CitySelectionProjection {
+  readonly entry: CityTerminalEntry;
+  readonly reviewedSourceLinks: readonly CityReviewedFactLinkProjection[];
+  readonly warningCopyVersion?: "city-unknown-risk@1";
+}
+
+export function reconstructCityLiveMarker(input: ReconstructCityLiveMarkerInput): CityLiveMarker;
 export function reconstructCityFrontier(input: ReconstructCityFrontierInput): CityFrontierProjection;
 export function reconstructCitySelection(input: ReconstructCitySelectionInput): CitySelectionProjection;
 ```
@@ -113,6 +230,60 @@ yellow with no unknown, red without a required mismatch, a working revision with
 terminal below ten markers or after queue exhaustion, and any marker whose accepted/reviewed links do
 not reconstruct from its Evidence.
 
+Close `ReconstructCityFrontierInput` exactly over the narrow frozen Ranking projection, Criteria,
+evaluators, predecessor, marker bindings and optional persisted projection. Require canonical
+`assessmentAt`, unique/disjoint ordered and screened city IDs, exact four-fact criterion order and
+`assessmentAt <= authority.lastCheckedAt`. Application-built authority is plain own data containing
+only city/Knowledge/Evidence/time plus the raw four facts and links. Re-run every evaluator at the
+frozen Ranking assessment, derive effective facts, required mismatches, weighted coverage, warnings,
+status and visual status, and reject any claimed marker drift. Prove screened IDs never activate.
+Compile/runtime-pin `ReconstructCityLiveMarkerInput` to exactly
+`assessmentAt/criteria/evaluators/rank/authority/persisted?`: omission derives a fresh marker and a
+present marker is exact-verified. Frontier must rerun this function for every binding; it cannot trust
+the claimed marker merely because its digest has valid syntax.
+
+`predecessorMarkers: null` is valid only for the zero-marker root. A successor supplies the exact
+current prefix minus one marker, whose policy reconstructs as working, then adds exactly the next
+frozen-rank city. Reject changed/reordered history, zero/two additions and successor-after-terminal.
+Omitting `persisted` derives the projection; supplying it verifies exact canonical equality. Require a
+raw lowercase 64-hex `markerDigest`, but prove Task 11 calls no hash/sign/crypto capability and makes no
+claim that a simultaneously forged marker+digest is authentic. Tasks 12–14 own that verification.
+Require the derived projection to be the closed `kind: "working" | "terminal"` union with no optional
+phase/terminal overlap. Accepted links require a resolved URL and forbid a rejection reason. Pin one
+compact source-class table against the enclosing fact: a safety accepted link requires
+`referenceYear` equal to the numeric verified fact `referencePeriod`; a safety reviewed link requires
+the Decision-owned rejection reason; every non-safety reviewed link forbids that key because current
+fixed Evidence has no such authority. Other reviewed resolved URL/year fields remain optional.
+Require `evidenceLinks` to contain accepted links only and `manualCheckLinks` plus selection
+`reviewedSourceLinks` to contain reviewed-rejected links only; preserve their exact occurrence order
+and duplicates at runtime as well as in the exported `Extract` aliases.
+
+Use descriptor-hostile REDs for roots and representative nested branches: accessor, Proxy, symbol,
+custom prototype, sparse/cyclic array or object, extra/missing/own-undefined key and aliased mutable
+inputs. All fail closed as `integrity_mismatch` before evaluator execution where structurally invalid;
+successful outputs are fresh recursively frozen copies and preserve duplicate link occurrences.
+In one valid hostile-evaluator RED, the first `canonicalizeTarget` or `evaluate` callback triggers one
+shared attack that mutates every borrowed Ranking/Criteria/authority/predecessor/persisted graph and
+swaps all entries/methods in the borrowed evaluator registry; each
+`evaluate` callback also retains its structured argument and delegates normally. Require the clean oracle
+result, observable attack mutations on still-unfrozen caller objects, private frozen evaluation
+arguments, exact original four-capability call counts, and a result unaffected by either retained-argument or later caller mutation. This pins complete ownership before the
+first behavior callback without expanding into a callback matrix.
+Assert each retained evaluator argument has exactly the three
+`criterion/fact/assessmentAt` own data keys of `CityCriterionEvaluationInput`; its `.fact` has exactly
+the eight `CityRankingFactInput` own data keys and contains no `evidenceLinks`, `manualCheckLinks` or
+other Evidence URL/rejection field. Assert callbacks receive only fresh frozen exact one-key receivers
+`{ capability: "canonicalizeTarget" }` or `{ capability: "evaluate" }`, never the borrowed evaluator,
+registry, authority or complete input.
+In the existing marker truth-table cluster, bind every raw fact's `criterionId`, `definitionId` and
+`freshnessBasis` to the canonical criterion and captured evaluator definition before its callback.
+Immediately descriptor-own each synchronous evaluator result before any later callback: `verified` is
+the exact three-key `state/factor/targetComparison` branch, while `unknown` is the exact four-key branch
+including `unknownReason`, requires factor `0` and comparison `unknown`, and cannot change the reason
+of a raw-unknown fact or promote it to verified. Reject accessor/Proxy/symbol/custom-prototype/Promise,
+extra/missing/own-undefined keys, malformed or out-of-range/noncanonical factors and thrown callbacks
+as `integrity_mismatch`; none may become marker authority.
+
 - [ ] **Step 2: Run RED**
 
 ```bash
@@ -122,16 +293,55 @@ not reconstruct from its Evidence.
 
 - [ ] **Step 3: Implement pure reconstruction and transition validation**
 
-Require markers in activation/frozen rank order with unique city IDs and exact Knowledge/Evidence
-bindings. A marker is red/excluded iff `requiredMismatches` is nonempty; otherwise it is yellow iff
-any fact is unknown, and green iff all four are verified. Terminal entries are green/yellow selectable
-markers in frozen order. After each committed marker choose stop deterministically: `three_selectable`;
-else `catalog_exhausted` when no frozen candidate remains; else `live_candidate_limit_reached` at ten
-markers. Otherwise preserve working `verification_required` state.
+First own and exact-close the complete input without invoking an evaluator or freezing caller data.
+Application is the anti-corruption layer: after reconstructing Knowledge and replaying Evidence it
+builds `CityMarkerAuthorityProjection`; Decision imports no Research/Application/Infrastructure type.
+Require authority and claimed marker city/Knowledge/Evidence/time bindings to agree exactly.
+
+Descriptor-own and exact-close the complete four-key evaluator registry before the first callback.
+For every criterion, own its definition and capture the original `canonicalizeTarget` and `evaluate`
+function references once. Invoke them only through fresh frozen one-capability receiver wrappers; no
+later read from a borrowed registry/evaluator object is authoritative.
+
+`reconstructCityLiveMarker` reconstructs Criteria with the supplied inward evaluator registry. For
+each raw authority fact in the canonical four-criterion order, project field-by-field a fresh frozen
+exact eight-key `CityRankingFactInput` containing only
+`criterionId/definitionId/geoScope/referencePeriod/freshnessBasis/unit/denominator/outcome`; never pass
+or alias either link array to an evaluator. Call the evaluator with a fresh frozen exact three-key
+`CityCriterionEvaluationInput { criterion, fact, assessmentAt }`, then
+descriptor-own and exact-validate the synchronous `CityCriterionEvaluation` result before invoking
+another callback. Apply the same closed verified/unknown postconditions as the ranker, including
+canonical factor bounds, raw-unknown reason equality and no unknown-to-verified promotion. Then
+construct the effective committed fact and reattach fresh owned accepted/reviewed link copies. Derive each required mismatch from the verified evaluator
+comparison, and compute coverage with
+the ranker's exact weighted formula
+`sum(importance for verified effective facts) / sum(importance)`. Derive one warning per effective
+unknown fact in criterion order. A marker is red/excluded iff the derived mismatch list is nonempty;
+otherwise it is yellow iff any effective fact is unknown, and green iff all four are verified. No
+caller-supplied mismatch, coverage, warning or color is authoritative.
+
+`reconstructCityFrontier` requires `ranking.assessmentAt` to equal the assessment passed to every
+marker reconstruction, reruns `reconstructCityLiveMarker` with each binding's claimed marker as
+`persisted`, then requires markers in activation/frozen rank order with unique city IDs, excludes every
+screened ID and validates the root/successor law above. Terminal entries are green/yellow selectable markers in frozen
+order and copy the caller-verified digest. After each committed marker choose stop deterministically:
+`three_selectable`; else `catalog_exhausted` when no frozen candidate remains; else
+`live_candidate_limit_reached` at ten markers. Otherwise preserve working
+`verification_required` state. Preserve optional-field absence and duplicate accepted/reviewed link
+occurrences exactly; do not deduplicate or localize labels in Decision. Experience derives display
+labels from the verified `sourceId`.
 
 - [ ] **Step 4: Implement server-derived selection/warning basis**
 
-Selection accepts only an exact terminal entry. Reconstruct warnings and reviewed source links from the selected marker, require no copy version for green and exact `city-unknown-risk@1` for yellow, and reject client-supplied facts/parent/basis/link fields. Yellow selection accepts the displayed risk inline; no separate modal or decision aggregate is introduced.
+Selection reruns the complete frontier reconstruction, requires `frontier.persisted` to be present
+with `kind === "terminal"`, and accepts only an exact terminal entry. Its nested request has exactly `cityId` and optional
+`warningCopyVersion`; reject client-supplied terminal, digest, facts, parent, basis, link, command or
+run fields. Return a fresh frozen `CityTerminalEntry`, the selected marker's `manualCheckLinks`
+flattened in canonical four-fact/link occurrence order as transient `reviewedSourceLinks` without
+deduplication, and the optional accepted copy token. Require no copy version for green and exact
+`city-unknown-risk@1` for yellow. Do not persist a second reviewed-link array: the verified terminal
+marker plus `entry.markerDigest` remains its durable binding. Yellow selection accepts the displayed
+risk inline; no separate modal or decision aggregate is introduced.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -278,6 +488,11 @@ export interface CitySelectionSnapshot {
   readonly warningCopyVersion?: "city-unknown-risk@1";
   readonly createdAt: string;
 }
+
+export function cityLiveMarkerDigest(
+  marker: CityLiveMarker,
+  integrity: CityDecisionIntegrity,
+): string;
 ```
 
 Branch values:
@@ -308,7 +523,7 @@ export interface CityBranchCommit {
 
 - [ ] **Step 1: Write branch and closed-contract RED tests**
 
-Test deterministic pre-city ID, exact resolved country entry digest, exact relocation + Preference Profile bindings, the closed Application-owned `CityFrontierEvent` union, complete selection context/selected-marker digest including visual status and reviewed links, green/yellow selection, yellow warning-basis tamper, A/B sibling branch identity, `parentId === forkedFrom`, wrong parent/profile/preference/country/city/criteria/ranking rejection, replay tamper and deep freeze.
+Test deterministic pre-city ID, exact resolved country entry digest, exact relocation + Preference Profile bindings, the closed Application-owned `CityFrontierEvent` union, complete selection context/selected-marker digest including visual status, `lastCheckedAt`, facts and ordered duplicate reviewed links, green/yellow selection, yellow warning-basis tamper, A/B sibling branch identity, `parentId === forkedFrom`, wrong parent/profile/preference/country/city/criteria/ranking rejection, replay tamper and deep freeze. Pin `cityLiveMarkerDigest(marker, integrity) === integrity.hash(integrity.canonical(marker))` as raw lowercase 64-hex with no prefix; any marker-field or link-occurrence mutation changes it.
 
 For `CityRankingSnapshot`, require one closed `installedPackageContext` with exactly
 `countryCode/packageId/packageSchemaVersion/catalogRevisionId/evidenceRulesVersion`. Require its first
@@ -337,6 +552,11 @@ reject it; the positive result is the same fresh frozen snapshot. Compile-check 
 - [ ] **Step 3: Implement closed snapshot/operation types and ID helpers**
 
 Use the Foundations `CityDecisionIntegrity` sealing contract in Application; keep `node:crypto` in Infrastructure. Browser semantic reconstruction does not recompute IDs. Terminal snapshot is the terminal frontier revision, not a second mutable summary. It includes exact selectable entries, markers and stop condition.
+
+`cityLiveMarkerDigest` first owns the exact complete marker, then returns the raw lowercase
+`integrity.hash(integrity.canonical(marker))` without a prefix. Task 11 accepts only a caller-verified
+64-hex digest and never receives integrity; every Application/persistence construction or replay of a
+`CityMarkerBinding` calls this Task 12 helper and requires exact equality before pure policy.
 
 The ranking payload is the exact `CityRankingSnapshot` object without `id`; seal it as
 `id = "city-ranking:" + integrity.hash(integrity.canonical(payload))`. Both sealing and reconstruction
@@ -422,7 +642,10 @@ Cover strict Criteria/Ranking and pre-city parent round-trip, exact relocation +
 bindings, frozen `city-frontier-budget@1`, atomic `publishStart` with failure after each would-be insert,
 full ranking reconstruction, one root/successor/terminal, no working head with ten markers, exact
 three-way terminal reason/count/queue validation, command retry/conflict, stale head, exact bindings and
-immutable triggers.
+immutable triggers. For every successor/reload, reconstruct the verified Knowledge/Evidence source
+projection, recompute each raw marker digest through `cityLiveMarkerDigest`, and reject altered marker,
+digest, `lastCheckedAt`, authority fact/link occurrence, predecessor prefix or persisted frontier before
+returning a revision.
 
 Persist and reload the complete `installedPackageContext` inside the canonical sealed ranking payload.
 Assert mirrored country/package/schema/catalog/evidence-rules columns and the parsed closed context all
@@ -452,9 +675,18 @@ inputs.
 
 Add `city_criteria_snapshots`, `city_ranking_snapshots`, `city_frontier_revisions`, `city_selection_snapshots` and closed-union `city_branch_commits`. The selection table exists before branch FKs but is written only in Task 15. A `pre_city` row has no parent/selection and is unique by resolved-country revision + country; `selection` rows require a parent and selection FK. Ranking is unique per run and binds the exact verification budget plus canonical `installed_package_context`, mirrored `package_id`, `package_schema_version` and `evidence_rules_version`; existing country/catalog columns must equal the same context. Persist an Infrastructure-private canonical-row payload hash/HMAC envelope, not an outward snapshot field, and verify it before parsing/return. Frontier has one root/successor/command/terminal indexes. Add immutable triggers/preflight and update exact inventories.
 
+The stored frontier payload keeps `CityLiveMarker` values and terminal entries, not a second durable
+authority projection. Before append, Application loads the exact referenced Knowledge/Evidence graph,
+builds `CityMarkerAuthorityProjection`, recomputes `cityLiveMarkerDigest` and calls Task 11 with the
+narrow frozen Ranking projection, verified Criteria/evaluators, exact predecessor markers and the
+would-be persisted projection. The writer repeats closed row/chain and digest verification before
+insert. On load, the adapter verifies its signed row envelope, chain and digest; Application repeats the
+Knowledge/Evidence ACL plus Task 11 semantic reconstruction before Continue, Present or Select. A
+signed row alone never makes marker semantics or a caller-supplied digest authoritative.
+
 - [ ] **Step 4: Implement canonical verification and race normalization**
 
-`publishStart` runs one `transaction.immediate()` across all four Start artifacts and exact-replays the deterministic command before any insert. Frontier successor append separately resolves idempotent command first, verifies current head, reconstructs pure policy, inserts and reloads. Only a verified lost predecessor race becomes `stale_city_frontier_head`; busy/constraint/native errors must not be broadly relabeled. Add two-connection tests: different successors yield one success/one stale; identical command retries converge.
+`publishStart` runs one `transaction.immediate()` across all four Start artifacts and exact-replays the deterministic command before any insert. Frontier successor append separately resolves idempotent command first, verifies current head, requires the Application-supplied Task 11 reconstruction plus exact marker digest to match the would-be persisted revision, inserts and reloads. Only a verified lost predecessor race becomes `stale_city_frontier_head`; busy/constraint/native errors must not be broadly relabeled. Add two-connection tests: different successors yield one success/one stale; identical command retries converge.
 
 Before inserting a ranking, Application calls `reconstructCityRankingSnapshot(value, integrity)` and
 `verifyCityRankingSnapshotSemantics` with the already verified installed package/catalog/criteria/
@@ -539,7 +771,12 @@ and coordinates; confirmed criteria; deterministic pre-city parent; frozen ranki
 `city-frontier-budget@1` (`10` completed / target `3`); zero official/search calls; injected failure
 after each Start insert leaves zero partial rows; exact retry converges; two canonical presentations
 with zero source/request-step/search calls; exact four-fact accepted/reviewed-link marker projections;
-verified selection/branch history after reload. An installed package whose Catalog uses
+exact `lastCheckedAt`, raw 64-hex marker digest and verified selection/branch history after reload.
+For Continue and both presentations, independently reconstruct the raw four facts/links from exact
+Knowledge plus replayed Evidence, project frozen Ranking assessment/ordered/screened IDs, and call
+Task 11 with verified Criteria/evaluators and the exact predecessor marker list. Mutate every authority
+ID/time/fact/link, evaluator-derived mismatch/coverage/warning/color, digest and predecessor binding;
+reject before append/presentation and perform zero source/search/document call during reload. An installed package whose Catalog uses
 `LEGACY_CITY_CATALOG_RULES_VERSION` must fail Setup/Start as
 `city_catalog_upgrade_required` before ranking, source calls or any Criteria/pre-city/Ranking/frontier
 run row. No legacy-catalog-rules City run can be created. Continue and Present require an exact
@@ -891,9 +1128,26 @@ one distinct manifest artifact and remain occurrence-validated; conflicting repe
 same context fields without re-derivation, that array, the verified already signed generic bundle, all
 three fixed ledgers and the safety ledger to the City store. The store resolves the catalog-bound replay
 contract and atomically persists the bytes, generic bundle and overlay without a second generic seal or
-replacement signature. Publish all four Knowledge facts, evaluate criteria, append one
-green/yellow/red marker successor, derive the exact three-way terminal reason, emit the committed
-marker, construct the verified working-or-terminal read model, emit exactly one
+replacement signature. Publish all four Knowledge facts, reconstruct the fresh Knowledge revision and
+build one plain `CityMarkerAuthorityProjection` from its IDs/`lastCheckedAt` plus the four raw facts.
+Attach accepted fixed-source claim links and reviewed blocker links only from the verified generic
+Evidence projection; map safety accepted/reviewed links only from the verified safety Evidence replay.
+The authority contains no ready mismatch, coverage, warning, status or visual color.
+
+Project `CityFrontierRankingProjection` exactly from the already semantically verified frozen Ranking
+`assessmentAt`, ordered IDs and screened-exclusion IDs. Pass it with verified Criteria/evaluators,
+`predecessorMarkers: []` for the first successor or the exact current-head markers thereafter.
+Call `reconstructCityLiveMarker` with that assessment, verified Criteria/evaluators, next frozen rank,
+authority and no `persisted` marker. Decision derives the effective facts, mismatch, weighted coverage,
+warnings and green/yellow/red marker. Compute `cityLiveMarkerDigest(marker, integrity)`, create the
+binding, then call `reconstructCityFrontier` against the would-be persisted projection; frontier reruns
+marker reconstruction for every binding and derives the exact three-way terminal reason. Presentation
+and recovery rebuild the authority from verified persisted Knowledge/Evidence, verify each persisted
+marker through `reconstructCityLiveMarker`, recompute its digest, then reconstruct the frontier with
+zero network; they never trust marker facts or digest merely because a frontier row is signed.
+
+Append one verified marker successor, emit the committed marker, construct the verified
+working-or-terminal read model, emit exactly one
 `city_continuation_completed`, then return the canonically identical model. Abort/deadline,
 malformed source output and every fixed operation failure publish no Evidence/Knowledge and advance
 no cursor or city budget; they never become unknown.
@@ -975,7 +1229,7 @@ export interface CitySelectionReadPort {
 
 - [ ] **Step 1: Write selection/atomicity RED tests**
 
-Accept only the exact `SelectCityInput` keys; accept a terminal selectable city with 0 or nonzero warnings; reject working/empty/missing/excluded/tampered city, wrong copy-version presence/value and client `runId`, basis or parent fields. Derive `runId` from the verified terminal snapshot before command lookup. Assert idempotency is keyed by that derived `runId + commandId`: an identical canonical remainder `{ terminalCityShortlistSnapshotId, cityId, warningCopyVersion? }` returns both prior rows, while the same key with any changed remainder conflicts. Inject failure before either insert and verify neither row exists. Returned/presented read models contain verified sibling selection/branch history. Cover `loadSelectionWithBranchVerified(citySelectionSnapshotId)` success, missing ID, duplicate or mismatched selection/commit rows, tampered root/context bindings and fresh frozen copies; the lookup must not accept `runId` or browser-supplied context as authority.
+Accept only the exact `SelectCityInput` keys; accept a terminal selectable city with 0 or nonzero warnings; reject working/empty/missing/excluded/tampered city, wrong copy-version presence/value and client `runId`, basis or parent fields. After the Application command envelope is removed, compile/runtime-pin the pure request to exactly `{ cityId, warningCopyVersion? }`; reject terminal ID, command ID, digest, facts, basis, links and parent on that nested surface. Require `reconstructCitySelection` to return the exact fresh terminal entry plus transient reviewed links flattened from the selected marker in four-fact/link occurrence order without deduplication. Derive `runId` from the verified terminal snapshot before command lookup. Assert idempotency is keyed by that derived `runId + commandId`: an identical canonical remainder `{ terminalCityShortlistSnapshotId, cityId, warningCopyVersion? }` returns both prior rows, while the same key with any changed remainder conflicts. Inject failure before either insert and verify neither row exists. Returned/presented read models contain verified sibling selection/branch history. Cover `loadSelectionWithBranchVerified(citySelectionSnapshotId)` success, missing ID, duplicate or mismatched selection/commit rows, tampered root/context bindings and fresh frozen copies; the lookup must not accept `runId` or browser-supplied context as authority.
 
 - [ ] **Step 2: Run RED**
 
@@ -989,7 +1243,14 @@ Use the Task 13 `city_selection_snapshots` and `city_branch_commits` schemas. Ve
 
 - [ ] **Step 4: Implement one atomic writer transaction**
 
-Load/verify terminal and source graph inside the transaction, derive yellow warning basis, accepted/reviewed link binding and branch parent server-side, construct both pure values, insert both, reload/verify both, then commit. Source links never affect selectability by themselves. Add both `loadSelectionWithBranchVerified(citySelectionSnapshotId)` and `listSelectionsWithBranchesVerified(runId)` to the inward writer port and implement them in `city-selection-writer.ts`. The by-ID method loads the exact selection/commit pair in one read transaction; verifies `selection.id === commit.citySelectionSnapshotId`, `selection.preCityBranchCommitId === commit.parentId`, `selection.preCityBranchCommitId === commit.forkedFrom` and the stored country/profile/source context; rejects missing, duplicate, mismatched or tampered rows; and returns a fresh frozen `CitySelectionWithBranch`. Select and `presentCityFrontier` return the complete verified history. A second city from the same terminal reuses the same pre-city parent and creates a sibling commit.
+Load/verify terminal, predecessor and source graph inside the transaction; reconstruct its narrow frozen
+Ranking projection, Criteria/evaluators, every Knowledge/Evidence authority and raw marker digest; then
+call `reconstructCitySelection` with only the exact city/version request. Map its returned
+`entry.cityId/markerDigest/knowledgeRevisionId/evidenceSnapshotId/unknownBasis` and optional version to
+the Selection Snapshot. `reviewedSourceLinks` is a verified transient result for presentation/command
+binding and is not persisted as a second array. Derive branch parent server-side, construct both pure
+values, insert both, reload/verify both, then commit. Source links never affect selectability by
+themselves. Add both `loadSelectionWithBranchVerified(citySelectionSnapshotId)` and `listSelectionsWithBranchesVerified(runId)` to the inward writer port and implement them in `city-selection-writer.ts`. The by-ID method loads the exact selection/commit pair in one read transaction; verifies `selection.id === commit.citySelectionSnapshotId`, `selection.preCityBranchCommitId === commit.parentId`, `selection.preCityBranchCommitId === commit.forkedFrom` and the stored country/profile/source context; rejects missing, duplicate, mismatched or tampered rows; and returns a fresh frozen `CitySelectionWithBranch`. Select and `presentCityFrontier` return the complete verified history. A second city from the same terminal reuses the same pre-city parent and creates a sibling commit.
 
 `selectCity` never accepts a client `runId`: it verified-loads `terminalCityShortlistSnapshotId`, derives
 the run ID from that terminal, and passes only `(derived runId, commandId, canonical remaining payload)`

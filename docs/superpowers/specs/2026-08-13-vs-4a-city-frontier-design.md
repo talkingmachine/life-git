@@ -7,8 +7,8 @@
 | Дата | 2026-08-13 |
 | Область | City Registry, установленный City Catalog, City Knowledge, ranking, bounded live frontier, terminal shortlist и выбор первой Life Git ветви |
 | Зависимости | verified non-empty `Resolved Country Shortlist Snapshot` из `VS-3R`, confirmed profile, provider-free runtime, Evidence pipeline |
-| Approval evidence | пользователь одобрил широкий catalog, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching 2026-08-13; hard cap 100, capital/population priority и separate live-10 budget 2026-08-16 |
-| Written approval | пользователь явно одобрил exact редакцию 2026-08-13 и catalog/runtime amendment 2026-08-16 |
+| Approval evidence | пользователь одобрил широкий catalog, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching 2026-08-13; hard cap 100, capital/population priority и separate live-10 budget 2026-08-16; Task 11 inward authority/digest/transition contract 2026-08-24 |
+| Written approval | пользователь явно одобрил exact редакцию 2026-08-13, catalog/runtime amendment 2026-08-16 и Task 11 architectural amendment 2026-08-24 |
 | Canonical effect after approval | заменяет общее обещание «1–3 города» точной City Frontier semantics; не меняет formal/effective country status |
 | Split review | текущий baseline остаётся короче 400 строк и проверен по `CONSTITUTION.md`; сохранён одним документом, потому что catalog, ranking, full-Knowledge и frontier образуют один atomic design contract; tasks/evidence/canonical amendments остаются отдельными |
 
@@ -159,6 +159,32 @@ targets: mismatch даёт red, иначе city selectable. Marker/frontier succ
 после durable Knowledge publication. Законно опубликованные Evidence/Knowledge не откатываются,
 если последующий frontier append сорвался; retry обязан переиспользовать exact completed check.
 
+Граница между Application и pure Decision является закрытым anti-corruption contract. Application
+сначала reconstructs exact Knowledge и replayed Evidence, затем передаёт только plain source
+projection: `cityId`, Knowledge/Evidence IDs, `lastCheckedAt` и canonical tuple четырёх raw facts с
+accepted/reviewed links. Отдельно Decision получает узкую frozen Ranking projection
+`{ assessmentAt, orderedCityIds, screenedExclusionCityIds }`, verified Criteria Snapshot и inward
+evaluator registry. Decision не импортирует Research и сам при frozen `assessmentAt` выводит
+effective four-fact projection, required mismatches, weighted verification coverage, warnings,
+selectability и visual status. Chronology требует `assessmentAt <= lastCheckedAt`; source projection
+не может прислать готовые mismatch, coverage, warning или color как authority.
+До первого evaluator callback Decision владеет полным input graph и фиксирует все четыре
+capabilities. Callback получает только private frozen `{ criterion, fact, assessmentAt }`; exact
+eight-key `fact` не содержит Evidence links или rejection metadata. Definitions и обе функции
+descriptor-captured до вызова; callback receiver — fresh frozen one-capability marker, а не borrowed
+evaluator/registry. До callback fact `criterionId/definitionId/freshnessBasis` exact-связан с canonical
+criterion и captured definition. Синхронный evaluator result немедленно descriptor-owned до следующего
+callback: verified допускает только exact three-key branch, unknown — exact four-key branch с factor
+`0`, comparison `unknown` и сохранением причины raw unknown; malformed/Promise/hostile/throwing return
+закрывается как `integrity_mismatch`.
+
+Создание successor не имеет циклической зависимости: Application сначала вызывает pure
+`reconstructCityLiveMarker` без persisted marker, затем считает Task 12 digest этого результата и
+передаёт marker+digest binding в `reconstructCityFrontier`. При replay первый вызов получает persisted
+marker и exact-сравнивает его с заново выведенным значением; frontier повторяет эту проверку для всех
+bindings. Frontier projection является закрытым `working | terminal` union, а не сочетанием optional
+phase/terminal полей.
+
 ### `REQ-CF-05` — полный append-only City Knowledge
 
 City Knowledge не хранит raw source bytes, user target/weight, score или вывод «подходит».
@@ -194,6 +220,14 @@ exact Knowledge/Evidence lineage. Stop precedence после commit детерм
 `live_candidate_limit_reached`. Working revision с десятью markers и активация одиннадцатого city
 недопустимы.
 
+Root reconstruction передаёт `predecessorMarkers: null` и не содержит marker. Каждый successor
+передаёт exact predecessor marker list, сохраняет его canonical prefix без изменений и добавляет
+ровно один следующий frozen-rank marker; predecessor обязан reconstruct как working. Marker содержит
+canonical `lastCheckedAt`. Его raw lowercase SHA-256 digest равен
+`hash(canonical(marker))` и включает visual status, time, facts и ordered duplicate link occurrences.
+Pure Task 11 только проверяет форму и связывает caller-verified digest; Application/persistence
+Tasks 12–14 вычисляют и повторно проверяют digest через injected Decision integrity capability.
+
 До terminal seal CTA выбора отсутствует. UI показывает:
 
 - gray `Проверяется` для active candidate;
@@ -209,6 +243,21 @@ facts/`coverage после проверки`. Второй aggregate score по�
 Select command принимает terminal shortlist ID, `cityId`, command ID и, только для non-empty
 warning basis, warning-copy version. Сервер сам реконструирует selectability, canonical displayed
 unknown basis и branch parent; клиент не присылает facts, risk basis или parent ID.
+
+Pure selection получает verified terminal frontier и закрытый request только из `cityId` и optional
+`city-unknown-risk@1`. Он возвращает fresh terminal entry, transient `reviewedSourceLinks`,
+reconstructed из selected marker `manualCheckLinks` в canonical four-fact/link occurrence order без
+deduplication, и optional accepted copy token. Reviewed links не дублируются в Selection Snapshot:
+durable authority остаётся в terminal marker и его digest.
+
+Committed link является закрытым discriminated union. `accepted` требует resolved Evidence URL и не
+может содержать rejection reason. По контексту enclosing fact safety accepted link обязательно
+содержит `referenceYear`, равный numeric verified `referencePeriod`; safety reviewed link обязательно
+содержит Decision-owned closed reason, а любой non-safety reviewed link этот key запрещает, поскольку
+текущий fixed Evidence его не производит. Остальные reviewed resolved URL/year остаются optional.
+`evidenceLinks` содержит только accepted branch; `manualCheckLinks` и transient
+`reviewedSourceLinks` — только reviewed-rejected branch, с сохранением порядка и duplicate
+occurrences. Persisted label отсутствует: Experience локализует exact `sourceId`.
 
 Нажатие `Выбрать город` при non-empty warning basis является явным принятием ровно показанных
 unknown warnings; при полном verified coverage risk acceptance отсутствует. Операция атомарно
@@ -231,8 +280,8 @@ Knowledge/Evidence, warnings и optional copy version.
   queue; comparable required mismatch попадает только в screened exclusions.
 - `SCN-CF-03 Fresh replacement`: первый live city проходит все четыре checks, получает required
   mismatch и persistent red; следующий frozen candidate заполняет слот.
-- `SCN-CF-04 Selectable unknown`: один или все четыре facts unknown; city остаётся green с amber
-  ring, занимает slot, а selection фиксирует warning basis.
+- `SCN-CF-04 Selectable unknown`: один или все четыре facts unknown; city становится yellow
+  `Доступен с неполными данными`, занимает slot, а selection фиксирует warning basis.
 - `SCN-CF-05 Revalidation`: одинаковая projection создаёт successor с новым `lastCheckedAt` и прежним
   `knowledgeUpdatedAt`; known-to-unknown не переносит value и обновляет `knowledgeUpdatedAt`.
 - `SCN-CF-06 Failure boundary`: evidence-backed bounded source exhaustion публикует unknown;
@@ -267,7 +316,9 @@ verified Resolved Country Shortlist entry
   capture и builder полной four-fact Knowledge projection. Package без reviewable official plan для
   всех четырёх criteria не считается установленным.
 - **Application** владеет confirm/start/continue/present/select use cases, cross-aggregate graph и
-  commit ordering. Только Continue вызывает official source port.
+  commit ordering. Он является anti-corruption layer: после verified Knowledge/Evidence строит plain
+  marker source projection, но не передаёт Research revision/ledger внутрь Decision. Только Continue
+  вызывает official source port.
 - **Infrastructure** хранит Registry/Catalog, Evidence, Knowledge, Criteria, Ranking, Frontier,
   Terminal, Selection и Branch append-only. Raw bytes доступны только Evidence storage.
 - **Experience** принимает strict read models/finite NDJSON events и только проецирует frozen/fresh
@@ -313,7 +364,7 @@ Presentation/reload/select не выполняют official HTTP. После tra
   no-eleventh-city и abort/retry;
 - append-only/hash/HMAC/predecessor/idempotency/concurrency/tamper matrices;
 - strict transport, EOF-held terminal, committed-before-event, zero-network double presentation;
-- UI/accessibility tests gray/green/amber/red, warning acceptance, frozen-vs-fresh labels and same globe;
+- UI/accessibility tests gray/green/yellow/red, warning acceptance, frozen-vs-fresh labels and same globe;
 - selection eligibility, exact risk binding, atomic selection+branch and sibling alternatives;
 - full typecheck, lint, tests, production build, diff/provider audits and an official-source walkthrough
   on an isolated database before `source-verified` evidence.
@@ -329,7 +380,7 @@ explicitly unavailable; фиктивные data или generic crawler запр�
 - Universal city crawler, worldwide metric ontology или автоматическое восстановление любого сайта.
 - Random/famous-city fallback при incomplete official coverage.
 - Изменение country formal/effective status из city fit.
-- Выбор до terminal, отдельный risk modal или city-yellow marker.
+- Выбор до terminal или отдельный risk modal.
 - Rerank и второй aggregate score после fresh live checks.
 - Raw official bytes, user preferences, score или suitability verdict в City Knowledge.
 - Работа, жильё, бюджет, projections и полный Life Git diff UI из `VS-4`.

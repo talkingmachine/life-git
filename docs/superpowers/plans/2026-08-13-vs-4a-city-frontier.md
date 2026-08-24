@@ -12,6 +12,10 @@
 
 **Required approved supplement:** [`VS-4A Safety Source Discovery`](../specs/2026-08-14-vs-4a-safety-source-discovery-design.md). Its bounded-search, Evidence and yellow-marker rules supersede the narrower safety clauses in the baseline design and in the 2026-08-13 execution plans.
 
+**Approved Task 11 architectural amendment (2026-08-24):** the verified Knowledge/Evidence
+anti-corruption projection, Decision-owned marker derivation, predecessor transition and Task 12 digest
+boundary in the ledger below supersede the incomplete Task 11 placeholder signatures.
+
 **Split rationale:** This index is intentionally linked to five reviewer-sized plans. Catalog/ranking, bounded safety discovery, Evidence/Knowledge, orchestration/persistence and delivery have different owners and failure modes; combining their executable steps would violate the documentation constitution's size and single-responsibility rules.
 
 ## Linked execution plans
@@ -45,7 +49,7 @@ Each numbered task ends in a local commit and a fresh focused gate. Do not begin
   HTTPS and the narrow safety-search port. Start, Present, reload and Select are zero-network.
 - A completed check publishes sealed Evidence, then a full four-fact City Knowledge revision, then a frontier successor. No old fact value is carried into a new city revision.
 - Crash, cancel, storage, integrity, protocol or unexpected errors do not become domain unknown and do not advance the cursor. A completed Evidence/Knowledge result survives a later frontier append failure and is reused without network.
-- Marker visual states are gray `pending`, `green`, `yellow` and `red`. Green and yellow are semantically selectable; yellow occupies a terminal slot and never triggers replacement, while only a verified required mismatch is red/excluded.
+- Marker visual states are gray `pending`, `green`, `yellow` and `red`. Green and yellow are semantically selectable; yellow occupies a terminal slot and never triggers replacement, while only a verified required mismatch is red/excluded. Application supplies only a verified plain Knowledge/Evidence source projection; Decision derives effective facts, mismatches, weighted coverage, warnings and committed color at the frozen Ranking `assessmentAt`.
 - Stop is exactly `three_selectable`, `catalog_exhausted` or `live_candidate_limit_reached`. The last
   reason applies after ten completed city checks only when the frozen queue still has candidates and
   fewer than three are selectable. Terminal `0..2` is valid; Select requires terminal `1..3` and an
@@ -122,6 +126,26 @@ export type CitySafetyCandidateRejectionReason =
   | "retention_unapproved"
   | "conflict";
 
+// Decision owns this structurally identical closed union. Application maps the verified Research
+// value at the anti-corruption boundary; Decision never imports a Research type.
+export type CityFactLinkRejectionReason =
+  | "http_not_found"
+  | "transport_unavailable"
+  | "authority_untrusted"
+  | "stale"
+  | "scope_mismatch"
+  | "definition_mismatch"
+  | "missing_numerator"
+  | "denominator_missing"
+  | "denominator_zero"
+  | "denominator_period_mismatch"
+  | "denominator_scope_mismatch"
+  | "wrong_media_type"
+  | "too_large"
+  | "untrusted_redirect"
+  | "retention_unapproved"
+  | "conflict";
+
 export type CitySafetyEvidenceLink =
   | {
       readonly disposition: "accepted";
@@ -136,6 +160,151 @@ export type CitySafetyEvidenceLink =
       readonly referenceYear?: number;
       readonly rejectionReason: CitySafetyCandidateRejectionReason;
     };
+
+export type CityFactLinkProjection =
+  | {
+      readonly sourceId: string;
+      readonly disposition: "accepted";
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl: string;
+      // Required when the enclosing fact criterionId is "safety".
+      readonly referenceYear?: number;
+    }
+  | {
+      readonly sourceId: string;
+      readonly disposition: "reviewed_rejected";
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl?: string;
+      readonly referenceYear?: number;
+      // Required for safety facts; forbidden for every non-safety fact.
+      readonly rejectionReason?: CityFactLinkRejectionReason;
+    };
+
+export type CityAcceptedFactLinkProjection = Extract<
+  CityFactLinkProjection,
+  { readonly disposition: "accepted" }
+>;
+export type CityReviewedFactLinkProjection = Extract<
+  CityFactLinkProjection,
+  { readonly disposition: "reviewed_rejected" }
+>;
+
+export interface CityUnknownWarning {
+  readonly criterionId: CityCriterionId;
+  readonly definitionId: string;
+  readonly reason: CityUnknownReason;
+}
+
+export interface CityCommittedFactProjection extends Omit<CityRankingFactInput, "outcome"> {
+  readonly outcome:
+    | { readonly kind: "verified"; readonly basis: CityVerifiedFactBasis }
+    | { readonly kind: "unknown"; readonly reason: CityUnknownReason };
+  readonly evidenceLinks: readonly CityAcceptedFactLinkProjection[];
+  readonly manualCheckLinks: readonly CityReviewedFactLinkProjection[];
+}
+
+export type CityCommittedFactProjectionTuple = readonly [
+  CityCommittedFactProjection,
+  CityCommittedFactProjection,
+  CityCommittedFactProjection,
+  CityCommittedFactProjection,
+];
+
+export interface CityLiveMarker {
+  readonly cityId: string;
+  readonly rank: number;
+  readonly status: CityMarkerDisposition;
+  readonly visualStatus: CityCommittedMarkerVisualStatus;
+  readonly knowledgeRevisionId: string;
+  readonly evidenceSnapshotId: string;
+  readonly lastCheckedAt: string;
+  readonly requiredMismatches: readonly CityRequiredMismatch[];
+  readonly unknownBasis: readonly CityUnknownWarning[];
+  readonly verificationCoverage: string;
+  readonly facts: CityCommittedFactProjectionTuple;
+}
+
+export interface CityMarkerAuthorityProjection {
+  readonly cityId: string;
+  readonly knowledgeRevisionId: string;
+  readonly evidenceSnapshotId: string;
+  readonly lastCheckedAt: string;
+  readonly facts: CityCommittedFactProjectionTuple;
+}
+
+export interface CityMarkerBinding {
+  readonly marker: CityLiveMarker;
+  readonly markerDigest: string;
+  readonly authority: CityMarkerAuthorityProjection;
+}
+
+export interface CityFrontierRankingProjection {
+  readonly assessmentAt: string;
+  readonly orderedCityIds: readonly string[];
+  readonly screenedExclusionCityIds: readonly string[];
+}
+
+export interface ReconstructCityLiveMarkerInput {
+  readonly assessmentAt: string;
+  readonly criteria: CityCriteriaSnapshot;
+  readonly evaluators: CityCriterionEvaluatorRegistry;
+  readonly rank: number;
+  readonly authority: CityMarkerAuthorityProjection;
+  readonly persisted?: CityLiveMarker;
+}
+
+export interface CityTerminalEntry {
+  readonly cityId: string;
+  readonly rank: number;
+  readonly markerDigest: string;
+  readonly knowledgeRevisionId: string;
+  readonly evidenceSnapshotId: string;
+  readonly unknownBasis: readonly CityUnknownWarning[];
+}
+
+export type CityFrontierProjection =
+  | {
+      readonly kind: "working";
+      readonly nextUncheckedRank: number;
+      readonly selectableCityIds: readonly string[];
+      readonly phase: "verification_required";
+    }
+  | {
+      readonly kind: "terminal";
+      readonly nextUncheckedRank: number;
+      readonly selectableCityIds: readonly string[];
+      readonly entries: readonly CityTerminalEntry[];
+      readonly stopCondition: CityFrontierStopCondition;
+    };
+
+export interface ReconstructCityFrontierInput {
+  readonly ranking: CityFrontierRankingProjection;
+  readonly criteria: CityCriteriaSnapshot;
+  readonly evaluators: CityCriterionEvaluatorRegistry;
+  readonly predecessorMarkers: null | readonly CityLiveMarker[];
+  readonly markerBindings: readonly CityMarkerBinding[];
+  readonly persisted?: CityFrontierProjection;
+}
+
+export interface CitySelectionRequestProjection {
+  readonly cityId: string;
+  readonly warningCopyVersion?: "city-unknown-risk@1";
+}
+
+export interface ReconstructCitySelectionInput {
+  readonly frontier: ReconstructCityFrontierInput;
+  readonly request: CitySelectionRequestProjection;
+}
+
+export interface CitySelectionProjection {
+  readonly entry: CityTerminalEntry;
+  readonly reviewedSourceLinks: readonly CityReviewedFactLinkProjection[];
+  readonly warningCopyVersion?: "city-unknown-risk@1";
+}
+
+export function reconstructCityLiveMarker(input: ReconstructCityLiveMarkerInput): CityLiveMarker;
+export function reconstructCityFrontier(input: ReconstructCityFrontierInput): CityFrontierProjection;
+export function reconstructCitySelection(input: ReconstructCitySelectionInput): CitySelectionProjection;
 
 export interface CityFrontierReadModel {
   readonly runId: string;
@@ -179,7 +348,41 @@ Research builders <- Application use cases <- Experience / HTTP
 Branch city values <- Application Select <- SQLite atomic writer
 ```
 
-Decision imports neither Research revisions nor Application/SQLite/React. Research does not import Application. Application defines ports; infrastructure implements them. Experience may runtime-import only browser-safe Decision/Experience modules and type-import Application contracts.
+Decision imports neither Research revisions nor Application/SQLite/React. Research does not import Application. Application defines ports; infrastructure implements them. Browser modules may runtime-import only Experience; Decision and Application contracts are type-only, while Infrastructure and `node:*` are forbidden runtime edges.
+
+For Task 11, Application is the explicit anti-corruption layer: it derives
+`CityMarkerAuthorityProjection` only from reconstructed Knowledge plus replayed Evidence. The pure
+Decision input also receives only the two-part frozen Ranking projection, verified Criteria and inward
+evaluators. Decision evaluates the four facts at `ranking.assessmentAt`, requires
+`assessmentAt <= lastCheckedAt`, and derives every mismatch, weighted coverage, warning and marker
+status through `reconstructCityLiveMarker`. Application first derives that marker, then computes the
+raw lowercase `hash(canonical(marker))`; Task 11 validates/copies its 64-hex form, while Tasks 12–14
+compute and reverify it through `CityDecisionIntegrity` before creating a frontier binding. Frontier
+reruns marker reconstruction for every binding. No Research, crypto, clock or network capability
+crosses into Task 11.
+
+Task 11 owns/captures the complete graph and all four evaluator capabilities before the first behavior
+callback. Each evaluator receives only a fresh frozen exact
+`CityCriterionEvaluationInput { criterion, fact, assessmentAt }`; its eight-key `fact` projection
+contains no Evidence link or rejection metadata. Accepted links occur only in `evidenceLinks`;
+reviewed-rejected links occur only in `manualCheckLinks` and transient `reviewedSourceLinks`.
+Against the enclosing fact, safety accepted links require a year equal to the verified fact period,
+safety reviewed links require the Decision-owned rejection reason, and non-safety reviewed links
+forbid that key. Before each callback, fact criterion/definition/freshness fields are bound to the
+canonical criterion and captured definition. Every synchronous evaluator return is immediately
+descriptor-owned and exact-validated: verified is the exact three-key branch; unknown is the exact
+four-key branch with factor `0`, comparison `unknown` and the raw-unknown reason preserved. Hostile,
+Promise-shaped, malformed and throwing returns fail as `integrity_mismatch` before later callbacks.
+Definitions plus both function references are descriptor-captured once; callbacks run with fresh
+frozen exact `{ capability: "canonicalizeTarget" }` or `{ capability: "evaluate" }` receivers, never
+the borrowed evaluator or registry. A first callback cannot swap the remaining three authorities.
+
+`predecessorMarkers: null` is reserved for the zero-marker root. Every successor supplies the exact
+predecessor list, retains it as the canonical marker prefix, appends exactly one next frozen-rank
+marker and requires the predecessor policy to remain working. Omitting `persisted` derives a new
+closed `working | terminal` projection; providing it verifies exact canonical equality. Pure selection accepts only the exact
+`cityId/warningCopyVersion?` request, requires a verified terminal entry, and returns a fresh entry
+plus transient reviewed links flattened from the selected marker without deduplication.
 
 ## Common command and recovery rules
 

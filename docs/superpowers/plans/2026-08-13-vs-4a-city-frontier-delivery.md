@@ -18,11 +18,12 @@
 
 - HTTP never accepts facts, score, warning basis, branch parent or Knowledge/Evidence IDs from the client.
 - Start and Select are strict JSON. Continue is finite NDJSON and the only endpoint whose use case may reach official sources or the safety-search port.
-- Browser modules may runtime-import only Decision and Experience. Application imports are type-only; Infrastructure and `node:*` are forbidden in the web bundle.
+- Browser modules may runtime-import only Experience. Decision and Application contracts are
+  type-only; Infrastructure and `node:*` are forbidden in the web bundle.
 - Active unchecked city is gray `Проверяется`, never green or selectable.
 - Fully verified selectable is green. Selectable with any unknown is yellow with warning text and the same selection affordance; yellow occupies a terminal slot and needs no separate modal.
-- For every unknown fact, browser read models verify and expose its terminal reason plus saved checked official URLs, attempt dispositions and rejection reasons. Search queries, provider snippets and credentials never enter browser read models; safety may retain its additional detailed ledger only in Evidence.
-- Cards show frozen rank/score and separately fresh verification coverage/facts. React never computes a second score.
+- For every unknown fact, browser read models exact-validate and expose its server-verified terminal reason plus saved checked official URLs, attempt dispositions and rejection reasons. Search queries, provider snippets and credentials never enter browser read models; safety may retain its additional detailed ledger only in Evidence.
+- Cards show frozen rank/score and separately fresh `lastCheckedAt`, verification coverage/facts. React never computes a second score. Committed links carry only verified `sourceId` plus URLs/rejection metadata; Experience localizes their display label and rejects a wire-supplied label.
 - No Select control before terminal. Terminal 0 renders its exact `catalog_exhausted` or
   `live_candidate_limit_reached` reason and no City CTA; budget copy never claims the catalog ended.
 - Preserve existing country, cold-start, housing and globe focus/reduced-motion behavior.
@@ -122,11 +123,17 @@ Hold `city_continuation_completed` until clean EOF; trailing bytes/error/abort/c
 
 - [ ] **Step 4: Implement strict normalization and reducer**
 
-Reuse `readFiniteNdjson` and generic handoff; do not copy the reader. Runtime-import browser-safe semantic City Decision reconstruction, which verifies prefix, stop and warning semantics without recomputing sealed IDs/HMAC. Never import Application, Infrastructure, a crypto adapter or `node:*` at runtime.
+Reuse `readFiniteNdjson` and generic handoff; do not copy the reader. Experience independently
+exact-validates the closed browser wire shape, event sequence, immutable marker prefix and closed
+working/terminal discriminants. It does not call authoritative Task 11 reconstruction: the browser has
+neither the verified Knowledge/Evidence authority projection nor the installed evaluator capabilities
+required by that Decision boundary, and must not manufacture them from the marker being checked.
+Decision/Application contracts remain type-only here. Never import Application, Infrastructure, a
+crypto adapter or `node:*` at runtime.
 
 - [ ] **Step 5: Implement pure projection and browser smoke**
 
-Project all frozen-order markers from the verified Registry revision: pending gray `Проверяется`, all-verified selectable green `Доступен для выбора`, unknown selectable yellow `Доступен с неполными данными`, excluded red `Исключён`. `city_progress.sourceUrl` may contain only an already validated official navigation/document URL; never expose an untrusted provider result or snippet. Copy the exact committed tuple of four browser-safe fact projections plus accepted/reviewed official Evidence links and rejection reasons; never reconstruct them in React. Cards are terminal only and copy rank/score from Ranking plus fresh facts/coverage from committed markers. Project verified selection/branch history on stored reload. Stored mode has no fabricated progress/flight. Add City Decision plus both Experience modules to the real web-target fixture and fail on any Application/Infrastructure/`node:*` runtime edge.
+Project all frozen-order markers from the verified Registry revision: pending gray `Проверяется`, all-verified selectable green `Доступен для выбора`, unknown selectable yellow `Доступен с неполными данными`, excluded red `Исключён`. `city_progress.sourceUrl` may contain only an already validated official navigation/document URL; never expose an untrusted provider result or snippet. Copy the exact committed tuple of four browser-safe fact projections plus accepted/reviewed official Evidence links and rejection reasons; never reconstruct them in React. Cards are terminal only and copy rank/score from Ranking plus fresh `lastCheckedAt`, facts/coverage from committed markers. Project verified selection/branch history on stored reload. Stored mode has no fabricated progress/flight. Add only both Experience runtime modules to the real web-target fixture; typecheck Decision/Application contracts without bundling them, and fail on any runtime Decision/Application/Infrastructure/`node:*` edge.
 
 - [ ] **Step 6: Run GREEN and commit**
 
