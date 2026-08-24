@@ -369,6 +369,14 @@ export interface CityKnowledgeStorePort {
   findByEvidenceVerified(evidenceSnapshotId: string): CityKnowledgeRevision | undefined;
 }
 
+export class SqliteCityKnowledgeStore implements CityKnowledgeStorePort {
+  constructor(
+    database: Database.Database,
+    integrity: EvidenceIntegrity,
+    packageReplay: CityEvidencePackageReplayPort,
+  );
+}
+
 export function reconstructInstalledCityCriterionDefinitions(
   value: unknown,
   expectedDefinitionIds: Readonly<Record<CityCriterionId, string>>,
@@ -388,6 +396,27 @@ export function resolveApprovedCityCriteriaDefaults(
 ): InstalledCityCriteriaDefaults;
 ```
 
+**Exact Knowledge replay dependency.** `SqliteCityKnowledgeStore` constructs its internal
+`SqliteCityEvidenceStore` from the same SQLite connection, full integrity, and existing inward
+`CityEvidencePackageReplayPort`; Task 3 adds no composition factory, source adapter, clock, or public
+publication route. `publishFromEvidence` descriptor-snapshots its primitive arguments, enters
+`BEGIN IMMEDIATE`, and loads exact verified City Evidence on that same connection before any Knowledge
+query or write. It derives the closed five-field installed-package key only from that verified snapshot
+and calls `packageReplay.loadExactReplayContract(key)` again. The adapter independently owns and
+reconstructs this second replay result; it never trusts or reuses the Evidence reader's private replay
+result, and a missing, alternating, malformed, legacy-rules, wrong-key, wrong-member, wrong-definition,
+or mixed Registry/Catalog Evidence result is `integrity_mismatch` with zero writes.
+
+The dense four-item fact-contract tuple is derived only from the reconstructed installed replay in
+`SLOVENIA_CITY_FACT_SOURCE_IDS` order. Safety uses the reconstructed safety entry's municipality code
+for `scope` and `officialAreaId`; each fixed contract is projected from its reconstructed plan
+`claimContract`. All four definition IDs must equal the verified Evidence definition map. A blocker,
+current claim, caller, or stored Knowledge row never supplies a contract or package key. Exact retry
+requires the same Evidence ID and `createdAt`; a different time for the same Evidence, stale/forked
+publication, replay drift, or row/chain/HMAC drift is `integrity_mismatch`. Publish and every read path
+verify the complete Knowledge predecessor chain, exact City Evidence, exact package replay, mirrored
+columns, hash/HMAC, and `reconstructCityKnowledgeRevision` before returning fresh frozen values.
+
 - [ ] **Step 1: Write criteria/defaults REDs**
 
 Pin exact four-item order, definitions/evaluator versions, canonical targets, mapping version, closed compiled registry selection by independently trusted package definition, full recursive freeze, and rejection of every hybrid, extra, missing, reordered, accessor, symbol, prototype, or unsupported entry. Confirm the production registry contains no ready Slovenia entry.
@@ -395,6 +424,12 @@ Pin exact four-item order, definitions/evaluator versions, canonical targets, ma
 - [ ] **Step 2: Write Catalog and Knowledge store REDs**
 
 Catalog append must reconstruct all IDs/membership and require current rules, while load replays current or historical rules exactly. Both append and load require `registry.evidenceSnapshotId === catalog.evidenceSnapshotId`; a fully rehashed mixed projection writes zero rows, and persisted/tampered inequality fails before return. The store must not claim official-source verification. Knowledge publication must load verified City Evidence inside `BEGIN IMMEDIATE`, publish exactly four current facts, drop old values on known-to-unknown, enforce strictly newer checks, keep one linear predecessor chain, converge on same-Evidence retry, and write nothing for fatal/integrity outcomes.
+
+Include REDs proving that unknown facts obtain contract metadata from exact installed replay rather than
+blockers/current facts; the replay key equals the five verified Evidence fields; missing/malformed/
+legacy/wrong-member/wrong-definition/mixed-Evidence and alternating replay returns write zero rows;
+reentrant replay mutation cannot alter the owned tuple; and both Evidence load and the second replay
+validation occur inside the same transaction before the first Knowledge query or insert.
 
 - [ ] **Step 3: Run RED**
 
