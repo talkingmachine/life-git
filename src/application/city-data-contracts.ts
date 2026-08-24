@@ -4,6 +4,8 @@ import type {
 import {
   CITY_CRITERION_IDS,
   type CityCriterionId,
+  type InstalledCityCriteriaDefaults,
+  type InstalledCityCriterionDefinitionTuple,
 } from "../decision/city-criteria";
 import type { CityDecisionIntegrity } from "../decision/city-integrity";
 import type {
@@ -27,8 +29,12 @@ import type {
 } from "../research/city-safety-source-plan";
 import type {
   CityResearchPackageDefinition,
+  CityResearchPackageReadyCandidate,
   InstalledCityPackageExactKey,
+  InstalledCityPackageManifest,
+  InstalledCityResearchPackage,
 } from "../research/city-package";
+import type { SealedCityPackageAdministrativeEvidence } from "../research/city-package-artifact-set";
 import type {
   EvidenceManifest,
   SealedEvidence,
@@ -128,6 +134,41 @@ export interface CityEvidencePackageReplayPort {
   loadExactReplayContract(
     key: InstalledCityPackageExactKey,
   ): CityPackageEvidenceReplayContract | undefined;
+}
+
+export interface InstalledCityPackageManifestAppendInput {
+  readonly ready: CityResearchPackageReadyCandidate;
+  readonly catalog: VerifiedCityCatalogBundle;
+  readonly administrativeEvidence: SealedCityPackageAdministrativeEvidence;
+  readonly fixedPlansByCityId: Readonly<Record<string, readonly [
+    CityFixedSourcePlan<"si-city-long-term-rent">,
+    CityFixedSourcePlan<"si-city-urban-transit">,
+    CityFixedSourcePlan<"si-city-fixed-broadband">,
+  ]>>;
+  readonly safetySourcePlan: CitySafetySourcePlan;
+  readonly officialAuthorityDirectory: OfficialAuthorityDirectory;
+  readonly criteriaDefaults: InstalledCityCriteriaDefaults;
+  readonly criterionDefinitions: InstalledCityCriterionDefinitionTuple;
+  readonly installedAt: string;
+}
+
+export interface InstalledCityPackageManifestAppendPort {
+  appendPrepared(input: InstalledCityPackageManifestAppendInput): InstalledCityPackageManifest;
+}
+
+export interface InstalledCityPackageManifestStorePort
+  extends InstalledCityPackageManifestAppendPort {
+  loadVerified(key: InstalledCityPackageExactKey): InstalledCityPackageManifest | undefined;
+  latestVerified(countryCode: string): InstalledCityPackageManifest | undefined;
+}
+
+export interface InstalledCityPackageLookupPort {
+  findReady(countryCode: string): InstalledCityResearchPackage | undefined;
+  findExact(key: InstalledCityPackageExactKey): InstalledCityResearchPackage | undefined;
+}
+
+export interface InstalledCityCatalogReadPort {
+  latestInstalledVerified(countryCode: string): VerifiedCityCatalogBundle | undefined;
 }
 
 export interface CityEvidenceReplayPorts {

@@ -238,6 +238,78 @@ BEGIN
 END;
 `);
 
+const CURRENT_INSTALLED_CITY_PACKAGE_MANIFESTS = normalizeExactSchemaSql(`
+CREATE TABLE IF NOT EXISTS installed_city_package_manifests (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  catalog_revision_id TEXT NOT NULL REFERENCES city_catalog_revisions(id),
+  evidence_rules_version TEXT NOT NULL,
+  predecessor_manifest_id TEXT REFERENCES installed_city_package_manifests(id),
+  administrative_evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  installed_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_manifest_id IS NULL OR predecessor_manifest_id <> id)
+);
+`);
+
+const CURRENT_INSTALLED_CITY_PACKAGE_HEADS = normalizeExactSchemaSql(`
+CREATE TABLE IF NOT EXISTS installed_city_package_heads (
+  country_code TEXT PRIMARY KEY CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  current_manifest_id TEXT NOT NULL UNIQUE,
+  FOREIGN KEY (country_code, current_manifest_id)
+    REFERENCES installed_city_package_manifests(country_code, id)
+);
+`);
+
+const TASK4_OBJECTS = [
+  ["installed_city_package_manifest_country_id", "index", normalizeExactSchemaSql(`
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_country_id
+ON installed_city_package_manifests (country_code, id);
+  `)],
+  ["installed_city_package_manifest_exact_key", "index", normalizeExactSchemaSql(`
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_exact_key
+ON installed_city_package_manifests (
+  country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+);
+  `)],
+  ["installed_city_package_manifest_one_root", "index", normalizeExactSchemaSql(`
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_one_root
+ON installed_city_package_manifests (country_code)
+WHERE predecessor_manifest_id IS NULL;
+  `)],
+  ["installed_city_package_manifest_one_successor", "index", normalizeExactSchemaSql(`
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_one_successor
+ON installed_city_package_manifests (predecessor_manifest_id)
+WHERE predecessor_manifest_id IS NOT NULL;
+  `)],
+  ["installed_city_package_manifests_no_delete", "trigger", normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS installed_city_package_manifests_no_delete
+BEFORE DELETE ON installed_city_package_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable');
+END;
+  `)],
+  ["installed_city_package_manifests_no_update", "trigger", normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS installed_city_package_manifests_no_update
+BEFORE UPDATE ON installed_city_package_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable');
+END;
+  `)],
+] as const;
+
 const CURRENT_COUNTRY_RESOLUTION_TABLE = normalizeSchemaSql(`
   CREATE TABLE IF NOT EXISTS country_resolution_revisions (
     id TEXT PRIMARY KEY,
@@ -597,6 +669,57 @@ function preflightExistingCityPersistence(database: Database.Database): void {
     )) throw new Error("database_schema_reset_required");
 }
 
+function preflightExistingInstalledCityPackages(database: Database.Database): void {
+  const manifestObjects = exactAttachedObjects(database, "installed_city_package_manifests");
+  const headObjects = exactAttachedObjects(database, "installed_city_package_heads");
+  const reservedNames = [
+    "installed_city_package_manifests",
+    "installed_city_package_heads",
+    ...TASK4_OBJECTS.map(([name]) => name),
+  ];
+  if (manifestObjects.length === 0 && headObjects.length === 0) {
+    const placeholders = reservedNames.map(() => "?").join(", ");
+    const orphan = database.prepare(
+      `SELECT 1 FROM sqlite_master WHERE name IN (${placeholders}) LIMIT 1`,
+    ).get(...reservedNames);
+    if (orphan !== undefined) throw new Error("database_schema_reset_required");
+    return;
+  }
+  if (manifestObjects.length === 0 || headObjects.length === 0) {
+    throw new Error("database_schema_reset_required");
+  }
+  const manifest = database.prepare(
+    "SELECT type, sql FROM sqlite_master WHERE name = 'installed_city_package_manifests'",
+  ).get() as SchemaEntry | undefined;
+  const head = database.prepare(
+    "SELECT type, sql FROM sqlite_master WHERE name = 'installed_city_package_heads'",
+  ).get() as SchemaEntry | undefined;
+  const prerequisites = database.prepare(`
+    SELECT COUNT(*) FROM sqlite_master
+    WHERE type = 'table' AND name IN ('evidence_snapshots', 'city_catalog_revisions')
+  `).pluck().get() as number;
+  const expectedManifest = [
+    { type: "index", name: "installed_city_package_manifest_country_id" },
+    { type: "index", name: "installed_city_package_manifest_exact_key" },
+    { type: "index", name: "installed_city_package_manifest_one_root" },
+    { type: "index", name: "installed_city_package_manifest_one_successor" },
+    { type: "table", name: "installed_city_package_manifests" },
+    { type: "trigger", name: "installed_city_package_manifests_no_delete" },
+    { type: "trigger", name: "installed_city_package_manifests_no_update" },
+  ];
+  if (prerequisites !== 2 || manifest === undefined || manifest.type !== "table" ||
+    manifest.sql === null ||
+    normalizeExactSchemaSql(manifest.sql) !== CURRENT_INSTALLED_CITY_PACKAGE_MANIFESTS ||
+    head === undefined || head.type !== "table" || head.sql === null ||
+    normalizeExactSchemaSql(head.sql) !== CURRENT_INSTALLED_CITY_PACKAGE_HEADS ||
+    !sameObjectInventory(manifestObjects, expectedManifest) ||
+    !sameObjectInventory(headObjects, [{ type: "table", name: "installed_city_package_heads" }]) ||
+    TASK4_OBJECTS.some(([name, type, sql]) =>
+      !exactTask3Object(database, name, type, sql))) {
+    throw new Error("database_schema_reset_required");
+  }
+}
+
 function preflightExistingCountryResolution(database: Database.Database): void {
   const entry = database.prepare(`
     SELECT type, sql FROM sqlite_master WHERE name = 'country_resolution_revisions'
@@ -708,6 +831,7 @@ export function openEvidenceDatabase(path: string): Database.Database {
     preflightExistingRunRevisions(database);
     preflightExistingCityEvidence(database);
     preflightExistingCityPersistence(database);
+    preflightExistingInstalledCityPackages(database);
     preflightExistingCountryKnowledge(database);
     preflightExistingDossierV2(database);
     preflightExistingCountryResolution(database);

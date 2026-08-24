@@ -115,6 +115,53 @@ CREATE UNIQUE INDEX IF NOT EXISTS city_knowledge_one_successor
 ON city_knowledge_revisions (predecessor_id)
 WHERE predecessor_id IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS installed_city_package_manifests (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  catalog_revision_id TEXT NOT NULL REFERENCES city_catalog_revisions(id),
+  evidence_rules_version TEXT NOT NULL,
+  predecessor_manifest_id TEXT REFERENCES installed_city_package_manifests(id),
+  administrative_evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  installed_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_manifest_id IS NULL OR predecessor_manifest_id <> id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_country_id
+ON installed_city_package_manifests (country_code, id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_exact_key
+ON installed_city_package_manifests (
+  country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_one_root
+ON installed_city_package_manifests (country_code)
+WHERE predecessor_manifest_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_one_successor
+ON installed_city_package_manifests (predecessor_manifest_id)
+WHERE predecessor_manifest_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS installed_city_package_heads (
+  country_code TEXT PRIMARY KEY CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  current_manifest_id TEXT NOT NULL UNIQUE,
+  FOREIGN KEY (country_code, current_manifest_id)
+    REFERENCES installed_city_package_manifests(country_code, id)
+);
+
 CREATE TABLE IF NOT EXISTS country_knowledge_revisions (
   id TEXT PRIMARY KEY,
   country_code TEXT NOT NULL CHECK (
@@ -383,6 +430,18 @@ CREATE TRIGGER IF NOT EXISTS city_knowledge_revisions_no_delete
 BEFORE DELETE ON city_knowledge_revisions
 BEGIN
   SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS installed_city_package_manifests_no_update
+BEFORE UPDATE ON installed_city_package_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS installed_city_package_manifests_no_delete
+BEFORE DELETE ON installed_city_package_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS country_knowledge_revisions_no_update

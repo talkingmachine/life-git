@@ -728,6 +728,8 @@ describe("confirmed-life orchestration", () => {
       { name: "dossier_versions" },
       { name: "dossier_versions_v2" },
       { name: "evidence_snapshots" },
+      { name: "installed_city_package_heads" },
+      { name: "installed_city_package_manifests" },
       { name: "onboarding_confirmations" },
       { name: "place_frontier_snapshots" },
       { name: "profile_snapshots" },
