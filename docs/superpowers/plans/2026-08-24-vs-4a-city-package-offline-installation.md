@@ -510,8 +510,12 @@ export interface InstalledCityPackageManifestAppendInput {
   readonly installedAt: string;
 }
 
-export interface InstalledCityPackageManifestStorePort {
+export interface InstalledCityPackageManifestAppendPort {
   appendPrepared(input: InstalledCityPackageManifestAppendInput): InstalledCityPackageManifest;
+}
+
+export interface InstalledCityPackageManifestStorePort
+  extends InstalledCityPackageManifestAppendPort {
   loadVerified(key: InstalledCityPackageExactKey): InstalledCityPackageManifest | undefined;
   latestVerified(countryCode: string): InstalledCityPackageManifest | undefined;
 }
@@ -523,16 +527,147 @@ export interface InstalledCityCatalogReadPort {
 
 The implementation is backed by the verified package head plus exact Catalog load.
 
-**Explicit appendix override — manifest append ownership:** Application never constructs or supplies
-the thirteen-key `InstalledCityPackageManifestPayload`. `appendPrepared` receives only verified ready
-data, reconstructed persisted values, sealed administrative bindings and `installedAt`; it receives no
-predecessor, behavior-version ID, manifest ID, payload hash or HMAC. Inside one `BEGIN IMMEDIATE`, the
-adapter independently selects exactly one compiled behavior entry by the exact approved package
-definition, verifies evaluator bindings against the reconstructed definitions, derives all behavior
-versions, loads the verified current country head to derive `predecessorManifestId`, constructs and
-signs the exact payload, inserts it, and compare-and-swap advances the head. Missing or ambiguous
-compiled behavior throws `city_package_behavior_unavailable` with zero manifest/head rows. Full-payload
-insert is private Infrastructure code.
+**Exact port ownership and inheritance.** Task 4 owns
+`InstalledCityPackageManifestAppendPort` in `src/application/city-data-contracts.ts` and
+`InstalledCityPackageManifestStorePort` extends it. Task 5 imports the append port and never redeclares
+it. Serializable manifest/key/package types remain inward in `src/research/city-package.ts`.
+
+**Closed compiled behavior registry.** `src/infrastructure/sources/installed-city-packages.ts` owns
+the following Infrastructure-only contracts. They are never re-exported from an inward module, the
+user-facing composition root, or serialized input.
+
+```ts
+export interface InstalledCityPackageBehaviorVersionKey {
+  readonly evaluatorRegistryVersionId: string;
+  readonly evaluatorVersionIds: Readonly<Record<CityCriterionId, string>>;
+  readonly valueValidatorVersionId: string;
+  readonly sourcePeriodValidatorVersionId: string;
+}
+
+export interface InstalledCityFixedPolicyVersions {
+  readonly valuePolicyVersion: string;
+  readonly sourcePeriodPolicyVersion: string;
+}
+
+export interface InstalledCityPackageBehaviorRegistryEntry {
+  readonly approvedFor: ApprovedCityCriteriaPackageDefinition;
+  readonly versionKey: InstalledCityPackageBehaviorVersionKey;
+  readonly fixedPolicyVersionsBySourceId: Readonly<Record<
+    SloveniaCityFixedSourceId,
+    InstalledCityFixedPolicyVersions
+  >>;
+  readonly evaluatorRegistry: CityCriterionEvaluatorRegistry;
+  readonly validateValue: CityFixedValueValidator;
+  readonly validateSourcePeriod: CityFixedSourcePeriodValidator;
+}
+
+export interface InstalledCityPackageBehaviorRegistry {
+  readonly schemaVersion: "installed-city-package-behavior-registry@1";
+  readonly entries: readonly InstalledCityPackageBehaviorRegistryEntry[];
+}
+
+export const INSTALLED_CITY_PACKAGE_BEHAVIOR_REGISTRY:
+  InstalledCityPackageBehaviorRegistry;
+
+export function resolveInstalledCityPackageBehaviorForDefinition(
+  definition: ApprovedCityCriteriaPackageDefinition,
+  registry: InstalledCityPackageBehaviorRegistry,
+): InstalledCityPackageBehaviorRegistryEntry;
+
+export function resolveInstalledCityPackageBehaviorForVersion(
+  definition: ApprovedCityCriteriaPackageDefinition,
+  versionKey: InstalledCityPackageBehaviorVersionKey,
+  registry: InstalledCityPackageBehaviorRegistry,
+): InstalledCityPackageBehaviorRegistryEntry;
+```
+
+The registry, its dense entries and every nested data map are descriptor-snapshotted and exact-closed.
+`evaluatorVersionIds` has exactly `CITY_CRITERION_IDS`; fixed policy versions have exactly the three
+fixed source IDs. Compiled functions are retained only through receiver-safe wrappers after the full
+registry is owned. Malformed data is `integrity_mismatch`; zero or multiple matches by definition or
+exact signed version key are `city_package_behavior_unavailable`, with no newer fallback. The
+production constant is exactly the frozen schema with `entries: []`; Task 3's approved-defaults
+registry remains empty and production SI remains the unchanged four-issue `not_ready` candidate.
+Positive tests inject separate closed synthetic registries.
+
+**Infrastructure-only rich verified read boundary.**
+
+```ts
+export interface VerifiedInstalledCityPackageRecord {
+  readonly manifest: InstalledCityPackageManifest;
+  readonly ready: CityResearchPackageReadyCandidate;
+  readonly catalog: VerifiedCityCatalogBundle;
+  readonly fixedPlansByCityId: Readonly<Record<string, readonly [
+    CityFixedSourcePlan<"si-city-long-term-rent">,
+    CityFixedSourcePlan<"si-city-urban-transit">,
+    CityFixedSourcePlan<"si-city-fixed-broadband">,
+  ]>>;
+  readonly safetySourcePlan: CitySafetySourcePlan;
+  readonly officialAuthorityDirectory: OfficialAuthorityDirectory;
+  readonly criteriaDefaults: InstalledCityCriteriaDefaults;
+  readonly criterionDefinitions: InstalledCityCriterionDefinitionTuple;
+  readonly evaluatorRegistry: CityCriterionEvaluatorRegistry;
+  readonly validateValue: CityFixedValueValidator;
+  readonly validateSourcePeriod: CityFixedSourcePeriodValidator;
+}
+
+export interface VerifiedInstalledCityPackageReadPort {
+  loadExactVerified(
+    key: InstalledCityPackageExactKey,
+  ): VerifiedInstalledCityPackageRecord | undefined;
+  loadCurrentVerified(
+    countryCode: string,
+  ): VerifiedInstalledCityPackageRecord | undefined;
+}
+
+export class InstalledCityPackages implements
+  InstalledCityPackageLookupPort,
+  CityEvidencePackageReplayPort,
+  InstalledCityCatalogReadPort {
+  constructor(verifiedPackages: VerifiedInstalledCityPackageReadPort);
+}
+
+export class SqliteCityPackageManifestStore implements
+  InstalledCityPackageManifestStorePort,
+  VerifiedInstalledCityPackageReadPort {
+  constructor(
+    database: Database.Database,
+    integrity: EvidenceIntegrity,
+    approvedDefaults: ApprovedCityCriteriaDefaultsRegistry,
+    behaviors: InstalledCityPackageBehaviorRegistry,
+  );
+}
+```
+
+`InstalledCityPackages` receives only the rich verified-read port and maps fresh records to installed
+package, exact replay and installed-Catalog read ports. It receives no DB, signer, raw Catalog, Evidence
+loader, source, clock, browser, HTTP or model capability. `SqliteCityPackageManifestStore` owns the only
+production import of `loadVerifiedAdministrativeEvidenceBundle` and internally constructs
+`new SqliteCityCatalogStore(database, integrity)`, so Catalog, administrative Evidence, manifest and
+head verification share the same SQLite connection and transaction. All four manifest/rich read methods
+route through one full reconstruction path; `loadVerified` is never a signature-only shortcut.
+
+**Exact append and retry ordering.** Application never constructs the thirteen-key payload and never
+supplies a predecessor, behavior-version key, manifest ID, payload hash or HMAC. `appendPrepared`
+descriptor-snapshots its complete input before callbacks. Inside one `BEGIN IMMEDIATE` it resolves
+approved defaults and exactly one behavior entry from the independently verified ready definition,
+loads the exact current-rules Catalog on the same connection, derives the five-field key and canonical
+`3N + 4` administrative expectations, loads verified administrative Evidence, reconstructs its shell
+and artifact-set claim before decoding JSON, reconstructs every plan/directory/safety/definition/default
+artifact, and binds defaults/evaluators/fixed policies before any executable normalization.
+
+If the exact five-field key already exists, the adapter fully reconstructs that historical record and
+compares its complete semantics and `installedAt` with the prepared input. An exact retry returns a
+fresh persisted manifest without reading or modifying the country head, deriving a predecessor,
+constructing a replacement payload or running CAS. Thus retrying A after B returns original A and
+leaves B current. Any same-key semantic/time/Evidence/artifact/behavior drift is `integrity_mismatch`.
+
+Only when the exact key is absent does the adapter verify the current country head, derive a strictly
+older predecessor, construct and sign the exact payload, insert the immutable manifest, reload its full
+reconstruction, and compare-and-swap the head. A zero-row CAS rolls back the insert. Missing or ambiguous
+compiled behavior is `city_package_behavior_unavailable` with zero rows. `loadExactVerified` selects by
+all five key fields without head substitution; only current/latest reads follow the fully verified
+head. An unreferenced valid Catalog row never becomes current.
 
 - [ ] **Step 1: Write availability/history REDs**
 
@@ -541,6 +676,14 @@ Keep current SI’s exact not-ready value and four issues. Inject a synthetic re
 - [ ] **Step 2: Write manifest integrity REDs**
 
 Pin the exact signed payload/hash-derived ID/HMAC, thirteen-key closure, administrative Evidence and artifact-set claim reconstruction before JSON decode, all member/source/singleton slots, compiled defaults/behavior selection, predecessor/head CAS, immutable triggers, exact retry, lost race, restart, rollback/fork/skipped predecessor, forged audit ID, mirrored-key drift, missing artifact/default/behavior, and no current-B substitution for A.
+
+Add compile-time REDs for append-port inheritance and the exact four-argument SQLite constructor. Pin
+the behavior registry's complete own-key/capability closure and empty production value. Prove Catalog
+load, administrative load, shell/claim reconstruction and all artifact reconstruction occur inside the
+same transaction before manifest/head writes. Append A then B then retry A; require original A, head B
+and zero writes before/after restart. Exercise true two-connection identical and conflicting successors,
+full public-read reconstruction, and fresh frozen nonalias outputs. `latestInstalledVerified` follows
+only the verified package head; unreferenced Catalog C never becomes current.
 
 - [ ] **Step 3: Run RED**
 
@@ -628,13 +771,10 @@ export function installCityPackage(
   input: InstallCityPackageInput,
   ports: InstallCityPackagePorts,
 ): Promise<InstalledCityResearchPackage>;
-
-export interface InstalledCityPackageManifestAppendPort {
-  appendPrepared(
-    input: InstalledCityPackageManifestAppendInput,
-  ): InstalledCityPackageManifest;
-}
 ```
+
+Task 5 imports Task 4's `InstalledCityPackageManifestAppendPort` from
+`src/application/city-data-contracts.ts`; it does not redeclare that interface.
 
 - [ ] **Step 1: Write input/readiness REDs**
 
