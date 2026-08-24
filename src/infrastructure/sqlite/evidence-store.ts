@@ -24,6 +24,11 @@ import type {
   SloveniaSourceId,
 } from "../../research/cold-start-contracts";
 import {
+  reconstructAdministrativeEvidenceShell,
+  type AdministrativeEvidenceLoadExpectations,
+  type CityPackageAdministrativeEvidenceClaim,
+} from "../../research/city-package-artifact-set";
+import {
   type ColdStartEvidenceClaimV2,
   SLOVENIA_V2_EVIDENCE_RULES_VERSION,
   SLOVENIA_V2_PARSER_VERSIONS,
@@ -102,6 +107,23 @@ interface VerifiedStoredEvidenceBundle<
   readonly snapshot: EvidenceSnapshot<S, C>;
   readonly manifest: EvidenceManifest<S, C>;
   readonly entries: readonly CapturedEntry<S>[];
+}
+
+/** @internal Infrastructure-only DTO; it contains no SQLite row or union. */
+export interface AdministrativeVerifiedEvidenceEntry<S extends string> {
+  readonly sourceId: S;
+  readonly origin: "administrative";
+  readonly artifacts: readonly AdministrativeCapturedArtifact<S>[];
+}
+
+/** @internal Infrastructure-only DTO exported only between SQLite adapters. */
+export interface AdministrativeVerifiedEvidenceBundle<
+  S extends string,
+  C extends Claim<unknown, S>,
+> {
+  readonly snapshot: EvidenceSnapshot<S, C>;
+  readonly manifest: EvidenceManifest<S, C, "administrative">;
+  readonly entries: readonly AdministrativeVerifiedEvidenceEntry<S>[];
 }
 
 type EvidencePersistenceIntegrity = Pick<EvidenceIntegrity, "canonical" | "hash">;
@@ -264,6 +286,24 @@ function capturedArtifactFromRow<S extends string>(
     origin: "live",
     sha256: provenance.sha256,
     bytes: new Uint8Array(row.bytes),
+  };
+}
+
+function administrativeCapturedArtifactFromRow<S extends string>(
+  row: StoredAdministrativeArtifactRow<S>,
+): AdministrativeCapturedArtifact<S> {
+  const provenance = administrativeRowProvenance(row);
+  return {
+    artifactId: provenance.artifactId,
+    runId: provenance.runId,
+    sourceId: provenance.sourceId,
+    role: provenance.role,
+    mediaType: provenance.mediaType,
+    sha256: provenance.sha256,
+    bytes: new Uint8Array(row.bytes),
+    origin: "administrative",
+    producer: provenance.producer,
+    createdAt: provenance.createdAt,
   };
 }
 
@@ -450,6 +490,111 @@ function canonicalUtcMilliseconds(value: unknown): value is string {
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
   const milliseconds = Date.parse(value);
   return Number.isFinite(milliseconds) && new Date(milliseconds).toISOString() === value;
+}
+
+function canonicalIdentifier(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/.test(value);
+}
+
+function exactOwnDataKeys(value: object, expected: readonly string[]): boolean {
+  if (Object.getOwnPropertySymbols(value).length !== 0) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const actual = Object.keys(descriptors).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length && actual.every((key, index) => {
+    const descriptor = descriptors[key];
+    return key === sortedExpected[index] && descriptor !== undefined &&
+      "value" in descriptor && descriptor.enumerable;
+  });
+}
+
+function denseOwnArray(value: unknown): value is readonly unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const expected = [
+    ...Array.from({ length: value.length }, (_, index) => String(index)),
+    "length",
+  ].sort();
+  const actual = Object.keys(descriptors).sort();
+  return actual.length === expected.length && actual.every((key, index) => {
+    const descriptor = descriptors[key];
+    return key === expected[index] && descriptor !== undefined && "value" in descriptor &&
+      (key === "length" || descriptor.enumerable);
+  });
+}
+
+function isClosedCityPackageAdministrativeClaim(
+  value: unknown,
+): value is CityPackageAdministrativeEvidenceClaim {
+  if (!isRecord(value) || !exactOwnDataKeys(value, [
+    "claimId", "sourceId", "value", "scope", "sourcePeriod", "anchor", "status",
+  ]) || !canonicalIdentifier(value.claimId) || value.sourceId !== "city-package-installation" ||
+    value.scope !== "city-package-installation" || !canonicalUtcMilliseconds(value.sourcePeriod) ||
+    value.status !== "verified" || !isRecord(value.value) ||
+    !exactOwnDataKeys(value.value, [
+      "schemaVersion", "key", "installRunId", "evidenceId", "orderedArtifacts",
+    ]) || value.value.schemaVersion !== "installed-city-package-artifact-set@1" ||
+    !isRecord(value.value.key) || !exactOwnDataKeys(value.value.key, [
+      "countryCode", "packageId", "packageSchemaVersion", "catalogRevisionId",
+      "evidenceRulesVersion",
+    ]) || typeof value.value.key.countryCode !== "string" ||
+    !/^[A-Z]{2}$/.test(value.value.key.countryCode) ||
+    !canonicalIdentifier(value.value.key.packageId) ||
+    !canonicalIdentifier(value.value.key.packageSchemaVersion) ||
+    !canonicalIdentifier(value.value.key.catalogRevisionId) ||
+    !canonicalIdentifier(value.value.key.evidenceRulesVersion) ||
+    !canonicalIdentifier(value.value.installRunId) ||
+    !canonicalIdentifier(value.value.evidenceId) ||
+    !denseOwnArray(value.value.orderedArtifacts) || value.value.orderedArtifacts.length === 0 ||
+    !isRecord(value.anchor) ||
+    !exactOwnDataKeys(value.anchor, ["artifactId", "locator", "excerptSha256"]) ||
+    !canonicalIdentifier(value.anchor.artifactId) ||
+    typeof value.anchor.locator !== "string" || value.anchor.locator.length === 0 ||
+    typeof value.anchor.excerptSha256 !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.anchor.excerptSha256)) return false;
+  return value.value.orderedArtifacts.every((item) =>
+    isRecord(item) && exactOwnDataKeys(item, ["artifactOrdinal", "role", "artifactId"]) &&
+    Number.isSafeInteger(item.artifactOrdinal) && !Object.is(item.artifactOrdinal, -0) &&
+    (item.artifactOrdinal as number) >= 0 &&
+    (item.role === "installed_city_fixed_source_plan" ||
+      item.role === "installed_city_safety_source_plan" ||
+      item.role === "installed_city_official_authority_directory" ||
+      item.role === "installed_city_criteria_defaults" ||
+      item.role === "installed_city_criterion_definitions") &&
+    canonicalIdentifier(item.artifactId));
+}
+
+function deepFreezePlain<T>(value: T, seen = new Set<object>()): T {
+  if (value === null || typeof value !== "object" || seen.has(value) ||
+    value instanceof Uint8Array) return value;
+  seen.add(value);
+  Object.freeze(value);
+  for (const child of Object.values(value)) deepFreezePlain(child, seen);
+  return value;
+}
+
+function isolatedIntegrityView(integrity: EvidenceIntegrity): EvidenceIntegrity {
+  if (integrity === null || typeof integrity !== "object") integrityMismatch();
+  const canonical = integrity.canonical;
+  const hash = integrity.hash;
+  const sign = integrity.sign;
+  if (typeof canonical !== "function" || typeof hash !== "function" ||
+    typeof sign !== "function") integrityMismatch();
+  const view: EvidenceIntegrity = Object.freeze({
+    canonical(value: unknown): string {
+      const isolated = value !== null && typeof value === "object"
+        ? ownedDataSnapshot(value)
+        : value;
+      return Reflect.apply(canonical, view, [isolated]) as string;
+    },
+    hash(canonicalText: string): string {
+      return Reflect.apply(hash, view, [canonicalText]) as string;
+    },
+    sign(canonicalText: string): string {
+      return Reflect.apply(sign, view, [canonicalText]) as string;
+    },
+  });
+  return view;
 }
 
 function assertLiveArtifactForStorage<S extends string>(artifact: LiveCapturedArtifact<S>): void {
@@ -755,6 +900,115 @@ export function loadVerifiedEvidenceBundle<
     ...(entry.versionHint === undefined ? {} : { versionHint: entry.versionHint }),
   }));
   return { snapshot, manifest, entries };
+}
+
+/** @internal Synchronous administrative reader for installed-package reconstruction. */
+export function loadVerifiedAdministrativeEvidenceBundle(
+  database: Database.Database,
+  borrowedExpected: AdministrativeEvidenceLoadExpectations,
+  integrity: EvidenceIntegrity,
+): AdministrativeVerifiedEvidenceBundle<
+  "city-package-installation",
+  CityPackageAdministrativeEvidenceClaim
+> {
+  const expected = ownedDataSnapshot(borrowedExpected);
+  if (!isRecord(expected) ||
+    !exactObjectKeys(expected, ["evidenceId", "installedAt", "artifactIds"]) ||
+    !canonicalIdentifier(expected.evidenceId) || !canonicalUtcMilliseconds(expected.installedAt) ||
+    !Array.isArray(expected.artifactIds) || expected.artifactIds.length < 7 ||
+    expected.artifactIds.length > 304 ||
+    !expected.artifactIds.every(canonicalIdentifier) ||
+    new Set(expected.artifactIds).size !== expected.artifactIds.length) integrityMismatch();
+
+  const row = database.prepare(`
+    SELECT assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
+           parser_versions_json, rules_version
+    FROM evidence_snapshots WHERE id = ?
+  `).get(expected.evidenceId) as SnapshotRow | undefined;
+  if (row === undefined) integrityMismatch();
+
+  let parsedSnapshot: EvidenceSnapshot<
+    "city-package-installation",
+    CityPackageAdministrativeEvidenceClaim
+  >;
+  let parsedManifest: EvidenceManifest<
+    "city-package-installation",
+    CityPackageAdministrativeEvidenceClaim,
+    "administrative"
+  >;
+  try {
+    parsedSnapshot = JSON.parse(row.snapshot_json) as typeof parsedSnapshot;
+    parsedManifest = JSON.parse(row.manifest_json) as typeof parsedManifest;
+  } catch {
+    return integrityMismatch();
+  }
+  const ownedRows = deepFreezePlain(ownedDataSnapshot({
+    snapshot: parsedSnapshot,
+    manifest: parsedManifest,
+  }));
+  const { snapshot, manifest } = ownedRows;
+  const view = isolatedIntegrityView(integrity);
+  const canonicalSnapshot = view.canonical(snapshot);
+  const canonicalManifest = view.canonical(manifest);
+  if (
+    row.snapshot_json !== canonicalSnapshot || row.manifest_json !== canonicalManifest ||
+    row.assessment_date !== snapshot.assessmentDate ||
+    row.parser_versions_json !== view.canonical(snapshot.parserVersions) ||
+    row.rules_version !== snapshot.rulesVersion ||
+    !secureHexEqual(row.manifest_hash, snapshot.manifestHash) ||
+    !secureHexEqual(row.hmac, snapshot.hmac)
+  ) integrityMismatch();
+  verifySealedEvidenceForInsert({ snapshot, manifest, canonicalManifest }, view);
+  const shell = reconstructAdministrativeEvidenceShell(snapshot, expected);
+  const claim = shell.claims[0];
+  if (!isClosedCityPackageAdministrativeClaim(claim)) integrityMismatch();
+
+  const artifactsById = new Map<string, AdministrativeCapturedArtifact<
+    "city-package-installation"
+  >>();
+  for (const expectedArtifact of manifest.artifacts) {
+    const stored = database.prepare(
+      `SELECT ${ARTIFACT_COLUMNS} FROM artifacts
+       WHERE run_id = ? AND artifact_id = ? AND sealed = 1`,
+    ).get(expectedArtifact.runId, expectedArtifact.artifactId) as StoredArtifactRow<
+      "city-package-installation"
+    > | undefined;
+    if (
+      stored === undefined || stored.origin !== "administrative" ||
+      view.canonical(administrativeRowProvenance(stored)) !==
+        view.canonical(expectedArtifact) ||
+      stored.byte_length !== stored.bytes.byteLength ||
+      bytesHash(stored.bytes) !== expectedArtifact.sha256 ||
+      artifactsById.has(expectedArtifact.artifactId)
+    ) integrityMismatch();
+    artifactsById.set(
+      expectedArtifact.artifactId,
+      administrativeCapturedArtifactFromRow(stored),
+    );
+  }
+  if (manifest.entries.length !== 1 ||
+    manifest.entries[0]!.sourceId !== "city-package-installation" ||
+    manifest.entries[0]!.origin !== "administrative") integrityMismatch();
+  const entryArtifacts = manifest.entries[0]!.artifactIds.map((artifactId) => {
+    const artifact = artifactsById.get(artifactId);
+    if (artifact === undefined) integrityMismatch();
+    return Object.freeze({ ...artifact, bytes: new Uint8Array(artifact.bytes) });
+  });
+  if (entryArtifacts.length !== expected.artifactIds.length ||
+    !entryArtifacts.every((artifact, index) => artifact.artifactId === expected.artifactIds[index])) {
+    integrityMismatch();
+  }
+  const typedSnapshot: EvidenceSnapshot<
+    "city-package-installation",
+    CityPackageAdministrativeEvidenceClaim
+  > = Object.freeze({ ...shell, claims: Object.freeze([claim]) });
+  const ownedManifest = deepFreezePlain(ownedDataSnapshot(manifest));
+  const entries = Object.freeze([Object.freeze({
+    sourceId: "city-package-installation" as const,
+    origin: "administrative" as const,
+    artifacts: Object.freeze(entryArtifacts),
+  })]);
+  return Object.freeze({ snapshot: typedSnapshot, manifest: ownedManifest, entries });
 }
 
 /** @internal Synchronous verifier for callers that must remain inside a SQLite transaction. */

@@ -10,14 +10,20 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import {
+  type AdministrativeVerifiedEvidenceBundle,
   SqliteAdministrativeEvidenceStore,
   insertSealedEvidence,
+  loadVerifiedAdministrativeEvidenceBundle,
   loadVerifiedCountryEvidence,
   loadVerifiedCountryEvidenceV2,
   SqliteEvidenceStore,
   verifySealedEvidenceForInsert,
 } from "../../src/infrastructure/sqlite/evidence-store";
-import { createEvidenceIntegrity, secureHexEqual } from "../../src/infrastructure/integrity";
+import {
+  canonicalJson,
+  createEvidenceIntegrity,
+  secureHexEqual,
+} from "../../src/infrastructure/integrity";
 import type { ReplayEvidenceStore } from "../../src/application/replay-evidence";
 import type {
   AdministrativeCapturedArtifact,
@@ -47,6 +53,12 @@ import type {
   VerifiedLoadExpectations,
 } from "../../src/research/research-plan";
 import { sealEvidencePlan } from "../../src/research/research-plan";
+import {
+  buildInstalledPackageArtifactSetClaim,
+  type AdministrativeEvidenceLoadExpectations,
+  type CityPackageAdministrativeEvidenceClaim,
+  type InstalledPackageArtifactSetMaterial,
+} from "../../src/research/city-package-artifact-set";
 
 const KEY = "integration-test-key-at-least-32-bytes";
 const INTEGRITY = createEvidenceIntegrity(KEY);
@@ -437,6 +449,96 @@ async function sealedAdministrative(
     administrativeSealInput(entry),
     INTEGRITY,
   );
+}
+
+function packageAdministrativeFixture(): {
+  readonly artifacts: readonly AdministrativeCapturedArtifact<"city-package-installation">[];
+  readonly expected: AdministrativeEvidenceLoadExpectations;
+  readonly sealed: Promise<SealedEvidence<
+    "city-package-installation",
+    CityPackageAdministrativeEvidenceClaim,
+    "administrative"
+  >>;
+} {
+  const installedAt = "2026-08-24T10:11:12.123Z";
+  const roles = [
+    "installed_city_fixed_source_plan",
+    "installed_city_fixed_source_plan",
+    "installed_city_fixed_source_plan",
+    "installed_city_safety_source_plan",
+    "installed_city_official_authority_directory",
+    "installed_city_criteria_defaults",
+    "installed_city_criterion_definitions",
+  ] as const;
+  const slots: readonly InstalledPackageArtifactSetMaterial["slot"][] = [
+    { kind: "fixed_plan", cityId: "ljubljana", sourceId: "si-city-long-term-rent" },
+    { kind: "fixed_plan", cityId: "ljubljana", sourceId: "si-city-urban-transit" },
+    { kind: "fixed_plan", cityId: "ljubljana", sourceId: "si-city-fixed-broadband" },
+    { kind: "safety_source_plan" },
+    { kind: "official_authority_directory" },
+    { kind: "criteria_defaults" },
+    { kind: "criterion_definitions" },
+  ];
+  const bytes = roles.map((_role, index) => new TextEncoder().encode(
+    canonicalJson({ material: index }),
+  ));
+  const built = buildInstalledPackageArtifactSetClaim({
+    key: {
+      countryCode: "SI",
+      packageId: "si-city-package",
+      packageSchemaVersion: "si-city-package@1",
+      catalogRevisionId: `city-catalog:${"c".repeat(64)}`,
+      evidenceRulesVersion: "si-city-evidence@1",
+    },
+    installedAt,
+    orderedMaterials: roles.map((role, artifactOrdinal) => ({
+      artifactOrdinal,
+      slot: slots[artifactOrdinal]!,
+      role,
+      sha256: createHash("sha256").update(bytes[artifactOrdinal]!).digest("hex"),
+    })),
+  }, { canonical: INTEGRITY.canonical, hash: INTEGRITY.hash });
+  const artifacts = built.orderedArtifacts.map((material) => ({
+    artifactId: material.artifactId,
+    runId: built.installRunId,
+    sourceId: "city-package-installation" as const,
+    role: material.role,
+    mediaType: "application/json",
+    sha256: material.sha256,
+    bytes: new Uint8Array(bytes[material.artifactOrdinal]!),
+    origin: "administrative" as const,
+    producer: "install-city-package@1",
+    createdAt: installedAt,
+  }));
+  const sealed = sealEvidencePlan<
+    "city-package-installation",
+    CityPackageAdministrativeEvidenceClaim,
+    "administrative"
+  >({
+    id: built.evidenceId,
+    assessmentDate: installedAt.slice(0, 10),
+    entries: [{
+      sourceId: "city-package-installation",
+      origin: "administrative",
+      artifacts,
+      coverage: "verified",
+      claims: [built.claim],
+    }],
+    sourceIds: ["city-package-installation"],
+    parserVersions: {
+      "city-package-installation": "city-package-administrative-json@1",
+    },
+    rulesVersion: "city-package-administrative-evidence@1",
+  }, INTEGRITY);
+  return {
+    artifacts,
+    expected: {
+      evidenceId: built.evidenceId,
+      installedAt,
+      artifactIds: artifacts.map(({ artifactId }) => artifactId),
+    },
+    sealed,
+  };
 }
 
 function resignEvidence<
@@ -1108,6 +1210,302 @@ describe("administrative Evidence origin", () => {
       .rejects.toThrow("integrity_mismatch");
     expect(missingDb.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get())
       .toEqual({ count: 0 });
+  });
+
+  test("loads only a fresh typed administrative package bundle and applies the exact shell", async () => {
+    // Break caught: a restart loader leaks row unions/bytes or trusts signed envelope drift.
+    const db = database();
+    const fixture = packageAdministrativeFixture();
+    const store = new SqliteAdministrativeEvidenceStore<
+      "city-package-installation",
+      CityPackageAdministrativeEvidenceClaim
+    >(db, INTEGRITY);
+    for (const artifact of fixture.artifacts) await store.appendArtifact(artifact);
+    await store.seal(await fixture.sealed);
+
+    const first: AdministrativeVerifiedEvidenceBundle<
+      "city-package-installation",
+      CityPackageAdministrativeEvidenceClaim
+    > = loadVerifiedAdministrativeEvidenceBundle(db, fixture.expected, INTEGRITY);
+    const second = loadVerifiedAdministrativeEvidenceBundle(db, fixture.expected, INTEGRITY);
+    expect(first.snapshot.id).toBe(fixture.expected.evidenceId);
+    expect(first.snapshot.claims).toHaveLength(1);
+    expect(first.snapshot.parserVersions).toEqual({
+      "city-package-installation": "city-package-administrative-json@1",
+    });
+    expect(first.snapshot.rulesVersion).toBe("city-package-administrative-evidence@1");
+    expect(first.snapshot).not.toHaveProperty("contextHash");
+    expect(first.snapshot).not.toHaveProperty("knowledgeBaselineRevisionId");
+    expect(first.manifest.entries).toEqual([{
+      sourceId: "city-package-installation",
+      origin: "administrative",
+      artifactIds: fixture.expected.artifactIds,
+    }]);
+    expect(first.entries).toHaveLength(1);
+    expect(Reflect.ownKeys(first.entries[0]!).sort()).toEqual([
+      "artifacts", "origin", "sourceId",
+    ]);
+    expect(first.entries[0]!.origin).toBe("administrative");
+    expect(first.entries[0]!.artifacts).toEqual(fixture.artifacts);
+    expect(first).not.toBe(second);
+    expect(first.snapshot).not.toBe(second.snapshot);
+    expect(first.manifest).not.toBe(second.manifest);
+    expect(first.entries).not.toBe(second.entries);
+    expect(first.entries[0]!.artifacts).not.toBe(second.entries[0]!.artifacts);
+    const originalByte = second.entries[0]!.artifacts[0]!.bytes[0];
+    first.entries[0]!.artifacts[0]!.bytes[0] = 255;
+    expect(second.entries[0]!.artifacts[0]!.bytes[0]).toBe(originalByte);
+
+    let getters = 0;
+    let callbacks = 0;
+    const hostile = structuredClone(fixture.expected);
+    Object.defineProperty(hostile, "evidenceId", {
+      enumerable: true,
+      get: () => { getters += 1; return fixture.expected.evidenceId; },
+    });
+    expect(() => loadVerifiedAdministrativeEvidenceBundle(db, hostile, {
+      canonical: () => { callbacks += 1; return ""; },
+      hash: () => { callbacks += 1; return ""; },
+      sign: () => { callbacks += 1; return ""; },
+    })).toThrow("integrity_mismatch");
+    expect({ getters, callbacks }).toEqual({ getters: 0, callbacks: 0 });
+
+    db.exec("DROP TRIGGER evidence_snapshots_no_update");
+    const row = db.prepare(`
+      SELECT snapshot_json, manifest_json FROM evidence_snapshots WHERE id = ?
+    `).get(fixture.expected.evidenceId) as {
+      readonly snapshot_json: string;
+      readonly manifest_json: string;
+    };
+    const snapshot = JSON.parse(row.snapshot_json) as Record<string, unknown>;
+    const manifest = JSON.parse(row.manifest_json) as {
+      snapshot: Record<string, unknown>;
+      entries: unknown[];
+      artifacts: unknown[];
+    };
+    snapshot.parserVersions = { "city-package-installation": "forged-parser@1" };
+    manifest.snapshot.parserVersions = snapshot.parserVersions;
+    const canonicalManifest = INTEGRITY.canonical(manifest);
+    const manifestHash = INTEGRITY.hash(canonicalManifest);
+    const hmac = INTEGRITY.sign(canonicalManifest);
+    snapshot.manifestHash = manifestHash;
+    snapshot.hmac = hmac;
+    db.prepare(`
+      UPDATE evidence_snapshots
+      SET snapshot_json = ?, manifest_json = ?, manifest_hash = ?, hmac = ?,
+          parser_versions_json = ?
+      WHERE id = ?
+    `).run(
+      INTEGRITY.canonical(snapshot),
+      canonicalManifest,
+      manifestHash,
+      hmac,
+      INTEGRITY.canonical(snapshot.parserVersions),
+      fixture.expected.evidenceId,
+    );
+    expect(() => loadVerifiedAdministrativeEvidenceBundle(db, fixture.expected, INTEGRITY))
+      .toThrow("integrity_mismatch");
+  });
+
+  test("owns administrative rows and one integrity authority before loader callbacks", async () => {
+    // Break caught: a reentrant integrity callback mutates parsed rows after shared verification.
+    const db = database();
+    const fixture = packageAdministrativeFixture();
+    const store = new SqliteAdministrativeEvidenceStore<
+      "city-package-installation",
+      CityPackageAdministrativeEvidenceClaim
+    >(db, INTEGRITY);
+    for (const artifact of fixture.artifacts) await store.appendArtifact(artifact);
+    await store.seal(await fixture.sealed);
+
+    for (const mutationStage of ["canonical", "hash", "sign"] as const) {
+      let capturedSnapshot: Record<string, unknown> | undefined;
+      let capturedManifest: Record<string, unknown> | undefined;
+      let canonicalCalls = 0;
+      let mutated = false;
+      const mutateCapturedRows = (): void => {
+        if (mutated || capturedSnapshot === undefined || capturedManifest === undefined) return;
+        mutated = true;
+        const snapshotClaim = (capturedSnapshot.claims as Array<
+          CityPackageAdministrativeEvidenceClaim
+        >)[0]!;
+        const manifestClaim = ((capturedManifest.snapshot as {
+          claims: CityPackageAdministrativeEvidenceClaim[];
+        }).claims)[0]!;
+        (snapshotClaim.value.key as { packageId: string }).packageId = "forged-package";
+        (manifestClaim.value.key as { packageId: string }).packageId = "forged-package";
+      };
+      const reentrantIntegrity = {
+        canonical(value: unknown): string {
+          canonicalCalls += 1;
+          if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+            const record = value as Record<string, unknown>;
+            if (capturedSnapshot === undefined && "manifestHash" in record && "claims" in record) {
+              capturedSnapshot = record;
+            } else if (capturedManifest === undefined &&
+              "snapshot" in record && "entries" in record && "artifacts" in record) {
+              capturedManifest = record;
+            }
+          }
+          if (mutationStage === "canonical" && canonicalCalls === 3) mutateCapturedRows();
+          return INTEGRITY.canonical(value);
+        },
+        hash(canonicalText: string): string {
+          if (mutationStage === "hash") mutateCapturedRows();
+          return INTEGRITY.hash(canonicalText);
+        },
+        sign(canonicalText: string): string {
+          if (mutationStage === "sign") mutateCapturedRows();
+          return INTEGRITY.sign(canonicalText);
+        },
+      };
+      const loaded = loadVerifiedAdministrativeEvidenceBundle(
+        db,
+        fixture.expected,
+        reentrantIntegrity,
+      );
+      expect(mutated, mutationStage).toBe(true);
+      expect(loaded.snapshot.claims[0]!.value.key.packageId, mutationStage)
+        .toBe("si-city-package");
+      expect(loaded.manifest.snapshot.claims[0]!.value.key.packageId, mutationStage)
+        .toBe("si-city-package");
+    }
+
+    let swappedCalls = 0;
+    let first = true;
+    const mutableIntegrity = {
+      canonical(value: unknown): string {
+        if (first) {
+          first = false;
+          mutableIntegrity.canonical = () => {
+            swappedCalls += 1;
+            throw new Error("swapped canonical");
+          };
+          mutableIntegrity.hash = () => {
+            swappedCalls += 1;
+            throw new Error("swapped hash");
+          };
+          mutableIntegrity.sign = () => {
+            swappedCalls += 1;
+            throw new Error("swapped sign");
+          };
+        }
+        return INTEGRITY.canonical(value);
+      },
+      hash: INTEGRITY.hash,
+      sign: INTEGRITY.sign,
+    };
+    expect(loadVerifiedAdministrativeEvidenceBundle(
+      db,
+      fixture.expected,
+      mutableIntegrity,
+    ).snapshot.claims[0]!.value.key.packageId).toBe("si-city-package");
+    expect(swappedCalls).toBe(0);
+
+    const reads = { canonical: 0, hash: 0, sign: 0 };
+    const getterIntegrity = Object.defineProperties({}, {
+      canonical: { enumerable: true, get: () => { reads.canonical += 1; return INTEGRITY.canonical; } },
+      hash: { enumerable: true, get: () => { reads.hash += 1; return INTEGRITY.hash; } },
+      sign: { enumerable: true, get: () => { reads.sign += 1; return INTEGRITY.sign; } },
+    }) as typeof INTEGRITY;
+    expect(loadVerifiedAdministrativeEvidenceBundle(
+      db,
+      fixture.expected,
+      getterIntegrity,
+    ).snapshot.claims[0]!.value.key.packageId).toBe("si-city-package");
+    expect(reads).toEqual({ canonical: 1, hash: 1, sign: 1 });
+  });
+
+  test("reopens exact administrative bytes and rejects stored provenance, bytes, key, or canonical-row drift", async () => {
+    // Break caught: restart bypasses the shared HMAC/provenance verifier or normalizes stored JSON.
+    const directory = mkdtempSync(join(tmpdir(), "package-administrative-restart-"));
+    const path = join(directory, "evidence.sqlite");
+    let db = openEvidenceDatabase(path);
+    try {
+      const fixture = packageAdministrativeFixture();
+      const store = new SqliteAdministrativeEvidenceStore<
+        "city-package-installation",
+        CityPackageAdministrativeEvidenceClaim
+      >(db, INTEGRITY);
+      for (const artifact of fixture.artifacts) await store.appendArtifact(artifact);
+      await store.seal(await fixture.sealed);
+      db.close();
+
+      db = openEvidenceDatabase(path);
+      const reopened = loadVerifiedAdministrativeEvidenceBundle(db, fixture.expected, INTEGRITY);
+      expect(reopened.entries[0]!.artifacts).toEqual(fixture.artifacts);
+      expect(() => loadVerifiedAdministrativeEvidenceBundle(
+        db,
+        fixture.expected,
+        createEvidenceIntegrity("wrong-loader-key-at-least-32-bytes-long"),
+      )).toThrow("integrity_mismatch");
+
+      db.exec("DROP TRIGGER artifacts_no_update");
+      const artifactId = fixture.expected.artifactIds[0]!;
+      const original = db.prepare(`
+        SELECT producer, created_at, role, media_type, sha256, bytes
+        FROM artifacts WHERE artifact_id = ?
+      `).get(artifactId) as {
+        readonly producer: string;
+        readonly created_at: string;
+        readonly role: string;
+        readonly media_type: string;
+        readonly sha256: string;
+        readonly bytes: Uint8Array;
+      };
+      const restoreArtifact = (): void => {
+        db.prepare(`
+          UPDATE artifacts
+          SET producer = ?, created_at = ?, role = ?, media_type = ?, sha256 = ?, bytes = ?
+          WHERE artifact_id = ?
+        `).run(
+          original.producer,
+          original.created_at,
+          original.role,
+          original.media_type,
+          original.sha256,
+          original.bytes,
+          artifactId,
+        );
+      };
+      const mutations = [
+        ["producer", "forged-producer@1"],
+        ["created_at", "2026-08-25T10:11:12.123Z"],
+        ["role", "installed_city_criteria_defaults"],
+        ["media_type", "application/octet-stream"],
+        ["sha256", "0".repeat(64)],
+        ["bytes", Buffer.from([0])],
+      ] as const;
+      for (const [column, value] of mutations) {
+        db.prepare(`UPDATE artifacts SET ${column} = ? WHERE artifact_id = ?`)
+          .run(value, artifactId);
+        expect(() => loadVerifiedAdministrativeEvidenceBundle(
+          db,
+          fixture.expected,
+          INTEGRITY,
+        ), column).toThrow("integrity_mismatch");
+        restoreArtifact();
+      }
+
+      db.exec("DROP TRIGGER evidence_snapshots_no_update");
+      const row = db.prepare(`
+        SELECT snapshot_json, manifest_json FROM evidence_snapshots WHERE id = ?
+      `).get(fixture.expected.evidenceId) as {
+        readonly snapshot_json: string;
+        readonly manifest_json: string;
+      };
+      db.prepare("UPDATE evidence_snapshots SET manifest_json = ? WHERE id = ?")
+        .run(`${row.manifest_json} `, fixture.expected.evidenceId);
+      expect(() => loadVerifiedAdministrativeEvidenceBundle(db, fixture.expected, INTEGRITY))
+        .toThrow("integrity_mismatch");
+      db.prepare("UPDATE evidence_snapshots SET manifest_json = ?, snapshot_json = ? WHERE id = ?")
+        .run(row.manifest_json, `${row.snapshot_json}\n`, fixture.expected.evidenceId);
+      expect(() => loadVerifiedAdministrativeEvidenceBundle(db, fixture.expected, INTEGRITY))
+        .toThrow("integrity_mismatch");
+    } finally {
+      if (db.open) db.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 
