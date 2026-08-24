@@ -33,6 +33,7 @@ import type {
   EvidenceManifest,
   SealedEvidence,
 } from "../research/research-plan";
+import type { CityKnowledgeRevision } from "../research/city-knowledge";
 
 export interface CityEvidenceContext {
   readonly schemaVersion: "city-evidence-context@1";
@@ -137,6 +138,20 @@ export interface CityEvidenceReplayPorts {
 
 export interface CityEvidenceStorePort extends CityEvidenceReadPort {
   seal(input: CityEvidenceSealInput): CityEvidenceSnapshot;
+}
+
+export type VerifiedCityCatalogBundle = CityCatalogProjection;
+
+export interface CityCatalogStorePort {
+  appendVerified(input: CityCatalogProjection): VerifiedCityCatalogBundle;
+  loadVerified(id: string): VerifiedCityCatalogBundle;
+}
+
+export interface CityKnowledgeStorePort {
+  publishFromEvidence(evidenceSnapshotId: string, createdAt: string): CityKnowledgeRevision;
+  latestVerified(cityId: string): CityKnowledgeRevision | undefined;
+  loadVerified(id: string): CityKnowledgeRevision;
+  findByEvidenceVerified(evidenceSnapshotId: string): CityKnowledgeRevision | undefined;
 }
 
 const CONTEXT_KEYS = [

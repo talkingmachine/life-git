@@ -40,6 +40,50 @@ const CURRENT_ARTIFACT_ORIGIN_CHECK = `CHECK (
       AND created_at IS NOT NULL AND length(created_at) > 0)
   )`;
 
+const CURRENT_CITY_CATALOG_SQL = `CREATE TABLE city_catalog_revisions (
+  id TEXT PRIMARY KEY,
+  registry_revision_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  registry_evidence_snapshot_id TEXT NOT NULL,
+  catalog_evidence_snapshot_id TEXT NOT NULL,
+  rules_version TEXT NOT NULL CHECK (
+    rules_version IN ('city-catalog@1', 'city-catalog@2')
+  ),
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64)
+)`;
+
+const CURRENT_CITY_KNOWLEDGE_SQL = `CREATE TABLE city_knowledge_revisions (
+  id TEXT PRIMARY KEY,
+  city_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  rules_version TEXT NOT NULL,
+  predecessor_id TEXT REFERENCES city_knowledge_revisions(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+  last_checked_at TEXT NOT NULL,
+  knowledge_updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (city_id, evidence_snapshot_id)
+)`;
+
 afterEach(() => {
   for (const database of databases.splice(0)) {
     if (database.open) database.close();
@@ -614,7 +658,9 @@ describe("database schema preflight", () => {
     ).all()).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "city_catalog_revisions" },
       { name: "city_evidence_snapshots" },
+      { name: "city_knowledge_revisions" },
       { name: "country_knowledge_revisions" },
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
@@ -645,6 +691,94 @@ describe("database schema preflight", () => {
       { type: "trigger", name: "city_evidence_snapshots_no_delete" },
       { type: "trigger", name: "city_evidence_snapshots_no_update" },
     ]);
+
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'city_catalog_revisions'",
+    ).pluck().get()).toBe(CURRENT_CITY_CATALOG_SQL);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'city_knowledge_revisions'",
+    ).pluck().get()).toBe(CURRENT_CITY_KNOWLEDGE_SQL);
+    expect(reopened.prepare("PRAGMA table_info(city_catalog_revisions)").all()
+      .map((column) => (column as { readonly name: string }).name)).toEqual([
+      "id", "registry_revision_id", "country_code", "package_id", "package_schema_version",
+      "registry_evidence_snapshot_id", "catalog_evidence_snapshot_id", "rules_version",
+      "created_at", "payload_json", "payload_hash", "hmac",
+    ]);
+    expect(reopened.prepare("PRAGMA foreign_key_list(city_catalog_revisions)").all()).toEqual([]);
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE tbl_name = 'city_catalog_revisions' AND name NOT LIKE 'sqlite_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "table", name: "city_catalog_revisions" },
+      { type: "trigger", name: "city_catalog_revisions_no_delete" },
+      { type: "trigger", name: "city_catalog_revisions_no_update" },
+    ]);
+
+    expect(reopened.prepare("PRAGMA table_info(city_knowledge_revisions)").all()
+      .map((column) => (column as { readonly name: string }).name)).toEqual([
+      "id", "city_id", "country_code", "package_id", "package_schema_version", "rules_version",
+      "predecessor_id", "evidence_snapshot_id", "last_checked_at", "knowledge_updated_at",
+      "created_at", "payload_json", "payload_hash", "hmac",
+    ]);
+    expect((reopened.prepare("PRAGMA foreign_key_list(city_knowledge_revisions)").all() as Array<{
+      readonly table: string;
+      readonly from: string;
+      readonly to: string;
+    }>).map(({ table, from, to }) => ({ table, from, to })).sort((left, right) =>
+      left.from.localeCompare(right.from))).toEqual([
+      { table: "city_evidence_snapshots", from: "evidence_snapshot_id", to: "id" },
+      { table: "city_knowledge_revisions", from: "predecessor_id", to: "id" },
+    ]);
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE tbl_name = 'city_knowledge_revisions' AND name NOT LIKE 'sqlite_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "index", name: "city_knowledge_one_root" },
+      { type: "index", name: "city_knowledge_one_successor" },
+      { type: "table", name: "city_knowledge_revisions" },
+      { type: "trigger", name: "city_knowledge_revisions_no_delete" },
+      { type: "trigger", name: "city_knowledge_revisions_no_update" },
+    ]);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_knowledge_one_root'",
+    ).pluck().get()).toBe(`CREATE UNIQUE INDEX city_knowledge_one_root
+ON city_knowledge_revisions (city_id)
+WHERE predecessor_id IS NULL`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_knowledge_one_successor'",
+    ).pluck().get()).toBe(`CREATE UNIQUE INDEX city_knowledge_one_successor
+ON city_knowledge_revisions (predecessor_id)
+WHERE predecessor_id IS NOT NULL`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_catalog_revisions_no_update'",
+    ).pluck().get()).toBe(`CREATE TRIGGER city_catalog_revisions_no_update
+BEFORE UPDATE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_catalog_revisions_no_delete'",
+    ).pluck().get()).toBe(`CREATE TRIGGER city_catalog_revisions_no_delete
+BEFORE DELETE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_knowledge_revisions_no_update'",
+    ).pluck().get()).toBe(`CREATE TRIGGER city_knowledge_revisions_no_update
+BEFORE UPDATE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_knowledge_revisions_no_delete'",
+    ).pluck().get()).toBe(`CREATE TRIGGER city_knowledge_revisions_no_delete
+BEFORE DELETE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END`);
 
     const onboardingColumns = reopened.prepare(
       "PRAGMA table_info(onboarding_confirmations)",
@@ -942,6 +1076,154 @@ END`,
     ).get()).toEqual({
       sql: "CREATE TABLE city_evidence_snapshots (id TEXT PRIMARY KEY, rules_version TEXT)",
     });
+  });
+
+  test.each([
+    ["Catalog", "city_catalog_revisions"],
+    ["Knowledge", "city_knowledge_revisions"],
+  ])("rejects an incompatible existing City %s table before schema execution", (_label, table) => {
+    // Break caught: CREATE IF NOT EXISTS accepting a partial structural persistence boundary.
+    const path = temporaryDatabasePath();
+    const incompatible = track(new Database(path));
+    incompatible.exec(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`);
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(verification.prepare(
+      `SELECT sql FROM sqlite_master WHERE name = '${table}'`,
+    ).pluck().get()).toBe(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`);
+    expect(verification.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all()).toEqual([{ name: table }]);
+  });
+
+  test.each([
+    ["missing Catalog table", "DROP TABLE city_catalog_revisions"],
+    ["missing Catalog trigger", "DROP TRIGGER city_catalog_revisions_no_delete"],
+    ["altered Catalog trigger", `
+      DROP TRIGGER city_catalog_revisions_no_update;
+      CREATE TRIGGER city_catalog_revisions_no_update BEFORE UPDATE ON city_catalog_revisions
+      BEGIN SELECT RAISE(ABORT, 'weakened'); END
+    `],
+    ["arbitrarily named extra Catalog object", `
+      CREATE TRIGGER evil_catalog_guard BEFORE UPDATE ON city_catalog_revisions
+      BEGIN SELECT RAISE(ABORT, 'unexpected'); END
+    `],
+    ["missing Knowledge table", "DROP TABLE city_knowledge_revisions"],
+    ["missing Knowledge index", "DROP INDEX city_knowledge_one_successor"],
+    ["altered Knowledge index", `
+      DROP INDEX city_knowledge_one_root;
+      CREATE INDEX city_knowledge_one_root ON city_knowledge_revisions (city_id)
+    `],
+    ["arbitrarily named extra Knowledge object", `
+      CREATE INDEX evil_knowledge_idx ON city_knowledge_revisions (created_at)
+    `],
+  ])("rejects a %s on reopen without repairing or changing stored objects", (_label, mutation) => {
+    // Break caught: schema execution silently repairing a partial or weakened installed object set.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const incompatible = track(new Database(path));
+    incompatible.exec(mutation);
+    const before = storedSchema(incompatible);
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("installs Task 3 tables additively only when both object families are wholly absent", () => {
+    // Break caught: rejecting an exact pre-Task-3 database or accepting only one partially installed family.
+    const path = temporaryDatabasePath();
+    const legacy = track(openEvidenceDatabase(path));
+    legacy.exec("DROP TABLE city_catalog_revisions; DROP TABLE city_knowledge_revisions");
+    legacy.close();
+
+    const upgraded = track(openEvidenceDatabase(path));
+    expect(upgraded.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE name IN ('city_catalog_revisions', 'city_knowledge_revisions')
+      ORDER BY name
+    `).all()).toEqual([
+      { name: "city_catalog_revisions" },
+      { name: "city_knowledge_revisions" },
+    ]);
+  });
+
+  test.each([
+    ["trigger", `
+      CREATE TRIGGER city_catalog_revisions_no_update BEFORE UPDATE ON unrelated
+      BEGIN SELECT RAISE(ABORT, 'reserved'); END
+    `],
+    ["index", "CREATE INDEX city_knowledge_one_root ON unrelated (id)"],
+  ])("rejects a reserved Task 3 %s name attached to another table", (_label, objectSql) => {
+    // Break caught: IF NOT EXISTS accepting a reserved guard/index name owned by an unrelated table.
+    const path = temporaryDatabasePath();
+    const legacy = track(openEvidenceDatabase(path));
+    legacy.exec(`
+      DROP TABLE city_catalog_revisions;
+      DROP TABLE city_knowledge_revisions;
+      CREATE TABLE unrelated (id TEXT PRIMARY KEY);
+      ${objectSql}
+    `);
+    const before = storedSchema(legacy);
+    legacy.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("enforces direct-SQL City roots, successors, and immutable rows", () => {
+    // Break caught: relying on store checks while leaving the append-only topology mutable in SQLite.
+    const db = track(openEvidenceDatabase(":memory:"));
+    db.prepare(`
+      INSERT INTO city_catalog_revisions (
+        id, registry_revision_id, country_code, package_id, package_schema_version,
+        registry_evidence_snapshot_id, catalog_evidence_snapshot_id, rules_version,
+        created_at, payload_json, payload_hash, hmac
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "catalog-1", "registry-1", "SI", "si-cities", "si-cities@1", "opaque-evidence",
+      "opaque-evidence", "city-catalog@2", "2026-08-24T00:00:00.000Z", "{}",
+      "a".repeat(64), "b".repeat(64),
+    );
+    expect(() => db.prepare(
+      "UPDATE city_catalog_revisions SET payload_json = payload_json WHERE id = 'catalog-1'",
+    ).run()).toThrow("city_catalog_revision_is_immutable");
+    expect(() => db.prepare(
+      "DELETE FROM city_catalog_revisions WHERE id = 'catalog-1'",
+    ).run()).toThrow("city_catalog_revision_is_immutable");
+
+    db.pragma("foreign_keys = OFF");
+    const insertKnowledge = db.prepare(`
+      INSERT INTO city_knowledge_revisions (
+        id, city_id, country_code, package_id, package_schema_version, rules_version,
+        predecessor_id, evidence_snapshot_id, last_checked_at, knowledge_updated_at,
+        created_at, payload_json, payload_hash, hmac
+      ) VALUES (?, 'ljubljana', 'SI', 'si-cities', 'si-cities@1', 'si-city-evidence@1',
+        ?, ?, '2026-08-24T00:00:00.000Z', '2026-08-24T00:00:00.000Z',
+        '2026-08-24T00:00:01.000Z', '{}', ?, ?)
+    `);
+    insertKnowledge.run("knowledge-root", null, "evidence-root", "c".repeat(64), "d".repeat(64));
+    expect(() => insertKnowledge.run(
+      "knowledge-second-root", null, "evidence-second-root", "c".repeat(64), "d".repeat(64),
+    )).toThrow(/UNIQUE constraint failed/);
+    insertKnowledge.run(
+      "knowledge-child", "knowledge-root", "evidence-child", "c".repeat(64), "d".repeat(64),
+    );
+    expect(() => insertKnowledge.run(
+      "knowledge-fork", "knowledge-root", "evidence-fork", "c".repeat(64), "d".repeat(64),
+    )).toThrow(/UNIQUE constraint failed/);
+    expect(() => db.prepare(
+      "UPDATE city_knowledge_revisions SET payload_json = payload_json WHERE id = 'knowledge-root'",
+    ).run()).toThrow("city_knowledge_revision_is_immutable");
+    expect(() => db.prepare(
+      "DELETE FROM city_knowledge_revisions WHERE id = 'knowledge-root'",
+    ).run()).toThrow("city_knowledge_revision_is_immutable");
   });
 
   test("rejects an incompatible existing onboarding confirmation table before schema execution", () => {

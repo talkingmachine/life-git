@@ -22,6 +22,12 @@ export type CityCriterionEvaluatorRegistry = Readonly<Record<CityCriterionId, Ci
 export interface CityCriteriaSnapshot { readonly schemaVersion: "city-criteria@1"; readonly id: string; readonly profileSnapshotId: string; readonly preferenceProfileSnapshotId: string; readonly criteria: readonly [CityCriterionDraft, CityCriterionDraft, CityCriterionDraft, CityCriterionDraft]; readonly rulesVersion: "city-criteria@1"; readonly confirmedAt: string; }
 export type CityCriteriaProjection = Pick<CityCriteriaSnapshot, "profileSnapshotId" | "preferenceProfileSnapshotId" | "criteria" | "rulesVersion" | "confirmedAt">;
 export interface InstalledCityCriteriaDefaults { readonly schemaVersion: "city-criteria-defaults@1"; readonly mappingVersion: string; readonly criteria: readonly [CityCriterionDraft, CityCriterionDraft, CityCriterionDraft, CityCriterionDraft]; }
+export type InstalledCityCriterionDefinitionTuple = readonly [
+  CityCriterionDefinition,
+  CityCriterionDefinition,
+  CityCriterionDefinition,
+  CityCriterionDefinition,
+];
 
 const RULES_VERSION = "city-criteria@1" as const;
 function freeze<T>(value: T): T { if (value !== null && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value)) freeze(child); } return value; }
@@ -64,4 +70,246 @@ export function confirmCityCriteria(input: { readonly draft: unknown; readonly p
 export function reconstructCityCriteria(snapshot: CityCriteriaSnapshot, evaluators: CityCriterionEvaluatorRegistry): CityCriteriaProjection {
   if (!record(snapshot) || !exact(snapshot, ["schemaVersion", "id", "profileSnapshotId", "preferenceProfileSnapshotId", "criteria", "rulesVersion", "confirmedAt"]) || snapshot.schemaVersion !== RULES_VERSION || snapshot.rulesVersion !== RULES_VERSION || typeof snapshot.id !== "string" || snapshot.id.length === 0 || typeof snapshot.profileSnapshotId !== "string" || snapshot.profileSnapshotId.length === 0 || typeof snapshot.preferenceProfileSnapshotId !== "string" || snapshot.preferenceProfileSnapshotId.length === 0 || !instant(snapshot.confirmedAt)) throw new Error("integrity_mismatch");
   try { const criteria = normalizeCriteria(snapshot.criteria, evaluators); if (JSON.stringify(criteria) !== JSON.stringify(snapshot.criteria)) throw new Error(); return freeze({ profileSnapshotId: snapshot.profileSnapshotId, preferenceProfileSnapshotId: snapshot.preferenceProfileSnapshotId, criteria, rulesVersion: RULES_VERSION, confirmedAt: snapshot.confirmedAt }); } catch { throw new Error("integrity_mismatch"); }
+}
+
+const INSTALLED_DEFINITION_KEYS = [
+  "criterionId", "definitionId", "direction", "unit", "denominator", "compatibleGeoScopes",
+  "freshnessPolicyVersion", "evaluatorVersion",
+] as const;
+const INSTALLED_DEFAULT_KEYS = [
+  "criterionId", "definitionId", "mode", "importance", "target",
+] as const;
+
+function installedMismatch(): never {
+  throw new Error("integrity_mismatch");
+}
+
+function installedPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function sameStringOrder(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function installedOwnSnapshot<T>(borrowed: T): T {
+  const active = new Set<object>();
+  const visit = (value: unknown): unknown => {
+    if (value === null || value === undefined || typeof value === "string" ||
+      typeof value === "number" || typeof value === "boolean" || typeof value === "function") {
+      return value;
+    }
+    if (typeof value !== "object" || active.has(value) ||
+      Object.getOwnPropertySymbols(value).length !== 0) installedMismatch();
+    active.add(value);
+    try {
+      if (Array.isArray(value)) {
+        if (Object.getPrototypeOf(value) !== Array.prototype) installedMismatch();
+        const length = Object.getOwnPropertyDescriptor(value, "length");
+        if (length === undefined || !("value" in length) || !Number.isSafeInteger(length.value) ||
+          length.value < 0 || Object.getOwnPropertyNames(value).length !== length.value + 1) {
+          installedMismatch();
+        }
+        const copy: unknown[] = [];
+        for (let index = 0; index < length.value; index += 1) {
+          const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+          if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+            installedMismatch();
+          }
+          copy.push(visit(descriptor.value));
+        }
+        return copy;
+      }
+      if (!installedPlainRecord(value)) installedMismatch();
+      const copy: Record<string, unknown> = {};
+      for (const key of Object.getOwnPropertyNames(value)) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+          installedMismatch();
+        }
+        copy[key] = visit(descriptor.value);
+      }
+      return copy;
+    } finally {
+      active.delete(value);
+    }
+  };
+  return visit(borrowed) as T;
+}
+
+function installedExactRecord(
+  value: unknown,
+  keys: readonly string[],
+): Record<string, unknown> {
+  if (!installedPlainRecord(value) || !sameStringOrder(
+    Object.getOwnPropertyNames(value).sort(),
+    [...keys].sort(),
+  )) installedMismatch();
+  return value;
+}
+
+function installedDenseArray(value: unknown, length: number): readonly unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype ||
+    value.length !== length || Object.getOwnPropertyNames(value).length !== length + 1) {
+    installedMismatch();
+  }
+  return value;
+}
+
+function installedText(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value ||
+    /[\u0000-\u001f]/.test(value)) installedMismatch();
+  return value;
+}
+
+function installedIdentifier(value: unknown): string {
+  const text = installedText(value);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/.test(text)) installedMismatch();
+  return text;
+}
+
+function installedDefinition(value: unknown, index: number): CityCriterionDefinition {
+  const definition = installedExactRecord(value, INSTALLED_DEFINITION_KEYS);
+  const criterionId = definition.criterionId;
+  if (criterionId !== CITY_CRITERION_IDS[index] ||
+    (definition.direction !== "at_least" && definition.direction !== "at_most")) {
+    installedMismatch();
+  }
+  const scopes = installedDenseArray(definition.compatibleGeoScopes, (
+    definition.compatibleGeoScopes as readonly unknown[]
+  ).length).map(installedText);
+  if (scopes.length === 0 || new Set(scopes).size !== scopes.length) installedMismatch();
+  return {
+    criterionId: criterionId as CityCriterionId,
+    definitionId: installedIdentifier(definition.definitionId),
+    direction: definition.direction,
+    unit: installedText(definition.unit),
+    denominator: installedText(definition.denominator),
+    compatibleGeoScopes: scopes,
+    freshnessPolicyVersion: installedIdentifier(definition.freshnessPolicyVersion),
+    evaluatorVersion: installedIdentifier(definition.evaluatorVersion),
+  };
+}
+
+function installedDefinitionTuple(value: unknown): InstalledCityCriterionDefinitionTuple {
+  const tuple = installedDenseArray(value, CITY_CRITERION_IDS.length);
+  return tuple.map((definition, index) => installedDefinition(definition, index)) as unknown as
+    InstalledCityCriterionDefinitionTuple;
+}
+
+function installedExpectedMap(value: unknown): Readonly<Record<CityCriterionId, string>> {
+  const map = installedExactRecord(value, CITY_CRITERION_IDS);
+  return Object.fromEntries(CITY_CRITERION_IDS.map((criterionId) => [
+    criterionId,
+    installedIdentifier(map[criterionId]),
+  ])) as Readonly<Record<CityCriterionId, string>>;
+}
+
+function installedSameDefinition(
+  left: CityCriterionDefinition,
+  right: CityCriterionDefinition,
+): boolean {
+  return left.criterionId === right.criterionId && left.definitionId === right.definitionId &&
+    left.direction === right.direction && left.unit === right.unit &&
+    left.denominator === right.denominator &&
+    sameStringOrder(left.compatibleGeoScopes, right.compatibleGeoScopes) &&
+    left.freshnessPolicyVersion === right.freshnessPolicyVersion &&
+    left.evaluatorVersion === right.evaluatorVersion;
+}
+
+export function reconstructInstalledCityCriterionDefinitions(
+  value: unknown,
+  expectedDefinitionIds: Readonly<Record<CityCriterionId, string>>,
+  expectedEvaluatorVersionIds: Readonly<Record<CityCriterionId, string>>,
+): InstalledCityCriterionDefinitionTuple {
+  try {
+    const definitions = installedDefinitionTuple(installedOwnSnapshot(value));
+    const definitionIds = installedExpectedMap(installedOwnSnapshot(expectedDefinitionIds));
+    const evaluatorVersionIds = installedExpectedMap(installedOwnSnapshot(expectedEvaluatorVersionIds));
+    for (const definition of definitions) {
+      if (definition.definitionId !== definitionIds[definition.criterionId] ||
+        definition.evaluatorVersion !== evaluatorVersionIds[definition.criterionId]) installedMismatch();
+    }
+    return freeze(definitions);
+  } catch {
+    installedMismatch();
+  }
+}
+
+function installedDefaults(value: unknown): InstalledCityCriteriaDefaults {
+  const defaults = installedExactRecord(value, ["schemaVersion", "mappingVersion", "criteria"]);
+  if (defaults.schemaVersion !== "city-criteria-defaults@1") installedMismatch();
+  const criteria = installedDenseArray(defaults.criteria, CITY_CRITERION_IDS.length).map((item, index) => {
+    const criterion = installedExactRecord(item, INSTALLED_DEFAULT_KEYS);
+    if (criterion.criterionId !== CITY_CRITERION_IDS[index] ||
+      (criterion.mode !== "required" && criterion.mode !== "weighted") ||
+      ![1, 2, 3, 4, 5].includes(criterion.importance as number)) installedMismatch();
+    return {
+      criterionId: criterion.criterionId,
+      definitionId: installedIdentifier(criterion.definitionId),
+      mode: criterion.mode,
+      importance: criterion.importance as CityImportance,
+      target: installedText(criterion.target),
+    };
+  }) as unknown as InstalledCityCriteriaDefaults["criteria"];
+  return {
+    schemaVersion: "city-criteria-defaults@1",
+    mappingVersion: installedIdentifier(defaults.mappingVersion),
+    criteria,
+  };
+}
+
+interface InstalledEvaluatorView {
+  readonly definition: CityCriterionDefinition;
+  readonly canonicalizeTarget: (target: unknown) => string;
+}
+
+function installedEvaluators(value: unknown): Readonly<Record<CityCriterionId, InstalledEvaluatorView>> {
+  const registry = installedExactRecord(value, CITY_CRITERION_IDS);
+  return Object.fromEntries(CITY_CRITERION_IDS.map((criterionId, index) => {
+    const evaluator = installedExactRecord(
+      registry[criterionId],
+      ["definition", "canonicalizeTarget", "evaluate"],
+    );
+    if (typeof evaluator.canonicalizeTarget !== "function" || typeof evaluator.evaluate !== "function") {
+      installedMismatch();
+    }
+    return [criterionId, {
+      definition: installedDefinition(evaluator.definition, index),
+      canonicalizeTarget: evaluator.canonicalizeTarget as (target: unknown) => string,
+    }];
+  })) as Readonly<Record<CityCriterionId, InstalledEvaluatorView>>;
+}
+
+export function reconstructInstalledCityCriteriaDefaults(
+  value: unknown,
+  expectedMappingVersion: string,
+  definitions: InstalledCityCriterionDefinitionTuple,
+  evaluators: CityCriterionEvaluatorRegistry,
+): InstalledCityCriteriaDefaults {
+  try {
+    const ownedDefaults = installedDefaults(installedOwnSnapshot(value));
+    const mappingVersion = installedIdentifier(expectedMappingVersion);
+    const ownedDefinitions = installedDefinitionTuple(installedOwnSnapshot(definitions));
+    const ownedEvaluators = installedEvaluators(installedOwnSnapshot(evaluators));
+    if (ownedDefaults.mappingVersion !== mappingVersion) installedMismatch();
+    for (let index = 0; index < CITY_CRITERION_IDS.length; index += 1) {
+      const criterionId = CITY_CRITERION_IDS[index];
+      const definition = ownedDefinitions[index];
+      const evaluator = ownedEvaluators[criterionId];
+      const criterion = ownedDefaults.criteria[index];
+      if (criterion.definitionId !== definition.definitionId ||
+        !installedSameDefinition(evaluator.definition, definition)) installedMismatch();
+    }
+    for (let index = 0; index < CITY_CRITERION_IDS.length; index += 1) {
+      const criterionId = CITY_CRITERION_IDS[index];
+      const target = ownedDefaults.criteria[index].target;
+      if (ownedEvaluators[criterionId].canonicalizeTarget(target) !== target) installedMismatch();
+    }
+    return freeze(ownedDefaults);
+  } catch {
+    installedMismatch();
+  }
 }

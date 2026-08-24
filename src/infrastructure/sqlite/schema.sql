@@ -63,6 +63,58 @@ CREATE TABLE IF NOT EXISTS city_evidence_snapshots (
   hmac TEXT NOT NULL CHECK (length(hmac) = 64)
 );
 
+CREATE TABLE IF NOT EXISTS city_catalog_revisions (
+  id TEXT PRIMARY KEY,
+  registry_revision_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  registry_evidence_snapshot_id TEXT NOT NULL,
+  catalog_evidence_snapshot_id TEXT NOT NULL,
+  rules_version TEXT NOT NULL CHECK (
+    rules_version IN ('city-catalog@1', 'city-catalog@2')
+  ),
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64)
+);
+
+CREATE TABLE IF NOT EXISTS city_knowledge_revisions (
+  id TEXT PRIMARY KEY,
+  city_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  rules_version TEXT NOT NULL,
+  predecessor_id TEXT REFERENCES city_knowledge_revisions(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+  last_checked_at TEXT NOT NULL,
+  knowledge_updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (city_id, evidence_snapshot_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_knowledge_one_root
+ON city_knowledge_revisions (city_id)
+WHERE predecessor_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_knowledge_one_successor
+ON city_knowledge_revisions (predecessor_id)
+WHERE predecessor_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS country_knowledge_revisions (
   id TEXT PRIMARY KEY,
   country_code TEXT NOT NULL CHECK (
@@ -307,6 +359,30 @@ CREATE TRIGGER IF NOT EXISTS city_evidence_snapshots_no_delete
 BEFORE DELETE ON city_evidence_snapshots
 BEGIN
   SELECT RAISE(ABORT, 'city_evidence_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_catalog_revisions_no_update
+BEFORE UPDATE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_catalog_revisions_no_delete
+BEFORE DELETE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_knowledge_revisions_no_update
+BEFORE UPDATE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_knowledge_revisions_no_delete
+BEFORE DELETE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS country_knowledge_revisions_no_update

@@ -146,6 +146,98 @@ const CURRENT_CITY_EVIDENCE_TABLE = normalizeSchemaSql(`
   );
 `);
 
+const CURRENT_CITY_CATALOG_TABLE = normalizeExactSchemaSql(`
+CREATE TABLE IF NOT EXISTS city_catalog_revisions (
+  id TEXT PRIMARY KEY,
+  registry_revision_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  registry_evidence_snapshot_id TEXT NOT NULL,
+  catalog_evidence_snapshot_id TEXT NOT NULL,
+  rules_version TEXT NOT NULL CHECK (
+    rules_version IN ('city-catalog@1', 'city-catalog@2')
+  ),
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64)
+);
+`);
+
+const CURRENT_CITY_KNOWLEDGE_TABLE = normalizeExactSchemaSql(`
+CREATE TABLE IF NOT EXISTS city_knowledge_revisions (
+  id TEXT PRIMARY KEY,
+  city_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  rules_version TEXT NOT NULL,
+  predecessor_id TEXT REFERENCES city_knowledge_revisions(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+  last_checked_at TEXT NOT NULL,
+  knowledge_updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (city_id, evidence_snapshot_id)
+);
+`);
+
+const CURRENT_CITY_KNOWLEDGE_ONE_ROOT = normalizeExactSchemaSql(`
+CREATE UNIQUE INDEX IF NOT EXISTS city_knowledge_one_root
+ON city_knowledge_revisions (city_id)
+WHERE predecessor_id IS NULL;
+`);
+
+const CURRENT_CITY_KNOWLEDGE_ONE_SUCCESSOR = normalizeExactSchemaSql(`
+CREATE UNIQUE INDEX IF NOT EXISTS city_knowledge_one_successor
+ON city_knowledge_revisions (predecessor_id)
+WHERE predecessor_id IS NOT NULL;
+`);
+
+const CURRENT_CITY_CATALOG_NO_UPDATE = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS city_catalog_revisions_no_update
+BEFORE UPDATE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END;
+`);
+
+const CURRENT_CITY_CATALOG_NO_DELETE = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS city_catalog_revisions_no_delete
+BEFORE DELETE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END;
+`);
+
+const CURRENT_CITY_KNOWLEDGE_NO_UPDATE = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS city_knowledge_revisions_no_update
+BEFORE UPDATE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END;
+`);
+
+const CURRENT_CITY_KNOWLEDGE_NO_DELETE = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS city_knowledge_revisions_no_delete
+BEFORE DELETE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END;
+`);
+
 const CURRENT_COUNTRY_RESOLUTION_TABLE = normalizeSchemaSql(`
   CREATE TABLE IF NOT EXISTS country_resolution_revisions (
     id TEXT PRIMARY KEY,
@@ -388,6 +480,123 @@ function preflightExistingCityEvidence(database: Database.Database): void {
   }
 }
 
+function exactAttachedObjects(
+  database: Database.Database,
+  table: string,
+): Array<{ readonly type: string; readonly name: string }> {
+  return database.prepare(`
+    SELECT type, name FROM sqlite_master
+    WHERE tbl_name = ? AND name NOT LIKE 'sqlite_%'
+    ORDER BY type, name
+  `).all(table) as Array<{ readonly type: string; readonly name: string }>;
+}
+
+function sameObjectInventory(
+  actual: readonly { readonly type: string; readonly name: string }[],
+  expected: readonly { readonly type: string; readonly name: string }[],
+): boolean {
+  return actual.length === expected.length && actual.every((entry, index) =>
+    entry.type === expected[index]!.type && entry.name === expected[index]!.name
+  );
+}
+
+function exactTask3Object(
+  database: Database.Database,
+  name: string,
+  type: "index" | "trigger",
+  sql: string,
+): boolean {
+  const entry = database.prepare(
+    "SELECT type, sql FROM sqlite_master WHERE name = ?",
+  ).get(name) as SchemaEntry | undefined;
+  return entry !== undefined && entry.type === type && entry.sql !== null &&
+    normalizeExactSchemaSql(entry.sql) === sql;
+}
+
+function preflightExistingCityPersistence(database: Database.Database): void {
+  const catalogObjects = exactAttachedObjects(database, "city_catalog_revisions");
+  const knowledgeObjects = exactAttachedObjects(database, "city_knowledge_revisions");
+  if (catalogObjects.length === 0 && knowledgeObjects.length === 0) {
+    const reservedName = database.prepare(`
+      SELECT 1 FROM sqlite_master WHERE name IN (
+        'city_catalog_revisions',
+        'city_catalog_revisions_no_update',
+        'city_catalog_revisions_no_delete',
+        'city_knowledge_revisions',
+        'city_knowledge_one_root',
+        'city_knowledge_one_successor',
+        'city_knowledge_revisions_no_update',
+        'city_knowledge_revisions_no_delete'
+      ) LIMIT 1
+    `).get();
+    if (reservedName !== undefined) throw new Error("database_schema_reset_required");
+    return;
+  }
+  if (catalogObjects.length === 0 || knowledgeObjects.length === 0) {
+    throw new Error("database_schema_reset_required");
+  }
+  const catalog = database.prepare(
+    "SELECT type, sql FROM sqlite_master WHERE name = 'city_catalog_revisions'",
+  ).get() as SchemaEntry | undefined;
+  const knowledge = database.prepare(
+    "SELECT type, sql FROM sqlite_master WHERE name = 'city_knowledge_revisions'",
+  ).get() as SchemaEntry | undefined;
+  const expectedCatalogObjects = [
+    { type: "table", name: "city_catalog_revisions" },
+    { type: "trigger", name: "city_catalog_revisions_no_delete" },
+    { type: "trigger", name: "city_catalog_revisions_no_update" },
+  ];
+  const expectedKnowledgeObjects = [
+    { type: "index", name: "city_knowledge_one_root" },
+    { type: "index", name: "city_knowledge_one_successor" },
+    { type: "table", name: "city_knowledge_revisions" },
+    { type: "trigger", name: "city_knowledge_revisions_no_delete" },
+    { type: "trigger", name: "city_knowledge_revisions_no_update" },
+  ];
+  if (catalog === undefined || catalog.type !== "table" || catalog.sql === null ||
+    normalizeExactSchemaSql(catalog.sql) !== CURRENT_CITY_CATALOG_TABLE ||
+    knowledge === undefined || knowledge.type !== "table" || knowledge.sql === null ||
+    normalizeExactSchemaSql(knowledge.sql) !== CURRENT_CITY_KNOWLEDGE_TABLE ||
+    !sameObjectInventory(catalogObjects, expectedCatalogObjects) ||
+    !sameObjectInventory(knowledgeObjects, expectedKnowledgeObjects) ||
+    !exactTask3Object(
+      database,
+      "city_catalog_revisions_no_update",
+      "trigger",
+      CURRENT_CITY_CATALOG_NO_UPDATE,
+    ) ||
+    !exactTask3Object(
+      database,
+      "city_catalog_revisions_no_delete",
+      "trigger",
+      CURRENT_CITY_CATALOG_NO_DELETE,
+    ) ||
+    !exactTask3Object(
+      database,
+      "city_knowledge_one_root",
+      "index",
+      CURRENT_CITY_KNOWLEDGE_ONE_ROOT,
+    ) ||
+    !exactTask3Object(
+      database,
+      "city_knowledge_one_successor",
+      "index",
+      CURRENT_CITY_KNOWLEDGE_ONE_SUCCESSOR,
+    ) ||
+    !exactTask3Object(
+      database,
+      "city_knowledge_revisions_no_update",
+      "trigger",
+      CURRENT_CITY_KNOWLEDGE_NO_UPDATE,
+    ) ||
+    !exactTask3Object(
+      database,
+      "city_knowledge_revisions_no_delete",
+      "trigger",
+      CURRENT_CITY_KNOWLEDGE_NO_DELETE,
+    )) throw new Error("database_schema_reset_required");
+}
+
 function preflightExistingCountryResolution(database: Database.Database): void {
   const entry = database.prepare(`
     SELECT type, sql FROM sqlite_master WHERE name = 'country_resolution_revisions'
@@ -498,6 +707,7 @@ export function openEvidenceDatabase(path: string): Database.Database {
     preflightExistingArtifacts(database);
     preflightExistingRunRevisions(database);
     preflightExistingCityEvidence(database);
+    preflightExistingCityPersistence(database);
     preflightExistingCountryKnowledge(database);
     preflightExistingDossierV2(database);
     preflightExistingCountryResolution(database);

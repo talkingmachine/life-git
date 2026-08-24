@@ -720,7 +720,9 @@ describe("confirmed-life orchestration", () => {
     ).all()).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "city_catalog_revisions" },
       { name: "city_evidence_snapshots" },
+      { name: "city_knowledge_revisions" },
       { name: "country_knowledge_revisions" },
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
