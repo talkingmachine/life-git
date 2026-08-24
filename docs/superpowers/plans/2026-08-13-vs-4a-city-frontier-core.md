@@ -16,6 +16,11 @@
 Knowledge/Evidence authority; Decision derives marker semantics from frozen Ranking assessment plus
 Criteria/evaluators, and Task 12 owns the marker digest formula before frontier binding.
 
+**Approved Task 12 architectural amendment (2026-08-24):** Task 12 owns descriptor-safe,
+content-addressed sealing/reconstruction of Ranking, Frontier, Selection and Branch values. Branch
+remains independent from Application, while one Application wrapper is the only normal constructor of
+the durable Selection plus sibling City Branch pair from verified terminal/ranking/pre-city authority.
+
 **Format metadata:** `review-matrix` — executable five-task checklist whose apparent length comes from mandatory per-task file, interface, RED/GREEN and commit cells; it is linked from the short master index and is not a narrative specification.
 
 ## Constraints specific to this plan
@@ -456,6 +461,30 @@ export interface TerminalCityShortlistSnapshot {
 
 export type CityFrontierRevision = WorkingCityFrontierRevision | TerminalCityShortlistSnapshot;
 
+export type CityFrontierRevisionPayload =
+  | Omit<WorkingCityFrontierRevision, "id">
+  | Omit<TerminalCityShortlistSnapshot, "id">;
+
+export interface SealCityFrontierRevisionInput {
+  readonly runId: string;
+  readonly predecessorRevisionId?: string;
+  readonly rankingSnapshotId: string;
+  readonly markers: readonly CityLiveMarker[];
+  readonly projection: CityFrontierProjection;
+  readonly operation: CityFrontierOperation;
+  readonly createdAt: string;
+}
+
+export function sealCityFrontierRevision(
+  input: SealCityFrontierRevisionInput,
+  integrity: CityDecisionIntegrity,
+): CityFrontierRevision;
+
+export function reconstructCityFrontierRevision(
+  value: unknown,
+  integrity: CityDecisionIntegrity,
+): CityFrontierRevision;
+
 export type CityFrontierEvent =
   | { readonly type: "city_activated"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly rank: number }
   | { readonly type: "city_progress"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly stage: string; readonly label: string; readonly detail?: string; readonly sourceUrl?: string }
@@ -489,6 +518,37 @@ export interface CitySelectionSnapshot {
   readonly createdAt: string;
 }
 
+export type CitySelectionSnapshotPayload = Omit<CitySelectionSnapshot, "id">;
+
+export interface CitySelectionAuthority {
+  readonly terminal: TerminalCityShortlistSnapshot;
+  readonly ranking: CityRankingSnapshot;
+  // Fresh output of replayPreCityBranchCommit against the verified source.
+  readonly preCityBranch: PreCityBranchCommit;
+}
+
+export interface CreateCitySelectionWithBranchInput extends CitySelectionAuthority {
+  readonly commandId: string;
+  readonly selection: CitySelectionProjection;
+  readonly createdAt: string;
+}
+
+export function reconstructCitySelectionSnapshot(
+  value: unknown,
+  integrity: CityDecisionIntegrity,
+): CitySelectionSnapshot;
+
+export function createCitySelectionWithBranch(
+  input: CreateCitySelectionWithBranchInput,
+  integrity: CityDecisionIntegrity,
+): CitySelectionWithBranch;
+
+export function reconstructCitySelectionWithBranch(
+  value: unknown,
+  authority: CitySelectionAuthority,
+  integrity: CityDecisionIntegrity,
+): CitySelectionWithBranch;
+
 export function cityLiveMarkerDigest(
   marker: CityLiveMarker,
   integrity: CityDecisionIntegrity,
@@ -498,6 +558,24 @@ export function cityLiveMarkerDigest(
 Branch values:
 
 ```ts
+export interface PreCityResolvedCountryEntryProjection {
+  readonly countryCode: string;
+  readonly rank: number;
+  readonly formalMarkerDigest: string;
+}
+
+export interface PreCityBranchSourceProjection {
+  readonly profileSnapshotId: string;
+  readonly preferenceProfileSnapshotId: string;
+  readonly resolvedCountryShortlistRevisionId: string;
+  readonly resolvedCountryEntry: PreCityResolvedCountryEntryProjection;
+}
+
+export interface CreatePreCityBranchCommitInput {
+  readonly source: PreCityBranchSourceProjection;
+  readonly createdAt: string;
+}
+
 export interface PreCityBranchCommit {
   readonly schemaVersion: "pre-city-branch@1";
   readonly id: string;
@@ -509,6 +587,27 @@ export interface PreCityBranchCommit {
   readonly createdAt: string;
 }
 
+export function resolvedCountryEntryDigest(
+  entry: PreCityResolvedCountryEntryProjection,
+  integrity: CityDecisionIntegrity,
+): string;
+
+export function createPreCityBranchCommit(
+  input: CreatePreCityBranchCommitInput,
+  integrity: CityDecisionIntegrity,
+): PreCityBranchCommit;
+
+export function reconstructPreCityBranchCommit(
+  value: unknown,
+  integrity: CityDecisionIntegrity,
+): PreCityBranchCommit;
+
+export function replayPreCityBranchCommit(
+  value: unknown,
+  source: PreCityBranchSourceProjection,
+  integrity: CityDecisionIntegrity,
+): PreCityBranchCommit;
+
 export interface CityBranchCommit {
   readonly schemaVersion: "city-branch@1";
   readonly id: string;
@@ -519,18 +618,71 @@ export interface CityBranchCommit {
   readonly countryCode: string;
   readonly createdAt: string;
 }
+
+export interface CityBranchSelectionProjection {
+  readonly citySelectionSnapshotId: string;
+  readonly preCityBranchCommitId: string;
+  readonly cityId: string;
+  readonly countryCode: string;
+  readonly createdAt: string;
+}
+
+export function createCityBranchCommit(
+  selection: CityBranchSelectionProjection,
+  parent: PreCityBranchCommit,
+  integrity: CityDecisionIntegrity,
+): CityBranchCommit;
+
+export function replayCityBranchCommit(
+  value: unknown,
+  selection: CityBranchSelectionProjection,
+  parent: PreCityBranchCommit,
+  integrity: CityDecisionIntegrity,
+): CityBranchCommit;
 ```
+
+`src/branch/city.ts` imports only the `CityDecisionIntegrity` type from Decision. It never imports
+Application; Application may import these pure Branch values and functions.
+`CityFrontierEvent` remains a transient compile-time closed union; Task 12 adds no durable event decoder.
 
 - [ ] **Step 1: Write branch and closed-contract RED tests**
 
-Test deterministic pre-city ID, exact resolved country entry digest, exact relocation + Preference Profile bindings, the closed Application-owned `CityFrontierEvent` union, complete selection context/selected-marker digest including visual status, `lastCheckedAt`, facts and ordered duplicate reviewed links, green/yellow selection, yellow warning-basis tamper, A/B sibling branch identity, `parentId === forkedFrom`, wrong parent/profile/preference/country/city/criteria/ranking rejection, replay tamper and deep freeze. Pin `cityLiveMarkerDigest(marker, integrity) === integrity.hash(integrity.canonical(marker))` as raw lowercase 64-hex with no prefix; any marker-field or link-occurrence mutation changes it.
+Test deterministic pre-city ID, exact resolved-country-entry digest, exact relocation + Preference
+Profile bindings, the closed Application-owned `CityFrontierEvent` union, replay tamper and deep
+freeze. Using Step 3's neutral captured-capability notation, pin
+`cityLiveMarkerDigest(marker, integrity) === H(marker)` as raw lowercase 64-hex with no prefix; any marker field or
+ordered duplicate link occurrence mutation changes it.
+
+For every Task 12 seal/reconstruct/replay/wrapper boundary, test descriptor-owning and closing the
+complete data graph before touching integrity, then exact descriptor-capture of only `canonical` and
+`hash` into a fresh frozen exact two-key capability view. Invoke captured `canonical` with the exact
+fresh frozen receiver `{ capability: "canonical" }` and captured `hash` with
+`{ capability: "hash" }`, using only private frozen input. Immediately require an exact string result
+and `/^[0-9a-f]{64}$/` for every hash. Accessors, symbols,
+proxies, custom prototypes, sparse arrays, mutation/swap of later authority or integrity functions,
+Promise-shaped/non-string/noncanonical hash results and hostile throws all fail by throwing a newly
+allocated `Error("integrity_mismatch")` without reading or returning the hostile value. Assert exact
+message and distinct identity across failures. Every success is a fresh recursively frozen,
+non-aliased value.
+
+Pin the scalar laws across all boundaries: exact schema/rules literals; every ID and text scalar is
+non-empty, trimmed and control-free; every time is an exact canonical ISO instant; optional absence is
+not an own `undefined`; country code is exact `/^[A-Z]{2}$/`; rank is a positive safe integer; and
+every formal-marker, live-marker, terminal-entry or resolved-entry digest is lowercase 64-hex before
+comparison, hashing or ID construction. The same lowercase-64hex law explicitly covers
+`CityFrontierOperation.start.criteriaPayloadHash` and
+`CitySelectionSnapshot.selectedMarkerDigest`; the latter equals the freshly recomputed selected
+live-marker digest.
 
 For `CityRankingSnapshot`, require one closed `installedPackageContext` with exactly
 `countryCode/packageId/packageSchemaVersion/catalogRevisionId/evidenceRulesVersion`. Require its first
-four identity fields to equal the snapshot's top-level country/package/schema/catalog fields and keep
+four identity fields to equal the snapshot's top-level country/package/schema/catalog fields, require
+the exact fixed `verificationBudget` `{ liveCityCandidateLimit: 10, targetSelectableCities: 3,
+rulesVersion: "city-frontier-budget@1" }`, and keep
 top-level `rulesVersion === "city-ranker@1"` semantically separate. Cover exact key closure, missing/
 extra/noncanonical fields, use of ambiguous `rulesVersion` instead of `evidenceRulesVersion`, every
-top-level/context divergence and a context-only mutation with a recomputed ranking ID. Assert
+top-level/context divergence and a context-only `evidenceRulesVersion` mutation with a recomputed
+ranking ID. A rehashed `schemaVersion !== "city-ranking@1"` fails structural reconstruction. Assert
 `sealCityRankingSnapshot` and `reconstructCityRankingSnapshot` include the complete context in the exact
 hash-derived ID and return fresh frozen values. Structural reconstruction receives only `value` plus
 `CityDecisionIntegrity`: prove it neither accepts caller expectations nor reads Registry/Catalog/
@@ -539,9 +691,53 @@ that function, then must fail the separate semantic verifier.
 
 Test `verifyCityRankingSnapshotSemantics` with exact verified `CityRankingSemanticInputs`: Registry,
 Catalog, Criteria snapshot, one Knowledge ranking projection per member and the installed evaluator
-registry. Require exact reference IDs, catalog membership, null/non-null Knowledge revision map,
-assessmentAt and canonical rank/exclusion/factor output. Mutate or omit each input/result binding and
-reject it; the positive result is the same fresh frozen snapshot. Compile-check both exact signatures.
+registry. Require exact Registry/catalog reference IDs, country/package/schema authority equations,
+complete catalog membership, an exact `knowledgeRevisionIds` key set equal to all catalog members,
+one matching null/non-null Knowledge projection per member, assessment time and canonical
+rank/exclusion/factor output. In addition to the bounded binding matrix, reject (a) a structurally
+re-sealed snapshot whose top-level and installed-context `packageSchemaVersion` agree with each other
+and therefore passes structure, but drifts from both verified Registry and Catalog and must fail semantic
+verification, and (b) a structurally re-sealed snapshot with one
+extra `knowledgeRevisionIds` member key. A structurally valid re-sealed altered order may pass
+`reconstructCityRankingSnapshot(value, integrity)` but must fail this semantic verifier. The verifier
+owns Registry, Catalog, Criteria, Knowledge and the complete evaluator registry and captures all four
+evaluator authorities before its first callback, so a first evaluator cannot mutate or swap any later
+semantic input. Compile-check the exact structural and semantic signatures.
+
+For `sealCityFrontierRevision` and `reconstructCityFrontierRevision`, cover root/successor and
+working/terminal shapes, exact flattened content-derived IDs and operation authority. `start` requires
+no predecessor and zero markers. `city_completed` requires a predecessor, requires
+`expectedHeadRevisionId === predecessorRevisionId`, a non-empty marker list and the operation city
+equal to the last marker city. A terminal entry digest must equal a fresh recomputation of the exact
+unique selectable marker, and its `cityId/rank/knowledgeRevisionId/evidenceSnapshotId/unknownBasis`
+must equal that marker's projection. Mutate any one entry field, substitute a valid-looking 64-hex
+digest while the marker is unchanged, and fail even after rehashing the outer Frontier ID. Separately,
+changing/reordering a duplicate reviewed link changes `cityLiveMarkerDigest`. A fully self-consistent
+marker + recomputed digest + terminal entry + Frontier ID drift may pass this structural boundary, but
+must fail the later Task 11 plus Knowledge/Evidence authority replay in Tasks 13–15. Structural
+reconstruction receives only `value` and integrity and does not claim Task 11 semantic reconstruction.
+
+For Branch and the authoritative Application wrapper, cover exact pre-city source replay, complete
+selection context, green/yellow selection, yellow warning-basis tamper, A/B sibling identity,
+`selection.preCityBranchCommitId === commit.parentId === commit.forkedFrom`, and wrong
+parent/profile/preference/resolved-country/country/city/criteria/ranking bindings. Creation receives the
+fresh Task 11 `CitySelectionProjection`, matches its entry, warning token and ordered duplicate
+reviewed-link occurrences to the exact selected terminal marker, derives every durable Selection field,
+then creates the Branch commit. Reconstructing an otherwise self-consistent terminal/projection pair
+whose claimed entry digest is a different valid lowercase 64-hex value while the complete marker is
+unchanged must fail through marker-digest recomputation even when all affected content IDs are
+recomputed. Compile-check the exact named APIs: there is no Application-level
+`sealCitySelectionSnapshot` and no Task 15/Application construction path for an authoritative
+Selection+Branch pair except `createCitySelectionWithBranch`. The exported granular Branch
+create/replay functions remain pure, non-authoritative value helpers; a store never accepts or
+persists a selection-kind `CityBranchCommit` alone. The pre-city commit remains a valid independent
+Start artifact inside Task 13's four-artifact transaction.
+Also rehash one changed source-bound pre-city field—profile, Preference Profile, resolved revision,
+country or resolved-entry digest—and every dependent Selection/Branch value: source-aware replay
+against the unchanged verified source must still reject. A self-consistent `createdAt`-only change is
+structurally/source valid and is not this negative. Rehash a changed City Branch payload while
+keeping its expected Selection/parent projection unchanged and require `replayCityBranchCommit` to
+reject it.
 
 - [ ] **Step 2: Run RED**
 
@@ -551,35 +747,157 @@ reject it; the positive result is the same fresh frozen snapshot. Compile-check 
 
 - [ ] **Step 3: Implement closed snapshot/operation types and ID helpers**
 
-Use the Foundations `CityDecisionIntegrity` sealing contract in Application; keep `node:crypto` in Infrastructure. Browser semantic reconstruction does not recompute IDs. Terminal snapshot is the terminal frontier revision, not a second mutable summary. It includes exact selectable entries, markers and stop condition.
+Use the Foundations `CityDecisionIntegrity` sealing contract in Application; keep `node:crypto` in
+Infrastructure. Every helper first descriptor-owns/closes all borrowed data, then exact-captures the
+own data descriptors for only `canonical` and `hash` into a fresh frozen exact two-key capability
+view; no Task 12 contract receives `sign`. Invoke `canonical` with an exact fresh frozen
+`{ capability: "canonical" }` receiver and `hash` with an exact fresh frozen
+`{ capability: "hash" }` receiver plus private frozen arguments, validate callback results
+immediately, and normalize any failure to a newly allocated
+`Error("integrity_mismatch")` without inspecting, returning, reusing or aliasing the hostile thrown
+value. Return only fresh recursively frozen, non-aliased success values. Every hash callback must return
+exactly lowercase 64-hex before it enters an ID or digest.
+Before those callbacks, enforce the same exact schema/rules, canonical identifier/text, canonical
+instant, optional-absence, uppercase country-code, positive-safe-rank and lowercase-digest scalar laws
+from Step 1.
 
-`cityLiveMarkerDigest` first owns the exact complete marker, then returns the raw lowercase
-`integrity.hash(integrity.canonical(marker))` without a prefix. Task 11 accepts only a caller-verified
+The normative content-address formulas use only this neutral notation; it never implies a borrowed
+integrity receiver:
+
+```text
+C(x) = Reflect.apply(capturedCanonical, freshFrozen({ capability: "canonical" }), [privateFrozen(x)])
+H(x) = Reflect.apply(capturedHash, freshFrozen({ capability: "hash" }), [C(x)])
+
+CityRankingSnapshot.id     = "city-ranking:" + H(payload without id)
+CityFrontierRevision.id    = "city-frontier-revision:" + H(flattened payload without id)
+CitySelectionSnapshot.id   = "city-selection:" + H(payload without id)
+PreCityBranchCommit.id     = "pre-city-branch:" + H(payload without id)
+CityBranchCommit.id        = "city-branch:" + H(payload without id)
+cityLiveMarkerDigest       = H(complete marker)
+resolvedCountryEntryDigest = H(complete resolved-country entry projection)
+```
+
+Terminal snapshot is the terminal frontier revision, not a second mutable summary. It includes exact
+selectable entries, markers and stop condition. `sealCityFrontierRevision` owns the input and flattens
+only the matching closed Task 11 projection branch; it never reranks or claims semantic Task 11
+verification. `start` is valid only with no predecessor and zero markers. `city_completed` requires a
+predecessor, `expectedHeadRevisionId === predecessorRevisionId`, at least one marker and an operation
+city equal to the final marker city. For every terminal entry, find the exact unique matching marker
+and require `entry.cityId/rank/knowledgeRevisionId/evidenceSnapshotId/unknownBasis` to equal the
+selectable marker projection plus `entry.markerDigest === cityLiveMarkerDigest(marker, integrity)`.
+Structural `reconstructCityFrontierRevision(value, integrity)` repeats the closed-union, operation, digest and
+content-ID checks, but chain/prefix/stop/count/rank semantic reconstruction remains Task 11 plus the
+Task 13 verified chain boundary.
+
+`cityLiveMarkerDigest` first owns the exact complete marker, then returns raw lowercase `H(marker)`
+without a prefix. Task 11 accepts only a caller-verified
 64-hex digest and never receives integrity; every Application/persistence construction or replay of a
 `CityMarkerBinding` calls this Task 12 helper and requires exact equality before pure policy.
 
 The ranking payload is the exact `CityRankingSnapshot` object without `id`; seal it as
-`id = "city-ranking:" + integrity.hash(integrity.canonical(payload))`. Both sealing and reconstruction
+`id = "city-ranking:" + H(payload)`. Both sealing and reconstruction
 validate the closed installed-package key and the four equality equations above before hashing or
-accepting the ID. `evidenceRulesVersion` comes from the independently verified installed package
-definition and is never copied from the ranker's `rulesVersion`.
+accepting the ID, and require exactly
+`{ liveCityCandidateLimit: 10, targetSelectableCities: 3, rulesVersion:
+"city-frontier-budget@1" }`. `evidenceRulesVersion` comes from the independently verified installed
+package definition and is never copied from the ranker's `rulesVersion`.
 
 `reconstructCityRankingSnapshot(value, integrity)` performs only closed own-data/dense-array/canonical-
 identifier validation, the installed-context/top-level equality equations and exact hash-derived ID
 verification. It has no semantic inputs and must not claim to rerun ranking. The separate pure
 `verifyCityRankingSnapshotSemantics(snapshot, inputs, integrity)` requires the exact five-key
-`CityRankingSemanticInputs`, first structurally reconstructs `snapshot` through the former function,
-binds Registry/catalog/criteria IDs and complete catalog membership,
-requires exactly one Knowledge projection per member with IDs/nulls equal to
-`snapshot.knowledgeRevisionIds`, reconstructs Criteria with `inputs.evaluators`, and calls the existing
-pure Decision ranking reconstruction for `snapshot.assessmentAt`. It canonical-compares the resulting
-`ordered/screenedExclusions/rulesVersion` with the snapshot and returns the verified fresh frozen
+`CityRankingSemanticInputs`. Before any integrity or evaluator callback it descriptor-owns/closes the
+snapshot plus Registry, Catalog, Criteria, every Knowledge projection and the complete evaluator
+registry, captures the exact integrity functions and all four evaluator definition/function
+authorities, and only then structurally reconstructs its private owned snapshot through the former
+function. It requires `registry.id === snapshot.registryRevisionId`,
+`catalog.id === snapshot.catalogRevisionId`,
+`catalog.registryRevisionId === registry.id`, and exact country/package/package-schema equality across
+Registry, Catalog, the snapshot top level and its installed-package context. It also requires
+`criteria.id === snapshot.criteriaSnapshotId`,
+`criteria.profileSnapshotId === snapshot.profileSnapshotId` and
+`criteria.preferenceProfileSnapshotId === snapshot.preferenceProfileSnapshotId`. It requires the
+`knowledgeRevisionIds` own-key set to equal the complete Catalog member set and exactly one Knowledge
+projection per member with matching city and null/non-null revision ID. From the captured authorities
+it constructs one stable fresh frozen evaluator wrapper registry. Each wrapper calls the original with
+a fresh frozen exact `{ capability: "canonicalizeTarget" }` or `{ capability: "evaluate" }` receiver.
+Canonicalization receives only the captured string target and must return the same canonical string
+required by Criteria. Evaluation receives a fresh frozen exact three-key
+`{ criterion, fact, assessmentAt }` whose `fact` is the Task 11 exact eight-key projection, and its
+synchronous exact three-key verified or four-key unknown result is immediately descriptor-owned and
+validated before any later callback. Verified requires canonical factor `[0,1]`, comparison
+`matches | does_not_match` and no promotion of a raw unknown fact; unknown requires factor `0`,
+comparison `unknown` and the allowed raw reason unchanged. It reconstructs
+Criteria and calls the existing pure Decision ranking reconstruction only with that private wrapper
+registry for `snapshot.assessmentAt`,
+canonical-compares `ordered/screenedExclusions/rulesVersion`, and returns the verified fresh frozen
 snapshot. No Infrastructure row enters either pure contract; only the semantic function receives the
 compiled inward evaluator registry.
 
 - [ ] **Step 4: Implement pure branch create/replay**
 
-Pre-city parent excludes criteria/ranking/terminal city fields. City branch includes only exact selection and parent lineage. Do not import housing budget/decision types.
+`resolvedCountryEntryDigest` hashes the complete exact
+`{ countryCode, rank, formalMarkerDigest }` projection. `createPreCityBranchCommit` derives its flattened
+payload and content ID from the exact closed `PreCityBranchSourceProjection` plus `createdAt`;
+`reconstructPreCityBranchCommit(value, integrity)` is the descriptor-safe closed structural/content-ID
+primitive. `replayPreCityBranchCommit` first calls that primitive, then requires every profile,
+Preference Profile, resolved-shortlist, country-entry digest and country binding to equal the already
+verified source even when a forged payload and its content ID are self-consistently rehashed. Task 14
+constructs that plain source only after exact profile/Preference Profile reconstruction and
+`requireResolvedCountryShortlistForCity`, including unique exact country entry
+membership and equality of both profile IDs with the resolved snapshot source. Pre-city parent excludes
+criteria/ranking/terminal-city fields. Its canonical `createdAt` is structurally content-bound but is
+not supplied by `PreCityBranchSourceProjection` as an expected replay authority.
+
+`createCityBranchCommit` and `replayCityBranchCommit` derive/verify the closed content-addressed commit
+from the narrow Selection projection plus its exact pre-city parent. Require
+`parentId === forkedFrom === selection.preCityBranchCommitId`, exact Selection ID/city/country/time and
+country equality with the parent. City Branch includes only exact Selection identity and parent
+lineage; replay rejects a self-consistently rehashed commit when its expected Selection or parent
+projection is unchanged. Branch imports only the Decision integrity type and no Application or housing
+budget/decision type.
+
+Application exposes one normal construction boundary:
+`createCitySelectionWithBranch(input, integrity)`. Its `preCityBranch` authority must already be
+the fresh frozen output of `replayPreCityBranchCommit(value, verifiedSource, integrity)` against the
+Task 14/15 verified source; `CitySelectionAuthority` intentionally does not duplicate that source.
+The wrapper structurally reconstructs the supplied terminal,
+Ranking and pre-city parent through `reconstructCityFrontierRevision`,
+`reconstructCityRankingSnapshot` and `reconstructPreCityBranchCommit`; recomputes every terminal-entry
+marker digest; requires
+`terminal.runId === ranking.runId`, `terminal.rankingSnapshotId === ranking.id`,
+`ranking.preCityBranchCommitId === preCityBranch.id`, and exact country/profile/Preference
+Profile/resolved-country mirrors between Ranking and parent. It requires the supplied fresh Task 11
+selection entry, warning token and ordered reviewed-link occurrence list to equal the exact selected
+terminal marker, derives every durable `CitySelectionSnapshotPayload` field server-side, seals its
+content ID, then invokes the pure Branch constructor. A caller never supplies parent/fork/digest/basis
+or durable context fields as independent authority; those values carried by the fresh Task 11
+projection are checked and rederived.
+
+`reconstructCitySelectionWithBranch(value, authority, integrity)` first closes exact
+`{ selection, commit }`, calls `reconstructCitySelectionSnapshot` for the Selection, reconstructs its
+owned authority through `reconstructCityFrontierRevision`, `reconstructCityRankingSnapshot` and
+`reconstructPreCityBranchCommit`, derives the exact `CityBranchSelectionProjection`, and calls
+`replayCityBranchCommit`; it has no parallel ad-hoc decoder. It then repeats all
+terminal/ranking/pre-city and marker-digest authority equations and
+requires every derived Selection field—run, terminal, profile, Preference Profile, resolved-country,
+criteria, Ranking, pre-city, selected-marker digest, Knowledge, Evidence, unknown basis, warning token,
+city and country—to equal the authority-derived value, plus
+`selection.preCityBranchCommitId === commit.parentId === commit.forkedFrom` and
+`selection.createdAt === commit.createdAt`. It structurally validates and content-binds the Selection
+command ID; Task 15's external command envelope separately verifies its idempotency binding. It does
+not rerun Task 11 policy or source replay: Task 15 must first obtain a fresh
+`CitySelectionProjection` from its
+independently verified Task 11 frontier for creation, and both create/load paths must source-replay the
+pre-city parent before supplying the terminal/ranking/pre-city authority. A and B selected from one
+terminal necessarily reuse the same pre-city parent and become sibling commits. There is no
+Application API that independently seals a Selection snapshot
+or an unbound Selection/Branch pair; granular Branch constructors remain pure non-authoritative Branch
+helpers used by the wrapper and verified store paths.
+
+`reconstructCitySelectionSnapshot(value, integrity)` performs only descriptor-safe exact closed
+structural/content-ID replay and returns a fresh recursively frozen copy. It is never Selection
+authority without `reconstructCitySelectionWithBranch` plus the verified authority graph.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -642,10 +960,15 @@ Cover strict Criteria/Ranking and pre-city parent round-trip, exact relocation +
 bindings, frozen `city-frontier-budget@1`, atomic `publishStart` with failure after each would-be insert,
 full ranking reconstruction, one root/successor/terminal, no working head with ten markers, exact
 three-way terminal reason/count/queue validation, command retry/conflict, stale head, exact bindings and
-immutable triggers. For every successor/reload, reconstruct the verified Knowledge/Evidence source
+immutable triggers. Build the pre-city source only from the already verified resolved-country/profile
+projection and require every round-trip/load to call
+`replayPreCityBranchCommit(value, source, integrity)`. For every frontier append/load call
+`reconstructCityFrontierRevision(value, integrity)` for closed structure, content ID, operation and
+marker-digest checks; then, for every successor/reload, reconstruct the verified Knowledge/Evidence source
 projection, recompute each raw marker digest through `cityLiveMarkerDigest`, and reject altered marker,
 digest, `lastCheckedAt`, authority fact/link occurrence, predecessor prefix or persisted frontier before
-returning a revision.
+returning a revision. A valid signed row plus structural Task 12 reconstruction never substitutes for
+Task 11 semantic frontier verification.
 
 Persist and reload the complete `installedPackageContext` inside the canonical sealed ranking payload.
 Assert mirrored country/package/schema/catalog/evidence-rules columns and the parsed closed context all
@@ -679,14 +1002,25 @@ The stored frontier payload keeps `CityLiveMarker` values and terminal entries, 
 authority projection. Before append, Application loads the exact referenced Knowledge/Evidence graph,
 builds `CityMarkerAuthorityProjection`, recomputes `cityLiveMarkerDigest` and calls Task 11 with the
 narrow frozen Ranking projection, verified Criteria/evaluators, exact predecessor markers and the
-would-be persisted projection. The writer repeats closed row/chain and digest verification before
-insert. On load, the adapter verifies its signed row envelope, chain and digest; Application repeats the
+would-be persisted projection. Application creates the root or successor only through
+`sealCityFrontierRevision`; the writer repeats `reconstructCityFrontierRevision`, closed row/chain and
+digest verification before insert. On load, the adapter verifies its signed row envelope, calls
+`reconstructCityFrontierRevision` for every chain row and verifies the chain; Application repeats the
 Knowledge/Evidence ACL plus Task 11 semantic reconstruction before Continue, Present or Select. A
 signed row alone never makes marker semantics or a caller-supplied digest authoritative.
 
 - [ ] **Step 4: Implement canonical verification and race normalization**
 
-`publishStart` runs one `transaction.immediate()` across all four Start artifacts and exact-replays the deterministic command before any insert. Frontier successor append separately resolves idempotent command first, verifies current head, requires the Application-supplied Task 11 reconstruction plus exact marker digest to match the would-be persisted revision, inserts and reloads. Only a verified lost predecessor race becomes `stale_city_frontier_head`; busy/constraint/native errors must not be broadly relabeled. Add two-connection tests: different successors yield one success/one stale; identical command retries converge.
+`publishStart` runs one `transaction.immediate()` across all four Start artifacts and exact-replays the
+deterministic command before any insert. Application passes the pre-city parent it already created
+through `createPreCityBranchCommit` plus the verified source projection; the writer calls
+`replayPreCityBranchCommit` before insert and again on reload. Frontier successor append separately resolves idempotent
+command first, verifies current head, requires the Application-supplied Task 11 reconstruction plus
+exact marker digest to match the `sealCityFrontierRevision` result, inserts and reloads through
+`reconstructCityFrontierRevision`. Only a verified lost predecessor race becomes
+`stale_city_frontier_head`; busy/constraint/native errors must not be broadly relabeled. Add
+two-connection tests: different successors yield one success/one stale; identical command retries
+converge.
 
 Before inserting a ranking, Application calls `reconstructCityRankingSnapshot(value, integrity)` and
 `verifyCityRankingSnapshotSemantics` with the already verified installed package/catalog/criteria/
@@ -767,7 +1101,8 @@ Assert setup and Start reject automatic/working/empty/tampered/effective-red inp
 formal-yellow effective-green setup; exact installed definitions/default draft; exact relocation +
 Preference Profile IDs from source binding; exact Registry/catalog identity, Catalog
 `schemaVersion === "city-catalog@1"`, `rulesVersion === CITY_CATALOG_RULES_VERSION` and at-most-100 membership
-and coordinates; confirmed criteria; deterministic pre-city parent; frozen ranking bound to
+and coordinates; confirmed criteria; deterministic pre-city parent created from the verified plain
+`PreCityBranchSourceProjection` and replayed against that same source; frozen ranking bound to
 `city-frontier-budget@1` (`10` completed / target `3`); zero official/search calls; injected failure
 after each Start insert leaves zero partial rows; exact retry converges; two canonical presentations
 with zero source/request-step/search calls; exact four-fact accepted/reviewed-link marker projections;
@@ -930,10 +1265,12 @@ postcondition that their complete canonical four-draft value equals the independ
 approved-defaults selection before evaluator normalization; a signed manifest mapping version is not a
 second trust source. Never read the raw installed Registry/catalog/plan/default objects again. For a
 matching verified installed package, both then call the existing country guard before any other use-
-case work. They load and verify both
-exact profile IDs from its frozen source binding; Setup derives its draft only from those snapshots and
-the frozen approved installed defaults.
-Start revalidates the entry/draft and both profile IDs, loads current Knowledge and ranks only the
+case work. That guard returns the exact `ResolvedCountryShortlistSnapshot` and unique selected
+`ResolvedCountryEntry`. Application verifies both exact profile IDs from the snapshot source and the
+profile snapshots, then builds one fresh plain frozen `PreCityBranchSourceProjection` containing those
+IDs, the resolved snapshot ID and the complete exact entry. Setup derives its draft only from those
+snapshots and the frozen approved installed defaults. Start revalidates the entry/draft and both profile
+IDs, calls `createPreCityBranchCommit` with that verified source, loads current Knowledge and ranks only the
 verified catalog members/coordinates outside SQLite. Setup returns the initial gate's server-derived
 `installedPackageContext` with the installed metadata; Start consumes the same gate result and never
 accepts a client context or reconstructs one after profile/Knowledge work. The frozen Ranking snapshot
@@ -941,8 +1278,8 @@ stores that exact already verified context, and its top-level country/package/sc
 equal the first four context fields while its separate `rulesVersion` remains `city-ranker@1`. Start structurally reconstructs
 the sealed Ranking and calls `verifyCityRankingSnapshotSemantics` with the verified Registry/catalog,
 confirmed Criteria, exact Knowledge projections and installed evaluator registry before persistence.
-Then one Application-owned
-`publishStart` port uses a single immediate
+Then root creation uses `sealCityFrontierRevision` over the Task 11 zero-marker projection and one
+Application-owned `publishStart` port uses a single immediate
 transaction to exact-replay or insert Criteria, pre-city parent, Ranking and frontier root atomically.
 Presentation first obtains the structurally verified Ranking through `loadRankingVerified(id)`, then
 uses its returned manifest context to resolve the exact installed package/catalog/criteria/Knowledge
@@ -1021,6 +1358,11 @@ recovery, single-flight, callback or source call. A valid case calls the semanti
 only inputs named by the loaded snapshot and the exact installed package.
 
 - [ ] **Step 5: Implement present-first Continue ordering**
+
+Every frontier value used by Continue or Present first passes
+`reconstructCityFrontierRevision(value, integrity)` at the Task 12 structural boundary, then the exact
+Task 11 Knowledge/Evidence/Criteria semantic reconstruction described below. Structural success or a
+valid signed row never authorizes marker policy by itself.
 
 `prepareCityFrontierContinuation` may call only the no-context head/command loaders and copy the
 ranking snapshot ID plus active/check metadata needed for its opaque prepared IDs; it must not load the
@@ -1146,7 +1488,8 @@ and recovery rebuild the authority from verified persisted Knowledge/Evidence, v
 marker through `reconstructCityLiveMarker`, recompute its digest, then reconstruct the frontier with
 zero network; they never trust marker facts or digest merely because a frontier row is signed.
 
-Append one verified marker successor, emit the committed marker, construct the verified
+Seal the Task 11 would-be successor through `sealCityFrontierRevision`, append that verified revision,
+emit the committed marker, construct the verified
 working-or-terminal read model, emit exactly one
 `city_continuation_completed`, then return the canonically identical model. Abort/deadline,
 malformed source output and every fixed operation failure publish no Evidence/Knowledge and advance
@@ -1231,6 +1574,11 @@ export interface CitySelectionReadPort {
 
 Accept only the exact `SelectCityInput` keys; accept a terminal selectable city with 0 or nonzero warnings; reject working/empty/missing/excluded/tampered city, wrong copy-version presence/value and client `runId`, basis or parent fields. After the Application command envelope is removed, compile/runtime-pin the pure request to exactly `{ cityId, warningCopyVersion? }`; reject terminal ID, command ID, digest, facts, basis, links and parent on that nested surface. Require `reconstructCitySelection` to return the exact fresh terminal entry plus transient reviewed links flattened from the selected marker in four-fact/link occurrence order without deduplication. Derive `runId` from the verified terminal snapshot before command lookup. Assert idempotency is keyed by that derived `runId + commandId`: an identical canonical remainder `{ terminalCityShortlistSnapshotId, cityId, warningCopyVersion? }` returns both prior rows, while the same key with any changed remainder conflicts. Inject failure before either insert and verify neither row exists. Returned/presented read models contain verified sibling selection/branch history. Cover `loadSelectionWithBranchVerified(citySelectionSnapshotId)` success, missing ID, duplicate or mismatched selection/commit rows, tampered root/context bindings and fresh frozen copies; the lookup must not accept `runId` or browser-supplied context as authority.
 
+Compile/runtime-pin `createCitySelectionWithBranch` as the only Task 15 construction path after the
+fresh Task 11 selection projection, and `reconstructCitySelectionWithBranch` as the final loaded-pair
+authority check after the exact terminal/ranking/pre-city graph is loaded. Neither Select nor the
+writer assembles or accepts independently authoritative Selection/Branch literals.
+
 - [ ] **Step 2: Run RED**
 
 ```bash
@@ -1239,17 +1587,29 @@ Accept only the exact `SelectCityInput` keys; accept a terminal selectable city 
 
 - [ ] **Step 3: Implement the atomic writer over the existing tables**
 
-Use the Task 13 `city_selection_snapshots` and `city_branch_commits` schemas. Verify mirrored command/context/marker fields, require `parent_id = forked_from`, exact selection FK and the same country/profile context as the verified `pre_city` parent.
+Use the Task 13 `city_selection_snapshots` and `city_branch_commits` schemas. Verify mirrored
+context/marker/pair fields through `reconstructCitySelectionWithBranch`; separately verify command
+identity and idempotency through the writer-owned command envelope. Require
+`parent_id = forked_from`, exact selection FK and the same country/profile context as the verified
+`pre_city` parent. A selection-kind City Branch row is never accepted or persisted independently from
+its Selection snapshot.
 
 - [ ] **Step 4: Implement one atomic writer transaction**
 
 Load/verify terminal, predecessor and source graph inside the transaction; reconstruct its narrow frozen
 Ranking projection, Criteria/evaluators, every Knowledge/Evidence authority and raw marker digest; then
-call `reconstructCitySelection` with only the exact city/version request. Map its returned
+call `reconstructCitySelection` with only the exact city/version request. Load the exact
+resolved-country/profile source and call
+`replayPreCityBranchCommit(parentRow, source, integrity)`; pass that returned fresh parent, the fresh
+selection projection, the structurally and semantically verified terminal/ranking authority, the exact
+client command ID already validated inside the server-owned command envelope, and the server-provided
+creation time only to `createCitySelectionWithBranch`. The wrapper maps
 `entry.cityId/markerDigest/knowledgeRevisionId/evidenceSnapshotId/unknownBasis` and optional version to
-the Selection Snapshot. `reviewedSourceLinks` is a verified transient result for presentation/command
-binding and is not persisted as a second array. Derive branch parent server-side, construct both pure
-values, insert both, reload/verify both, then commit. Source links never affect selectability by
+the Selection Snapshot, derives the exact parent/fork/context and invokes the pure Branch helper.
+`reviewedSourceLinks` is a verified transient result for presentation/command binding and is not
+persisted as a second array. Insert the returned pair atomically, reload the exact authority graph,
+source-replay the parent again and pass that result to `reconstructCitySelectionWithBranch`, then
+commit. Source links never affect selectability by
 themselves. Add both `loadSelectionWithBranchVerified(citySelectionSnapshotId)` and `listSelectionsWithBranchesVerified(runId)` to the inward writer port and implement them in `city-selection-writer.ts`. The by-ID method loads the exact selection/commit pair in one read transaction; verifies `selection.id === commit.citySelectionSnapshotId`, `selection.preCityBranchCommitId === commit.parentId`, `selection.preCityBranchCommitId === commit.forkedFrom` and the stored country/profile/source context; rejects missing, duplicate, mismatched or tampered rows; and returns a fresh frozen `CitySelectionWithBranch`. Select and `presentCityFrontier` return the complete verified history. A second city from the same terminal reuses the same pre-city parent and creates a sibling commit.
 
 `selectCity` never accepts a client `runId`: it verified-loads `terminalCityShortlistSnapshotId`, derives

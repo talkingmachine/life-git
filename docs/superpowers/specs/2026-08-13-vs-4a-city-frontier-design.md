@@ -7,10 +7,10 @@
 | Дата | 2026-08-13 |
 | Область | City Registry, установленный City Catalog, City Knowledge, ranking, bounded live frontier, terminal shortlist и выбор первой Life Git ветви |
 | Зависимости | verified non-empty `Resolved Country Shortlist Snapshot` из `VS-3R`, confirmed profile, provider-free runtime, Evidence pipeline |
-| Approval evidence | пользователь одобрил широкий catalog, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching 2026-08-13; hard cap 100, capital/population priority и separate live-10 budget 2026-08-16; Task 11 inward authority/digest/transition contract 2026-08-24 |
-| Written approval | пользователь явно одобрил exact редакцию 2026-08-13, catalog/runtime amendment 2026-08-16 и Task 11 architectural amendment 2026-08-24 |
+| Approval evidence | пользователь одобрил широкий catalog, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching 2026-08-13; hard cap 100, capital/population priority и separate live-10 budget 2026-08-16; Task 11 inward authority/digest/transition contract и Task 12 content-addressed snapshot/branch authority contract 2026-08-24 |
+| Written approval | пользователь явно одобрил exact редакцию 2026-08-13, catalog/runtime amendment 2026-08-16, Task 11 architectural amendment и Task 12 architectural amendment 2026-08-24 |
 | Canonical effect after approval | заменяет общее обещание «1–3 города» точной City Frontier semantics; не меняет formal/effective country status |
-| Split review | текущий baseline остаётся короче 400 строк и проверен по `CONSTITUTION.md`; сохранён одним документом, потому что catalog, ranking, full-Knowledge и frontier образуют один atomic design contract; tasks/evidence/canonical amendments остаются отдельными |
+| Split review | текущий baseline проверен по `CONSTITUTION.md`; сохранён одним документом, потому что catalog, ranking, full-Knowledge и frontier образуют один atomic design contract; tasks/evidence/canonical amendments остаются отдельными |
 
 Этот approved документ является design baseline отдельного slice. Product Charter, Glossary, Demo
 Story и Spec of Specs изменяются только отдельным traceable change-package; implementation plan и
@@ -263,6 +263,15 @@ occurrences. Persisted label отсутствует: Experience локализу
 unknown warnings; при полном verified coverage risk acceptance отсутствует. Операция атомарно
 публикует City Selection Snapshot и City Branch Commit.
 
+Task 12 owns descriptor-safe content-addressed sealing of frontier/selection/branch values; Select
+exposes no independently sealable branch intermediate, and one pure wrapper derives the selection plus
+sibling commit from verified terminal/ranking/pre-city authority.
+
+Pre-city source является fresh plain projection только из exact profile/Preference Profile IDs,
+resolved shortlist ID и полного selected country entry. Branch source-aware replay происходит до
+передачи parent в wrapper; сам wrapper повторяет closed content-ID и terminal/ranking/parent equations,
+пересчитывает digest complete selected marker и server-side выводит все durable Selection fields.
+
 City Frontier Start идемпотентно создаёт либо загружает verified `PreCityBranchCommit`, который
 фиксирует общий profile/resolved-country context до выбора города; Ranking и Terminal snapshots
 связываются с его ID. Terminal City Shortlist является отдельным immutable assessment input, а не
@@ -336,6 +345,13 @@ verified Resolved Country Shortlist entry
 exact source IDs и immutable UPDATE/DELETE guards. Linear chains используют expected predecessor,
 один successor/head и запрещают successor после terminal.
 
+Task 12 content IDs равны exact prefix плюс lowercase 64-hex
+`hash(canonical(closed payload without id))`: `city-ranking:`, `city-frontier-revision:`,
+`city-selection:`, `pre-city-branch:` и `city-branch:`. Complete marker и resolved-country entry
+используют тот же raw lowercase hash без prefix. Structural replay не является semantic authority:
+Ranking отдельно проверяется по Registry/Catalog/Criteria/Knowledge/evaluators, Frontier/Selection —
+по Task 11, а pre-city parent — source-aware replay по verified resolved-country/profile projection.
+
 Команда определяется `(runId, commandId, canonical payload)`: identical retry возвращает прежний
 result; тот же ID с другим payload даёт `integrity_mismatch`; новый command от stale head даёт
 conflict. City Knowledge publication для одного city сериализована; параллельные writers не создают
@@ -396,5 +412,6 @@ Selection sibling branches. Исторические approved `VS-3`/`VS-3R` spe
 ## 10. Approval gate
 
 Conversational design и exact written baseline одобрены пользователем 2026-08-13; hard catalog cap,
-membership priority и separate live-10 amendment одобрены 2026-08-16. Detailed implementation plan
-обязан применять эту редакцию без повторного продуктового вопроса.
+membership priority и separate live-10 amendment одобрены 2026-08-16; Task 11 inward-authority и
+Task 12 content-addressed snapshot/branch authority amendments одобрены 2026-08-24. Detailed
+implementation plan обязан применять эту редакцию без повторного продуктового вопроса.
