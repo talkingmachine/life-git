@@ -1056,11 +1056,12 @@ master ledger: run/assessment/source IDs, `registry`, `catalog`, `criteria`, `ra
 `revision` and verified `selections`. The alias must not remain. SQLite returns only the granular
 publication result above; Task 14 Application assembles the rich model after semantic verification.
 Task 13 defines `CitySelectionHistoryReadPort` early so Task 14 depends on the stable inward port from
-day one. Until Task 15 can write selection rows, composition injects an explicit adapter that returns a
-fresh frozen empty array. Task 15 extends that port with its by-ID loader and replaces the adapter in
-composition; Task 14 never hardcodes `[]` and never imports a future writer.
-Every history implementation returns fully verified pairs in the canonical total order
-`selection.createdAt ASC, selection.id ASC`, independent of insertion order or `rowid`.
+day one. Task 13 compile-pins only `CitySelectionHistoryReadPort`; it does not implement or test an
+adapter, create a non-empty history fixture or claim pair/history ordering. Task 14 supplies and tests
+the explicit fresh recursively frozen empty adapter, non-aliased across calls, until Task 15 replaces it.
+Task 15 exclusively owns non-empty selection history, structural pair verification, reverse physical
+insertion/equal-`createdAt` tie-break RED and rich-presentation ordering. It extends the port with its
+by-ID loader; Task 14 never hardcodes `[]` and never imports a future writer.
 
 The three exact identity equations use the Task 12 neutral captured-capability notation:
 
@@ -1151,11 +1152,10 @@ structural-versus-semantic Criteria/Ranking/Frontier split; and the following fo
 6. Task 15 schema foresight: selection command envelope has no timestamp, the branch row is the closed
    `pre_city | selection` union, and selection/branch pair lineage is FK/mirror-closed without a sixth
    mapping table.
-7. Insert sibling selections in reverse physical order, including an equal-`createdAt` pair, and require
-   byte-identical history/presentation ordered by `(selection.createdAt ASC, selection.id ASC)`.
-8. For each result family—not every method permutation—mutate/identity-check one load/find result, one
-   append/command replay, one Start four-artifact result and one array. Every public port output and
-   nested artifact is fresh recursively frozen, non-aliased from input and non-aliased across calls.
+7. For each Task 13 result family—not every method permutation—mutate/identity-check one load/find
+   result, one append/command replay, one Start four-artifact result and the frontier-chain array. Every
+   public Task 13 persistence output and nested artifact is fresh recursively frozen, non-aliased from
+   input and non-aliased across calls. Selection-pair/history outputs remain exclusively Task 15.
 
 Pre-city load is exactly one-argument and no-context. `loadPreCityBranchVerified(id)` authenticates its
 row, invokes `CountryResolutionStorePort.locateChainVerified({ revisionId:
