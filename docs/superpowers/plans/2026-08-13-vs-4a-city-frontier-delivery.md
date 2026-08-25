@@ -26,6 +26,8 @@
 - Cards show frozen rank/score and separately fresh `lastCheckedAt`, verification coverage/facts. React never computes a second score. Committed links carry only verified `sourceId` plus URLs/rejection metadata; Experience localizes their display label and rejects a wire-supplied label.
 - No Select control before terminal. Terminal 0 renders its exact `catalog_exhausted` or
   `live_candidate_limit_reached` reason and no City CTA; budget copy never claims the catalog ended.
+- Authentic historical `city-catalog@1` Present is the audit-only exception: working/terminal state is
+  visible, but Continue and Select controls/dispatch are absent regardless of marker selectability.
 - Preserve existing country, cold-start, housing and globe focus/reduced-motion behavior.
 
 ---
@@ -188,8 +190,12 @@ universe, missing population and mandatory-capital-overflow `NEEDS_CONTEXT`; exa
 ambiguous Start retry reuses the same command ID/payload; unavailable package message; URL installs
 before state adoption; stored Page presents by run only; missing snapshot recoverable;
 integrity/unexpected generic; zero client fetch on reload.
-Assert a legacy-only @1 package renders an upgrade-required unavailable message and makes no Start or
-source request, while a historical stored @1 run remains presentable by exact run ID.
+Assert a legacy-only `@1` setup package renders the exact unavailable copy
+`Каталог городов нужно обновить, чтобы начать новый поиск.` and makes no Start or source request.
+Authentic stored `@1` working and terminal runs remain presentable by exact run ID with the exact audit
+copy `Исторический подбор доступен только для просмотра. Чтобы продолжить или выбрать город, начните новый поиск с обновлённым каталогом.` Both expose zero Continue/Select controls and issue zero
+Continue/Select requests; the corresponding stored/current `@2` setup/live/terminal behavior is
+unchanged.
 
 - [ ] **Step 2: Write marker/card/selection RED tests**
 
@@ -203,6 +209,12 @@ terminal city creates and displays a sibling alternative. For `live_candidate_li
 `Проверено 10 городов; в установленном каталоге остались непроверенные кандидаты` plus the exact
 `N из 3` result; for `catalog_exhausted`, say the frozen queue is exhausted. Never conflate either
 with per-city safety-source exhaustion.
+
+Repeat the authentic stored `@1` working/terminal cases at the control boundary: markers, terminal
+cards and committed selection/branch history render read-only, the exact audit copy remains visible,
+and neither buttons, keyboard activation nor retained handlers can dispatch Continue or Select. Assert
+zero such requests. The same fixtures rebound to authenticated `@2` retain the existing Continue and
+terminal Select interactions and exact payloads.
 
 For a verified safety fact, assert accepted official link, reference year, offence numerator, SURS denominator and `lastCheckedAt`. For unknown safety, assert terminal reason, reviewed official links and per-link rejection reasons. Exhaustion copy says the bounded search ended; transport copy says the provider/official path was unavailable. Neither says that no source exists anywhere.
 
@@ -222,9 +234,17 @@ Cover StrictMode one-shot handoff, true-unmount cancel once, superseding Continu
 
 `CityFrontierJourney` has a closed `setup | live | stored` mode and owns one ProductShell/WorkspaceGlobe across setup/live/terminal/selection; `CityFrontierStart` is its presentational setup child. Do not add city lifecycle to the 900-line country Journey. `CityFrontierPanel` owns controls/errors; `CityFrontierCards` is dumb markup. Preserve route keys across pending→red/green and close a detail if a route becomes noninteractive. Use a narrow collapsed pointer-event whitelist.
 
+For every presented run, derive one audit-only discriminator from
+`readModel.catalog.rulesVersion === "city-catalog@1"`. In that mode render the exact audit copy above;
+keep working markers, terminal cards and committed selection/branch history visible, but never render,
+bind or dispatch Continue/Select controls or requests. A terminal `@1` card is explanatory read-only,
+not a selectable destination. Current `@2` rendering and handlers remain unchanged. The typed
+`city_catalog_upgrade_required` setup failure uses the exact upgrade copy above and likewise exposes no
+Start/Continue/Select dispatch path.
+
 - [ ] **Step 6: Add only presentation fields needed by the existing globe**
 
-Extend route/candidate contracts with exact gray/green/yellow/red status labels and accepted/reviewed Evidence links. Green and yellow city destinations are interactive only in terminal selection context; pending is a noninteractive note, excluded remains interactive for explanation. Add a real yellow material/style and visual-system assertions; do not emulate it with green plus an amber ring. Do not change camera, lighting or flight algorithms.
+Extend route/candidate contracts with exact gray/green/yellow/red status labels and accepted/reviewed Evidence links. For current `@2`, green and yellow city destinations are interactive only in terminal selection context; historical `@1` stays read-only under Step 5. Pending is a noninteractive note, excluded remains interactive for explanation. Add a real yellow material/style and visual-system assertions; do not emulate it with green plus an amber ring. Do not change camera, lighting or flight algorithms.
 
 - [ ] **Step 7: Run GREEN and commit**
 
@@ -237,7 +257,10 @@ Extend route/candidate contracts with exact gray/green/yellow/red status labels 
 ./node_modules/.bin/eslint src/experience/components/CityFrontier*.tsx \
   src/experience/components/CountryResolutionPanel.tsx src/app/page.tsx \
   src/experience/run-url.ts src/experience/components/ResearchWorkspace.tsx \
-  src/experience/research-map tests/integration/city-frontier-experience.test.tsx
+  src/experience/research-map tests/integration/city-frontier-experience.test.tsx \
+  tests/integration/country-resolution-experience.test.tsx \
+  tests/integration/research-globe-canvas.test.tsx \
+  tests/integration/product-shell.test.tsx tests/integration/visual-system.test.ts
 git diff --check
 git add src/experience/components/CityFrontierStart.tsx \
   src/experience/components/CityFrontierJourney.tsx \

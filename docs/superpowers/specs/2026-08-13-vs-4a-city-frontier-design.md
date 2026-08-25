@@ -7,8 +7,8 @@
 | Дата | 2026-08-13 |
 | Область | City Registry, установленный City Catalog, City Knowledge, ranking, bounded live frontier, terminal shortlist и выбор первой Life Git ветви |
 | Зависимости | verified non-empty `Resolved Country Shortlist Snapshot` из `VS-3R`, confirmed profile, provider-free runtime, Evidence pipeline |
-| Approval evidence | пользователь одобрил широкий catalog, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching 2026-08-13; hard cap 100, capital/population priority и separate live-10 budget 2026-08-16; Task 11 inward authority/digest/transition contract и Task 12 content-addressed snapshot/branch authority contract 2026-08-24 |
-| Written approval | пользователь явно одобрил exact редакцию 2026-08-13, catalog/runtime amendment 2026-08-16, Task 11 architectural amendment и Task 12 architectural amendment 2026-08-24 |
+| Approval evidence | пользователь одобрил широкий catalog, четыре критерия, stop-at-three, full four-fact Knowledge revision, UI и branching 2026-08-13; hard cap 100, capital/population priority и separate live-10 budget 2026-08-16; Task 11 inward authority/digest/transition contract и Task 12 content-addressed snapshot/branch authority contract 2026-08-24; Task 13 identity/persistence/transaction/read-model authority amendment 2026-08-25 |
+| Written approval | пользователь явно одобрил exact редакцию 2026-08-13, catalog/runtime amendment 2026-08-16, Task 11 architectural amendment и Task 12 architectural amendment 2026-08-24, Task 13 architectural amendment 2026-08-25 |
 | Canonical effect after approval | заменяет общее обещание «1–3 города» точной City Frontier semantics; не меняет formal/effective country status |
 | Split review | текущий baseline проверен по `CONSTITUTION.md`; сохранён одним документом, потому что catalog, ranking, full-Knowledge и frontier образуют один atomic design contract; tasks/evidence/canonical amendments остаются отдельными |
 
@@ -115,6 +115,12 @@ factor `[0,1]` и отдельный target comparison; factor монотонн�
 Одна универсальная кривая для safety, rent, transit и broadband запрещена: installed package обязан
 версионировать normalizer каждой supported definition. Неподдерживаемая
 definition/unit/target combination отклоняется до sealing, а не интерпретируется приблизительно.
+
+Decision экспортирует отдельный structural replay
+`reconstructCityCriteriaSnapshot(value, integrity)`: exact ID равен
+`city-criteria:${hash(canonical(payload without id))}`, вход descriptor-owned/closed, результат fresh
+recursively frozen. Эта функция не получает evaluator и не утверждает target semantics; существующий
+evaluator-aware `reconstructCityCriteria` остаётся отдельной semantic проверкой Application.
 
 ### `REQ-CF-03` — детерминированный ranking всего catalog
 
@@ -326,10 +332,13 @@ verified Resolved Country Shortlist entry
   всех четырёх criteria не считается установленным.
 - **Application** владеет confirm/start/continue/present/select use cases, cross-aggregate graph и
   commit ordering. Он является anti-corruption layer: после verified Knowledge/Evidence строит plain
-  marker source projection, но не передаёт Research revision/ledger внутрь Decision. Только Continue
-  вызывает official source port.
+  marker source projection, но не передаёт Research revision/ledger внутрь Decision. Он же владеет
+  exact run/command identity и всеми semantic reconstruction gates; persistence получает только
+  structural values. Только Continue вызывает official source port.
 - **Infrastructure** хранит Registry/Catalog, Evidence, Knowledge, Criteria, Ranking, Frontier,
-  Terminal, Selection и Branch append-only. Raw bytes доступны только Evidence storage.
+  Terminal, Selection и Branch append-only. SQLite проверяет canonical envelopes, mirrors/FKs,
+  stored-source replay и topology, но не evaluator/Knowledge/Evidence/Task 11 semantics. Raw bytes
+  доступны только Evidence storage.
 - **Experience** принимает strict read models/finite NDJSON events и только проецирует frozen/fresh
   labels, markers, warnings и controls. Существующий globe instance/history/focus/reduced-motion
   patterns переиспользуются без новой карты.
@@ -341,9 +350,14 @@ verified Resolved Country Shortlist entry
 
 ## 6. Persistence, integrity и recovery
 
-Каждый durable snapshot имеет closed schema, canonical JSON, content/context hash, integrity HMAC,
-exact source IDs и immutable UPDATE/DELETE guards. Linear chains используют expected predecessor,
-один successor/head и запрещают successor после terminal.
+Каждый durable snapshot имеет closed schema, canonical JSON, lowercase-64 payload hash, exact HMAC
+preimage, source-ID mirrors/FKs и immutable UPDATE/DELETE guards. Task 13 добавляет ровно пять таблиц:
+Criteria, closed `pre_city | selection` Branch, Ranking, Frontier и заранее зарезервированную Task 15
+Selection. Никакой шестой Knowledge-map junction нет: map members проверяются exact verified lookups.
+Linear Frontier использует один root/successor/terminal, unique `(run_id, command_id)`, global partial
+unique Start command и запрет successor после terminal. Verified traversal посещает все строки run
+ровно один раз от root к unique head без `rowid`; disconnected/cycle/cross-run/cross-Ranking или
+повреждённый невыбранный ancestor/descendant отравляет любой load/find.
 
 Task 12 content IDs равны exact prefix плюс lowercase 64-hex
 `hash(canonical(closed payload without id))`: `city-ranking:`, `city-frontier-revision:`,
@@ -351,20 +365,102 @@ Task 12 content IDs равны exact prefix плюс lowercase 64-hex
 используют тот же raw lowercase hash без prefix. Structural replay не является semantic authority:
 Ranking отдельно проверяется по Registry/Catalog/Criteria/Knowledge/evaluators, Frontier/Selection —
 по Task 11, а pre-city parent — source-aware replay по verified resolved-country/profile projection.
+Task 13 добавляет structural Criteria replay с exact `city-criteria:` content ID; evaluator-aware
+Criteria остаётся Application semantics.
 
-Команда определяется `(runId, commandId, canonical payload)`: identical retry возвращает прежний
-result; тот же ID с другим payload даёт `integrity_mismatch`; новый command от stale head даёт
-conflict. City Knowledge publication для одного city сериализована; параллельные writers не создают
-forked revisions.
+Application identity закрыта тремя exact payload. `CityCriteriaCommandPayload` имеет только schema,
+оба profile ID, exact four-criteria tuple и rules; его hash raw lowercase-64 и исключает ID/time.
+`CityFrontierRunIdentity` имеет только schema, resolved revision, country, Registry, full
+`InstalledCityPackageExactKey`, Criteria payload hash, authenticated referenced Catalog rules
+(`@1 | @2`), ranker rules и exact frontier budget; run ID равен
+`city-frontier:${hash(canonical(identity))}` и исключает clocks/clock-derived snapshot IDs. Новый Start
+и все durable writes требуют `@2`, но исторический identity `@1` остаётся replayable.
+Timestamp-free Start intent дополнительно содержит derived run ID. После verified inputs берётся один
+`startAt`:
 
-Verified load реконструирует catalog membership, criteria, ranking/exclusions, marker prefix,
-cursor, stop condition, four-fact Knowledge semantics, warning basis и branch lineage. Подмена
-country, city, catalog, criteria, predecessor, Evidence/Knowledge reference, marker или terminal
-composition fail-closed.
+```text
+criteria.confirmedAt = ranking.assessmentAt = ranking.createdAt = root.createdAt = startAt
+preCity.createdAt = verifiedResolvedCountryShortlist.createdAt <= startAt
+```
+
+Application создаёт deterministic parent с stable resolved time, делает source-key find/replay до
+Ranking seal и reuse exact parent. Одинаковый source в разных run/retry/race поэтому имеет одинаковые
+parent bytes/ID.
+
+Внутри `publishStart` `BEGIN IMMEDIATE` global lookup по Start command ID является первым SQLite
+действием до run-scoped row read/insert. Затем даже для hit writer authenticates candidate Catalog,
+binds Catalog/Registry/country/package/schema и derives rules/run/intent. Hit сначала сравнивает
+derived/stored intent: любое drift, включая `@1 ↔ @2`, даёт `integrity_mismatch`; только exact equality
+применяет candidate+winner `@2` gate до replay return. Miss применяет candidate `@2` gate до root
+lookup/write. Identical five-key intent после этого возвращает fully verified stored
+winner даже при более поздних candidate clocks; изменённый intent/derived run даёт
+`integrity_mismatch`. Другой Start command для существующего deterministic run/root также
+`integrity_mismatch`. Every Frontier row is unique by `(runId, commandId)`, so a successor cannot reuse
+the root command; после command-first replay только
+authenticated same-run/same-Ranking ancestor, который больше не unique head, даёт
+`stale_city_frontier_head`. Forged/missing/misbound predecessor, tamper и Start conflict —
+`integrity_mismatch`; busy/native/unrelated constraint не relabel. City Knowledge publication для
+одного city сериализована; параллельные writers не создают forked revisions.
+Direct append на command hit сначала сравнивает candidate/stored operation (`integrity_mismatch` на
+drift), затем exact-hit/miss authenticates referenced Catalog и требует `@2` до replay/stale/write;
+exact `@1` command не возвращается как успешный replay.
+Exact structural absence errors are `city_criteria_not_found`, `pre_city_branch_not_found`,
+`city_ranking_not_found`, `city_frontier_not_found` and, from Task 15,
+`city_selection_not_found`. A missing command in an existing fully verified run is `undefined`; a
+missing run for command lookup is `city_frontier_not_found`.
+
+SQLite authority ограничена signed canonical bytes/hash/HMAC, content IDs, mirrors/FKs, Task 12 и
+Criteria structural replay, stored-source pre-city replay, command equality, five-table constraints и
+full topology. Application authority включает evaluator Criteria, semantic Ranking, verified
+Knowledge/Evidence, raw marker digest и Task 11 frontier/selection до seal/write и после load. Store не
+принимает caller semantic proof/projection/digest. Start writer возвращает только exact
+Criteria/parent/Ranking/root; Application собирает rich read model с Registry/Catalog и selection
+history. History после structural pair и Application semantics имеет total order
+`(selection.createdAt ASC, selection.id ASC)`.
+Exact private envelope is `payload_json=C(reconstructed value)`,
+`payload_hash=SHA256_TEXT(payload_json)` and non-command
+`hmac=HMAC_SHA256_TEXT(payload_json,key)`. Frontier/Selection additionally store
+`command_json=C(exact intent/operation)`, raw text hash, and HMAC over
+`C({ value: reconstructed value, command: exact command })`; all digests are lowercase-64.
+Каждый full-chain/root load следует по Ranking→Criteria и referenced Catalog, structurally verifies все
+три значения, связывает Catalog ID/Registry/country/package/schema с Ranking/context, derives фактический
+Catalog rules literal, заново вычисляет exact Criteria payload hash, nine-key run identity/run ID и
+five-key Start intent и связывает их со stored root command envelope, operation Criteria hash, всеми
+revision run/Ranking полями и Ranking source/context/Registry/rules/budget. Application повторяет этот
+cross-row identity replay после своих semantic gates; отдельная valid HMAC/rehash строка не может
+заменить graph authority.
+
+Authenticated installed-package, Evidence и Knowledge structural read/replay принимает только known
+bound `@1 | @2`; unknown rules дают `integrity_mismatch`. Authentic `@1` доступен только zero-network
+Present для audit: `readModel.catalog.rulesVersion` позволяет Experience убрать Continue/Select
+affordances, а Application не имеет успешного Continue/Select path. Manifest/install, Evidence seal,
+Knowledge publication, Frontier/Selection writers и Setup/Start/Continue/Select требуют `@2` до write
+или semantic callback; shared read reconstruction не является write authorization.
+
+После SQLite structural load Application verified presentation/load отдельно реконструирует catalog
+membership, evaluator Criteria, semantic ranking/exclusions, marker prefix, cursor, stop condition,
+four-fact Knowledge/Evidence semantics, warning basis и branch lineage. Подмена country, city, catalog,
+criteria, predecessor, Evidence/Knowledge reference, marker или terminal composition fail-closed;
+SQLite не приписывает себе этот semantic результат.
+
+Task 15 Application после structural terminal/Ranking exact-authenticates package/Catalog и сразу
+отклоняет `@1` до Criteria/evaluator/Knowledge/Evidence/Task 11 callbacks, затем на `@2` семантически
+reconstructs Criteria/Ranking/Knowledge/Evidence/source, вызывает pure selection и единственный pair wrapper. Atomic writer получает
+только explicit timestamp-free three-key intent, command ID и constructed pair; он делает command-first
+lookup, authenticates referenced Catalog и требует `@2` до replay return/insert, затем structural
+pair/stored-source/mirrors/FKs и insert/reload без evaluator, Knowledge/Evidence или Task 11 callback.
+Application повторяет semantics после structural reload.
 
 Presentation/reload/select не выполняют official HTTP. После transport loss committed marker
 остаётся; reload показывает verified head и explicit Continue. Неподтверждённый live progress не
-восстанавливается как факт. Retry продолжает frozen cursor и не проверяет committed city повторно.
+восстанавливается как факт. Prepare descriptor-owns exact input и выполняет command-first lookup:
+committed `city_completed` восстанавливает Prepared из verified original base даже после terminal head,
+а absent command требует expected base как unique working head. Continue повторно проверяет exact
+six-key Prepared; hit и miss затем проходят общий Ranking + exact package/Catalog `@2` gate до любого
+Criteria/evaluator/Knowledge/Evidence/Task 11/source/event/return. Поэтому committed `@1` hit даёт
+`city_catalog_upgrade_required` без semantic/source/event/append, а current-rules hit семантически
+replay-ит committed working/terminal winner без source или duplicate event. Новый retry продолжает
+frozen cursor и не проверяет committed city повторно.
 
 ## 7. Verification и acceptance gate
 
@@ -414,4 +510,5 @@ Selection sibling branches. Исторические approved `VS-3`/`VS-3R` spe
 Conversational design и exact written baseline одобрены пользователем 2026-08-13; hard catalog cap,
 membership priority и separate live-10 amendment одобрены 2026-08-16; Task 11 inward-authority и
 Task 12 content-addressed snapshot/branch authority amendments одобрены 2026-08-24. Detailed
+Task 13 identity/persistence/transaction/read-model authority amendment одобрен 2026-08-25. Detailed
 implementation plan обязан применять эту редакцию без повторного продуктового вопроса.

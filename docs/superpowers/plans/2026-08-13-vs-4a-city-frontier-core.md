@@ -921,9 +921,14 @@ git commit -m "feat: define city branch snapshots"
 
 **Files:**
 - Modify: `src/application/city-data-contracts.ts`
+- Modify: `src/application/city-frontier-contracts.ts`
+- Modify: `src/decision/city-criteria.ts`
 - Create: `src/infrastructure/sqlite/city-criteria-store.ts`
 - Create: `src/infrastructure/sqlite/city-frontier-store.ts`
 - Create: `src/infrastructure/sqlite/city-branch-store.ts`
+- Create: `tests/application/city-frontier-identity.test.ts`
+- Modify: `tests/domain/city-criteria.test.ts`
+- Modify: `tests/branch/city.test.ts`
 - Create: `tests/integration/city-frontier-store.test.ts`
 - Create: `tests/support/city-frontier-publication-worker.ts`
 - Modify: `src/infrastructure/sqlite/schema.sql`
@@ -935,122 +940,866 @@ git commit -m "feat: define city branch snapshots"
 **Interfaces:**
 
 ```ts
-export interface CityFrontierStorePort {
-  appendRevision(input: CityFrontierAppendInput): CityFrontierRevision;
+export interface CityCriteriaCommandPayload {
+  readonly schemaVersion: "city-criteria-command@1";
+  readonly profileSnapshotId: string;
+  readonly preferenceProfileSnapshotId: string;
+  readonly criteria: readonly [
+    CityCriterionDraft,
+    CityCriterionDraft,
+    CityCriterionDraft,
+    CityCriterionDraft,
+  ];
+  readonly rulesVersion: "city-criteria@1";
+}
+
+export function cityCriteriaPayloadHash(
+  input: CityCriteriaCommandPayload,
+  integrity: CityDecisionIntegrity,
+): string;
+
+export interface CityFrontierRunIdentity {
+  readonly schemaVersion: "city-frontier-run@1";
+  readonly resolvedCountryShortlistRevisionId: string;
+  readonly countryCode: string;
+  readonly registryRevisionId: string;
+  readonly installedPackageContext: InstalledCityPackageExactKey;
+  readonly criteriaPayloadHash: string;
+  readonly catalogRulesVersion: CityCatalogRevision["rulesVersion"];
+  readonly rankingRulesVersion: "city-ranker@1";
+  readonly verificationBudget: CityFrontierVerificationBudget;
+}
+
+export function cityFrontierRunId(
+  input: CityFrontierRunIdentity,
+  integrity: CityDecisionIntegrity,
+): string;
+
+export interface CityFrontierStartIntent {
+  readonly schemaVersion: "city-frontier-start-intent@1";
+  readonly runId: string;
+  readonly resolvedCountryShortlistRevisionId: string;
+  readonly countryCode: string;
+  readonly criteriaPayloadHash: string;
+}
+
+export interface CityFrontierAppendInput {
+  readonly revision: CityFrontierRevision;
+}
+
+export interface CityCommandResult {
+  readonly operation: CityFrontierOperation;
+  readonly revision: CityFrontierRevision;
+}
+
+export interface CityFrontierStartPublication {
+  readonly intent: CityFrontierStartIntent;
+  readonly criteria: CityCriteriaSnapshot;
+  readonly preCityBranch: PreCityBranchCommit;
+  readonly preCitySource: PreCityBranchSourceProjection;
+  readonly ranking: CityRankingSnapshot;
+  readonly root: CityFrontierRevision;
+}
+
+export interface CityFrontierStartPublicationResult {
+  readonly criteria: CityCriteriaSnapshot;
+  readonly preCityBranch: PreCityBranchCommit;
+  readonly ranking: CityRankingSnapshot;
+  readonly root: CityFrontierRevision;
+}
+
+export interface CityCriteriaReadPort {
+  loadCriteriaVerified(id: string): CityCriteriaSnapshot;
+}
+
+export interface CityBranchReadPort {
+  loadPreCityBranchVerified(id: string): PreCityBranchCommit;
+  findPreCityBranchBySourceVerified(
+    source: PreCityBranchSourceProjection,
+  ): PreCityBranchCommit | undefined;
+}
+
+export interface CityRankingReadPort {
   loadRankingVerified(id: string): CityRankingSnapshot;
+}
+
+export interface CityFrontierReadPort {
+  loadRevisionVerified(id: string): CityFrontierRevision;
   loadHeadVerified(runId: string): CityFrontierRevision;
   loadChainVerified(runId: string): readonly CityFrontierRevision[];
   findCommandVerified(runId: string, commandId: string): CityCommandResult | undefined;
 }
 
-export interface CityFrontierStartWriterPort {
-  publishStart(input: CityFrontierStartPublication): CityFrontierReadModel;
+export interface CityFrontierAppendPort {
+  appendRevision(input: CityFrontierAppendInput): CityFrontierRevision;
 }
 
-// Read-only Criteria/Branch/Ranking loaders remain narrow; Start writes only through CityFrontierStartWriterPort.
+export interface CityFrontierStorePort
+  extends CityFrontierReadPort, CityFrontierAppendPort {}
+
+export interface CitySelectionHistoryReadPort {
+  listSelectionsWithBranchesVerified(
+    runId: string,
+  ): Promise<readonly CitySelectionWithBranch[]>;
+}
+
+export interface CityFrontierStartWriterPort {
+  publishStart(
+    input: CityFrontierStartPublication,
+  ): CityFrontierStartPublicationResult;
+}
 ```
 
-No caller-supplied loader context DTO exists. The adapter derives every row expectation from
-the requested ID/run, the signed canonical row and its persisted predecessor/ranking/reference columns;
-Application canonical-compares returned IDs/bindings needed by its use case.
+`src/application/city-frontier-contracts.ts` replaces the current source defect
+`CityFrontierReadModel = CityFrontierRevision` with the exact rich interface already frozen in the
+master ledger: run/assessment/source IDs, `registry`, `catalog`, `criteria`, `ranking`, current
+`revision` and verified `selections`. The alias must not remain. SQLite returns only the granular
+publication result above; Task 14 Application assembles the rich model after semantic verification.
+Task 13 defines `CitySelectionHistoryReadPort` early so Task 14 depends on the stable inward port from
+day one. Until Task 15 can write selection rows, composition injects an explicit adapter that returns a
+fresh frozen empty array. Task 15 extends that port with its by-ID loader and replaces the adapter in
+composition; Task 14 never hardcodes `[]` and never imports a future writer.
+Every history implementation returns fully verified pairs in the canonical total order
+`selection.createdAt ASC, selection.id ASC`, independent of insertion order or `rowid`.
 
-- [ ] **Step 1: Write schema/store RED tests**
+The three exact identity equations use the Task 12 neutral captured-capability notation:
 
-Cover strict Criteria/Ranking and pre-city parent round-trip, exact relocation + Preference Profile
-bindings, frozen `city-frontier-budget@1`, atomic `publishStart` with failure after each would-be insert,
-full ranking reconstruction, one root/successor/terminal, no working head with ten markers, exact
-three-way terminal reason/count/queue validation, command retry/conflict, stale head, exact bindings and
-immutable triggers. Build the pre-city source only from the already verified resolved-country/profile
-projection and require every round-trip/load to call
-`replayPreCityBranchCommit(value, source, integrity)`. For every frontier append/load call
-`reconstructCityFrontierRevision(value, integrity)` for closed structure, content ID, operation and
-marker-digest checks; then, for every successor/reload, reconstruct the verified Knowledge/Evidence source
-projection, recompute each raw marker digest through `cityLiveMarkerDigest`, and reject altered marker,
-digest, `lastCheckedAt`, authority fact/link occurrence, predecessor prefix or persisted frontier before
-returning a revision. A valid signed row plus structural Task 12 reconstruction never substitutes for
-Task 11 semantic frontier verification.
+```text
+cityCriteriaPayloadHash(input, integrity) = H(C(exact CityCriteriaCommandPayload))
+cityFrontierRunId(input, integrity)        = "city-frontier:" + H(C(exact CityFrontierRunIdentity))
+Start command equality                    = global root.operation.commandId ->
+                                            C(exact CityFrontierStartIntent)
+Successor command key                     = (runId, operation.commandId)
+```
 
-Persist and reload the complete `installedPackageContext` inside the canonical sealed ranking payload.
-Assert mirrored country/package/schema/catalog/evidence-rules columns and the parsed closed context all
-agree. `loadRankingVerified(id)` accepts no caller-supplied context: assert it verifies the private
-signed row envelope, canonical JSON, hash-derived snapshot ID, mirrored columns, closed context and
-stored reference/FK IDs, then returns the fresh frozen structurally reconstructed snapshot. Tamper or
-re-hash any key field/top-level duplicate, mirror, HMAC/hash or reference and fail. Compile-check the
-one-argument signature, absence of legacy loader-context parameter types, the inward Research
-`InstalledCityPackageExactKey`, and that ranker `rulesVersion` cannot satisfy
-`evidenceRulesVersion` accidentally.
+Both helpers descriptor-own and close the complete input and exact-capture only `canonical` and `hash`
+as in Task 12. Every hash is raw lowercase 64-hex before return or prefixing. The Criteria command
+payload has exactly the five named keys and exactly four criteria; it excludes Criteria ID and every
+time. The run identity has exactly the nine named keys and includes the full five-key
+`InstalledCityPackageExactKey` plus the exact budget; it excludes every clock and every snapshot ID
+derived from a clock. Its Catalog-rules field is the authenticated referenced Catalog's closed
+`"city-catalog@1" | "city-catalog@2"` value; both historical identity formulas are replayable, while a
+new Start accepts only `CITY_CATALOG_RULES_VERSION`. The Start intent is the exact timestamp-free
+five-key value above, and its `runId` must equal the ID recomputed from the exact run identity. No generic
+payload/hash DTO or caller-supplied semantic proof is permitted.
 
-Add a bootstrap-order positive: first call `loadRankingVerified(id)` with no expected package value,
-read the returned `installedPackageContext`, resolve its exact installed package, load its verified
-Registry/Catalog/Criteria/Knowledge inputs, then call `verifyCityRankingSnapshotSemantics`. An alternate
-caller context cannot be supplied to make a bad row pass. Add semantic negatives for each referenced
-input after a structurally valid load; the SQLite adapter must not claim it reranked without those
-inputs.
+Authority is split by the Dependency Rule. SQLite owns signed canonical row bytes, row hashes/HMACs,
+content IDs, mirrors/FKs, Task 12 and Criteria structural replay, stored-source pre-city replay, command
+equality, five-table constraints and complete frontier-chain topology. Application owns evaluator-aware
+Criteria verification, semantic Ranking verification, verified Knowledge/Evidence reconstruction, raw
+marker digest, and Task 11 frontier/selection reconstruction before seal/write and after every load.
+The store never imports evaluator, Knowledge/Evidence or Task 11 policy, never claims their semantics,
+and never accepts a caller Task 11 projection, digest or semantic-proof DTO. `CityCommandResult.operation`
+must canonically equal `revision.operation`; `CityFrontierAppendInput` contains only `revision`.
 
-- [ ] **Step 2: Run RED**
+- [ ] **Step 1: Write exact contract, identity and Criteria structural RED tests**
+
+In `tests/application/city-frontier-identity.test.ts`, compile/runtime-pin every exact signature and
+closed key set above, the rich `CityFrontierReadModel`, `CitySelectionHistoryReadPort`, and absence of
+the old read-model alias, loader-context DTO, caller projection/digest and legacy append/publication
+result. Pin the two identity formulas, prefix/raw-hash distinction, full installed key and budget,
+both authenticated Catalog-rules literals, timestamp exclusion, criteria ID/time exclusion, and
+single-field mutation sensitivity. Descriptor,
+proxy, accessor, symbol, prototype, sparse-array, aliasing, hostile capability and non-lowerhex cases
+follow the Task 12 boundary laws without a Cartesian callback permutation.
+
+In `tests/domain/city-criteria.test.ts`, add the public structural boundary:
+
+```ts
+export function reconstructCityCriteriaSnapshot(
+  value: unknown,
+  integrity: CityDecisionIntegrity,
+): CityCriteriaSnapshot;
+```
+
+Its exact content ID is `city-criteria:${H(C(payload without id))}`. It descriptor-owns/closes the
+exact snapshot graph, validates scalar/schema/rules/tuple shape and ID, and returns a fresh recursively
+frozen copy. It is structural only: one structurally valid, rehashed target that disagrees with the
+installed evaluator passes this function and then fails the existing evaluator-aware
+`reconstructCityCriteria(snapshot, evaluators)`. Pin that the existing semantic API remains and no
+evaluator enters `reconstructCityCriteriaSnapshot`.
+
+- [ ] **Step 2: Write the bounded persistence RED matrix**
+
+Keep the matrix non-Cartesian. Cover exact signatures/rich model/no legacy DTO; identity formula and
+timing; one success plus one representative missing/extra/mirror/HMAC/content-ID tamper per table;
+structural-versus-semantic Criteria/Ranking/Frontier split; and the following focused groups:
+
+1. Criteria, deterministic pre-city parent, Ranking and root round-trip as four exact artifacts.
+2. Start failure after each would-be insert, command replay/conflict, different-command deterministic-run
+   conflict, and a pre-existing shared parent that survives rollback.
+   Reuse one Start command globally with changed resolved revision, country, Criteria or installed
+   context/derived run and require `integrity_mismatch` rather than a second run.
+3. Same-source concurrent Starts with different Criteria/run identities and different commands both
+   succeed while producing byte-identical parent payload/ID and one shared row. The separate same-run/
+   different-Start-command case is `integrity_mismatch`. Same-command retries converge on the stored
+   winner even when the loser constructed later time-bound candidates.
+4. One root, one successor, unique `(runId, commandId)` across all rows, one global Start command and
+   one terminal; exact prefix-plus-one, expected head,
+   run/Ranking/operation/time equations, terminal-final/no-successor, no working tenth marker and no
+   rowid-order authority. Rehash one otherwise authentic Criteria/Ranking/root cross-row identity and
+   require every full-chain/root loader to reject it. Structurally load authentic `@1` and `@2` Catalog
+   identities, but require `city_catalog_upgrade_required` with zero insert for `@1` `publishStart` and
+   direct `appendRevision`, including exact stored-command hits that would otherwise replay; an unknown
+   Catalog rules literal remains `integrity_mismatch`.
+5. Corrupt one non-returned ancestor at a time for `loadRevisionVerified`, `loadHeadVerified`,
+   `loadChainVerified` and `findCommandVerified`; every loader rejects because each verifies the full
+   chain. Also request an authentic root while a later terminal descendant is corrupt, then add an
+   authenticated disconnected/cycle row; full loaded-row-set closure rejects both. Add two connections:
+   different valid successors yield one success/one
+   `stale_city_frontier_head`; identical command retries converge.
+6. Task 15 schema foresight: selection command envelope has no timestamp, the branch row is the closed
+   `pre_city | selection` union, and selection/branch pair lineage is FK/mirror-closed without a sixth
+   mapping table.
+7. Insert sibling selections in reverse physical order, including an equal-`createdAt` pair, and require
+   byte-identical history/presentation ordered by `(selection.createdAt ASC, selection.id ASC)`.
+8. For each result family—not every method permutation—mutate/identity-check one load/find result, one
+   append/command replay, one Start four-artifact result and one array. Every public port output and
+   nested artifact is fresh recursively frozen, non-aliased from input and non-aliased across calls.
+
+Pre-city load is exactly one-argument and no-context. `loadPreCityBranchVerified(id)` authenticates its
+row, invokes `CountryResolutionStorePort.locateChainVerified({ revisionId:
+storedPreCity.resolvedCountryShortlistRevisionId })`, requires the requested
+revision to be the verified resolved head, requires exactly one resolved entry for the stored country,
+rebuilds the exact `PreCityBranchSourceProjection` from the verified chain source plus that entry, and
+calls `replayPreCityBranchCommit`. This is structural/HMAC source replay only. Task 14 independently
+repeats the full semantic resolved-country/profile guard and canonical-compares its source and parent.
+`findPreCityBranchBySourceVerified(source)` queries only the exact authoritative logical key
+`(source.resolvedCountryShortlistRevisionId, source.resolvedCountryEntry.countryCode)`, derives/replays
+the same verified stored source, and returns `undefined` only for absence. A row at that key whose
+mirrors or deterministic candidate differ is `integrity_mismatch`; Application does not catch
+`pre_city_branch_not_found` as control flow.
+Before reading either nested key or issuing SQL, it descriptor-owns/closes the complete source. One
+hostile accessor/swap RED proves zero query and `integrity_mismatch`; do not expand it into a Cartesian
+source-shape matrix.
+Use exact errors `city_criteria_not_found`, `pre_city_branch_not_found`, `city_ranking_not_found` and
+`city_frontier_not_found`; reserve `city_selection_not_found` for Task 15. Row tamper, binding failure
+and Start conflicts are `integrity_mismatch`.
+
+- [ ] **Step 3: Run RED and capture two static no-veto reviews**
 
 ```bash
+./node_modules/.bin/vitest run tests/application/city-frontier-identity.test.ts \
+  tests/domain/city-criteria.test.ts tests/branch/city.test.ts
 ./node_modules/.bin/vitest run tests/integration/city-frontier-store.test.ts \
   tests/integration/database-schema.test.ts
 ```
 
-- [ ] **Step 3: Add five tables and strict preflight**
+Expected: both commands fail only because the Task 13 production contracts/tables/stores are absent.
+Before any production edit, obtain two independent static reviews of the frozen RED files and this
+Task 13 block. Review A checks exact contracts/formulas/authority direction; Review B checks schema,
+transaction, topology, races/errors and bounded coverage. Both must report Critical 0 / Important 0
+and no veto. Any veto stops production and amends the plan/tests first. Do not implement from a review
+with unresolved findings.
 
-Add `city_criteria_snapshots`, `city_ranking_snapshots`, `city_frontier_revisions`, `city_selection_snapshots` and closed-union `city_branch_commits`. The selection table exists before branch FKs but is written only in Task 15. A `pre_city` row has no parent/selection and is unique by resolved-country revision + country; `selection` rows require a parent and selection FK. Ranking is unique per run and binds the exact verification budget plus canonical `installed_package_context`, mirrored `package_id`, `package_schema_version` and `evidence_rules_version`; existing country/catalog columns must equal the same context. Persist an Infrastructure-private canonical-row payload hash/HMAC envelope, not an outward snapshot field, and verify it before parsing/return. Frontier has one root/successor/command/terminal indexes. Add immutable triggers/preflight and update exact inventories.
+- [ ] **Step 4: Implement the structural Criteria API, identity helpers and rich read model**
 
-The stored frontier payload keeps `CityLiveMarker` values and terminal entries, not a second durable
-authority projection. Before append, Application loads the exact referenced Knowledge/Evidence graph,
-builds `CityMarkerAuthorityProjection`, recomputes `cityLiveMarkerDigest` and calls Task 11 with the
-narrow frozen Ranking projection, verified Criteria/evaluators, exact predecessor markers and the
-would-be persisted projection. Application creates the root or successor only through
-`sealCityFrontierRevision`; the writer repeats `reconstructCityFrontierRevision`, closed row/chain and
-digest verification before insert. On load, the adapter verifies its signed row envelope, calls
-`reconstructCityFrontierRevision` for every chain row and verifies the chain; Application repeats the
-Knowledge/Evidence ACL plus Task 11 semantic reconstruction before Continue, Present or Select. A
-signed row alone never makes marker semantics or a caller-supplied digest authoritative.
+Implement `reconstructCityCriteriaSnapshot` with the same descriptor-safe neutral integrity capture and
+failure normalization as Task 12; keep evaluator-aware `reconstructCityCriteria` semantic. Implement
+the exact payload/run helpers in `city-data-contracts.ts`. Replace the read-model alias with the master
+ledger's exact rich interface. Add all inward ports and exact DTOs above; do not add a context argument,
+semantic proof, projection or digest field for persistence convenience.
 
-- [ ] **Step 4: Implement canonical verification and race normalization**
+Task 14 obtains one `startAt` only after the installed package, resolved-country/profile, Criteria
+draft and Knowledge inputs are verified. The exact time equations are:
 
-`publishStart` runs one `transaction.immediate()` across all four Start artifacts and exact-replays the
-deterministic command before any insert. Application passes the pre-city parent it already created
-through `createPreCityBranchCommit` plus the verified source projection; the writer calls
-`replayPreCityBranchCommit` before insert and again on reload. Frontier successor append separately resolves idempotent
-command first, verifies current head, requires the Application-supplied Task 11 reconstruction plus
-exact marker digest to match the `sealCityFrontierRevision` result, inserts and reloads through
-`reconstructCityFrontierRevision`. Only a verified lost predecessor race becomes
-`stale_city_frontier_head`; busy/constraint/native errors must not be broadly relabeled. Add
-two-connection tests: different successors yield one success/one stale; identical command retries
-converge.
+```text
+criteria.confirmedAt = ranking.assessmentAt = ranking.createdAt = root.createdAt = startAt
+preCityBranch.createdAt = verifiedResolvedCountryShortlist.createdAt <= startAt
+```
 
-Before inserting a ranking, Application calls `reconstructCityRankingSnapshot(value, integrity)` and
-`verifyCityRankingSnapshotSemantics` with the already verified installed package/catalog/criteria/
-Knowledge inputs, then passes only the returned frozen snapshot to `publishStart`. The SQLite writer
-repeats structural reconstruction, signs/persists the private row envelope and verifies canonical row
-JSON, mirrors and references. `loadRankingVerified(id)` verifies only that complete persistence/
-structural boundary and returns the snapshot without caller expectations or semantic-rerank claims.
-Application then obtains the exact installed package and verified inputs from the returned context and
-calls the semantic verifier before presentation or Continue. `publishStart` persists exactly the
-context supplied by Start's independently verified installed manifest and never derives its evidence
-rules from `city-ranker@1`.
+The pre-city parent is content-addressed from the verified source and the resolved snapshot's stable
+`createdAt`, never the current Start clock. Application creates the deterministic candidate, performs
+the source-key load/replay before sealing Ranking, reuses an exact existing parent when present, and
+canonical-compares it with the candidate. Concurrent same-source Starts therefore construct identical
+parent bytes and ID. No reservation, retry-time timestamp, ranking reseal or clock-derived parent ID is
+allowed.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [ ] **Step 5: Add exactly five tables and exact preflight inventory**
+
+Add exactly `city_criteria_snapshots`, `city_branch_commits`, `city_ranking_snapshots`,
+`city_frontier_revisions` and `city_selection_snapshots`; add no sixth/ninth support table. Every table
+has private canonical `payload_json/payload_hash/hmac` columns and UPDATE/DELETE immutable triggers.
+Freeze the row envelope formulas with `C` as canonical JSON, `SHA256_TEXT` as the raw lowercase-64
+digest of exact text, and `HMAC_SHA256_TEXT` as the raw lowercase-64 keyed MAC of exact text:
+
+```text
+payload_json = C(reconstructed value)
+payload_hash = SHA256_TEXT(payload_json)
+
+non-command row hmac = HMAC_SHA256_TEXT(payload_json, key)
+
+command_json = C(exact Start intent | successor operation | Task 15 selection intent)
+command_hash = SHA256_TEXT(command_json)
+command-row hmac = HMAC_SHA256_TEXT(
+  C({ value: reconstructed value, command: exact command }),
+  key,
+)
+```
+
+Criteria, pre-city Branch and Ranking are non-command rows. Frontier and Selection are command rows;
+the selection-kind Branch is authenticated as part of its structurally reconstructed Selection pair
+and also retains its own non-command payload envelope. Field names and preimages are not adapter
+choices. Verify canonical byte equality before parsed values, mirrors or FKs can be returned.
+The exact schema and preflight inventory include:
+
+- Criteria mirrors schema/rules/profile/Preference Profile/confirmed time and FKs both profile IDs.
+- Branch is a closed `pre_city | selection` row. `pre_city` requires profile, Preference Profile,
+  resolved revision, country and resolved-entry digest; forbids parent/fork/selection; its unique exact
+  partial source key is exactly `(resolved_country_shortlist_revision_id, country_code) WHERE
+  kind = 'pre_city'`. Profile/Preference Profile/entry-digest mirrors must equal the derived verified
+  source but must not widen that uniqueness key. `selection` requires
+  `parent_id = forked_from`, selection FK and matching country/time lineage. Its common profile,
+  Preference Profile, resolved-revision and entry-digest columns are derived mirrors that must equal the
+  verified pre-city parent/Selection context; they are never independent selection payload authority.
+- Ranking is unique per run; FKs/mirrors bind resolved revision, Criteria, catalog and pre-city parent.
+  It stores the closed installed context and mirrors country/package/schema/catalog/evidence-rules plus
+  the fixed verification budget. Knowledge-map members are verified by exact lookup and payload/mirror
+  comparison; do not add a per-map FK/junction table.
+- Frontier FKs/mirrors bind predecessor and Ranking; named unique partial indexes enforce one root,
+  one successor, global one Start `command_id`, one `(run, command)` across every Frontier row and one
+  terminal. The global Start index is partial exactly on
+  `command_id WHERE operation_kind = 'start'`; the all-row `(run_id, command_id)` index also prevents a
+  successor from reusing its root command.
+- Selection exists now but Task 13 never writes it. It includes Task 15's timestamp-free canonical
+  command envelope/hash, terminal/Ranking/Criteria/pre-city/Knowledge/Evidence mirrors and the closed
+  pair-lineage columns needed by the selection-kind branch FK. The exact named unique index
+  `city_selection_snapshots_one_command` covers `(run_id, command_id)`. No creation timestamp enters command
+  equality; its races converge by command-first canonical intent comparison, and unrelated constraints
+  or native/busy errors are never relabeled as command conflicts.
+
+The compact column map below is explanatory only. The executable `CREATE TABLE`/index/trigger SQL that
+follows it is the sole normative physical schema and the normalized-SQL preflight authority. In this
+map, columns are listed in physical order; `NN` means `NOT NULL`, `NULL` means nullable with default
+`NULL`, and every omitted default means no default:
+
+```text
+city_criteria_snapshots:
+  id TEXT PK NN;
+  profile_snapshot_id TEXT NN FK profile_snapshots(id);
+  preference_profile_snapshot_id TEXT NN FK profile_snapshots(id);
+  schema_version TEXT NN CHECK = 'city-criteria@1';
+  rules_version TEXT NN CHECK = 'city-criteria@1';
+  confirmed_at TEXT NN;
+  payload_json TEXT NN;
+  payload_hash TEXT NN CHECK lowercase-hex64;
+  hmac TEXT NN CHECK lowercase-hex64;
+  CHECK profile_snapshot_id <> preference_profile_snapshot_id.
+
+city_selection_snapshots:
+  id TEXT PK NN;
+  run_id TEXT NN;
+  command_id TEXT NN;
+  terminal_revision_id TEXT NN FK city_frontier_revisions(id);
+  city_id TEXT NN;
+  country_code TEXT NN CHECK /^[A-Z]{2}$/;
+  profile_snapshot_id TEXT NN FK profile_snapshots(id);
+  preference_profile_snapshot_id TEXT NN FK profile_snapshots(id);
+  resolved_country_shortlist_revision_id TEXT NN FK country_resolution_revisions(id);
+  criteria_snapshot_id TEXT NN FK city_criteria_snapshots(id);
+  ranking_snapshot_id TEXT NN FK city_ranking_snapshots(id);
+  pre_city_branch_commit_id TEXT NN FK city_branch_commits(id);
+  selected_marker_digest TEXT NN CHECK lowercase-hex64;
+  knowledge_revision_id TEXT NN FK city_knowledge_revisions(id);
+  evidence_snapshot_id TEXT NN FK city_evidence_snapshots(id);
+  warning_copy_version TEXT NULL CHECK NULL | 'city-unknown-risk@1';
+  schema_version TEXT NN CHECK = 'city-selection@1';
+  command_json TEXT NN;
+  command_hash TEXT NN CHECK lowercase-hex64;
+  payload_json TEXT NN;
+  payload_hash TEXT NN CHECK lowercase-hex64;
+  hmac TEXT NN CHECK lowercase-hex64;
+  created_at TEXT NN;
+  CHECK profile_snapshot_id <> preference_profile_snapshot_id.
+
+city_branch_commits:
+  id TEXT PK NN;
+  kind TEXT NN CHECK IN ('pre_city','selection');
+  profile_snapshot_id TEXT NN FK profile_snapshots(id);
+  preference_profile_snapshot_id TEXT NN FK profile_snapshots(id);
+  resolved_country_shortlist_revision_id TEXT NN FK country_resolution_revisions(id);
+  country_code TEXT NN CHECK /^[A-Z]{2}$/;
+  resolved_country_entry_digest TEXT NN CHECK lowercase-hex64;
+  city_id TEXT NULL;
+  parent_id TEXT NULL FK city_branch_commits(id);
+  forked_from TEXT NULL FK city_branch_commits(id);
+  selection_snapshot_id TEXT NULL FK city_selection_snapshots(id);
+  schema_version TEXT NN CHECK pre_city -> 'pre-city-branch@1', selection -> 'city-branch@1';
+  payload_json TEXT NN;
+  payload_hash TEXT NN CHECK lowercase-hex64;
+  hmac TEXT NN CHECK lowercase-hex64;
+  created_at TEXT NN;
+  CHECK profile_snapshot_id <> preference_profile_snapshot_id;
+  CHECK pre_city -> city_id/parent_id/forked_from/selection_snapshot_id all NULL;
+  CHECK selection -> city_id/parent_id/forked_from/selection_snapshot_id all NN and parent_id = forked_from.
+
+city_ranking_snapshots:
+  id TEXT PK NN;
+  run_id TEXT NN;
+  resolved_country_shortlist_revision_id TEXT NN FK country_resolution_revisions(id);
+  country_code TEXT NN CHECK /^[A-Z]{2}$/;
+  package_id TEXT NN;
+  package_schema_version TEXT NN;
+  registry_revision_id TEXT NN;
+  catalog_revision_id TEXT NN FK city_catalog_revisions(id);
+  criteria_snapshot_id TEXT NN FK city_criteria_snapshots(id);
+  pre_city_branch_commit_id TEXT NN FK city_branch_commits(id);
+  profile_snapshot_id TEXT NN FK profile_snapshots(id);
+  preference_profile_snapshot_id TEXT NN FK profile_snapshots(id);
+  evidence_rules_version TEXT NN;
+  installed_package_context_json TEXT NN;
+  live_city_candidate_limit INTEGER NN CHECK = 10;
+  target_selectable_cities INTEGER NN CHECK = 3;
+  budget_rules_version TEXT NN CHECK = 'city-frontier-budget@1';
+  schema_version TEXT NN CHECK = 'city-ranking@1';
+  rules_version TEXT NN CHECK = 'city-ranker@1';
+  assessment_at TEXT NN;
+  payload_json TEXT NN;
+  payload_hash TEXT NN CHECK lowercase-hex64;
+  hmac TEXT NN CHECK lowercase-hex64;
+  created_at TEXT NN;
+  CHECK profile_snapshot_id <> preference_profile_snapshot_id;
+  composite FK (country_code, package_id, package_schema_version, catalog_revision_id,
+    evidence_rules_version) -> installed_city_package_manifests exact-key columns.
+
+city_frontier_revisions:
+  id TEXT PK NN;
+  run_id TEXT NN;
+  kind TEXT NN CHECK IN ('working','terminal');
+  predecessor_id TEXT NULL FK city_frontier_revisions(id);
+  ranking_snapshot_id TEXT NN FK city_ranking_snapshots(id);
+  operation_kind TEXT NN CHECK IN ('start','city_completed');
+  command_id TEXT NN;
+  schema_version TEXT NN CHECK = 'city-frontier@1';
+  command_json TEXT NN;
+  command_hash TEXT NN CHECK lowercase-hex64;
+  payload_json TEXT NN;
+  payload_hash TEXT NN CHECK lowercase-hex64;
+  hmac TEXT NN CHECK lowercase-hex64;
+  created_at TEXT NN;
+  CHECK predecessor_id IS NULL iff operation_kind = 'start';
+  CHECK predecessor_id <> id.
+```
+
+The exact `schema.sql` table SQL below expands every shorthand above; this SQL, not an
+implementer-chosen translation, is compared by preflight:
+
+```sql
+CREATE TABLE IF NOT EXISTS city_criteria_snapshots (
+  id TEXT PRIMARY KEY NOT NULL,
+  profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'city-criteria@1'),
+  rules_version TEXT NOT NULL CHECK (rules_version = 'city-criteria@1'),
+  confirmed_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  CHECK (profile_snapshot_id <> preference_profile_snapshot_id)
+);
+
+CREATE TABLE IF NOT EXISTS city_selection_snapshots (
+  id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  command_id TEXT NOT NULL,
+  terminal_revision_id TEXT NOT NULL REFERENCES city_frontier_revisions(id),
+  city_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2 AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+  criteria_snapshot_id TEXT NOT NULL REFERENCES city_criteria_snapshots(id),
+  ranking_snapshot_id TEXT NOT NULL REFERENCES city_ranking_snapshots(id),
+  pre_city_branch_commit_id TEXT NOT NULL REFERENCES city_branch_commits(id),
+  selected_marker_digest TEXT NOT NULL CHECK (
+    length(selected_marker_digest) = 64
+    AND selected_marker_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  knowledge_revision_id TEXT NOT NULL REFERENCES city_knowledge_revisions(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+  warning_copy_version TEXT CHECK (
+    warning_copy_version IS NULL OR warning_copy_version = 'city-unknown-risk@1'
+  ),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'city-selection@1'),
+  command_json TEXT NOT NULL,
+  command_hash TEXT NOT NULL CHECK (
+    length(command_hash) = 64 AND command_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  created_at TEXT NOT NULL,
+  CHECK (profile_snapshot_id <> preference_profile_snapshot_id)
+);
+
+CREATE TABLE IF NOT EXISTS city_branch_commits (
+  id TEXT PRIMARY KEY NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('pre_city', 'selection')),
+  profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2 AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  resolved_country_entry_digest TEXT NOT NULL CHECK (
+    length(resolved_country_entry_digest) = 64
+    AND resolved_country_entry_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  city_id TEXT,
+  parent_id TEXT REFERENCES city_branch_commits(id),
+  forked_from TEXT REFERENCES city_branch_commits(id),
+  selection_snapshot_id TEXT REFERENCES city_selection_snapshots(id),
+  schema_version TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  created_at TEXT NOT NULL,
+  CHECK (profile_snapshot_id <> preference_profile_snapshot_id),
+  CHECK (
+    (kind = 'pre_city' AND schema_version = 'pre-city-branch@1'
+      AND city_id IS NULL AND parent_id IS NULL AND forked_from IS NULL
+      AND selection_snapshot_id IS NULL)
+    OR
+    (kind = 'selection' AND schema_version = 'city-branch@1'
+      AND city_id IS NOT NULL AND parent_id IS NOT NULL AND forked_from IS NOT NULL
+      AND selection_snapshot_id IS NOT NULL AND parent_id = forked_from)
+  )
+);
+
+CREATE TABLE IF NOT EXISTS city_ranking_snapshots (
+  id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2 AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  registry_revision_id TEXT NOT NULL,
+  catalog_revision_id TEXT NOT NULL REFERENCES city_catalog_revisions(id),
+  criteria_snapshot_id TEXT NOT NULL REFERENCES city_criteria_snapshots(id),
+  pre_city_branch_commit_id TEXT NOT NULL REFERENCES city_branch_commits(id),
+  profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  evidence_rules_version TEXT NOT NULL,
+  installed_package_context_json TEXT NOT NULL,
+  live_city_candidate_limit INTEGER NOT NULL CHECK (live_city_candidate_limit = 10),
+  target_selectable_cities INTEGER NOT NULL CHECK (target_selectable_cities = 3),
+  budget_rules_version TEXT NOT NULL CHECK (budget_rules_version = 'city-frontier-budget@1'),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'city-ranking@1'),
+  rules_version TEXT NOT NULL CHECK (rules_version = 'city-ranker@1'),
+  assessment_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  created_at TEXT NOT NULL,
+  CHECK (profile_snapshot_id <> preference_profile_snapshot_id),
+  FOREIGN KEY (
+    country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+  ) REFERENCES installed_city_package_manifests (
+    country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+  )
+);
+
+CREATE TABLE IF NOT EXISTS city_frontier_revisions (
+  id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('working', 'terminal')),
+  predecessor_id TEXT REFERENCES city_frontier_revisions(id),
+  ranking_snapshot_id TEXT NOT NULL REFERENCES city_ranking_snapshots(id),
+  operation_kind TEXT NOT NULL CHECK (operation_kind IN ('start', 'city_completed')),
+  command_id TEXT NOT NULL,
+  schema_version TEXT NOT NULL CHECK (schema_version = 'city-frontier@1'),
+  command_json TEXT NOT NULL,
+  command_hash TEXT NOT NULL CHECK (
+    length(command_hash) = 64 AND command_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  created_at TEXT NOT NULL,
+  CHECK (
+    (operation_kind = 'start' AND predecessor_id IS NULL)
+    OR (operation_kind = 'city_completed' AND predecessor_id IS NOT NULL)
+  ),
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id)
+);
+```
+
+`lowercase-hex64` expands exactly to
+`length(column) = 64 AND column NOT GLOB '*[^0-9a-f]*'`. Exact named indexes are:
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS city_branch_commits_pre_city_source
+ON city_branch_commits (resolved_country_shortlist_revision_id, country_code)
+WHERE kind = 'pre_city';
+CREATE UNIQUE INDEX IF NOT EXISTS city_branch_commits_one_selection
+ON city_branch_commits (selection_snapshot_id) WHERE kind = 'selection';
+CREATE UNIQUE INDEX IF NOT EXISTS city_ranking_snapshots_one_run
+ON city_ranking_snapshots (run_id);
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_root
+ON city_frontier_revisions (run_id) WHERE predecessor_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_successor
+ON city_frontier_revisions (predecessor_id) WHERE predecessor_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_command
+ON city_frontier_revisions (run_id, command_id);
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_start_command
+ON city_frontier_revisions (command_id) WHERE operation_kind = 'start';
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_terminal
+ON city_frontier_revisions (run_id) WHERE kind = 'terminal';
+CREATE UNIQUE INDEX IF NOT EXISTS city_selection_snapshots_one_command
+ON city_selection_snapshots (run_id, command_id);
+```
+
+The ten immutable triggers are `<table>_no_update` and `<table>_no_delete` for each exact table, with
+errors respectively `city_criteria_snapshot_is_immutable`, `city_branch_commit_is_immutable`,
+`city_ranking_snapshot_is_immutable`, `city_frontier_revision_is_immutable` and
+`city_selection_snapshot_is_immutable`. Add the eleventh exact
+`city_frontier_revisions_no_successor_after_terminal` `BEFORE INSERT` trigger; when `NEW.predecessor_id` names a
+terminal row it raises `city_frontier_terminal_has_no_successor`.
+
+```text
+city_criteria_snapshots_no_update / city_criteria_snapshots_no_delete
+  -> city_criteria_snapshot_is_immutable
+city_branch_commits_no_update / city_branch_commits_no_delete
+  -> city_branch_commit_is_immutable
+city_ranking_snapshots_no_update / city_ranking_snapshots_no_delete
+  -> city_ranking_snapshot_is_immutable
+city_frontier_revisions_no_update / city_frontier_revisions_no_delete
+  -> city_frontier_revision_is_immutable
+city_selection_snapshots_no_update / city_selection_snapshots_no_delete
+  -> city_selection_snapshot_is_immutable
+city_frontier_revisions_no_successor_after_terminal
+  -> city_frontier_terminal_has_no_successor
+```
+
+Exact trigger SQL is:
+
+```sql
+CREATE TRIGGER IF NOT EXISTS city_criteria_snapshots_no_update
+BEFORE UPDATE ON city_criteria_snapshots
+BEGIN SELECT RAISE(ABORT, 'city_criteria_snapshot_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_criteria_snapshots_no_delete
+BEFORE DELETE ON city_criteria_snapshots
+BEGIN SELECT RAISE(ABORT, 'city_criteria_snapshot_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_branch_commits_no_update
+BEFORE UPDATE ON city_branch_commits
+BEGIN SELECT RAISE(ABORT, 'city_branch_commit_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_branch_commits_no_delete
+BEFORE DELETE ON city_branch_commits
+BEGIN SELECT RAISE(ABORT, 'city_branch_commit_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_ranking_snapshots_no_update
+BEFORE UPDATE ON city_ranking_snapshots
+BEGIN SELECT RAISE(ABORT, 'city_ranking_snapshot_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_ranking_snapshots_no_delete
+BEFORE DELETE ON city_ranking_snapshots
+BEGIN SELECT RAISE(ABORT, 'city_ranking_snapshot_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_frontier_revisions_no_update
+BEFORE UPDATE ON city_frontier_revisions
+BEGIN SELECT RAISE(ABORT, 'city_frontier_revision_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_frontier_revisions_no_delete
+BEFORE DELETE ON city_frontier_revisions
+BEGIN SELECT RAISE(ABORT, 'city_frontier_revision_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_selection_snapshots_no_update
+BEFORE UPDATE ON city_selection_snapshots
+BEGIN SELECT RAISE(ABORT, 'city_selection_snapshot_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_selection_snapshots_no_delete
+BEFORE DELETE ON city_selection_snapshots
+BEGIN SELECT RAISE(ABORT, 'city_selection_snapshot_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_frontier_revisions_no_successor_after_terminal
+BEFORE INSERT ON city_frontier_revisions
+WHEN NEW.predecessor_id IS NOT NULL AND EXISTS (
+  SELECT 1 FROM city_frontier_revisions
+  WHERE id = NEW.predecessor_id AND kind = 'terminal'
+)
+BEGIN SELECT RAISE(ABORT, 'city_frontier_terminal_has_no_successor'); END;
+```
+
+`db.ts` preflight enumerates the exact five table definitions, every named index and all ten immutable
+triggers plus the terminal-successor trigger. It sets and verifies `PRAGMA foreign_keys = ON` before
+preflight or any transaction. Preflight compares normalized table/trigger/index SQL plus ordered
+`PRAGMA table_info`, `foreign_key_list` and `index_list/index_info`, and rejects any extra object whose
+name starts with `city_criteria_`, `city_branch_`, `city_ranking_`, `city_frontier_` or
+`city_selection_`. It also rejects every non-listed user index/trigger whose `tbl_name` is one of the
+five exact tables regardless of object name. The only non-listed entries allowed on those tables are
+SQLite-generated `sqlite_autoindex_*` rows with `sql IS NULL`; preflight verifies their PRAGMA
+`origin/unique/columns` exactly for the declared primary keys/inline constraints. RED adds arbitrary-name
+extra index and trigger cases. The composite Ranking FK also requires the already existing exact unique
+index `installed_city_package_manifest_exact_key` on
+`(country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version)`;
+preflight verifies its normalized SQL/PRAGMA columns before installing or opening Task 13, and any drift
+is `database_schema_reset_required`. If the whole family is absent, install it atomically and reverify; if every object is
+exact, open; any partial, extra, altered, orphaned or foreign-keys-off state is
+`database_schema_reset_required`. Update all exact table inventories in the three named tests. FKs are
+used where a scalar relation is representable; a Knowledge map is not denormalized merely to fabricate
+per-member FKs.
+
+- [ ] **Step 6: Implement canonical structural loaders and complete-chain verification**
+
+Each loader first verifies private canonical bytes/hash/HMAC and every mirror/FK, then calls its
+Decision/Application/Branch structural reconstruction boundary and returns a fresh frozen value.
+`loadCriteriaVerified` calls `reconstructCityCriteriaSnapshot`; `loadRankingVerified` calls
+`reconstructCityRankingSnapshot`; frontier loaders call `reconstructCityFrontierRevision`; branch load
+derives and replays stored source through the verified country-resolution chain as specified in Step 2.
+The same freshness/non-aliasing law covers every load/find, `appendRevision`, command replay,
+`publishStart` and every nested result/array: outputs are fresh recursively frozen, do not alias inputs
+or cached row objects, and are non-identical across calls while canonically equal.
+
+Every full-chain/root load also follows the root's Ranking reference, structurally verifies that
+Ranking and its Criteria, and calls the no-context exact historical
+`CityCatalogStorePort.loadVerified(ranking.catalogRevisionId)`. It authenticates that Catalog bundle and
+binds catalog ID, Registry ID, country, package ID and package schema to the Ranking and its full
+installed context. It rebuilds the exact five-key `CityCriteriaCommandPayload` and raw hash, then
+rebuilds the exact nine-key `CityFrontierRunIdentity` and derived run ID using the verified Catalog's
+actual closed rules literal plus the Ranking's resolved source, country, Registry, full installed
+context, ranker rules and budget. It derives the exact five-key Start intent from those recomputed
+values and requires canonical equality with the stored root command envelope. The root operation's
+Criteria hash, every revision run/Ranking binding, and the Ranking's run/context/source/rules/budget
+mirrors must all equal that replay; no individually authentic, rehashed Criteria/Ranking/Catalog/root
+drift survives. Both Catalog rules versions are loadable structurally for historical replay.
+
+`loadRankingVerified(id)` takes no expected context. It authenticates the closed
+`installedPackageContext`, all five mirrors and stored references, but does not rerank. Application reads
+the returned context, resolves the exact installed package and calls
+`verifyCityRankingSnapshotSemantics`. A structurally valid rehashed alternate order passes only the
+structural layer and then fails Application semantics.
+
+Every frontier load/find reads the complete run chain without `rowid` authority and verifies: exactly
+one root; root has no predecessor and Start operation; every successor has the prior content ID,
+prefix-plus-one marker, matching expected head and `city_completed` operation; one successor per node;
+each `(runId, commandId)` occurs at most once while multiple distinct successor commands form the chain;
+same run and Ranking throughout; marker counts/ranks progress exactly; timestamps
+are nondecreasing; a terminal is final and has no successor; a working revision never has ten markers;
+the requested head is the unique verified head. Visit every row for the run exactly once from the root:
+no disconnected component, cycle, duplicate visit, cross-run/cross-Ranking edge or non-root without
+exactly one predecessor is accepted. A corrupt ancestor poisons all four loaders even when the requested
+row itself authenticates. This is topology/Task 12 structure only; Application still replays Task 11
+and Knowledge/Evidence after load.
+`loadChainVerified` returns a fresh recursively frozen root→successor→unique-head array produced by
+that visited traversal. RED inserts authentic rows in reverse physical order through fixture setup and
+requires the same canonical chain; neither `rowid` nor query order may leak into authority.
+`findCommandVerified` throws `city_frontier_not_found` when the run has no rows, verifies the complete
+existing run before lookup, and returns `undefined` only when the command is absent from that verified
+run. Any row/envelope/topology drift remains `integrity_mismatch`.
+
+- [ ] **Step 7: Implement append and atomic Start with exact replay/race normalization**
+
+Before SQL, `publishStart` descriptor-owns the exact six-key publication and validates all four
+structural artifacts plus their graph. It requires: the Criteria payload hash and timestamp-free intent;
+the claimed run/intent/root equations; root Start operation and command;
+`root.operation.criteriaPayloadHash` equal to the helper result; deterministic parent source replay and
+time equation; Ranking top-level/context/
+Criteria/pre-city/run bindings; equal `startAt` across Criteria, Ranking assessment/creation and root;
+zero-marker root; and the claimed ranking/budget literals. Reject this caller-owned pure structural
+candidate graph before opening a transaction. The publication carries no Catalog authority, so no
+pre-SQL step may claim its rules are authenticated.
+
+Then one `BEGIN IMMEDIATE` transaction performs this order:
+
+1. Look up `root.operation.commandId` globally among Start rows before any run-scoped read or insert.
+2. Even on a command hit, authenticate the candidate Ranking's referenced Catalog. Bind Catalog ID,
+   Registry, country, package and schema, use its actual rules to recompute the candidate's exact
+   Criteria hash, run identity/run ID and Start intent, and require canonical equality with every
+   claimed candidate field. This catches a forged candidate context that merely copied a stored intent
+   and occurs before intent comparison, replay return, derived-run root lookup or insert.
+3. On a command hit, compare the now-derived candidate intent with the stored canonical intent. Drift—
+   including a different derived run from country, resolved revision, Criteria, Registry/package or
+   budget or `@1 ↔ @2` rules—is `integrity_mismatch`. Only after exact intent equality fully load the
+   stored winner, including its own Catalog/identity replay, and require both candidate and winner rules
+   to equal `CITY_CATALOG_RULES_VERSION`; exact `@1` replay is `city_catalog_upgrade_required`. Then
+   return its Criteria/parent/Ranking/root even when the retry generated later time-bound candidates.
+   On a miss, require the candidate rules to equal `CITY_CATALOG_RULES_VERSION` before the next step.
+4. Before any artifact insert, query the derived run root and fully verify it if present. An existing
+   root under a different Start command is `integrity_mismatch` with zero Criteria/parent/Ranking write;
+   only an absent root proceeds.
+5. Exact-replay or insert Criteria, deterministic pre-city parent, Ranking and root in that order,
+   reloading each through its structural boundary. A pre-existing exact shared parent is reuse, not
+   partial success, and remains if a later candidate transaction rolls back.
+6. Reload all four artifacts and return exactly `CityFrontierStartPublicationResult`; never assemble a
+   read model in SQLite.
+
+`appendRevision({ revision })` structurally reconstructs only the owned candidate and validates its
+local scalars/content ID/operation/claimed predecessor fields before SQL; complete persisted topology
+cannot be authorized from caller data. It then begins immediate, resolves the stored command first, and
+on a command hit first compares the exact candidate operation to the stored operation; any drift is
+`integrity_mismatch`. Only an exact hit or command miss then loads/verifies the referenced complete
+chain/head and authenticated Catalog before returning, applying stale logic or inserting. It requires
+that Catalog rules equal `CITY_CATALOG_RULES_VERSION`; a structurally valid historical
+`city-catalog@1` run is presentable but direct append—including an exact committed-command hit—fails
+`city_catalog_upgrade_required` with zero insert. Exact current-rules committed command returns
+`{ operation, revision }` internally and the port returns
+its revision; same key with drift is `integrity_mismatch`. After command-first replay, only a candidate
+whose expected predecessor is an authenticated same-run/same-Ranking ancestor but is not the unique
+current head becomes `stale_city_frontier_head`. A forged, missing, cross-run, cross-Ranking or otherwise
+misbound predecessor is `integrity_mismatch`. Start conflicts, row tamper, binding failure, busy/native failures and
+unrelated constraints are never relabeled as stale or not-found. Do not catch all SQLite constraints.
+
+Application calls Task 11 and all Criteria/Ranking/Knowledge/Evidence semantic gates before sealing and
+passing a revision. The store repeats only structural/content/topology checks. After load, Application
+repeats all semantic gates before returning a rich model. The immutable referenced rows make this
+split safe without holding SQLite across evaluator or Evidence callbacks.
+
+- [ ] **Step 8: Run GREEN, non-neural gates and commit**
 
 ```bash
+./node_modules/.bin/vitest run tests/application/city-frontier-identity.test.ts \
+  tests/domain/city-criteria.test.ts tests/branch/city.test.ts
 ./node_modules/.bin/vitest run tests/integration/city-frontier-store.test.ts \
   tests/integration/database-schema.test.ts tests/integration/confirmed-life.test.ts \
   tests/branch/life-git.test.ts
 ./node_modules/.bin/tsc --noEmit
-./node_modules/.bin/eslint src/infrastructure/sqlite/city-{criteria,frontier,branch}-store.ts \
+./node_modules/.bin/eslint src/application/city-data-contracts.ts \
+  src/application/city-frontier-contracts.ts src/decision/city-criteria.ts \
+  src/infrastructure/sqlite/city-{criteria,frontier,branch}-store.ts \
+  src/infrastructure/sqlite/db.ts \
+  tests/application/city-frontier-identity.test.ts tests/domain/city-criteria.test.ts \
   tests/integration/city-frontier-store.test.ts \
-  tests/support/city-frontier-publication-worker.ts
+  tests/support/city-frontier-publication-worker.ts \
+  tests/integration/database-schema.test.ts tests/integration/confirmed-life.test.ts \
+  tests/branch/city.test.ts tests/branch/life-git.test.ts
 git diff --check
+! rg -n -i 'openai|anthropic|gemini|langchain|llamaindex|llm[_-]?|model[_-]?name' \
+  src/application/city-data-contracts.ts src/application/city-frontier-contracts.ts \
+  src/decision/city-criteria.ts src/infrastructure/sqlite/city-{criteria,frontier,branch}-store.ts \
+  src/infrastructure/sqlite/db.ts \
+  tests/application/city-frontier-identity.test.ts tests/domain/city-criteria.test.ts \
+  tests/integration/city-frontier-store.test.ts tests/support/city-frontier-publication-worker.ts \
+  tests/integration/database-schema.test.ts tests/integration/confirmed-life.test.ts \
+  tests/branch/city.test.ts tests/branch/life-git.test.ts
 git add src/application/city-data-contracts.ts \
+  src/application/city-frontier-contracts.ts src/decision/city-criteria.ts \
   src/infrastructure/sqlite/city-criteria-store.ts \
   src/infrastructure/sqlite/city-frontier-store.ts \
   src/infrastructure/sqlite/city-branch-store.ts src/infrastructure/sqlite/schema.sql \
   src/infrastructure/sqlite/db.ts tests/integration/city-frontier-store.test.ts \
+  tests/application/city-frontier-identity.test.ts tests/domain/city-criteria.test.ts \
   tests/support/city-frontier-publication-worker.ts tests/integration/database-schema.test.ts \
-  tests/integration/confirmed-life.test.ts tests/branch/life-git.test.ts
+  tests/integration/confirmed-life.test.ts tests/branch/city.test.ts tests/branch/life-git.test.ts
 git commit -m "feat: persist city frontier"
 ```
 
@@ -1067,18 +1816,75 @@ git commit -m "feat: persist city frontier"
 - Create: `src/infrastructure/city-frontier-composition.ts`
 - Create: `src/infrastructure/sources/slovenia-city-source-adapter.ts`
 - Create: `tests/integration/city-frontier.test.ts`
+- Modify: `src/infrastructure/sqlite/city-package-manifest-store.ts`
+- Modify: `src/infrastructure/sources/installed-city-packages.ts`
+- Modify: `src/infrastructure/sqlite/city-evidence-store.ts`
+- Modify: `src/application/replay-city-evidence.ts`
+- Modify: `src/infrastructure/sqlite/city-knowledge-store.ts`
+- Modify: `tests/integration/city-package-manifest-store.test.ts`
+- Modify: `tests/integration/city-evidence-store.test.ts`
+- Modify: `tests/integration/city-evidence-replay.test.ts`
+- Modify: `tests/integration/city-knowledge-store.test.ts`
 - Modify: `src/infrastructure/composition-root.ts`
 
 **Interfaces:**
 
 ```ts
+export interface StartCityFrontierInput {
+  readonly resolvedCountryShortlistRevisionId: string;
+  readonly countryCode: string;
+  readonly criteriaDraft: readonly [
+    CityCriterionDraft,
+    CityCriterionDraft,
+    CityCriterionDraft,
+    CityCriterionDraft,
+  ];
+  readonly commandId: string;
+}
+
+export interface PrepareCityFrontierContinuationInput {
+  readonly runId: string;
+  readonly expectedRevisionId: string;
+  readonly commandId: string;
+}
+
+export interface CityFrontierSetupReadModel {
+  readonly resolvedCountryShortlistRevisionId: string;
+  readonly countryCode: string;
+  readonly profileSnapshotId: string;
+  readonly preferenceProfileSnapshotId: string;
+  readonly resolvedCountryEntry: PreCityResolvedCountryEntryProjection;
+  readonly installedPackageContext: InstalledCityPackageExactKey;
+  readonly registryRevisionId: string;
+  readonly catalogMemberCount: number;
+  readonly catalogCoverage: CityCatalogRevision["coverage"];
+  readonly criterionDefinitions: InstalledCityCriterionDefinitionTuple;
+  readonly criteriaDraft: readonly [
+    CityCriterionDraft,
+    CityCriterionDraft,
+    CityCriterionDraft,
+    CityCriterionDraft,
+  ];
+}
+
+export interface CityFrontierPrepared {
+  readonly schemaVersion: "city-frontier-prepared@1";
+  readonly runId: string;
+  readonly baseRevisionId: string;
+  readonly rankingSnapshotId: string;
+  readonly nextUncheckedRank: number;
+  readonly commandId: string;
+}
+
 export interface CityFrontierApplication {
   presentCityFrontierSetup(input: {
     readonly resolvedCountryShortlistRevisionId: string;
     readonly countryCode: string;
   }): Promise<CityFrontierSetupReadModel>;
   startCityFrontier(input: StartCityFrontierInput): Promise<CityFrontierReadModel>;
-  prepareCityFrontierContinuation(input: PrepareCityFrontierContinuationInput): Promise<CityFrontierPrepared>;
+  prepareCityFrontierContinuation(
+    input: PrepareCityFrontierContinuationInput,
+  ): Promise<CityFrontierPrepared>;
   continueCityFrontier(
     prepared: CityFrontierPrepared,
     emit: (event: CityFrontierEvent) => void | Promise<void>,
@@ -1088,7 +1894,20 @@ export interface CityFrontierApplication {
 }
 ```
 
-The setup read model contains the verified country entry, installed package/definition metadata and a four-criterion draft derived from the exact relocation and Preference Profile snapshots bound by the resolved-country source; it performs no HTTP. Start input contains resolved-country revision ID, country code, Criteria draft and command ID. Prepared continuation contains only verified run/head/active-city/check IDs and source context; HTTP bodies never carry facts or ranking data.
+The setup read model contains the verified country entry, installed package/definition metadata and a
+four-criterion draft derived from the exact relocation and Preference Profile snapshots bound by the
+resolved-country source; it performs no HTTP. Start and Prepare accept exactly the public keys shown
+above; extra client run, snapshot, clock, package, parent, ranking, fact or digest authority is rejected.
+Prepared continuation contains only the six exact server-verified fields shown above. Prepare does not
+load Ranking or derive active-city/check/source context; Continue reloads head plus Ranking, derives
+those values and revalidates them. HTTP bodies never carry facts or ranking data. Both DTOs are closed,
+fresh recursively frozen and contain no raw Research/HTTP or database object. Setup requires
+`catalogMemberCount === verifiedCatalog.members.length` as a safe integer `0..100` and copies the exact
+fresh frozen closed `verifiedCatalog.coverage`; it exposes neither full catalog root nor raw package.
+Application receives Task 13's
+`CitySelectionHistoryReadPort` from composition and always assembles the exact rich read model; before
+Task 15, the injected implementation returns a fresh frozen empty array rather than a hardcoded future
+history in the use case.
 
 **Offline-installation port amendment (2026-08-24):** latest installed-root reads use the separately
 injected `InstalledCityCatalogReadPort.latestInstalledVerified(countryCode)`. Exact historical reads
@@ -1107,6 +1926,18 @@ and coordinates; confirmed criteria; deterministic pre-city parent created from 
 after each Start insert leaves zero partial rows; exact retry converges; two canonical presentations
 with zero source/request-step/search calls; exact four-fact accepted/reviewed-link marker projections;
 exact `lastCheckedAt`, raw 64-hex marker digest and verified selection/branch history after reload.
+Compile/runtime-pin the exact Start/Prepare keys. Pin the exact Criteria payload hash, deterministic run
+ID and timestamp-free Start intent, and require one `startAt` after all verified inputs. Require
+`criteria.confirmedAt = ranking.assessmentAt = ranking.createdAt = root.createdAt = startAt`, while
+`preCityBranch.createdAt = resolvedSnapshot.createdAt <= startAt`. Prove source-key parent lookup/replay
+happens before Ranking seal; retries and two races that obtain different clocks still use byte-identical
+parent bytes/ID. Require `publishStart` to return the granular four-artifact result and Application to
+assemble the rich model only after semantic reload. The initial selection-history adapter is called and
+returns a fresh frozen empty list; no hardcoded `selections: []` path exists.
+Pin Setup's exact key set, `catalogMemberCount === verifiedCatalog.members.length` as safe `0..100`,
+and exact fresh closed coverage equality; count/coverage drift or aliasing fails before return.
+For Start reload and both presentations, rehash one otherwise authentic Criteria/Ranking/root cross-row
+identity and require rejection before read-model projection with zero source/network call.
 For Continue and both presentations, independently reconstruct the raw four facts/links from exact
 Knowledge plus replayed Evidence, project frozen Ranking assessment/ordered/screened IDs, and call
 Task 11 with verified Criteria/evaluators and the exact predecessor marker list. Mutate every authority
@@ -1114,12 +1945,31 @@ ID/time/fact/link, evaluator-derived mismatch/coverage/warning/color, digest and
 reject before append/presentation and perform zero source/search/document call during reload. An installed package whose Catalog uses
 `LEGACY_CITY_CATALOG_RULES_VERSION` must fail Setup/Start as
 `city_catalog_upgrade_required` before ranking, source calls or any Criteria/pre-city/Ranking/frontier
-run row. No legacy-catalog-rules City run can be created. Continue and Present require an exact
-installed manifest whose Catalog retains `schemaVersion === "city-catalog@1"` and
-`rulesVersion === CITY_CATALOG_RULES_VERSION`; Present is
-guaranteed only for snapshots created by that current-catalog-rules Start path. A synthetic/imported
-snapshot bound to legacy Catalog rules is rejected as `city_catalog_upgrade_required`; historical
-migration/import compatibility is out of scope.
+run row. No legacy-catalog-rules City run can be created. Continue also rejects an authentic bound `@1`
+run as `city_catalog_upgrade_required` before recovery/source/append. Present instead accepts exact
+installed historical manifests whose structurally authenticated Catalog rules are `@1 | @2`, reruns the
+bound Catalog/Criteria/Ranking/Knowledge/Evidence/Task 11 semantics and returns a zero-network rich
+model. An `@1` read model is audit-only: its `catalog.rulesVersion` lets Experience disable successful
+Continue/Select affordances.
+
+In the two newly modified installed-package files, make authenticated read reconstruction version-
+neutral over the closed `@1 | @2` Catalog union. `loadExactVerified` and `loadCurrentVerified` must be
+able to verify a persisted chain containing legacy predecessors; `findReady`, `findExact`,
+`loadExactReplayContract` and `latestInstalledVerified` may therefore surface an authentic `@1` value
+so the owning Application boundary can classify it. Unknown rules remain `integrity_mismatch`. Keep
+`@2` enforcement at write/use boundaries: manifest append/installer, `publishStart`, direct Frontier
+append, Continue and Select. RED persists a mixed legacy-root→current-head manifest chain, proves exact
+legacy and current/head reads both work, proves latest/current lookup is not poisoned, and proves an
+attempted `@1` manifest append still fails without a row.
+
+Apply the same split to the existing Evidence/Knowledge replay chain. Authenticated
+`city-evidence-store` load, `replay-city-evidence` and `city-knowledge-store` load paths accept the
+exact Catalog rules already bound by the historical package (`@1 | @2`), while
+`CityEvidenceStore.seal` and `CityKnowledgeStore.publishFromEvidence` remain `@2`-only writes. One
+end-to-end RED presents an authentic `@1` terminal through manifest → Evidence store/Application replay
+→ Knowledge → semantic Ranking/Task 11 with zero source and zero durable write. Paired direct `@1`
+Evidence seal and Knowledge publication probes fail `city_catalog_upgrade_required` before insert;
+unknown rules fail `integrity_mismatch`.
 
 Add the package-readiness preflight ahead of any database, source or ranking port. For the current SI
 candidate, both Setup and Start fail `city_package_not_ready` with all four readiness issues and zero
@@ -1184,10 +2034,25 @@ durable row. The manifest mapping version alone never authorizes a default draft
 - [ ] **Step 2: Run RED**
 
 ```bash
-./node_modules/.bin/vitest run tests/integration/city-frontier.test.ts
+./node_modules/.bin/vitest run tests/integration/city-frontier.test.ts \
+  tests/integration/city-package-manifest-store.test.ts \
+  tests/integration/city-evidence-store.test.ts \
+  tests/integration/city-evidence-replay.test.ts \
+  tests/integration/city-knowledge-store.test.ts
 ```
 
 - [ ] **Step 3: Implement Start and graph verification**
+
+First widen only the shared persisted-manifest chain reconstructor and authenticated read projections
+to the known `@1 | @2` Catalog union. Do not leave a current-rules assertion buried in
+`reconstructPersisted`, because that prevents an exact current head from loading when it has an
+authentic legacy predecessor. Keep append validation explicitly `@2` and let each Application use case
+apply its own gate: Setup/Start/Continue/Select require current rules, while Present accepts either
+known literal. This read/write split never treats a structurally returned package as write authority.
+Likewise move current-rules assertions out of shared authenticated Evidence/Knowledge load/replay and
+onto their mutation boundaries. Evidence load/Application replay and Knowledge load accept only the
+exact package-bound known literal; Evidence `seal` and Knowledge `publishFromEvidence` require current
+rules before write. Present chains those read-only APIs and performs no repair publication for `@1`.
 
 Setup and Start share one private Application initial-trust-gate helper and first call pure
 `getCityResearchPackageAvailability(countryCode)` and
@@ -1270,25 +2135,46 @@ case work. That guard returns the exact `ResolvedCountryShortlistSnapshot` and u
 profile snapshots, then builds one fresh plain frozen `PreCityBranchSourceProjection` containing those
 IDs, the resolved snapshot ID and the complete exact entry. Setup derives its draft only from those
 snapshots and the frozen approved installed defaults. Start revalidates the entry/draft and both profile
-IDs, calls `createPreCityBranchCommit` with that verified source, loads current Knowledge and ranks only the
-verified catalog members/coordinates outside SQLite. Setup returns the initial gate's server-derived
+IDs, loads current Knowledge and completes every semantic input check, then obtains exactly one
+`startAt`. It constructs the exact five-key `CityCriteriaCommandPayload`, computes its raw payload hash,
+constructs the exact run identity and derives the prefixed deterministic run ID, and constructs the
+exact timestamp-free Start intent. It calls `createPreCityBranchCommit` with the verified source and
+`createdAt: resolvedSnapshot.createdAt`, requires that time not exceed `startAt`, and performs the
+source-key structural `findPreCityBranchBySourceVerified` load/replay before sealing Ranking. A missing
+parent uses the deterministic
+candidate; an existing parent must canonically equal it. A concurrent winner is resolved by Task 13's
+same stored-source replay, never by resealing Ranking with a new parent or clock. Start then ranks only
+the verified catalog members/coordinates outside SQLite. Setup returns the initial gate's server-derived
 `installedPackageContext` with the installed metadata; Start consumes the same gate result and never
 accepts a client context or reconstructs one after profile/Knowledge work. The frozen Ranking snapshot
 stores that exact already verified context, and its top-level country/package/schema/catalog fields
 equal the first four context fields while its separate `rulesVersion` remains `city-ranker@1`. Start structurally reconstructs
 the sealed Ranking and calls `verifyCityRankingSnapshotSemantics` with the verified Registry/catalog,
 confirmed Criteria, exact Knowledge projections and installed evaluator registry before persistence.
-Then root creation uses `sealCityFrontierRevision` over the Task 11 zero-marker projection and one
-Application-owned `publishStart` port uses a single immediate
-transaction to exact-replay or insert Criteria, pre-city parent, Ranking and frontier root atomically.
+Require `criteria.confirmedAt = ranking.assessmentAt = ranking.createdAt = root.createdAt = startAt`.
+Then root creation uses `sealCityFrontierRevision` over the Task 11 zero-marker projection, with its
+Start operation carrying the client command and exact Criteria payload hash. One Application-owned
+`publishStart` port uses a single immediate transaction to exact-replay or insert Criteria, pre-city
+parent, Ranking and frontier root atomically and returns the granular four-artifact result. Application
+canonical-compares that result, structurally reloads it, repeats evaluator Criteria, semantic Ranking,
+Task 11 and source/Knowledge/Evidence guards, independently rebuilds the exact Criteria payload hash,
+run identity/run ID and five-key Start intent from the reloaded Criteria/Ranking/root and requires all
+cross-row bindings plus stored command-envelope equality, reads verified selection history, and only
+then assembles the rich `CityFrontierReadModel`.
 Presentation first obtains the structurally verified Ranking through `loadRankingVerified(id)`, then
 uses its returned manifest context to resolve the exact installed package/catalog/criteria/Knowledge
 inputs, requires the manifest package schema to equal its signed package definition, requires every
-reconstructed/authoritative Catalog to retain schema `"city-catalog@1"` and current
-`CITY_CATALOG_RULES_VERSION`, and calls
+reconstructed/authoritative Catalog to retain schema `"city-catalog@1"` and the exact authenticated
+closed `LEGACY_CITY_CATALOG_RULES_VERSION | CITY_CATALOG_RULES_VERSION` literal bound into the run
+identity, and calls
 `verifyCityRankingSnapshotSemantics` before projecting a read model. It also
 reconstructs Registry identity, both profile bindings, every exact source and selection/branch history
-without network.
+without network. The legacy result is audit-only and is not authority to Continue or Select.
+For each pair from the structurally verified ordered history port, Presentation resolves the exact
+historical package, repeats the semantic source-parent/terminal/Ranking/Criteria/Knowledge/Evidence and
+Task 11 frontier graph, reruns pure selection from the persisted city plus optional warning request,
+then calls `reconstructCitySelectionWithBranch` and requires canonical equality. Any drift rejects the
+whole rich model with zero official/search network; no structural pair alone enters `selections`.
 
 - [ ] **Step 4: Add Continue RED matrix**
 
@@ -1308,6 +2194,12 @@ an injected Application clock and a fake Infrastructure deadline scheduler; asse
 capability reaches `CityFixedSourceRunInput`. Make one route port never settle and prove the scheduler
 aborts/rejects the shared operation with zero Evidence, Knowledge, marker or budget advancement and
 no late output.
+
+Add a fresh HTTP Prepare+Continue retry after an earlier identical command produced a working winner,
+and another after it produced a terminal winner. Prepare must find the committed command before testing
+the current head, recover the original base and return the exact six-key value; Continue semantically
+replays the winner with zero source call and no duplicate event. Mutated expected base/operation is
+`integrity_mismatch`.
 
 For the successful sealing path, assert the City context and overlay expose only
 `evidenceRulesVersion` and copy it from `ranking.installedPackageContext.evidenceRulesVersion`.
@@ -1332,9 +2224,10 @@ Supply a synthetic structurally valid Ranking whose frozen exact lookup returns 
 keeps `schemaVersion === "city-catalog@1"` but uses
 `LEGACY_CITY_CATALOG_RULES_VERSION`. Continue rejects those legacy Catalog rules as
 `city_catalog_upgrade_required` before completed-Evidence, Knowledge,
-single-flight, callback or source access; Present rejects the same unsupported snapshot before read-model
-projection. This is rejection coverage only—there is no legacy-catalog-rules run creator, migration or
-import path.
+single-flight, callback or source access. Present exact-loads the same historically bound package,
+replays its Catalog/Criteria/Ranking/Knowledge/Evidence/Task 11 semantics with zero source/network and
+returns an audit-only rich model whose Catalog still exposes `@1`; a missing or drifted exact package
+fails closed.
 Separately rehash a Catalog with `schemaVersion: "city-catalog@2"` and reject it as structural
 `integrity_mismatch`, not an upgrade case. Set only the lookup key/manifest
 `packageSchemaVersion` to `"city-catalog@2"` while its signed package definition retains its actual
@@ -1364,22 +2257,45 @@ Every frontier value used by Continue or Present first passes
 Task 11 Knowledge/Evidence/Criteria semantic reconstruction described below. Structural success or a
 valid signed row never authorizes marker policy by itself.
 
-`prepareCityFrontierContinuation` may call only the no-context head/command loaders and copy the
-ranking snapshot ID plus active/check metadata needed for its opaque prepared IDs; it must not load the
-Ranking payload, prefetch a completed Evidence/check, replay Task 7, read/write Knowledge, resolve a
-package, install single-flight or invoke an event/source callback. `continueCityFrontier`
-revalidates rather than trusting that prepared object, so the order below applies across the complete
-Prepare+Continue attempt.
+`prepareCityFrontierContinuation` first descriptor-owns/closes and scalar-validates the exact
+three-key input, then calls `findCommandVerified(runId, commandId)` before any head lookup. On a hit it
+requires a `city_completed` operation whose `expectedHeadRevisionId === input.expectedRevisionId`,
+structurally loads and verifies that base revision, and derives the exact six-key Prepared value from
+the base even if the committed winner has since made the current head terminal. On a miss it loads the
+unique head, requires a working head whose ID equals `input.expectedRevisionId`, and derives the same
+six-key value from that head. Prepare may call only these no-context frontier loaders; it must not load
+Ranking or derive active city/rank/check ID, prefetch completed Evidence/check, replay Task 7,
+read/write Knowledge, resolve a package, install single-flight or invoke an event/source callback.
+`continueCityFrontier` revalidates rather than trusting that prepared object, so the order below applies
+across the complete Prepare+Continue attempt.
 
-Continue first calls the no-context `loadHeadVerified(runId)`, validates terminal state, ten-marker
-ceiling, prepared/head identity and active city/check identity, then checks abort. It next calls exactly
-`loadRankingVerified(head.rankingSnapshotId)` with no caller context, verifies the returned snapshot ID,
-run and head binding, and reads its structurally verified `installedPackageContext`. These head/ranking
-operations are the only reads permitted before the historical package gate. Continue takes the lookup
+Continue first descriptor-owns/closes and scalar-validates the exact six-key Prepared value, including
+schema, IDs, positive safe next rank and no symbols/accessors/proxy/custom prototype. Only then it calls
+`findCommandVerified(runId, commandId)`. On a command hit it structurally loads the prepared base
+revision and requires exact base run/Ranking/next-rank equations. A committed `city_completed`
+operation must have `expectedHeadRevisionId === prepared.baseRevisionId` and exact command; drift is
+`integrity_mismatch`. It does not yet run semantic replay or return. Only an absent command loads the
+no-context `loadHeadVerified(runId)`, requires a working head whose ID equals
+`prepared.baseRevisionId`, validates the ten-marker ceiling and `prepared.nextUncheckedRank`, then
+checks abort. Both branches next call exactly `loadRankingVerified(base.rankingSnapshotId)` with no
+caller context, verify the returned snapshot ID/run/revision binding and read its structurally verified
+`installedPackageContext`. These base/head/Ranking operations are the only reads permitted before the
+common historical package gate. Continue takes the lookup
 key solely as `ranking.installedPackageContext` and passes that exact closed object to the inward
 `InstalledCityPackageLookupPort.findExact`; it neither rebuilds the key from individual run/head fields
 nor reruns the country-only availability, `findReady` or `latestInstalledVerified` path. A later package
-definition must not reinterpret a frozen run.
+definition must not reinterpret a frozen run. Both hit and miss traverse the same exact package/Catalog
+authentication below and require current rules before any Criteria/evaluator/Knowledge/Evidence/Task 11,
+event or source callback. After that complete semantic gate, a command hit returns the committed
+working-or-terminal rich model with zero source/event/append; only a miss continues.
+Only after Ranking semantic verification on that miss does Continue derive the active city, rank and deterministic
+`cityCheckRunId`; none are trusted from Prepared. RED covers committed retries whose winner left a
+working head and whose winner terminalized the run, both returning the same semantic model without
+source access.
+Bounded RED mutates Prepared schema, Ranking ID and next rank on committed replay and requires
+`integrity_mismatch` with zero source call. A matching Prepared for an exact committed `@1` command
+fails `city_catalog_upgrade_required` at the common Catalog gate with zero semantic/source/event/append
+callback.
 
 `undefined` throws `city_package_revision_not_installed`. A returned value must expose a fresh frozen
 `installedPackageManifest` whose key canonically equals the exact requested context. Its ID is audit
@@ -1514,20 +2430,39 @@ the single-flight entry in `finally`; never hold SQLite across HTTP/search or ad
 ```bash
 ./node_modules/.bin/vitest run tests/integration/city-frontier.test.ts \
   tests/integration/city-frontier-store.test.ts \
+  tests/integration/city-package-manifest-store.test.ts \
+  tests/integration/city-evidence-store.test.ts \
+  tests/integration/city-evidence-replay.test.ts \
   tests/integration/city-knowledge-store.test.ts \
   tests/integration/country-resolution.test.ts
 ./node_modules/.bin/tsc --noEmit
 ./node_modules/.bin/eslint src/application/city-{frontier,verifier}.ts \
+  src/application/replay-city-evidence.ts \
   src/infrastructure/city-{frontier-composition,verifier-adapter}.ts \
-  src/infrastructure/sources/slovenia-city-source-adapter.ts \
-  tests/integration/city-frontier.test.ts
+  src/infrastructure/composition-root.ts \
+  src/infrastructure/sqlite/city-{package-manifest,evidence,knowledge}-store.ts \
+  src/infrastructure/sources/{installed-city-packages,slovenia-city-source-adapter}.ts \
+  tests/integration/city-frontier.test.ts \
+  tests/integration/city-package-manifest-store.test.ts \
+  tests/integration/city-evidence-store.test.ts \
+  tests/integration/city-evidence-replay.test.ts \
+  tests/integration/city-knowledge-store.test.ts
 git diff --check
 git add src/application/city-frontier.ts src/application/city-verifier.ts \
   src/infrastructure/city-frontier-composition.ts \
   src/infrastructure/city-verifier-adapter.ts \
+  src/application/replay-city-evidence.ts \
+  src/infrastructure/sqlite/city-package-manifest-store.ts \
+  src/infrastructure/sqlite/city-evidence-store.ts \
+  src/infrastructure/sqlite/city-knowledge-store.ts \
+  src/infrastructure/sources/installed-city-packages.ts \
   src/infrastructure/sources/slovenia-city-source-adapter.ts \
   src/infrastructure/composition-root.ts \
-  tests/integration/city-frontier.test.ts
+  tests/integration/city-frontier.test.ts \
+  tests/integration/city-package-manifest-store.test.ts \
+  tests/integration/city-evidence-store.test.ts \
+  tests/integration/city-evidence-replay.test.ts \
+  tests/integration/city-knowledge-store.test.ts
 git commit -m "feat: run city frontier"
 ```
 
@@ -1554,19 +2489,36 @@ export interface SelectCityInput {
   readonly warningCopyVersion?: "city-unknown-risk@1";
 }
 
-export function selectCity(input: SelectCityInput): Promise<{
-  readonly selection: CitySelectionSnapshot;
-  readonly commit: CityBranchCommit;
-  readonly readModel: CityFrontierReadModel;
-}>;
+export interface CitySelectionApplication {
+  selectCity(input: SelectCityInput): Promise<{
+    readonly selection: CitySelectionSnapshot;
+    readonly commit: CityBranchCommit;
+    readonly readModel: CityFrontierReadModel;
+  }>;
+}
 
-export interface CitySelectionReadPort {
+export interface CitySelectionCommandIntent {
+  readonly terminalCityShortlistSnapshotId: string;
+  readonly cityId: string;
+  readonly warningCopyVersion?: "city-unknown-risk@1";
+}
+
+export interface CitySelectionPublication {
+  readonly commandId: string;
+  readonly intent: CitySelectionCommandIntent;
+  readonly pair: CitySelectionWithBranch;
+}
+
+export interface CitySelectionReadPort extends CitySelectionHistoryReadPort {
   loadSelectionWithBranchVerified(
     citySelectionSnapshotId: string,
   ): Promise<CitySelectionWithBranch>;
-  listSelectionsWithBranchesVerified(
-    runId: string,
-  ): Promise<readonly CitySelectionWithBranch[]>;
+}
+
+export interface CitySelectionWriterPort extends CitySelectionReadPort {
+  publishSelection(
+    input: CitySelectionPublication,
+  ): Promise<CitySelectionWithBranch>;
 }
 ```
 
@@ -1574,10 +2526,25 @@ export interface CitySelectionReadPort {
 
 Accept only the exact `SelectCityInput` keys; accept a terminal selectable city with 0 or nonzero warnings; reject working/empty/missing/excluded/tampered city, wrong copy-version presence/value and client `runId`, basis or parent fields. After the Application command envelope is removed, compile/runtime-pin the pure request to exactly `{ cityId, warningCopyVersion? }`; reject terminal ID, command ID, digest, facts, basis, links and parent on that nested surface. Require `reconstructCitySelection` to return the exact fresh terminal entry plus transient reviewed links flattened from the selected marker in four-fact/link occurrence order without deduplication. Derive `runId` from the verified terminal snapshot before command lookup. Assert idempotency is keyed by that derived `runId + commandId`: an identical canonical remainder `{ terminalCityShortlistSnapshotId, cityId, warningCopyVersion? }` returns both prior rows, while the same key with any changed remainder conflicts. Inject failure before either insert and verify neither row exists. Returned/presented read models contain verified sibling selection/branch history. Cover `loadSelectionWithBranchVerified(citySelectionSnapshotId)` success, missing ID, duplicate or mismatched selection/commit rows, tampered root/context bindings and fresh frozen copies; the lookup must not accept `runId` or browser-supplied context as authority.
 
+An authentic audit-only terminal whose bound Catalog rules are `city-catalog@1` fails
+`city_catalog_upgrade_required` immediately after exact package/Catalog authentication and before
+Criteria/evaluator, Knowledge/Evidence, semantic Ranking, Task 11, pair construction or writer
+invocation; pin those counters at zero. The writer independently exact-loads the referenced Catalog and enforces
+current rules before replay/insert, so a forged direct publication cannot bypass the Application gate.
+Cover both a command miss and an exact stored-command hit on `@1`; neither returns a pair or inserts,
+and both fail `city_catalog_upgrade_required` with wrapper/writer-write counters at zero.
+
 Compile/runtime-pin `createCitySelectionWithBranch` as the only Task 15 construction path after the
 fresh Task 11 selection projection, and `reconstructCitySelectionWithBranch` as the final loaded-pair
 authority check after the exact terminal/ranking/pre-city graph is loaded. Neither Select nor the
 writer assembles or accepts independently authoritative Selection/Branch literals.
+Insert siblings in reverse physical order, including equal timestamps, and require both the structural
+history port and semantically verified rich presentation to use the exact total order
+`selection.createdAt ASC, selection.id ASC`. Inject evaluator, Knowledge, Evidence and Task 11 spies
+and statically pin imports: Application invokes them before construction and after structural reload;
+`city-selection-writer.ts` invokes none of them and accepts only the exact timestamp-free command
+intent plus the already constructed pair. Descriptor-own/exact-key pin the explicit intent interface;
+future public Select fields cannot silently enter command equality.
 
 - [ ] **Step 2: Run RED**
 
@@ -1588,29 +2555,63 @@ writer assembles or accepts independently authoritative Selection/Branch literal
 - [ ] **Step 3: Implement the atomic writer over the existing tables**
 
 Use the Task 13 `city_selection_snapshots` and `city_branch_commits` schemas. Verify mirrored
-context/marker/pair fields through `reconstructCitySelectionWithBranch`; separately verify command
-identity and idempotency through the writer-owned command envelope. Require
+context/marker/pair fields through Task 12 structural replay; separately verify command identity and
+idempotency through the writer-owned timestamp-free command envelope. Require
 `parent_id = forked_from`, exact selection FK and the same country/profile context as the verified
 `pre_city` parent. A selection-kind City Branch row is never accepted or persisted independently from
-its Selection snapshot.
+its Selection snapshot. The writer accepts exactly `CitySelectionPublication`, not a Task 11 projection,
+evaluator registry, Knowledge/Evidence graph, digest proof or caller-assembled authority DTO.
 
 - [ ] **Step 4: Implement one atomic writer transaction**
 
-Load/verify terminal, predecessor and source graph inside the transaction; reconstruct its narrow frozen
-Ranking projection, Criteria/evaluators, every Knowledge/Evidence authority and raw marker digest; then
-call `reconstructCitySelection` with only the exact city/version request. Load the exact
-resolved-country/profile source and call
-`replayPreCityBranchCommit(parentRow, source, integrity)`; pass that returned fresh parent, the fresh
-selection projection, the structurally and semantically verified terminal/ranking authority, the exact
-client command ID already validated inside the server-owned command envelope, and the server-provided
-creation time only to `createCitySelectionWithBranch`. The wrapper maps
+Application `selectCity` first structurally loads the complete terminal chain and the minimum
+Ranking/pre-city references needed to exact-load and authenticate the historical package/Registry/
+Catalog. Immediately after that Catalog authentication—and before Application Criteria/evaluator,
+Knowledge, Evidence, semantic Ranking, Task 11, wrapper or writer callbacks—it requires the exact bound
+Catalog rules to equal `CITY_CATALOG_RULES_VERSION`; `@1` is audit-only and fails
+`city_catalog_upgrade_required`. Only the current-rules path loads/reconstructs Criteria, semantic
+Ranking and every Knowledge/Evidence marker authority, recomputes digests, and reruns Task 11 frontier
+reconstruction. It then calls `reconstructCitySelection` with only the exact city/version
+request. Application rebuilds the exact resolved-country/profile source through the full semantic guard,
+source-replays the parent, and passes that fresh parent, the fresh selection projection, the verified
+terminal/ranking authority, client command ID and one server creation time to
+`createCitySelectionWithBranch`. The wrapper maps
 `entry.cityId/markerDigest/knowledgeRevisionId/evidenceSnapshotId/unknownBasis` and optional version to
 the Selection Snapshot, derives the exact parent/fork/context and invokes the pure Branch helper.
 `reviewedSourceLinks` is a verified transient result for presentation/command binding and is not
-persisted as a second array. Insert the returned pair atomically, reload the exact authority graph,
-source-replay the parent again and pass that result to `reconstructCitySelectionWithBranch`, then
-commit. Source links never affect selectability by
-themselves. Add both `loadSelectionWithBranchVerified(citySelectionSnapshotId)` and `listSelectionsWithBranchesVerified(runId)` to the inward writer port and implement them in `city-selection-writer.ts`. The by-ID method loads the exact selection/commit pair in one read transaction; verifies `selection.id === commit.citySelectionSnapshotId`, `selection.preCityBranchCommitId === commit.parentId`, `selection.preCityBranchCommitId === commit.forkedFrom` and the stored country/profile/source context; rejects missing, duplicate, mismatched or tampered rows; and returns a fresh frozen `CitySelectionWithBranch`. Select and `presentCityFrontier` return the complete verified history. A second city from the same terminal reuses the same pre-city parent and creates a sibling commit.
+persisted as a second array. It builds exact `CitySelectionPublication` with the timestamp-free intent
+and calls the writer.
+
+Before SQL the writer owns/closes the exact publication and its pure preflight requires
+`pair.selection.commandId === publication.commandId`, derives
+the run ID from the sealed pair, and requires exact intent-to-selection equality for terminal revision,
+city and optional warning-copy presence/value. Outer command/intent drift is `integrity_mismatch` with
+zero inserts and zero semantic callbacks. It then begins immediate; lookup by
+`(derived pair.selection.runId, commandId)` is the first SQL action. Changed stored intent is
+`integrity_mismatch`. For an exact command hit it authenticates the stored pair's referenced Catalog;
+for a miss it authenticates the candidate pair's referenced Catalog. It rejects `@1` as
+`city_catalog_upgrade_required` before returning replay, loading further run rows or inserting. Both
+current-rules hit and miss paths then load all immutable structural terminal/Ranking/pre-city/reference
+rows, derive the stored pre-city source
+through Task 13's country-resolution-chain adapter, calls Task 12 structural
+`reconstructCitySelectionWithBranch`, and verify mirrors/FKs/pair topology. A hit applies those checks to
+the stored pair and only then returns a fresh pair. A miss applies them to the candidate, inserts both
+rows, reloads the same structural graph/pair and commits. Insert order is Selection first and selection-kind Branch
+second because the Branch owns the Selection FK; failure probes immediately before Selection, between
+Selection and Branch, and after Branch/reload roll back both rows. It performs zero evaluator, Knowledge, Evidence or Task 11
+callbacks. Immutable append-only references make the prior Application semantic check safe.
+
+Implement both `loadSelectionWithBranchVerified(citySelectionSnapshotId)` and inherited
+`listSelectionsWithBranchesVerified(runId)` in `city-selection-writer.ts`. The by-ID method loads the
+exact selection/commit pair in one read transaction; verifies
+`selection.id === commit.citySelectionSnapshotId`,
+`selection.preCityBranchCommitId === commit.parentId === commit.forkedFrom` and all stored mirrors;
+rejects missing as `city_selection_not_found`, duplicate, mismatched or tampered rows; and returns a
+fresh frozen pair. The list method verifies every pair and orders it by
+`(selection.createdAt ASC, selection.id ASC)` without `rowid`. After write/load, Application repeats the
+full semantic graph, Task 11 selection and pair equality before returning or presenting the rich model.
+Source links never affect selectability by themselves. A second city from the same terminal reuses the
+same pre-city parent and creates a sibling commit.
 
 `selectCity` never accepts a client `runId`: it verified-loads `terminalCityShortlistSnapshotId`, derives
 the run ID from that terminal, and passes only `(derived runId, commandId, canonical remaining payload)`
@@ -1627,6 +2628,8 @@ returns `integrity_mismatch` for the same derived key with a different remainder
 ./node_modules/.bin/tsc --noEmit
 ./node_modules/.bin/eslint src/application/city-selection.ts \
   src/infrastructure/sqlite/city-selection-writer.ts \
+  src/infrastructure/city-frontier-composition.ts \
+  src/infrastructure/composition-root.ts \
   tests/integration/city-selection.test.ts
 git diff --check
 git add src/application/city-selection.ts \
