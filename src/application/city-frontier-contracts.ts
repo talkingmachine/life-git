@@ -7,6 +7,7 @@ import {
   type CityBranchSelectionProjection,
   type CityBranchCommit,
   type PreCityBranchCommit,
+  type PreCityBranchSourceProjection,
 } from "../branch/city";
 import {
   reconstructCityCatalog,
@@ -138,7 +139,19 @@ export interface SealCityFrontierRevisionInput {
   readonly createdAt: string;
 }
 
-export type CityFrontierReadModel = CityFrontierRevision;
+export interface CityFrontierReadModel {
+  readonly runId: string;
+  readonly assessmentAt: string;
+  readonly resolvedCountryShortlistRevisionId: string;
+  readonly countryCode: string;
+  readonly preCityBranchCommitId: string;
+  readonly registry: CityRegistryRevision;
+  readonly catalog: CityCatalogRevision;
+  readonly criteria: CityCriteriaSnapshot;
+  readonly ranking: CityRankingSnapshot;
+  readonly revision: CityFrontierRevision;
+  readonly selections: readonly CitySelectionWithBranch[];
+}
 
 export type CityFrontierEvent =
   | {
@@ -219,6 +232,77 @@ export interface CreateCitySelectionWithBranchInput extends CitySelectionAuthori
   readonly commandId: string;
   readonly selection: CitySelectionProjection;
   readonly createdAt: string;
+}
+
+export interface CityFrontierStartIntent {
+  readonly schemaVersion: "city-frontier-start-intent@1";
+  readonly runId: string;
+  readonly resolvedCountryShortlistRevisionId: string;
+  readonly countryCode: string;
+  readonly criteriaPayloadHash: string;
+}
+
+export interface CityFrontierAppendInput {
+  readonly revision: CityFrontierRevision;
+}
+
+export interface CityCommandResult {
+  readonly operation: CityFrontierOperation;
+  readonly revision: CityFrontierRevision;
+}
+
+export interface CityFrontierStartPublication {
+  readonly intent: CityFrontierStartIntent;
+  readonly criteria: CityCriteriaSnapshot;
+  readonly preCityBranch: PreCityBranchCommit;
+  readonly preCitySource: PreCityBranchSourceProjection;
+  readonly ranking: CityRankingSnapshot;
+  readonly root: CityFrontierRevision;
+}
+
+export interface CityFrontierStartPublicationResult {
+  readonly criteria: CityCriteriaSnapshot;
+  readonly preCityBranch: PreCityBranchCommit;
+  readonly ranking: CityRankingSnapshot;
+  readonly root: CityFrontierRevision;
+}
+
+export interface CityCriteriaReadPort {
+  loadCriteriaVerified(id: string): CityCriteriaSnapshot;
+}
+
+export interface CityBranchReadPort {
+  loadPreCityBranchVerified(id: string): PreCityBranchCommit;
+  findPreCityBranchBySourceVerified(
+    source: PreCityBranchSourceProjection,
+  ): PreCityBranchCommit | undefined;
+}
+
+export interface CityRankingReadPort {
+  loadRankingVerified(id: string): CityRankingSnapshot;
+}
+
+export interface CityFrontierReadPort {
+  loadRevisionVerified(id: string): CityFrontierRevision;
+  loadHeadVerified(runId: string): CityFrontierRevision;
+  loadChainVerified(runId: string): readonly CityFrontierRevision[];
+  findCommandVerified(runId: string, commandId: string): CityCommandResult | undefined;
+}
+
+export interface CityFrontierAppendPort {
+  appendRevision(input: CityFrontierAppendInput): CityFrontierRevision;
+}
+
+export type CityFrontierStorePort = CityFrontierReadPort & CityFrontierAppendPort;
+
+export interface CitySelectionHistoryReadPort {
+  listSelectionsWithBranchesVerified(
+    runId: string,
+  ): Promise<readonly CitySelectionWithBranch[]>;
+}
+
+export interface CityFrontierStartWriterPort {
+  publishStart(input: CityFrontierStartPublication): CityFrontierStartPublicationResult;
 }
 
 type PlainRecord = Record<string, unknown>;

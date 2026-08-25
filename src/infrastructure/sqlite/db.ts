@@ -398,6 +398,64 @@ interface IndexInfoEntry {
   readonly name: string;
 }
 
+interface Task13SchemaEntry {
+  readonly type: string;
+  readonly name: string;
+  readonly tbl_name: string;
+  readonly sql: string | null;
+}
+
+interface Task13TableInfoEntry {
+  readonly cid: number;
+  readonly name: string;
+  readonly type: string;
+  readonly notnull: number;
+  readonly dflt_value: string | null;
+  readonly pk: number;
+}
+
+interface Task13IndexListEntry {
+  readonly name: string;
+  readonly unique: number;
+  readonly origin: string;
+  readonly partial: number;
+}
+
+interface Task13IndexInfoEntry {
+  readonly seqno: number;
+  readonly cid: number;
+  readonly name: string;
+}
+
+interface Task13PragmaSnapshot {
+  readonly tables: Readonly<Record<string, {
+    readonly tableInfo: readonly Task13TableInfoEntry[];
+    readonly foreignKeys: readonly ForeignKeyEntry[];
+    readonly indexes: readonly Task13IndexListEntry[];
+    readonly indexColumns: Readonly<Record<string, readonly Task13IndexInfoEntry[]>>;
+  }>>;
+  readonly manifestExactKey: readonly Task13IndexInfoEntry[];
+}
+
+const TASK13_TABLE_NAMES = [
+  "city_criteria_snapshots",
+  "city_branch_commits",
+  "city_ranking_snapshots",
+  "city_frontier_revisions",
+  "city_selection_snapshots",
+] as const;
+
+const TASK13_NAME_PREFIXES = [
+  "city_criteria_",
+  "city_branch_",
+  "city_ranking_",
+  "city_frontier_",
+  "city_selection_",
+] as const;
+
+let cachedTask13Schema: readonly Task13SchemaEntry[] | undefined;
+let cachedTask13Pragmas: Task13PragmaSnapshot | undefined;
+
 function normalizeSchemaSql(value: string): string {
   return value.toLowerCase().replace(/\s+/g, "").replace("ifnotexists", "").replace(/;$/, "");
 }
@@ -410,6 +468,155 @@ function normalizeExactSchemaSql(value: string): string {
   return withoutOptionalExistence.endsWith(";")
     ? withoutOptionalExistence.slice(0, -1).trimEnd()
     : withoutOptionalExistence;
+}
+
+function task13SchemaEntries(database: Database.Database): readonly Task13SchemaEntry[] {
+  return (database.prepare(`
+    SELECT type, name, tbl_name, sql FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_%'
+  `).all() as Task13SchemaEntry[]).filter((entry) =>
+    TASK13_TABLE_NAMES.includes(entry.tbl_name as typeof TASK13_TABLE_NAMES[number]) ||
+    TASK13_NAME_PREFIXES.some((prefix) => entry.name.startsWith(prefix))
+  ).sort((left, right) => left.type.localeCompare(right.type) ||
+    left.name.localeCompare(right.name));
+}
+
+function expectedTask13Schema(): readonly Task13SchemaEntry[] {
+  if (cachedTask13Schema !== undefined) return cachedTask13Schema;
+  const reference = new Database(":memory:");
+  try {
+    reference.exec(schema);
+    cachedTask13Schema = task13SchemaEntries(reference);
+    return cachedTask13Schema;
+  } finally {
+    reference.close();
+  }
+}
+
+function task13TableInfo(
+  database: Database.Database,
+  table: string,
+): readonly Task13TableInfoEntry[] {
+  return (database.pragma(`table_info(${table})`) as Task13TableInfoEntry[])
+    .map(({ cid, name, type, notnull, dflt_value: defaultValue, pk }) => ({
+      cid,
+      name,
+      type,
+      notnull,
+      dflt_value: defaultValue,
+      pk,
+    }));
+}
+
+function task13ForeignKeys(
+  database: Database.Database,
+  table: string,
+): readonly ForeignKeyEntry[] {
+  return (database.pragma(`foreign_key_list(${table})`) as ForeignKeyEntry[])
+    .map(({ id, seq, table: parent, from, to, on_update: onUpdate,
+      on_delete: onDelete, match }) => ({
+      id,
+      seq,
+      table: parent,
+      from,
+      to,
+      on_update: onUpdate,
+      on_delete: onDelete,
+      match,
+    }));
+}
+
+function task13IndexList(
+  database: Database.Database,
+  table: string,
+): readonly Task13IndexListEntry[] {
+  return (database.pragma(`index_list(${table})`) as Task13IndexListEntry[])
+    .map(({ name, unique, origin, partial }) => ({ name, unique, origin, partial }));
+}
+
+function task13IndexInfo(
+  database: Database.Database,
+  index: string,
+): readonly Task13IndexInfoEntry[] {
+  return (database.pragma(`index_info(${index})`) as Task13IndexInfoEntry[])
+    .map(({ seqno, cid, name }) => ({ seqno, cid, name }));
+}
+
+function captureTask13Pragmas(database: Database.Database): Task13PragmaSnapshot {
+  const tables: Record<string, {
+    readonly tableInfo: readonly Task13TableInfoEntry[];
+    readonly foreignKeys: readonly ForeignKeyEntry[];
+    readonly indexes: readonly Task13IndexListEntry[];
+    readonly indexColumns: Readonly<Record<string, readonly Task13IndexInfoEntry[]>>;
+  }> = {};
+  for (const table of TASK13_TABLE_NAMES) {
+    const indexes = task13IndexList(database, table);
+    tables[table] = {
+      tableInfo: task13TableInfo(database, table),
+      foreignKeys: task13ForeignKeys(database, table),
+      indexes,
+      indexColumns: Object.fromEntries(indexes.map(({ name }) => [
+        name,
+        task13IndexInfo(database, name),
+      ])),
+    };
+  }
+  return {
+    tables,
+    manifestExactKey: task13IndexInfo(
+      database,
+      "installed_city_package_manifest_exact_key",
+    ),
+  };
+}
+
+function expectedTask13Pragmas(): Task13PragmaSnapshot {
+  if (cachedTask13Pragmas !== undefined) return cachedTask13Pragmas;
+  const reference = new Database(":memory:");
+  try {
+    reference.pragma("foreign_keys = ON");
+    reference.exec(schema);
+    cachedTask13Pragmas = captureTask13Pragmas(reference);
+    return cachedTask13Pragmas;
+  } finally {
+    reference.close();
+  }
+}
+
+function hasExpectedTask13Pragmas(database: Database.Database): boolean {
+  try {
+    const actual = captureTask13Pragmas(database);
+    const expected = expectedTask13Pragmas();
+    if (JSON.stringify(actual.tables) !== JSON.stringify(expected.tables)) return false;
+    return JSON.stringify(actual.manifestExactKey) ===
+      JSON.stringify(expected.manifestExactKey);
+  } catch {
+    return false;
+  }
+}
+
+function preflightExistingTask13CityFrontier(database: Database.Database): void {
+  const actual = task13SchemaEntries(database);
+  const presentTables = new Set(actual
+    .filter(({ type, name }) => type === "table" &&
+      TASK13_TABLE_NAMES.includes(name as typeof TASK13_TABLE_NAMES[number]))
+    .map(({ name }) => name));
+  if (presentTables.size === 0) {
+    if (actual.length !== 0) throw new Error("database_schema_reset_required");
+    return;
+  }
+  if (presentTables.size !== TASK13_TABLE_NAMES.length) {
+    throw new Error("database_schema_reset_required");
+  }
+  const expected = expectedTask13Schema();
+  if (actual.length !== expected.length || actual.some((entry, index) => {
+    const reference = expected[index]!;
+    return entry.type !== reference.type || entry.name !== reference.name ||
+      entry.tbl_name !== reference.tbl_name || entry.sql === null || reference.sql === null ||
+      normalizeExactSchemaSql(entry.sql) !== normalizeExactSchemaSql(reference.sql);
+  }) || !hasExpectedTask13Pragmas(database)) {
+    throw new Error("database_schema_reset_required");
+  }
 }
 
 function preflightExistingArtifacts(database: Database.Database): void {
@@ -827,6 +1034,9 @@ export function openEvidenceDatabase(path: string): Database.Database {
   const database = new Database(path);
   try {
     database.pragma("foreign_keys = ON");
+    if (database.pragma("foreign_keys", { simple: true }) !== 1) {
+      throw new Error("database_schema_reset_required");
+    }
     preflightExistingArtifacts(database);
     preflightExistingRunRevisions(database);
     preflightExistingCityEvidence(database);
@@ -836,7 +1046,11 @@ export function openEvidenceDatabase(path: string): Database.Database {
     preflightExistingDossierV2(database);
     preflightExistingCountryResolution(database);
     preflightExistingOnboardingConfirmations(database);
-    database.exec(schema);
+    preflightExistingTask13CityFrontier(database);
+    database.transaction(() => {
+      database.exec(schema);
+      preflightExistingTask13CityFrontier(database);
+    })();
     return database;
   } catch (error) {
     try {

@@ -115,6 +115,179 @@ const CURRENT_INSTALLED_CITY_PACKAGE_HEADS_SQL = `CREATE TABLE installed_city_pa
     REFERENCES installed_city_package_manifests(country_code, id)
 )`;
 
+const TASK_13_TABLE_SQL = {
+  city_criteria_snapshots: `CREATE TABLE city_criteria_snapshots (
+    id TEXT PRIMARY KEY NOT NULL,
+    profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+    preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+    schema_version TEXT NOT NULL CHECK (schema_version = 'city-criteria@1'),
+    rules_version TEXT NOT NULL CHECK (rules_version = 'city-criteria@1'),
+    confirmed_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL CHECK (
+      length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    hmac TEXT NOT NULL CHECK (
+      length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+    ),
+    CHECK (profile_snapshot_id <> preference_profile_snapshot_id)
+  )`,
+  city_selection_snapshots: `CREATE TABLE city_selection_snapshots (
+    id TEXT PRIMARY KEY NOT NULL,
+    run_id TEXT NOT NULL,
+    command_id TEXT NOT NULL,
+    terminal_revision_id TEXT NOT NULL REFERENCES city_frontier_revisions(id),
+    city_id TEXT NOT NULL,
+    country_code TEXT NOT NULL CHECK (
+      length(country_code) = 2 AND country_code = upper(country_code)
+      AND country_code GLOB '[A-Z][A-Z]'
+    ),
+    profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+    preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+    resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+    criteria_snapshot_id TEXT NOT NULL REFERENCES city_criteria_snapshots(id),
+    ranking_snapshot_id TEXT NOT NULL REFERENCES city_ranking_snapshots(id),
+    pre_city_branch_commit_id TEXT NOT NULL REFERENCES city_branch_commits(id),
+    selected_marker_digest TEXT NOT NULL CHECK (
+      length(selected_marker_digest) = 64
+      AND selected_marker_digest NOT GLOB '*[^0-9a-f]*'
+    ),
+    knowledge_revision_id TEXT NOT NULL REFERENCES city_knowledge_revisions(id),
+    evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+    warning_copy_version TEXT CHECK (
+      warning_copy_version IS NULL OR warning_copy_version = 'city-unknown-risk@1'
+    ),
+    schema_version TEXT NOT NULL CHECK (schema_version = 'city-selection@1'),
+    command_json TEXT NOT NULL,
+    command_hash TEXT NOT NULL CHECK (
+      length(command_hash) = 64 AND command_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL CHECK (
+      length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    hmac TEXT NOT NULL CHECK (
+      length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+    ),
+    created_at TEXT NOT NULL,
+    CHECK (profile_snapshot_id <> preference_profile_snapshot_id)
+  )`,
+  city_branch_commits: `CREATE TABLE city_branch_commits (
+    id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('pre_city', 'selection')),
+    profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+    preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+    resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+    country_code TEXT NOT NULL CHECK (
+      length(country_code) = 2 AND country_code = upper(country_code)
+      AND country_code GLOB '[A-Z][A-Z]'
+    ),
+    resolved_country_entry_digest TEXT NOT NULL CHECK (
+      length(resolved_country_entry_digest) = 64
+      AND resolved_country_entry_digest NOT GLOB '*[^0-9a-f]*'
+    ),
+    city_id TEXT,
+    parent_id TEXT REFERENCES city_branch_commits(id),
+    forked_from TEXT REFERENCES city_branch_commits(id),
+    selection_snapshot_id TEXT REFERENCES city_selection_snapshots(id),
+    schema_version TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL CHECK (
+      length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    hmac TEXT NOT NULL CHECK (
+      length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+    ),
+    created_at TEXT NOT NULL,
+    CHECK (profile_snapshot_id <> preference_profile_snapshot_id),
+    CHECK (
+      (kind = 'pre_city' AND schema_version = 'pre-city-branch@1'
+        AND city_id IS NULL AND parent_id IS NULL AND forked_from IS NULL
+        AND selection_snapshot_id IS NULL)
+      OR
+      (kind = 'selection' AND schema_version = 'city-branch@1'
+        AND city_id IS NOT NULL AND parent_id IS NOT NULL AND forked_from IS NOT NULL
+        AND selection_snapshot_id IS NOT NULL AND parent_id = forked_from)
+    )
+  )`,
+  city_ranking_snapshots: `CREATE TABLE city_ranking_snapshots (
+    id TEXT PRIMARY KEY NOT NULL,
+    run_id TEXT NOT NULL,
+    resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+    country_code TEXT NOT NULL CHECK (
+      length(country_code) = 2 AND country_code = upper(country_code)
+      AND country_code GLOB '[A-Z][A-Z]'
+    ),
+    package_id TEXT NOT NULL,
+    package_schema_version TEXT NOT NULL,
+    registry_revision_id TEXT NOT NULL,
+    catalog_revision_id TEXT NOT NULL REFERENCES city_catalog_revisions(id),
+    criteria_snapshot_id TEXT NOT NULL REFERENCES city_criteria_snapshots(id),
+    pre_city_branch_commit_id TEXT NOT NULL REFERENCES city_branch_commits(id),
+    profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+    preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+    evidence_rules_version TEXT NOT NULL,
+    installed_package_context_json TEXT NOT NULL,
+    live_city_candidate_limit INTEGER NOT NULL CHECK (live_city_candidate_limit = 10),
+    target_selectable_cities INTEGER NOT NULL CHECK (target_selectable_cities = 3),
+    budget_rules_version TEXT NOT NULL CHECK (budget_rules_version = 'city-frontier-budget@1'),
+    schema_version TEXT NOT NULL CHECK (schema_version = 'city-ranking@1'),
+    rules_version TEXT NOT NULL CHECK (rules_version = 'city-ranker@1'),
+    assessment_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL CHECK (
+      length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    hmac TEXT NOT NULL CHECK (
+      length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+    ),
+    created_at TEXT NOT NULL,
+    CHECK (profile_snapshot_id <> preference_profile_snapshot_id),
+    FOREIGN KEY (
+      country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+    ) REFERENCES installed_city_package_manifests (
+      country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+    )
+  )`,
+  city_frontier_revisions: `CREATE TABLE city_frontier_revisions (
+    id TEXT PRIMARY KEY NOT NULL,
+    run_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('working', 'terminal')),
+    predecessor_id TEXT REFERENCES city_frontier_revisions(id),
+    ranking_snapshot_id TEXT NOT NULL REFERENCES city_ranking_snapshots(id),
+    operation_kind TEXT NOT NULL CHECK (operation_kind IN ('start', 'city_completed')),
+    command_id TEXT NOT NULL,
+    schema_version TEXT NOT NULL CHECK (schema_version = 'city-frontier@1'),
+    command_json TEXT NOT NULL,
+    command_hash TEXT NOT NULL CHECK (
+      length(command_hash) = 64 AND command_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL CHECK (
+      length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    hmac TEXT NOT NULL CHECK (
+      length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+    ),
+    created_at TEXT NOT NULL,
+    CHECK (
+      (operation_kind = 'start' AND predecessor_id IS NULL)
+      OR (operation_kind = 'city_completed' AND predecessor_id IS NOT NULL)
+    ),
+    CHECK (predecessor_id IS NULL OR predecessor_id <> id)
+  )`,
+} as const;
+
+function normalizeSql(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim();
+}
+
+function task13ReferenceDatabase(): Database.Database {
+  const database = track(new Database(":memory:"));
+  for (const sql of Object.values(TASK_13_TABLE_SQL)) database.exec(sql);
+  return database;
+}
+
 afterEach(() => {
   for (const database of databases.splice(0)) {
     if (database.open) database.close();
@@ -689,9 +862,14 @@ describe("database schema preflight", () => {
     ).all()).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "city_branch_commits" },
       { name: "city_catalog_revisions" },
+      { name: "city_criteria_snapshots" },
       { name: "city_evidence_snapshots" },
+      { name: "city_frontier_revisions" },
       { name: "city_knowledge_revisions" },
+      { name: "city_ranking_snapshots" },
+      { name: "city_selection_snapshots" },
       { name: "country_knowledge_revisions" },
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
@@ -1289,6 +1467,11 @@ END`,
     const legacy = track(openEvidenceDatabase(path));
     legacy.pragma("foreign_keys = OFF");
     legacy.exec(`
+      DROP TABLE city_selection_snapshots;
+      DROP TABLE city_frontier_revisions;
+      DROP TABLE city_ranking_snapshots;
+      DROP TABLE city_branch_commits;
+      DROP TABLE city_criteria_snapshots;
       DROP TABLE installed_city_package_heads;
       DROP TABLE installed_city_package_manifests;
       DROP TABLE city_catalog_revisions;
@@ -1483,7 +1666,15 @@ END`,
     const path = temporaryDatabasePath();
     const legacy = track(openEvidenceDatabase(path));
     legacy.pragma("foreign_keys = OFF");
-    legacy.exec("DROP TABLE installed_city_package_heads; DROP TABLE installed_city_package_manifests");
+    legacy.exec(`
+      DROP TABLE city_selection_snapshots;
+      DROP TABLE city_frontier_revisions;
+      DROP TABLE city_ranking_snapshots;
+      DROP TABLE city_branch_commits;
+      DROP TABLE city_criteria_snapshots;
+      DROP TABLE installed_city_package_heads;
+      DROP TABLE installed_city_package_manifests;
+    `);
     legacy.close();
 
     const upgraded = track(openEvidenceDatabase(path));
@@ -1842,5 +2033,542 @@ END`,
     expect(() => database.prepare(`
       DELETE FROM onboarding_confirmations WHERE receipt_id = 'receipt'
     `).run()).toThrow("onboarding_confirmation_is_immutable");
+  });
+
+  test("installs the exact five-table City persistence family and physical columns", () => {
+    // Break caught: adding a support table, omitting Task 15 foresight, or drifting physical order.
+    const database = track(openEvidenceDatabase(":memory:"));
+    expect(database.pragma("foreign_keys", { simple: true })).toBe(1);
+
+    const tables = database.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name IN (
+        'city_criteria_snapshots', 'city_branch_commits', 'city_ranking_snapshots',
+        'city_frontier_revisions', 'city_selection_snapshots'
+      ) ORDER BY name
+    `).all();
+    expect(tables).toEqual([
+      { name: "city_branch_commits" },
+      { name: "city_criteria_snapshots" },
+      { name: "city_frontier_revisions" },
+      { name: "city_ranking_snapshots" },
+      { name: "city_selection_snapshots" },
+    ]);
+
+    const expectedColumns = {
+      city_criteria_snapshots: [
+        "id", "profile_snapshot_id", "preference_profile_snapshot_id", "schema_version",
+        "rules_version", "confirmed_at", "payload_json", "payload_hash", "hmac",
+      ],
+      city_selection_snapshots: [
+        "id", "run_id", "command_id", "terminal_revision_id", "city_id", "country_code",
+        "profile_snapshot_id", "preference_profile_snapshot_id",
+        "resolved_country_shortlist_revision_id", "criteria_snapshot_id", "ranking_snapshot_id",
+        "pre_city_branch_commit_id", "selected_marker_digest", "knowledge_revision_id",
+        "evidence_snapshot_id", "warning_copy_version", "schema_version", "command_json",
+        "command_hash", "payload_json", "payload_hash", "hmac", "created_at",
+      ],
+      city_branch_commits: [
+        "id", "kind", "profile_snapshot_id", "preference_profile_snapshot_id",
+        "resolved_country_shortlist_revision_id", "country_code", "resolved_country_entry_digest",
+        "city_id", "parent_id", "forked_from", "selection_snapshot_id", "schema_version",
+        "payload_json", "payload_hash", "hmac", "created_at",
+      ],
+      city_ranking_snapshots: [
+        "id", "run_id", "resolved_country_shortlist_revision_id", "country_code", "package_id",
+        "package_schema_version", "registry_revision_id", "catalog_revision_id",
+        "criteria_snapshot_id", "pre_city_branch_commit_id", "profile_snapshot_id",
+        "preference_profile_snapshot_id", "evidence_rules_version",
+        "installed_package_context_json", "live_city_candidate_limit",
+        "target_selectable_cities", "budget_rules_version", "schema_version", "rules_version",
+        "assessment_at", "payload_json", "payload_hash", "hmac", "created_at",
+      ],
+      city_frontier_revisions: [
+        "id", "run_id", "kind", "predecessor_id", "ranking_snapshot_id", "operation_kind",
+        "command_id", "schema_version", "command_json", "command_hash", "payload_json",
+        "payload_hash", "hmac", "created_at",
+      ],
+    } as const;
+
+    for (const [table, columns] of Object.entries(expectedColumns)) {
+      const stored = database.prepare(`
+        SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?
+      `).get(table) as { readonly sql: string };
+      expect(normalizeSql(stored.sql), table)
+        .toBe(normalizeSql(TASK_13_TABLE_SQL[table as keyof typeof TASK_13_TABLE_SQL]));
+      const actual = database.prepare(`PRAGMA table_info(${table})`).all() as
+        Array<{
+          readonly name: string;
+          readonly type: string;
+          readonly notnull: number;
+          readonly dflt_value: string | null;
+          readonly pk: number;
+        }>;
+      const nullable = new Set([
+        "warning_copy_version",
+        "parent_id",
+        "forked_from",
+        "selection_snapshot_id",
+        "predecessor_id",
+      ]);
+      const integers = new Set([
+        "live_city_candidate_limit",
+        "target_selectable_cities",
+      ]);
+      expect(actual.map(({ name, type, notnull, dflt_value: defaultValue, pk }) => ({
+        name,
+        type,
+        notnull,
+        dflt_value: defaultValue,
+        pk,
+      })), table).toEqual(columns.map((name, index) => ({
+        name,
+        type: integers.has(name) ? "INTEGER" : "TEXT",
+        notnull: nullable.has(name) ||
+          (table === "city_branch_commits" && name === "city_id") ? 0 : 1,
+        dflt_value: null,
+        pk: index === 0 ? 1 : 0,
+      })));
+    }
+  });
+
+  test("installs every exact named City index and no sixth mapping index/table", () => {
+    // Break caught: widening the parent source key or weakening root/command/topology uniqueness.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const actual = database.prepare(`
+      SELECT name, sql FROM sqlite_master
+      WHERE type = 'index' AND tbl_name IN (
+        'city_criteria_snapshots', 'city_branch_commits', 'city_ranking_snapshots',
+        'city_frontier_revisions', 'city_selection_snapshots'
+      ) AND sql IS NOT NULL ORDER BY name
+    `).all() as Array<{ readonly name: string; readonly sql: string }>;
+    expect(actual.map(({ name, sql }) => ({ name, sql: normalizeSql(sql) }))).toEqual([
+      {
+        name: "city_branch_commits_one_selection",
+        sql: "CREATE UNIQUE INDEX city_branch_commits_one_selection ON city_branch_commits (selection_snapshot_id) WHERE kind = 'selection'",
+      },
+      {
+        name: "city_branch_commits_pre_city_source",
+        sql: "CREATE UNIQUE INDEX city_branch_commits_pre_city_source ON city_branch_commits (resolved_country_shortlist_revision_id, country_code) WHERE kind = 'pre_city'",
+      },
+      {
+        name: "city_frontier_revisions_one_command",
+        sql: "CREATE UNIQUE INDEX city_frontier_revisions_one_command ON city_frontier_revisions (run_id, command_id)",
+      },
+      {
+        name: "city_frontier_revisions_one_root",
+        sql: "CREATE UNIQUE INDEX city_frontier_revisions_one_root ON city_frontier_revisions (run_id) WHERE predecessor_id IS NULL",
+      },
+      {
+        name: "city_frontier_revisions_one_start_command",
+        sql: "CREATE UNIQUE INDEX city_frontier_revisions_one_start_command ON city_frontier_revisions (command_id) WHERE operation_kind = 'start'",
+      },
+      {
+        name: "city_frontier_revisions_one_successor",
+        sql: "CREATE UNIQUE INDEX city_frontier_revisions_one_successor ON city_frontier_revisions (predecessor_id) WHERE predecessor_id IS NOT NULL",
+      },
+      {
+        name: "city_frontier_revisions_one_terminal",
+        sql: "CREATE UNIQUE INDEX city_frontier_revisions_one_terminal ON city_frontier_revisions (run_id) WHERE kind = 'terminal'",
+      },
+      {
+        name: "city_ranking_snapshots_one_run",
+        sql: "CREATE UNIQUE INDEX city_ranking_snapshots_one_run ON city_ranking_snapshots (run_id)",
+      },
+      {
+        name: "city_selection_snapshots_one_command",
+        sql: "CREATE UNIQUE INDEX city_selection_snapshots_one_command ON city_selection_snapshots (run_id, command_id)",
+      },
+    ]);
+    expect(database.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table'
+      AND name LIKE 'city_%mapping%'
+    `).all()).toEqual([]);
+    const expectedByTable = {
+      city_criteria_snapshots: [],
+      city_branch_commits: [
+        ["city_branch_commits_one_selection", ["selection_snapshot_id"], 1],
+        ["city_branch_commits_pre_city_source", [
+          "resolved_country_shortlist_revision_id",
+          "country_code",
+        ], 1],
+      ],
+      city_ranking_snapshots: [
+        ["city_ranking_snapshots_one_run", ["run_id"], 0],
+      ],
+      city_frontier_revisions: [
+        ["city_frontier_revisions_one_command", ["run_id", "command_id"], 0],
+        ["city_frontier_revisions_one_root", ["run_id"], 1],
+        ["city_frontier_revisions_one_start_command", ["command_id"], 1],
+        ["city_frontier_revisions_one_successor", ["predecessor_id"], 1],
+        ["city_frontier_revisions_one_terminal", ["run_id"], 1],
+      ],
+      city_selection_snapshots: [
+        ["city_selection_snapshots_one_command", ["run_id", "command_id"], 0],
+      ],
+    } as const;
+    for (const [table, expectedIndexes] of Object.entries(expectedByTable)) {
+      const rows = (database.prepare(`PRAGMA index_list(${table})`).all() as Array<{
+        readonly name: string;
+        readonly unique: number;
+        readonly origin: string;
+        readonly partial: number;
+      }>).filter(({ name }) => !name.startsWith("sqlite_autoindex_"))
+        .sort((left, right) => left.name.localeCompare(right.name));
+      expect(rows.map(({ name, unique, origin, partial }) => ({
+        name,
+        unique,
+        origin,
+        partial,
+      })), table).toEqual(expectedIndexes.map(([name, , partial]) => ({
+        name,
+        unique: 1,
+        origin: "c",
+        partial,
+      })));
+      for (const [name, columns] of expectedIndexes) {
+        const info = database.prepare(`PRAGMA index_info(${name})`).all() as Array<{
+          readonly name: string;
+        }>;
+        expect(info.map(({ name: column }) => column), name).toEqual(columns);
+      }
+    }
+  });
+
+  test("installs ten immutable triggers and the terminal-successor guard exactly", () => {
+    // Break caught: one durable family remaining mutable or a terminal accepting a successor.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const triggers = database.prepare(`
+      SELECT name, sql FROM sqlite_master
+      WHERE type = 'trigger' AND tbl_name IN (
+        'city_criteria_snapshots', 'city_branch_commits', 'city_ranking_snapshots',
+        'city_frontier_revisions', 'city_selection_snapshots'
+      ) ORDER BY name
+    `).all() as Array<{ readonly name: string; readonly sql: string }>;
+    const messages = new Map<string, string>([
+      ["city_criteria_snapshots_no_update", "city_criteria_snapshot_is_immutable"],
+      ["city_criteria_snapshots_no_delete", "city_criteria_snapshot_is_immutable"],
+      ["city_branch_commits_no_update", "city_branch_commit_is_immutable"],
+      ["city_branch_commits_no_delete", "city_branch_commit_is_immutable"],
+      ["city_ranking_snapshots_no_update", "city_ranking_snapshot_is_immutable"],
+      ["city_ranking_snapshots_no_delete", "city_ranking_snapshot_is_immutable"],
+      ["city_frontier_revisions_no_update", "city_frontier_revision_is_immutable"],
+      ["city_frontier_revisions_no_delete", "city_frontier_revision_is_immutable"],
+      ["city_selection_snapshots_no_update", "city_selection_snapshot_is_immutable"],
+      ["city_selection_snapshots_no_delete", "city_selection_snapshot_is_immutable"],
+      [
+        "city_frontier_revisions_no_successor_after_terminal",
+        "city_frontier_terminal_has_no_successor",
+      ],
+    ]);
+    expect(triggers.map(({ name }) => name)).toEqual([...messages.keys()].sort());
+    for (const { name, sql } of triggers) {
+      const expected = name === "city_frontier_revisions_no_successor_after_terminal"
+        ? `CREATE TRIGGER city_frontier_revisions_no_successor_after_terminal
+           BEFORE INSERT ON city_frontier_revisions
+           WHEN NEW.predecessor_id IS NOT NULL AND EXISTS (
+             SELECT 1 FROM city_frontier_revisions
+             WHERE id = NEW.predecessor_id AND kind = 'terminal'
+           )
+           BEGIN SELECT RAISE(ABORT, 'city_frontier_terminal_has_no_successor'); END`
+        : (() => {
+            const event = name.endsWith("_no_update") ? "UPDATE" : "DELETE";
+            const table = name.replace(/_no_(?:update|delete)$/, "");
+            return `CREATE TRIGGER ${name} BEFORE ${event} ON ${table}
+              BEGIN SELECT RAISE(ABORT, '${messages.get(name)}'); END`;
+          })();
+      expect(normalizeSql(sql), name).toBe(normalizeSql(expected));
+    }
+  });
+
+  test("pins every FK row and exact primary-key autoindex inventory", () => {
+    // Break caught: composite/selection lineage drift or hidden inline UNIQUE authority.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const reference = task13ReferenceDatabase();
+    for (const table of [
+      "city_criteria_snapshots",
+      "city_branch_commits",
+      "city_ranking_snapshots",
+      "city_frontier_revisions",
+      "city_selection_snapshots",
+    ]) {
+      expect(database.prepare(`PRAGMA foreign_key_list(${table})`).all(), table)
+        .toEqual(reference.prepare(`PRAGMA foreign_key_list(${table})`).all());
+      const auto = (database.prepare(`PRAGMA index_list(${table})`).all() as Array<{
+        readonly name: string;
+        readonly unique: number;
+        readonly origin: string;
+        readonly partial: number;
+      }>).filter(({ name }) => name.startsWith("sqlite_autoindex_"));
+      const expectedAuto = (reference.prepare(`PRAGMA index_list(${table})`).all() as
+        typeof auto).filter(({ name }) => name.startsWith("sqlite_autoindex_"));
+      expect(auto.map(({ name, unique, origin, partial }) => ({
+        name,
+        unique,
+        origin,
+        partial,
+      })), table).toEqual(expectedAuto.map(({ name, unique, origin, partial }) => ({
+        name,
+        unique,
+        origin,
+        partial,
+      })));
+      for (const { name } of expectedAuto) {
+        expect(database.prepare(`PRAGMA index_info(${name})`).all(), name)
+          .toEqual(reference.prepare(`PRAGMA index_info(${name})`).all());
+      }
+    }
+  });
+
+  test.each([
+    ["foreign_keys readback", "foreign_keys"],
+    ["ordered table metadata", "table_info(city_criteria_snapshots)"],
+    ["complete foreign keys", "foreign_key_list(city_frontier_revisions)"],
+    ["complete index inventory", "index_list(city_frontier_revisions)"],
+    ["named index columns", "index_info(city_frontier_revisions_one_command)"],
+    [
+      "manifest exact-key columns",
+      "index_info(installed_city_package_manifest_exact_key)",
+    ],
+  ] as const)("consumes exact %s during Task13 reopen preflight", (_label, target) => {
+    // Break caught: comparing sqlite_master SQL without consuming normative PRAGMA metadata.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const prototype = Database.prototype as unknown as {
+      pragma: (
+        source: string,
+        options?: { readonly simple?: boolean },
+      ) => unknown;
+    };
+    const original = prototype.pragma;
+    prototype.pragma = function observedPragma(
+      source: string,
+      options?: { readonly simple?: boolean },
+    ): unknown {
+      const normalized = source.toLowerCase().replace(/\s+/g, "");
+      const result = options === undefined
+        ? Reflect.apply(original, this, [source])
+        : Reflect.apply(original, this, [source, options]);
+      if (normalized !== target) return result;
+      if (target === "foreign_keys") return 0;
+      if (!Array.isArray(result) || result.length === 0) {
+        throw new Error("schema_test_fixture_mismatch");
+      }
+      const first = result[0] as Record<string, unknown>;
+      const drifted = target.startsWith("table_info(")
+        ? { ...first, type: "BLOB" }
+        : target.startsWith("foreign_key_list(")
+          ? { ...first, to: "drifted" }
+          : target.startsWith("index_list(")
+            ? { ...first, unique: first.unique === 1 ? 0 : 1 }
+            : { ...first, name: "drifted" };
+      return [drifted, ...result.slice(1)];
+    };
+    try {
+      expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    } finally {
+      prototype.pragma = original;
+    }
+  });
+
+  test("rejects missing manifest authority while the Task13 family remains", () => {
+    // Break caught: healing Task4 underneath an already-installed Task13 Ranking FK family.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const tampered = track(new Database(path));
+    tampered.pragma("foreign_keys = OFF");
+    tampered.exec(`
+      DROP TABLE installed_city_package_heads;
+      DROP TABLE installed_city_package_manifests;
+    `);
+    const before = storedSchema(tampered);
+    tampered.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("rejects a partial City family without healing it", () => {
+    // Break caught: silently installing around a partial durable schema.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const partial = track(new Database(path));
+    partial.pragma("foreign_keys = OFF");
+    partial.exec(`
+      DROP TABLE IF EXISTS city_selection_snapshots;
+      DROP TABLE IF EXISTS city_frontier_revisions;
+      DROP TABLE IF EXISTS city_ranking_snapshots;
+      DROP TABLE IF EXISTS city_branch_commits;
+      DROP TABLE IF EXISTS city_criteria_snapshots;
+    `);
+    partial.exec("CREATE TABLE city_criteria_snapshots (id TEXT PRIMARY KEY NOT NULL)");
+    const before = storedSchema(partial);
+    partial.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("atomically installs and reverifies the whole absent City family", () => {
+    // Break caught: treating an exact pre-Task13 database as partial or exposing partial DDL commits.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const legacy = track(new Database(path));
+    legacy.pragma("foreign_keys = OFF");
+    legacy.exec(`
+      DROP TABLE IF EXISTS city_selection_snapshots;
+      DROP TABLE IF EXISTS city_frontier_revisions;
+      DROP TABLE IF EXISTS city_ranking_snapshots;
+      DROP TABLE IF EXISTS city_branch_commits;
+      DROP TABLE IF EXISTS city_criteria_snapshots;
+    `);
+    legacy.close();
+
+    const upgraded = track(openEvidenceDatabase(path));
+    const rows = upgraded.prepare(`
+      SELECT name, sql FROM sqlite_master
+      WHERE type = 'table' AND name IN (
+        'city_criteria_snapshots', 'city_branch_commits', 'city_ranking_snapshots',
+        'city_frontier_revisions', 'city_selection_snapshots'
+      ) ORDER BY name
+    `).all() as Array<{ readonly name: keyof typeof TASK_13_TABLE_SQL; readonly sql: string }>;
+    expect(rows).toHaveLength(5);
+    for (const { name, sql } of rows) {
+      expect(normalizeSql(sql), name).toBe(normalizeSql(TASK_13_TABLE_SQL[name]));
+    }
+    const firstOpenSchema = storedSchema(upgraded);
+    upgraded.close();
+    const reopened = track(openEvidenceDatabase(path));
+    expect(storedSchema(reopened)).toEqual(firstOpenSchema);
+  });
+
+  test("leaves no partial City objects when a late reserved name blocks installation", () => {
+    // Break caught: committing early Task13 DDL before a later collision aborts family installation.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const legacy = track(new Database(path));
+    legacy.pragma("foreign_keys = OFF");
+    legacy.exec(`
+      DROP TABLE IF EXISTS city_selection_snapshots;
+      DROP TABLE IF EXISTS city_frontier_revisions;
+      DROP TABLE IF EXISTS city_ranking_snapshots;
+      DROP TABLE IF EXISTS city_branch_commits;
+      DROP TABLE IF EXISTS city_criteria_snapshots;
+      CREATE TABLE unrelated_city_fixture (id TEXT PRIMARY KEY);
+      CREATE UNIQUE INDEX city_selection_snapshots_one_command
+      ON unrelated_city_fixture (id);
+    `);
+    const before = storedSchema(legacy);
+    legacy.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("rejects an unknown prefixed City object on an otherwise exact database", () => {
+    // Break caught: preflight enumerating only known names instead of closing family prefixes.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const tampered = track(new Database(path));
+    tampered.exec("CREATE TABLE city_frontier_rogue (id TEXT PRIMARY KEY)");
+    const before = storedSchema(tampered);
+    tampered.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test.each(["index", "trigger"] as const)(
+    "rejects an arbitrary-name extra City %s on reopen",
+    (kind) => {
+      // Break caught: checking only family prefixes while arbitrary user objects weaken authority.
+      const path = temporaryDatabasePath();
+      track(openEvidenceDatabase(path)).close();
+      const tampered = track(new Database(path));
+      const exists = tampered.prepare(`
+        SELECT 1 AS present FROM sqlite_master
+        WHERE type = 'table' AND name = 'city_criteria_snapshots'
+      `).get();
+      expect(exists).toEqual({ present: 1 });
+      if (exists === undefined) return;
+      tampered.exec(kind === "index"
+        ? "CREATE INDEX harmless_name ON city_criteria_snapshots (confirmed_at)"
+        : `CREATE TRIGGER harmless_name BEFORE UPDATE ON city_criteria_snapshots
+           BEGIN SELECT RAISE(ABORT, 'wrong_guard'); END`);
+      tampered.close();
+
+      expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    },
+  );
+
+  test.each([
+    ["weakened City table CHECK", "table"],
+    ["missing named City index", "missing_index"],
+    ["non-unique named City index", "index"],
+    ["missing named City trigger", "missing_trigger"],
+    ["altered terminal trigger WHEN", "trigger"],
+    ["weakened manifest exact-key index", "manifest_index"],
+  ] as const)("rejects and preserves a %s on reopen", (_label, kind) => {
+    // Break caught: fresh-install equality without exact reopen/preflight enforcement.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const tampered = track(new Database(path));
+    tampered.pragma("foreign_keys = OFF");
+    if (kind === "table") {
+      const triggerRows = tampered.prepare(`
+        SELECT sql FROM sqlite_master
+        WHERE type = 'trigger' AND tbl_name = 'city_criteria_snapshots'
+        ORDER BY name
+      `).all() as Array<{ readonly sql: string }>;
+      const sql = (tampered.prepare(`
+        SELECT sql FROM sqlite_master WHERE type = 'table'
+        AND name = 'city_criteria_snapshots'
+      `).pluck().get() as string).replace(
+        "schema_version = 'city-criteria@1'",
+        "schema_version IN ('city-criteria@1', 'city-criteria@2')",
+      );
+      tampered.exec(`
+        DROP TRIGGER city_criteria_snapshots_no_update;
+        DROP TRIGGER city_criteria_snapshots_no_delete;
+        DROP TABLE city_criteria_snapshots;
+      `);
+      tampered.exec(sql);
+      for (const row of triggerRows) tampered.exec(row.sql);
+    } else if (kind === "missing_index") {
+      tampered.exec("DROP INDEX city_frontier_revisions_one_command");
+    } else if (kind === "index") {
+      const sql = (tampered.prepare(`
+        SELECT sql FROM sqlite_master WHERE type = 'index'
+        AND name = 'city_frontier_revisions_one_command'
+      `).pluck().get() as string).replace("CREATE UNIQUE INDEX", "CREATE INDEX");
+      tampered.exec("DROP INDEX city_frontier_revisions_one_command");
+      tampered.exec(sql);
+    } else if (kind === "missing_trigger") {
+      tampered.exec("DROP TRIGGER city_frontier_revisions_no_successor_after_terminal");
+    } else if (kind === "trigger") {
+      const sql = (tampered.prepare(`
+        SELECT sql FROM sqlite_master WHERE type = 'trigger'
+        AND name = 'city_frontier_revisions_no_successor_after_terminal'
+      `).pluck().get() as string).replace("kind = 'terminal'", "kind = 'working'");
+      tampered.exec("DROP TRIGGER city_frontier_revisions_no_successor_after_terminal");
+      tampered.exec(sql);
+    } else {
+      const sql = (tampered.prepare(`
+        SELECT sql FROM sqlite_master WHERE type = 'index'
+        AND name = 'installed_city_package_manifest_exact_key'
+      `).pluck().get() as string).replace("CREATE UNIQUE INDEX", "CREATE INDEX");
+      tampered.exec("DROP INDEX installed_city_package_manifest_exact_key");
+      tampered.exec(sql);
+    }
+    const before = storedSchema(tampered);
+    tampered.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
   });
 });

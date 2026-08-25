@@ -551,3 +551,271 @@ BEFORE DELETE ON branch_commits
 BEGIN
   SELECT RAISE(ABORT, 'branch_commit_is_immutable');
 END;
+
+CREATE TABLE IF NOT EXISTS city_criteria_snapshots (
+  id TEXT PRIMARY KEY NOT NULL,
+  profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'city-criteria@1'),
+  rules_version TEXT NOT NULL CHECK (rules_version = 'city-criteria@1'),
+  confirmed_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  CHECK (profile_snapshot_id <> preference_profile_snapshot_id)
+);
+
+CREATE TABLE IF NOT EXISTS city_branch_commits (
+  id TEXT PRIMARY KEY NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('pre_city', 'selection')),
+  profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2 AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  resolved_country_entry_digest TEXT NOT NULL CHECK (
+    length(resolved_country_entry_digest) = 64
+    AND resolved_country_entry_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  city_id TEXT,
+  parent_id TEXT REFERENCES city_branch_commits(id),
+  forked_from TEXT REFERENCES city_branch_commits(id),
+  selection_snapshot_id TEXT REFERENCES city_selection_snapshots(id),
+  schema_version TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  created_at TEXT NOT NULL,
+  CHECK (profile_snapshot_id <> preference_profile_snapshot_id),
+  CHECK (
+    (kind = 'pre_city' AND schema_version = 'pre-city-branch@1'
+      AND city_id IS NULL AND parent_id IS NULL AND forked_from IS NULL
+      AND selection_snapshot_id IS NULL)
+    OR
+    (kind = 'selection' AND schema_version = 'city-branch@1'
+      AND city_id IS NOT NULL AND parent_id IS NOT NULL AND forked_from IS NOT NULL
+      AND selection_snapshot_id IS NOT NULL AND parent_id = forked_from)
+  )
+);
+
+CREATE TABLE IF NOT EXISTS city_ranking_snapshots (
+  id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2 AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  registry_revision_id TEXT NOT NULL,
+  catalog_revision_id TEXT NOT NULL REFERENCES city_catalog_revisions(id),
+  criteria_snapshot_id TEXT NOT NULL REFERENCES city_criteria_snapshots(id),
+  pre_city_branch_commit_id TEXT NOT NULL REFERENCES city_branch_commits(id),
+  profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  evidence_rules_version TEXT NOT NULL,
+  installed_package_context_json TEXT NOT NULL,
+  live_city_candidate_limit INTEGER NOT NULL CHECK (live_city_candidate_limit = 10),
+  target_selectable_cities INTEGER NOT NULL CHECK (target_selectable_cities = 3),
+  budget_rules_version TEXT NOT NULL CHECK (budget_rules_version = 'city-frontier-budget@1'),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'city-ranking@1'),
+  rules_version TEXT NOT NULL CHECK (rules_version = 'city-ranker@1'),
+  assessment_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  created_at TEXT NOT NULL,
+  CHECK (profile_snapshot_id <> preference_profile_snapshot_id),
+  FOREIGN KEY (
+    country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+  ) REFERENCES installed_city_package_manifests (
+    country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+  )
+);
+
+CREATE TABLE IF NOT EXISTS city_frontier_revisions (
+  id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('working', 'terminal')),
+  predecessor_id TEXT REFERENCES city_frontier_revisions(id),
+  ranking_snapshot_id TEXT NOT NULL REFERENCES city_ranking_snapshots(id),
+  operation_kind TEXT NOT NULL CHECK (operation_kind IN ('start', 'city_completed')),
+  command_id TEXT NOT NULL,
+  schema_version TEXT NOT NULL CHECK (schema_version = 'city-frontier@1'),
+  command_json TEXT NOT NULL,
+  command_hash TEXT NOT NULL CHECK (
+    length(command_hash) = 64 AND command_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  created_at TEXT NOT NULL,
+  CHECK (
+    (operation_kind = 'start' AND predecessor_id IS NULL)
+    OR (operation_kind = 'city_completed' AND predecessor_id IS NOT NULL)
+  ),
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id)
+);
+
+CREATE TABLE IF NOT EXISTS city_selection_snapshots (
+  id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL,
+  command_id TEXT NOT NULL,
+  terminal_revision_id TEXT NOT NULL REFERENCES city_frontier_revisions(id),
+  city_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2 AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_snapshot_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  resolved_country_shortlist_revision_id TEXT NOT NULL REFERENCES country_resolution_revisions(id),
+  criteria_snapshot_id TEXT NOT NULL REFERENCES city_criteria_snapshots(id),
+  ranking_snapshot_id TEXT NOT NULL REFERENCES city_ranking_snapshots(id),
+  pre_city_branch_commit_id TEXT NOT NULL REFERENCES city_branch_commits(id),
+  selected_marker_digest TEXT NOT NULL CHECK (
+    length(selected_marker_digest) = 64
+    AND selected_marker_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  knowledge_revision_id TEXT NOT NULL REFERENCES city_knowledge_revisions(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+  warning_copy_version TEXT CHECK (
+    warning_copy_version IS NULL OR warning_copy_version = 'city-unknown-risk@1'
+  ),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'city-selection@1'),
+  command_json TEXT NOT NULL,
+  command_hash TEXT NOT NULL CHECK (
+    length(command_hash) = 64 AND command_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (
+    length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+  ),
+  hmac TEXT NOT NULL CHECK (
+    length(hmac) = 64 AND hmac NOT GLOB '*[^0-9a-f]*'
+  ),
+  created_at TEXT NOT NULL,
+  CHECK (profile_snapshot_id <> preference_profile_snapshot_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_branch_commits_one_selection
+ON city_branch_commits (selection_snapshot_id)
+WHERE kind = 'selection';
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_branch_commits_pre_city_source
+ON city_branch_commits (resolved_country_shortlist_revision_id, country_code)
+WHERE kind = 'pre_city';
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_ranking_snapshots_one_run
+ON city_ranking_snapshots (run_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_command
+ON city_frontier_revisions (run_id, command_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_root
+ON city_frontier_revisions (run_id)
+WHERE predecessor_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_start_command
+ON city_frontier_revisions (command_id)
+WHERE operation_kind = 'start';
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_successor
+ON city_frontier_revisions (predecessor_id)
+WHERE predecessor_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_frontier_revisions_one_terminal
+ON city_frontier_revisions (run_id)
+WHERE kind = 'terminal';
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_selection_snapshots_one_command
+ON city_selection_snapshots (run_id, command_id);
+
+CREATE TRIGGER IF NOT EXISTS city_criteria_snapshots_no_update
+BEFORE UPDATE ON city_criteria_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'city_criteria_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_criteria_snapshots_no_delete
+BEFORE DELETE ON city_criteria_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'city_criteria_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_branch_commits_no_update
+BEFORE UPDATE ON city_branch_commits
+BEGIN
+  SELECT RAISE(ABORT, 'city_branch_commit_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_branch_commits_no_delete
+BEFORE DELETE ON city_branch_commits
+BEGIN
+  SELECT RAISE(ABORT, 'city_branch_commit_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_ranking_snapshots_no_update
+BEFORE UPDATE ON city_ranking_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'city_ranking_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_ranking_snapshots_no_delete
+BEFORE DELETE ON city_ranking_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'city_ranking_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_frontier_revisions_no_update
+BEFORE UPDATE ON city_frontier_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_frontier_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_frontier_revisions_no_delete
+BEFORE DELETE ON city_frontier_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_frontier_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_selection_snapshots_no_update
+BEFORE UPDATE ON city_selection_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'city_selection_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_selection_snapshots_no_delete
+BEFORE DELETE ON city_selection_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'city_selection_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_frontier_revisions_no_successor_after_terminal
+BEFORE INSERT ON city_frontier_revisions
+WHEN NEW.predecessor_id IS NOT NULL AND EXISTS (
+  SELECT 1 FROM city_frontier_revisions
+  WHERE id = NEW.predecessor_id AND kind = 'terminal'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'city_frontier_terminal_has_no_successor');
+END;

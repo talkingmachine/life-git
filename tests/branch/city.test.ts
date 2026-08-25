@@ -1490,6 +1490,19 @@ describe("closed City Frontier contracts", () => {
       readonly selection: ExpectedSelection;
       readonly commit: ExpectedCityBranch;
     };
+    type ExpectedReadModel = {
+      readonly runId: string;
+      readonly assessmentAt: string;
+      readonly resolvedCountryShortlistRevisionId: string;
+      readonly countryCode: string;
+      readonly preCityBranchCommitId: string;
+      readonly registry: CityRegistryRevision;
+      readonly catalog: CityCatalogRevision;
+      readonly criteria: CityCriteriaSnapshot;
+      readonly ranking: ExpectedRanking;
+      readonly revision: ExpectedRevision;
+      readonly selections: readonly ExpectedSelectionWithBranch[];
+    };
 
     expectTypeOf<CityRankingSnapshot>().toEqualTypeOf<ExpectedRanking>();
     expectTypeOf<CityRankingSnapshotPayload>()
@@ -1504,6 +1517,8 @@ describe("closed City Frontier contracts", () => {
       .toEqualTypeOf<ExpectedRevisionPayload>();
     expectTypeOf<SealCityFrontierRevisionInput>()
       .toEqualTypeOf<ExpectedSealRevisionInput>();
+    expectTypeOf<CityFrontierReadModel>().toEqualTypeOf<ExpectedReadModel>();
+    expectTypeOf<CityFrontierReadModel>().not.toEqualTypeOf<ExpectedRevision>();
     expectTypeOf<CityFrontierEvent>().toEqualTypeOf<ExpectedEvent>();
     expectTypeOf<CitySelectionSnapshot>().toEqualTypeOf<ExpectedSelection>();
     expectTypeOf<CitySelectionSnapshotPayload>()

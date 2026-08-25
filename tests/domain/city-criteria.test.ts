@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 import {
   CITY_CRITERION_IDS,
@@ -8,14 +8,24 @@ import {
   reconstructInstalledCityCriterionDefinitions,
   reconstructInstalledCityCriterionDefinitionsStructure,
   reconstructCityCriteria,
+  reconstructCityCriteriaSnapshot,
+  type CityCriteriaSnapshot,
+  type CityCriterionDraft,
   type CityCriterionDefinition,
   type CityCriterionEvaluatorRegistry,
   type InstalledCityCriteriaDefaults,
   type InstalledCityCriterionDefinitionTuple,
 } from "../../src/decision/city-criteria";
 import type { CityDecisionIntegrity } from "../../src/decision/city-integrity";
+import {
+  createCityDecisionIntegrityView,
+  createEvidenceIntegrity,
+} from "../../src/infrastructure/integrity";
 
 const INTEGRITY: CityDecisionIntegrity = { canonical: JSON.stringify, hash: (value) => `hash:${value}` };
+const STRUCTURAL_INTEGRITY = createCityDecisionIntegrityView(
+  createEvidenceIntegrity("task-13-city-criteria-structural-key"),
+);
 const definitions = {
   safety: { definitionId: "safety@1", direction: "at_most" as const, unit: "rate", denominator: "people" },
   long_term_rent: { definitionId: "rent@1", direction: "at_most" as const, unit: "eur", denominator: "month" },
@@ -66,6 +76,61 @@ const preferences = { schemaVersion: "preference-profile@1" as const, id: "prefe
   { id: "infrastructure" as const, mode: "required" as const, importance: 4 as const, target: "required_true" as const },
   { id: "europe" as const, mode: "weighted" as const, importance: 5 as const, target: "maximize" as const },
 ] };
+
+function expectRecursivelyFrozen(value: unknown, seen = new Set<object>()): void {
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  expect(Object.isFrozen(value)).toBe(true);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    expect(descriptor).toBeDefined();
+    expect(descriptor !== undefined && "value" in descriptor).toBe(true);
+    if (descriptor !== undefined && "value" in descriptor) {
+      expectRecursivelyFrozen(descriptor.value, seen);
+    }
+  }
+}
+
+function structuralSnapshot(
+  criteria: CityCriteriaSnapshot["criteria"] = defaults.criteria,
+): CityCriteriaSnapshot {
+  const payload = {
+    schemaVersion: "city-criteria@1" as const,
+    profileSnapshotId: "profile:confirmed",
+    preferenceProfileSnapshotId: "preference-profile:confirmed",
+    criteria: structuredClone(criteria),
+    rulesVersion: "city-criteria@1" as const,
+    confirmedAt: "2026-08-14T00:00:00.000Z",
+  };
+  return {
+    id: `city-criteria:${STRUCTURAL_INTEGRITY.hash(
+      STRUCTURAL_INTEGRITY.canonical(payload),
+    )}`,
+    ...payload,
+  };
+}
+
+function rehashStructuralSnapshot(value: CityCriteriaSnapshot): CityCriteriaSnapshot {
+  const { id: _id, ...payload } = value;
+  void _id;
+  return {
+    id: `city-criteria:${STRUCTURAL_INTEGRITY.hash(
+      STRUCTURAL_INTEGRITY.canonical(payload),
+    )}`,
+    ...payload,
+  };
+}
+
+function rehashUnknownSnapshot(value: Record<string, unknown>): unknown {
+  const { id: _id, ...payload } = value;
+  void _id;
+  return {
+    id: `city-criteria:${STRUCTURAL_INTEGRITY.hash(
+      STRUCTURAL_INTEGRITY.canonical(payload),
+    )}`,
+    ...payload,
+  };
+}
 
 describe("city criteria policy", () => {
   test("structurally reconstructs installed definitions without executable behavior", () => {
@@ -636,5 +701,385 @@ describe("city criteria policy", () => {
       .toThrow("integrity_mismatch");
     expect(() => reconstructCityCriteria({ ...first, profileSnapshotId: "" }, evaluators)).toThrow("integrity_mismatch");
     expect(() => reconstructCityCriteria({ ...first, confirmedAt: "not-an-instant" }, evaluators)).toThrow("integrity_mismatch");
+  });
+
+  test("exposes the exact structural Criteria reconstruction signature beside the semantic API", () => {
+    // Break caught: persistence requiring evaluators or replacing the existing semantic boundary.
+    expectTypeOf(reconstructCityCriteriaSnapshot).toEqualTypeOf<(
+      value: unknown,
+      integrity: CityDecisionIntegrity,
+    ) => CityCriteriaSnapshot>();
+    expectTypeOf(reconstructCityCriteria).toEqualTypeOf<(
+      snapshot: CityCriteriaSnapshot,
+      evaluators: CityCriterionEvaluatorRegistry,
+    ) => import("../../src/decision/city-criteria").CityCriteriaProjection>();
+  });
+
+  test("reconstructs the exact content ID into fresh recursively frozen copies", () => {
+    // Break caught: trusting the supplied ID, returning aliases, or hashing the ID itself.
+    const borrowed = structuralSnapshot();
+    const { id: _id, ...payload } = borrowed;
+    void _id;
+
+    const first = reconstructCityCriteriaSnapshot(borrowed, STRUCTURAL_INTEGRITY);
+    const second = reconstructCityCriteriaSnapshot(borrowed, STRUCTURAL_INTEGRITY);
+
+    expect(first.id).toBe(
+      `city-criteria:${STRUCTURAL_INTEGRITY.hash(
+        STRUCTURAL_INTEGRITY.canonical(payload),
+      )}`,
+    );
+    expect(first).toEqual(borrowed);
+    expect(second).toEqual(first);
+    expect(first).not.toBe(borrowed);
+    expect(second).not.toBe(first);
+    expect(first.criteria).not.toBe(borrowed.criteria);
+    expect(second.criteria).not.toBe(first.criteria);
+    expect(first.criteria[0]).not.toBe(borrowed.criteria[0]);
+    expectRecursivelyFrozen(first);
+    expectRecursivelyFrozen(second);
+    expect(Object.isFrozen(borrowed)).toBe(false);
+  });
+
+  test("feeds structural C bytes directly into H for the content ID", () => {
+    // Break caught: calling C but checking the ID against another serializer's digest.
+    const clean = { ...structuralSnapshot(), id: `city-criteria:${"b".repeat(64)}` };
+    const hashInputs: string[] = [];
+    const integrity: CityDecisionIntegrity = {
+      canonical: () => "criteria-canonical-sentinel",
+      hash(value) {
+        hashInputs.push(value);
+        return "b".repeat(64);
+      },
+    };
+
+    expect(reconstructCityCriteriaSnapshot(clean, integrity)).toEqual(clean);
+    expect(hashInputs).toEqual(["criteria-canonical-sentinel"]);
+  });
+
+  test("keeps structural replay separate from installed evaluator semantics", () => {
+    // Break caught: SQLite claiming evaluator compatibility or the semantic API becoming structural.
+    const candidate = structuralSnapshot();
+    const changed = structuredClone(candidate);
+    const changedCriteria = changed.criteria as unknown as CityCriterionDraft[];
+    changedCriteria[0] = { ...changedCriteria[0], target: "2.0" };
+    const structurallyAuthentic = rehashStructuralSnapshot(changed);
+
+    expect(reconstructCityCriteriaSnapshot(
+      structurallyAuthentic,
+      STRUCTURAL_INTEGRITY,
+    )).toEqual(structurallyAuthentic);
+    expect(() => reconstructCityCriteria(structurallyAuthentic, evaluators))
+      .toThrow("integrity_mismatch");
+  });
+
+  test("rejects a bounded matrix of scalar, tuple, key and content-ID drift", () => {
+    // Break caught: open snapshots, loose tuples/scalars, or non-lowerhex content authority.
+    const clean = structuralSnapshot();
+    const invalidPayloads: readonly Record<string, unknown>[] = [
+      { ...clean, extra: true },
+      Object.fromEntries(Object.entries(clean).filter(([key]) => key !== "confirmedAt")),
+      { ...clean, schemaVersion: "city-criteria@2" },
+      { ...clean, rulesVersion: "city-criteria@2" },
+      { ...clean, profileSnapshotId: "" },
+      { ...clean, preferenceProfileSnapshotId: clean.profileSnapshotId },
+      { ...clean, confirmedAt: "2026-08-14" },
+      { ...clean, criteria: clean.criteria.slice(0, 3) },
+      { ...clean, criteria: [...clean.criteria].reverse() },
+      {
+        ...clean,
+        criteria: clean.criteria.map((criterion, index) => index === 0
+          ? { ...criterion, mode: "optional" }
+          : criterion),
+      },
+      {
+        ...clean,
+        criteria: clean.criteria.map((criterion, index) => index === 1
+          ? { ...criterion, importance: 6 }
+          : criterion),
+      },
+      {
+        ...clean,
+        criteria: clean.criteria.map((criterion, index) => index === 0
+          ? { ...criterion, definitionId: "" }
+          : criterion),
+      },
+      {
+        ...clean,
+        criteria: clean.criteria.map((criterion, index) => index === 3
+          ? { ...criterion, target: 7 }
+          : criterion),
+      },
+      {
+        ...clean,
+        criteria: clean.criteria.map((criterion, index) => index === 2
+          ? { ...criterion, extra: true }
+          : criterion),
+      },
+    ];
+    const invalidIds: readonly unknown[] = [
+      { ...clean, id: "city-criteria:other" },
+      { ...clean, id: `city-criteria:${"A".repeat(64)}` },
+      { ...clean, id: `other-prefix:${"a".repeat(64)}` },
+    ];
+
+    for (const value of invalidPayloads) {
+      expect(() => reconstructCityCriteriaSnapshot(
+        rehashUnknownSnapshot(value),
+        STRUCTURAL_INTEGRITY,
+      )).toThrow("integrity_mismatch");
+    }
+    for (const value of invalidIds) {
+      expect(() => reconstructCityCriteriaSnapshot(value, STRUCTURAL_INTEGRITY))
+        .toThrow("integrity_mismatch");
+    }
+  });
+
+  test("owns and exact-closes the complete snapshot before C or H", () => {
+    // Break caught: descriptor execution, proxy traps, aliases or inherited keys reaching callbacks.
+    let hostileReads = 0;
+    let callbackCalls = 0;
+    const integrity: CityDecisionIntegrity = {
+      canonical() {
+        callbackCalls += 1;
+        return "never";
+      },
+      hash() {
+        callbackCalls += 1;
+        return "0".repeat(64);
+      },
+    };
+    const clean = structuralSnapshot();
+    const sparseCriteria = new Array(4);
+    sparseCriteria[0] = clean.criteria[0];
+    sparseCriteria[1] = clean.criteria[1];
+    sparseCriteria[3] = clean.criteria[3];
+    const accessor = structuredClone(clean) as unknown as Record<string, unknown>;
+    Object.defineProperty(accessor, "profileSnapshotId", {
+      enumerable: true,
+      get() {
+        hostileReads += 1;
+        return "profile:attacker";
+      },
+    });
+    const nestedAccessor = structuredClone(clean);
+    Object.defineProperty(nestedAccessor.criteria[0], "target", {
+      enumerable: true,
+      get() {
+        hostileReads += 1;
+        return "attacker";
+      },
+    });
+    const nestedSymbol = structuredClone(clean);
+    Object.defineProperty(nestedSymbol.criteria[1], Symbol("extra"), {
+      enumerable: true,
+      value: true,
+    });
+    const sharedCriterion = structuredClone(clean.criteria[0]);
+    const hostile: readonly unknown[] = [
+      Object.assign(Object.create({ inherited: true }), clean),
+      Object.assign(structuredClone(clean), { [Symbol("extra")]: true }),
+      accessor,
+      new Proxy(structuredClone(clean), {
+        ownKeys() {
+          hostileReads += 1;
+          throw new Error("snapshot_proxy_trap");
+        },
+      }),
+      { ...clean, criteria: sparseCriteria },
+      nestedAccessor,
+      nestedSymbol,
+      {
+        ...clean,
+        criteria: [
+          sharedCriterion,
+          sharedCriterion,
+          clean.criteria[2],
+          clean.criteria[3],
+        ],
+      },
+      {
+        ...clean,
+        criteria: clean.criteria.map((criterion, index) => index === 0
+          ? Object.assign(Object.create({ inherited: true }), criterion)
+          : criterion),
+      },
+    ];
+
+    for (const value of hostile) {
+      expect(() => reconstructCityCriteriaSnapshot(value, integrity))
+        .toThrow("integrity_mismatch");
+    }
+    expect(hostileReads).toBe(0);
+    expect(callbackCalls).toBe(0);
+  });
+
+  test("captures fresh neutral C/H capabilities and a frozen private snapshot", () => {
+    // Break caught: late-reading borrowed data/capabilities or invoking C/H with store authority.
+    const borrowed = structuralSnapshot();
+    const calls: string[] = [];
+    const receivers: unknown[] = [];
+    const captured: unknown[] = [];
+    const base = STRUCTURAL_INTEGRITY;
+    const integrity: CityDecisionIntegrity = {
+      canonical(this: unknown, value: unknown) {
+        calls.push("canonical");
+        receivers.push(this);
+        captured.push(value);
+        (borrowed as unknown as Record<string, unknown>).extra = "attacker";
+        (integrity as unknown as Record<string, unknown>).hash = () => "f".repeat(64);
+        return Reflect.apply(base.canonical, Object.freeze({ capability: "canonical" }), [value]);
+      },
+      hash(this: unknown, canonicalText: string) {
+        calls.push("hash");
+        receivers.push(this);
+        return Reflect.apply(base.hash, Object.freeze({ capability: "hash" }), [canonicalText]);
+      },
+    };
+
+    const result = reconstructCityCriteriaSnapshot(borrowed, integrity);
+
+    expect(result).toEqual(structuralSnapshot());
+    expect(calls).toEqual(["canonical", "hash"]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).not.toBe(borrowed);
+    expectRecursivelyFrozen(captured[0]);
+    expect(receivers.map((receiver) =>
+      (receiver as { capability: string }).capability)).toEqual(["canonical", "hash"]);
+    expect(receivers[0]).not.toBe(receivers[1]);
+    for (const receiver of receivers) {
+      expect(Object.isFrozen(receiver)).toBe(true);
+      expect(Reflect.ownKeys(receiver as object)).toEqual(["capability"]);
+    }
+  });
+
+  test("rejects hostile integrity roots and callable C/H Proxies before traps", () => {
+    // Break caught: reflecting inherited/accessor authority or invoking executable Proxy capabilities.
+    let accessorReads = 0;
+    let callbackCalls = 0;
+    let proxyTraps = 0;
+    const validCanonical = (value: unknown) => {
+      callbackCalls += 1;
+      return STRUCTURAL_INTEGRITY.canonical(value);
+    };
+    const validHash = (value: string) => {
+      callbackCalls += 1;
+      return STRUCTURAL_INTEGRITY.hash(value);
+    };
+    const accessor = { hash: validHash } as Record<string, unknown>;
+    Object.defineProperty(accessor, "canonical", {
+      enumerable: true,
+      get() {
+        accessorReads += 1;
+        return validCanonical;
+      },
+    });
+    const rootProxy = new Proxy({ canonical: validCanonical, hash: validHash }, {
+      ownKeys() {
+        proxyTraps += 1;
+        throw new Error("integrity_root_proxy_trap");
+      },
+    });
+    const callableHash = new Proxy(validHash, {
+      apply(callable, receiver, argumentsList) {
+        proxyTraps += 1;
+        return Reflect.apply(callable, receiver, argumentsList);
+      },
+      get(callable, key, receiver) {
+        proxyTraps += 1;
+        return Reflect.get(callable, key, receiver);
+      },
+    });
+    const callableCanonical = new Proxy(validCanonical, {
+      apply(callable, receiver, argumentsList) {
+        proxyTraps += 1;
+        return Reflect.apply(callable, receiver, argumentsList);
+      },
+      get(callable, key, receiver) {
+        proxyTraps += 1;
+        return Reflect.get(callable, key, receiver);
+      },
+    });
+    const symbolRoot = { canonical: validCanonical, hash: validHash } as
+      Record<PropertyKey, unknown>;
+    symbolRoot[Symbol("extra")] = true;
+    const inheritedRoot = Object.assign(
+      Object.create({ inherited: true }),
+      { canonical: validCanonical, hash: validHash },
+    );
+    const cases: readonly unknown[] = [
+      accessor,
+      rootProxy,
+      symbolRoot,
+      inheritedRoot,
+      { canonical: callableCanonical, hash: validHash },
+      { canonical: validCanonical, hash: callableHash },
+    ];
+
+    for (const candidate of cases) {
+      const invoke = () => reconstructCityCriteriaSnapshot(
+        structuralSnapshot(),
+        candidate as CityDecisionIntegrity,
+      );
+      let first: unknown;
+      let second: unknown;
+      try {
+        invoke();
+      } catch (error) {
+        first = error;
+      }
+      try {
+        invoke();
+      } catch (error) {
+        second = error;
+      }
+      expect(first).toBeInstanceOf(Error);
+      expect(second).toBeInstanceOf(Error);
+      expect(first).not.toBe(second);
+      expect((first as Error).message).toBe("integrity_mismatch");
+      expect((second as Error).message).toBe("integrity_mismatch");
+    }
+    expect(accessorReads).toBe(0);
+    expect(proxyTraps).toBe(0);
+    expect(callbackCalls).toBe(0);
+  });
+
+  test("normalizes hostile C/H failures and rejects non-lowerhex hashes", () => {
+    // Break caught: leaking capability errors or accepting async/non-string/uppercase digests.
+    const clean = structuralSnapshot();
+    const hostileError = new Error("hostile_integrity_error");
+    const capabilities: readonly CityDecisionIntegrity[] = [
+      { canonical: () => { throw hostileError; }, hash: STRUCTURAL_INTEGRITY.hash },
+      {
+        canonical: () => Promise.resolve("async") as unknown as string,
+        hash: STRUCTURAL_INTEGRITY.hash,
+      },
+      { canonical: STRUCTURAL_INTEGRITY.canonical, hash: () => { throw hostileError; } },
+      { canonical: STRUCTURAL_INTEGRITY.canonical, hash: () => "A".repeat(64) },
+      { canonical: STRUCTURAL_INTEGRITY.canonical, hash: () => "g".repeat(64) },
+      { canonical: STRUCTURAL_INTEGRITY.canonical, hash: () => "a".repeat(63) },
+    ];
+
+    for (const integrity of capabilities) {
+      let first: unknown;
+      let second: unknown;
+      try {
+        reconstructCityCriteriaSnapshot(clean, integrity);
+      } catch (error) {
+        first = error;
+      }
+      try {
+        reconstructCityCriteriaSnapshot(clean, integrity);
+      } catch (error) {
+        second = error;
+      }
+      expect(first).toBeInstanceOf(Error);
+      expect(second).toBeInstanceOf(Error);
+      expect(first).not.toBe(second);
+      expect(first).not.toBe(hostileError);
+      expect(second).not.toBe(hostileError);
+      expect((first as Error).message).toBe("integrity_mismatch");
+      expect((second as Error).message).toBe("integrity_mismatch");
+    }
   });
 });
