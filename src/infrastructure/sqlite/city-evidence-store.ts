@@ -14,6 +14,7 @@ import {
 } from "../../application/city-data-contracts";
 import {
   CITY_CATALOG_RULES_VERSION,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
   reconstructVerifiedCityCatalog,
   type CityCatalogProjection,
 } from "../../decision/city-catalog";
@@ -98,6 +99,7 @@ interface VerifiedReplayContract {
 interface SemanticReplay {
   readonly fixedAttemptLedgers: CityFixedAttemptLedgerTuple;
   readonly safetyAttemptLedger: CitySafetyAttemptLedger;
+  readonly catalogRulesVersion: string;
 }
 
 const SEAL_INPUT_KEYS = [
@@ -232,6 +234,22 @@ function ownSnapshot<T>(borrowed: T): T {
   return visit(borrowed) as T;
 }
 
+function frozenSnapshot<T>(borrowed: T): T {
+  const owned = ownSnapshot(borrowed);
+  const freeze = (value: unknown): void => {
+    if (value === null || typeof value !== "object" || Object.isFrozen(value)) return;
+    if (value instanceof Uint8Array) return;
+    for (const key of Object.getOwnPropertyNames(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !("value" in descriptor)) mismatch();
+      freeze(descriptor.value);
+    }
+    Object.freeze(value);
+  };
+  freeze(owned);
+  return owned;
+}
+
 function sameCanonical(left: unknown, right: unknown, integrity: EvidenceIntegrity): boolean {
   try {
     return integrity.canonical(left) === integrity.canonical(right);
@@ -312,9 +330,8 @@ function verifyReplayContractUnchecked(
 
   const decisionIntegrity = createCityDecisionIntegrityView(integrity);
   const catalog = reconstructVerifiedCityCatalog(catalogProjection, decisionIntegrity);
-  if (catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) {
-    throw new Error("city_catalog_upgrade_required");
-  }
+  if (catalog.catalog.rulesVersion !== LEGACY_CITY_CATALOG_RULES_VERSION &&
+    catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) mismatch();
   if (catalog.catalog.id !== context.catalogRevisionId ||
     catalog.registry.countryCode !== context.countryCode ||
     catalog.catalog.countryCode !== context.countryCode ||
@@ -727,7 +744,11 @@ function replaySemantics(
   }
   validateSafetyTerminal(safety, bundle, replay, context, integrity);
   validateChronology(context, reconstructed, safety, bundle);
-  return { fixedAttemptLedgers: reconstructed, safetyAttemptLedger: safety };
+  return {
+    fixedAttemptLedgers: reconstructed,
+    safetyAttemptLedger: safety,
+    catalogRulesVersion: replay.catalog.catalog.rulesVersion,
+  };
 }
 
 function payloadFrom(
@@ -1051,6 +1072,9 @@ export class SqliteCityEvidenceStore {
       this.integrity,
       previousAccepted,
     );
+    if (ledgers.catalogRulesVersion !== CITY_CATALOG_RULES_VERSION) {
+      throw new Error("city_catalog_upgrade_required");
+    }
     const payload = payloadFrom(context, ledgers, contextHash);
     const canonicalPayload = this.integrity.canonical(payload);
     const snapshot: CityEvidenceSnapshot = {
@@ -1149,7 +1173,7 @@ export class SqliteCityEvidenceStore {
       );
       return verified.verified;
     });
-    return ownSnapshot(read());
+    return frozenSnapshot(read());
   }
 
   findVerifiedByCheckRunId(borrowedRunId: string): VerifiedCityEvidence | undefined {

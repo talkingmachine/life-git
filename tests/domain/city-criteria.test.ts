@@ -18,6 +18,15 @@ import {
 } from "../../src/decision/city-criteria";
 import type { CityDecisionIntegrity } from "../../src/decision/city-integrity";
 import {
+  materializePreferenceProfileV2,
+  type PreferenceProfileV2Snapshot,
+} from "../../src/decision/preference-profile";
+import {
+  materializeRelocationProfileV2,
+  type RelocationProfileSnapshot,
+  type RelocationProfileV2Snapshot,
+} from "../../src/decision/relocation-profile";
+import {
   createCityDecisionIntegrityView,
   createEvidenceIntegrity,
 } from "../../src/infrastructure/integrity";
@@ -70,12 +79,61 @@ const expectedEvaluatorVersionIds = Object.fromEntries(CITY_CRITERION_IDS.map((c
   evaluators[criterionId].definition.evaluatorVersion,
 ])) as Readonly<Record<(typeof CITY_CRITERION_IDS)[number], string>>;
 
-const profile = { schemaVersion: "relocation-profile@1" as const, id: "profile", confirmedAt: "2026-01-01T00:00:00.000Z", profile: {} } as never;
+const profile: RelocationProfileSnapshot = {
+  schemaVersion: "relocation-profile@1",
+  id: "profile",
+  confirmedAt: "2026-01-01T00:00:00.000Z",
+  profile: {},
+} as unknown as RelocationProfileSnapshot;
 const preferences = { schemaVersion: "preference-profile@1" as const, id: "preferences", confirmedAt: "2026-01-01T00:00:00.000Z", criteria: [
   { id: "personal_safety" as const, mode: "weighted" as const, importance: 3 as const, target: "maximize" as const },
   { id: "infrastructure" as const, mode: "required" as const, importance: 4 as const, target: "required_true" as const },
   { id: "europe" as const, mode: "weighted" as const, importance: 5 as const, target: "maximize" as const },
 ] };
+
+const profileV2 = materializeRelocationProfileV2({
+  confirmedAt: "2026-08-22T10:00:00.000Z",
+  profile: {
+    schemaVersion: "relocation-profile@2",
+    profile: {
+      currentLocation: { countryCode: "RU", city: "Moscow" },
+      moveHorizon: "within_3_months",
+      movingParty: "alone",
+      participants: [{
+        participantId: "00000000-0000-4000-8000-000000000001",
+        relationship: "self",
+        citizenships: ["RU"],
+        passport: { validUntil: "2030-01-01" },
+        currentWork: { applicability: "required", value: { status: "employment", occupation: "Engineer" } },
+        remoteContinuation: { applicability: "required", value: "yes" },
+        monthlyIncome: { applicability: "required", value: { amount: "200000", currency: "RUB", basis: "net" } },
+        education: { applicability: "required", value: { level: "higher", field: "Physics" } },
+        relevantExperienceYears: { applicability: "required", value: 6 },
+      }],
+      savings: { min: "10000", max: "20000", currency: "EUR" },
+    },
+  },
+});
+
+const preferencesV2 = materializePreferenceProfileV2({
+  confirmedAt: "2026-08-22T10:00:00.000Z",
+  preferences: {
+    schemaVersion: "preference-profile@2",
+    countryCriteria: [
+      { id: "outside_cis", mode: "required", importance: 5, target: "required_true" },
+      { id: "europe", mode: "weighted", importance: 4, target: "maximize" },
+      { id: "personal_safety", mode: "weighted", importance: 3, target: "maximize" },
+      { id: "infrastructure", mode: "weighted", importance: 2, target: "maximize" },
+      { id: "peace_and_stability", mode: "required", importance: 5, target: "required_true" },
+    ],
+    cityCriteria: [
+      { id: "safety", mode: "weighted", importance: 2, target: "free-form unsafe evaluator text" },
+      { id: "long_term_rent", mode: "required", importance: 5, target: "under any user amount" },
+      { id: "urban_transit", mode: "required", importance: 4, target: "near metro" },
+      { id: "fixed_broadband", mode: "weighted", importance: 3, target: "1 Tbps" },
+    ],
+  },
+});
 
 function expectRecursivelyFrozen(value: unknown, seen = new Set<object>()): void {
   if (value === null || typeof value !== "object" || seen.has(value)) return;
@@ -679,6 +737,114 @@ describe("city criteria policy", () => {
       { criterionId: "urban_transit", definitionId: "transit@1", mode: "required", importance: 4, target: "0.7" },
       { criterionId: "fixed_broadband", definitionId: "broadband@1", mode: "required", importance: 4, target: "100" },
     ]);
+  });
+
+  test("exposes only the two exact matched profile-version overloads", () => {
+    // Break caught: widening the boundary to arbitrary unions lets mixed profile versions reach package code.
+    expectTypeOf(deriveCityCriteriaDraft).toBeCallableWith(
+      profile,
+      preferences,
+      defaults,
+      evaluators,
+    );
+    if (false) {
+      // @ts-expect-error mixed v1/v2 is intentionally absent from the public overload set
+      deriveCityCriteriaDraft(profile, preferencesV2, defaults, evaluators);
+      // @ts-expect-error mixed v2/v1 is intentionally absent from the public overload set
+      deriveCityCriteriaDraft(profileV2, preferences, defaults, evaluators);
+      const broadProfile = undefined as unknown as RelocationProfileV2Snapshot | typeof profile;
+      const broadPreference = undefined as unknown as PreferenceProfileV2Snapshot | typeof preferences;
+      // @ts-expect-error no broad union overload may bypass the matched-pair boundary
+      deriveCityCriteriaDraft(broadProfile, broadPreference, defaults, evaluators);
+    }
+    expectTypeOf(deriveCityCriteriaDraft).toBeCallableWith(
+      profileV2 satisfies RelocationProfileV2Snapshot,
+      preferencesV2 satisfies PreferenceProfileV2Snapshot,
+      defaults,
+      evaluators,
+    );
+  });
+
+  test("maps v2 city controls one-to-one while retaining installed identifiers and targets", () => {
+    // Break caught: treating free-form Profile v2 target text as evaluator or package authority.
+    const first = deriveCityCriteriaDraft(profileV2, preferencesV2, defaults, evaluators);
+    const second = deriveCityCriteriaDraft(
+      structuredClone(profileV2),
+      structuredClone(preferencesV2),
+      structuredClone(defaults),
+      evaluators,
+    );
+    const expected = [
+      { criterionId: "safety", definitionId: "safety@1", mode: "weighted", importance: 2, target: "2" },
+      { criterionId: "long_term_rent", definitionId: "rent@1", mode: "required", importance: 5, target: "900" },
+      { criterionId: "urban_transit", definitionId: "transit@1", mode: "required", importance: 4, target: "0.7" },
+      { criterionId: "fixed_broadband", definitionId: "broadband@1", mode: "weighted", importance: 3, target: "100" },
+    ];
+
+    expect(first).toEqual(expected);
+    expect(second).toEqual(expected);
+    expect(first).not.toBe(second);
+    expect(first[0]).not.toBe(second[0]);
+    expectRecursivelyFrozen(first);
+    expectRecursivelyFrozen(second);
+    expect(JSON.stringify(first)).not.toContain("free-form unsafe evaluator text");
+    expect(JSON.stringify(first)).not.toContain("under any user amount");
+    expect(JSON.stringify(first)).not.toContain("near metro");
+    expect(JSON.stringify(first)).not.toContain("1 Tbps");
+  });
+
+  test("rejects mixed profile versions and tuple identity drift before evaluator callbacks", () => {
+    // Break caught: accepting one side of a mismatched pair or mapping a reordered/open v2 tuple.
+    let evaluatorCalls = 0;
+    const guarded = Object.fromEntries(CITY_CRITERION_IDS.map((criterionId) => [
+      criterionId,
+      {
+        ...evaluators[criterionId],
+        canonicalizeTarget: () => {
+          evaluatorCalls += 1;
+          throw new Error("evaluator_must_not_run");
+        },
+      },
+    ])) as unknown as CityCriterionEvaluatorRegistry;
+    const reordered = structuredClone(preferencesV2) as unknown as Record<string, unknown>;
+    const cityCriteria = reordered.cityCriteria as unknown[];
+    reordered.cityCriteria = [cityCriteria[1], cityCriteria[0], cityCriteria[2], cityCriteria[3]];
+    const changedId = structuredClone(preferencesV2) as unknown as Record<string, unknown>;
+    (changedId.cityCriteria as Array<Record<string, unknown>>)[0]!.id = "long_term_rent";
+    const extraRoot = Object.assign(structuredClone(preferencesV2), { extra: true });
+    const extraElement = structuredClone(preferencesV2) as unknown as Record<string, unknown>;
+    (extraElement.cityCriteria as unknown[]).push(structuredClone(
+      (extraElement.cityCriteria as unknown[])[0],
+    ));
+    const cases: ReadonlyArray<readonly [unknown, unknown]> = [
+      [profile, preferencesV2],
+      [profileV2, preferences],
+      [profileV2, reordered],
+      [profileV2, changedId],
+      [profileV2, extraRoot],
+      [profileV2, extraElement],
+    ];
+
+    for (const [candidateProfile, candidatePreferences] of cases) {
+      let first: unknown;
+      let second: unknown;
+      try {
+        deriveCityCriteriaDraft(candidateProfile as RelocationProfileV2Snapshot, candidatePreferences as PreferenceProfileV2Snapshot, defaults, guarded);
+      } catch (error) {
+        first = error;
+      }
+      try {
+        deriveCityCriteriaDraft(candidateProfile as RelocationProfileV2Snapshot, candidatePreferences as PreferenceProfileV2Snapshot, defaults, guarded);
+      } catch (error) {
+        second = error;
+      }
+      expect(first).toBeInstanceOf(Error);
+      expect(second).toBeInstanceOf(Error);
+      expect(first).not.toBe(second);
+      expect((first as Error).message).toBe("integrity_mismatch");
+      expect((second as Error).message).toBe("integrity_mismatch");
+    }
+    expect(evaluatorCalls).toBe(0);
   });
 
   test("seals exactly four canonical criteria and reconstructs only their semantic projection", () => {

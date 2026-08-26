@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -14,6 +17,9 @@ import {
 import {
   buildCityCatalogRevision,
   buildCityRegistryRevision,
+  CITY_CATALOG_RULES_VERSION,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
+  type CityCatalogRevision,
 } from "../../src/decision/city-catalog";
 import {
   createCityDecisionIntegrityView,
@@ -22,7 +28,10 @@ import {
 } from "../../src/infrastructure/integrity";
 import { SqliteCityEvidenceStore } from "../../src/infrastructure/sqlite/city-evidence-store";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
-import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
+import {
+  insertSealedEvidence,
+  SqliteEvidenceStore,
+} from "../../src/infrastructure/sqlite/evidence-store";
 import {
   citySafetyTerminalEntry,
   SLOVENIA_CITY_FACT_SOURCE_IDS,
@@ -59,19 +68,49 @@ const ASSESSMENT_AT = "2026-03-01T00:00:00.000Z";
 const COMPLETED_AT = "2026-03-01T12:00:10.000Z";
 
 const databases: Database.Database[] = [];
+const temporaryDirectories: string[] = [];
 
 afterEach(() => {
-  for (const database of databases.splice(0)) database.close();
+  for (const database of databases.splice(0)) {
+    if (database.open) database.close();
+  }
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
-function database(): Database.Database {
-  const value = openEvidenceDatabase(":memory:");
+function database(path = ":memory:"): Database.Database {
+  const value = openEvidenceDatabase(path);
   databases.push(value);
   return value;
 }
 
+function temporaryDatabasePath(): string {
+  const directory = mkdtempSync(join(tmpdir(), "city-evidence-task14-"));
+  temporaryDirectories.push(directory);
+  return join(directory, "city.sqlite");
+}
+
 function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function expectRecursivelyFrozen(value: unknown, seen = new Set<object>()): void {
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  if (value instanceof Uint8Array) {
+    expect(Object.getPrototypeOf(value)).toBe(Uint8Array.prototype);
+    return;
+  }
+  expect(Object.isFrozen(value)).toBe(true);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    expect(descriptor).toBeDefined();
+    expect(descriptor !== undefined && "value" in descriptor).toBe(true);
+    if (descriptor !== undefined && "value" in descriptor) {
+      expectRecursivelyFrozen(descriptor.value, seen);
+    }
+  }
 }
 
 function normalizeRequestBodySha(value: unknown): unknown {
@@ -189,6 +228,154 @@ function insertSignedCityOverlay(
   );
 }
 
+function insertAuthenticatedCityEvidenceFixture(
+  db: Database.Database,
+  input: CityEvidenceSealInput,
+): CityEvidencePayload {
+  insertSealedEvidence(db, input.genericEvidence, INTEGRITY);
+  const context: CityEvidenceContext = {
+    schemaVersion: input.schemaVersion,
+    cityCheckRunId: input.cityCheckRunId,
+    frontierRunId: input.frontierRunId,
+    cityId: input.cityId,
+    countryCode: input.countryCode,
+    packageId: input.packageId,
+    packageSchemaVersion: input.packageSchemaVersion,
+    catalogRevisionId: input.catalogRevisionId,
+    criteriaSnapshotId: input.criteriaSnapshotId,
+    rankingSnapshotId: input.rankingSnapshotId,
+    definitionIds: input.definitionIds,
+    evidenceRulesVersion: input.evidenceRulesVersion,
+    assessmentAt: input.assessmentAt,
+    completedAt: input.completedAt,
+  };
+  const payload: CityEvidencePayload = {
+    schemaVersion: "city-evidence@1",
+    id: `${input.cityCheckRunId}:evidence`,
+    cityCheckRunId: input.cityCheckRunId,
+    frontierRunId: input.frontierRunId,
+    cityId: input.cityId,
+    countryCode: input.countryCode,
+    packageId: input.packageId,
+    packageSchemaVersion: input.packageSchemaVersion,
+    catalogRevisionId: input.catalogRevisionId,
+    criteriaSnapshotId: input.criteriaSnapshotId,
+    rankingSnapshotId: input.rankingSnapshotId,
+    definitionIds: structuredClone(input.definitionIds),
+    evidenceRulesVersion: input.evidenceRulesVersion,
+    assessmentAt: input.assessmentAt,
+    fixedAttemptLedgers: structuredClone(input.fixedAttemptLedgers),
+    safetyAttemptLedger: structuredClone(input.safetyAttemptLedger),
+    contextHash: cityEvidenceContextHash(context, INTEGRITY),
+    completedAt: input.completedAt,
+  };
+  insertSignedCityOverlay(db, payload);
+  return payload;
+}
+
+function contractWithCatalogRules(
+  value: CityPackageEvidenceReplayContract,
+  rulesVersion: string,
+): CityPackageEvidenceReplayContract {
+  const contract = structuredClone({
+    installedPackageManifest: value.installedPackageManifest,
+    definition: value.definition,
+    catalogProjection: value.catalogProjection,
+    fixedPlansByCityId: value.fixedPlansByCityId,
+    safetySourcePlan: value.safetySourcePlan,
+    officialAuthorityDirectory: value.officialAuthorityDirectory,
+  });
+  const { id: _catalogId, ...currentCatalog } = contract.catalogProjection.catalog;
+  void _catalogId;
+  const catalogPayload = {
+    ...currentCatalog,
+    members: currentCatalog.members.map((member) => ({
+      ...member,
+      inclusionReasons: ["population_threshold", ...(member.cityId === CITY_ID
+        ? ["national_capital" as const]
+        : [])],
+    })),
+    rulesVersion,
+  };
+  const catalog = {
+    id: `city-catalog:${INTEGRITY.hash(INTEGRITY.canonical(catalogPayload))}`,
+    ...catalogPayload,
+  } as CityCatalogRevision;
+  const { id: _directoryId, ...currentDirectory } = contract.officialAuthorityDirectory;
+  void _directoryId;
+  const directoryPayload = { ...currentDirectory, catalogRevisionId: catalog.id };
+  const officialAuthorityDirectory = {
+    id: `official-authority-directory:${INTEGRITY.hash(INTEGRITY.canonical(directoryPayload))}`,
+    ...directoryPayload,
+  };
+  const { id: _sourcePlanId, ...currentSourcePlan } = contract.safetySourcePlan;
+  void _sourcePlanId;
+  const sourcePlanPayload = {
+    ...currentSourcePlan,
+    catalogRevisionId: catalog.id,
+    authorityDirectoryId: officialAuthorityDirectory.id,
+  };
+  const safetySourcePlan = {
+    id: `city-safety-source-plan:${INTEGRITY.hash(INTEGRITY.canonical(sourcePlanPayload))}`,
+    ...sourcePlanPayload,
+  };
+  const key = Object.freeze({
+    ...contract.installedPackageManifest.key,
+    catalogRevisionId: catalog.id,
+  });
+  return {
+    ...value,
+    installedPackageManifest: Object.freeze({
+      id: `${value.installedPackageManifest.id}:${rulesVersion}`,
+      key,
+    }),
+    catalogProjection: { registry: contract.catalogProjection.registry, catalog },
+    officialAuthorityDirectory,
+    safetySourcePlan,
+  } as CityPackageEvidenceReplayContract;
+}
+
+function rebindEvidenceInput(
+  value: CityEvidenceSealInput,
+  contract: CityPackageEvidenceReplayContract,
+): CityEvidenceSealInput {
+  const input = structuredClone(value);
+  const mutableInput = input as unknown as Record<string, unknown>;
+  const mutableLedger = input.safetyAttemptLedger as unknown as Record<string, unknown>;
+  mutableInput.catalogRevisionId = contract.catalogProjection.catalog.id;
+  mutableLedger.catalogRevisionId = contract.catalogProjection.catalog.id;
+  mutableLedger.authorityDirectoryId = contract.officialAuthorityDirectory.id;
+  mutableLedger.sourcePlanId = contract.safetySourcePlan.id;
+  const evidenceContext: CityEvidenceContext = {
+    schemaVersion: input.schemaVersion,
+    cityCheckRunId: input.cityCheckRunId,
+    frontierRunId: input.frontierRunId,
+    cityId: input.cityId,
+    countryCode: input.countryCode,
+    packageId: input.packageId,
+    packageSchemaVersion: input.packageSchemaVersion,
+    catalogRevisionId: input.catalogRevisionId,
+    criteriaSnapshotId: input.criteriaSnapshotId,
+    rankingSnapshotId: input.rankingSnapshotId,
+    definitionIds: input.definitionIds,
+    evidenceRulesVersion: input.evidenceRulesVersion,
+    assessmentAt: input.assessmentAt,
+    completedAt: input.completedAt,
+  };
+  const mutableSnapshot = input.genericEvidence.snapshot as unknown as Record<string, unknown>;
+  const mutableManifest = input.genericEvidence.manifest as unknown as Record<string, unknown>;
+  mutableSnapshot.contextHash = cityEvidenceContextHash(evidenceContext, INTEGRITY);
+  mutableManifest.snapshot = Object.fromEntries(
+    Object.entries(structuredClone(input.genericEvidence.snapshot))
+      .filter(([key]) => key !== "manifestHash" && key !== "hmac"),
+  );
+  const canonicalManifest = INTEGRITY.canonical(input.genericEvidence.manifest);
+  (input.genericEvidence as unknown as Record<string, unknown>).canonicalManifest = canonicalManifest;
+  mutableSnapshot.manifestHash = INTEGRITY.hash(canonicalManifest);
+  mutableSnapshot.hmac = INTEGRITY.sign(canonicalManifest);
+  return input;
+}
+
 function withPriorOrigin(
   ledger: CitySafetyAttemptLedger,
   priorEvidenceSnapshotId: string,
@@ -287,6 +474,7 @@ function packageFixture(
   integrity = INTEGRITY,
   retentionMode: OfficialRetentionMode = "seal_raw_artifact",
   includeSecondCity = false,
+  catalogRulesVersion: string = CITY_CATALOG_RULES_VERSION,
 ) {
   const registry = buildCityRegistryRevision({
     packageId: "si-cities",
@@ -314,7 +502,7 @@ function packageFixture(
     }] : [])],
     createdAt: "2026-01-01T00:00:00.000Z",
   }, integrity);
-  const catalog = buildCityCatalogRevision({
+  const currentCatalog = buildCityCatalogRevision({
     registry,
     evidenceSnapshotId: "catalog-evidence:1",
     populationDefinition: {
@@ -336,6 +524,26 @@ function packageFixture(
     coverage: { status: "complete" },
     createdAt: "2026-01-01T00:00:00.000Z",
   }, integrity);
+  const catalog: CityCatalogRevision = catalogRulesVersion === CITY_CATALOG_RULES_VERSION
+    ? currentCatalog
+    : (() => {
+        const { id: _id, ...currentPayload } = currentCatalog;
+        void _id;
+        const payload = {
+          ...currentPayload,
+          members: currentCatalog.members.map((member) => ({
+            ...member,
+            inclusionReasons: ["population_threshold", ...(member.cityId === CITY_ID
+              ? ["national_capital" as const]
+              : [])],
+          })),
+          rulesVersion: catalogRulesVersion,
+        };
+        return {
+          id: `city-catalog:${integrity.hash(integrity.canonical(payload))}`,
+          ...payload,
+        } as CityCatalogRevision;
+      })();
   const publisher = (
     publisherId: string,
     authorityKind: "police" | "government" | "open_data" | "statistics" | "municipality",
@@ -1498,6 +1706,177 @@ describe("City Evidence context", () => {
 });
 
 describe("SQLite City Evidence overlay", () => {
+  test("keeps authenticated legacy Catalog rules readable-only at the Evidence mutation boundary", async () => {
+    // Break caught: either rejecting @1 as generic corruption or permitting a new @1 Evidence overlay.
+    const fixture = await sealInput(packageFixture(
+      INTEGRITY,
+      "seal_raw_artifact",
+      false,
+      LEGACY_CITY_CATALOG_RULES_VERSION,
+    ));
+    const db = database();
+    const store = new SqliteCityEvidenceStore(db, INTEGRITY, fixture.packageReplay);
+
+    expect(() => store.seal(fixture.input)).toThrow("city_catalog_upgrade_required");
+    expect(db.prepare("SELECT COUNT(*) AS count FROM city_evidence_snapshots").get())
+      .toEqual({ count: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get())
+      .toEqual({ count: 0 });
+  });
+
+  test("restarts and loads an authentically inserted legacy Evidence chain as fresh frozen data", async () => {
+    // Break caught: retaining the @2 gate in the shared authenticated load path.
+    const prepared = await sealInput(packageFixture(
+      INTEGRITY,
+      "seal_raw_artifact",
+      false,
+      LEGACY_CITY_CATALOG_RULES_VERSION,
+    ));
+    const path = temporaryDatabasePath();
+    const first = database(path);
+    const payload = insertAuthenticatedCityEvidenceFixture(first, prepared.input);
+    first.close();
+
+    const restarted = database(path);
+    const store = new SqliteCityEvidenceStore(restarted, INTEGRITY, prepared.packageReplay);
+    const loadedA = store.loadVerified(payload.id);
+    const loadedB = store.loadVerified(payload.id);
+
+    expect(loadedA.snapshot).toMatchObject(payload);
+    expect(loadedB).toEqual(loadedA);
+    expect(loadedA).not.toBe(loadedB);
+    expect(loadedA.snapshot).not.toBe(loadedB.snapshot);
+    expect(loadedA.genericEvidence).not.toBe(loadedB.genericEvidence);
+    expect(loadedA.genericEvidence.snapshot).not.toBe(loadedB.genericEvidence.snapshot);
+    expectRecursivelyFrozen(loadedA);
+    expectRecursivelyFrozen(loadedB);
+  });
+
+  test("rejects an authentically rebound unknown Catalog rules chain without poisoning current reads", async () => {
+    // Break caught: treating every non-current literal as historical instead of closing @1/@2.
+    const current = await sealInput(packageFixture());
+    const legacyFixture = packageFixture(
+      INTEGRITY,
+      "seal_raw_artifact",
+      false,
+      LEGACY_CITY_CATALOG_RULES_VERSION,
+    );
+    const legacy = await sealInput(legacyFixture);
+    const unknownContract = contractWithCatalogRules(
+      legacyFixture.contract,
+      "city-catalog@999",
+    );
+    const unknownInput = rebindEvidenceInput(legacy.input, unknownContract);
+    const path = temporaryDatabasePath();
+    const writer = database(path);
+    const unknownPayload = insertAuthenticatedCityEvidenceFixture(writer, unknownInput);
+    writer.close();
+    const restarted = database(path);
+    const store = new SqliteCityEvidenceStore(restarted, INTEGRITY, {
+      loadExactReplayContract: () => unknownContract,
+    });
+
+    const first = (() => {
+      try {
+        store.loadVerified(unknownPayload.id);
+      } catch (error) {
+        return error;
+      }
+      throw new Error("expected_failure");
+    })();
+    const second = (() => {
+      try {
+        store.loadVerified(unknownPayload.id);
+      } catch (error) {
+        return error;
+      }
+      throw new Error("expected_failure");
+    })();
+    expect(first).toEqual(new Error("integrity_mismatch"));
+    expect(second).toEqual(new Error("integrity_mismatch"));
+    expect(first).not.toBe(second);
+
+    const healthyDatabase = database();
+    const currentPayload = insertAuthenticatedCityEvidenceFixture(healthyDatabase, current.input);
+    const healthy = new SqliteCityEvidenceStore(
+      healthyDatabase,
+      INTEGRITY,
+      current.packageReplay,
+    );
+    expect(healthy.loadVerified(currentPayload.id).snapshot.id).toBe(currentPayload.id);
+  });
+
+  test("rejects a complete unknown-rules Evidence seal before writing either layer", async () => {
+    // Break caught: treating unknown Catalog rules as writable history or partially sealing Generic Evidence.
+    const legacyFixture = packageFixture(
+      INTEGRITY,
+      "seal_raw_artifact",
+      false,
+      LEGACY_CITY_CATALOG_RULES_VERSION,
+    );
+    const legacy = await sealInput(legacyFixture);
+    const unknownContract = contractWithCatalogRules(
+      legacyFixture.contract,
+      "city-catalog@999",
+    );
+    const unknownInput = rebindEvidenceInput(legacy.input, unknownContract);
+    expect(unknownContract.catalogProjection.catalog.rulesVersion).toBe("city-catalog@999");
+    expect(unknownInput.catalogRevisionId).toBe(unknownContract.catalogProjection.catalog.id);
+    expect(unknownInput.safetyAttemptLedger).toMatchObject({
+      catalogRevisionId: unknownContract.catalogProjection.catalog.id,
+      sourcePlanId: unknownContract.safetySourcePlan.id,
+      authorityDirectoryId: unknownContract.officialAuthorityDirectory.id,
+    });
+    const db = database();
+    const replayKeys: unknown[] = [];
+    const store = new SqliteCityEvidenceStore(db, INTEGRITY, {
+      loadExactReplayContract: (key) => {
+        replayKeys.push(structuredClone(key));
+        return unknownContract;
+      },
+    });
+    const changesBefore = db.prepare("SELECT total_changes() AS count").get() as {
+      readonly count: number;
+    };
+    const capture = (): Error => {
+      try {
+        store.seal(unknownInput);
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        return error as Error;
+      }
+      throw new Error("expected_failure");
+    };
+    const first = capture();
+    const second = capture();
+    expect(first).toEqual(new Error("integrity_mismatch"));
+    expect(second).toEqual(new Error("integrity_mismatch"));
+    expect(first).not.toBe(second);
+    expect(replayKeys).toEqual([
+      unknownContract.installedPackageManifest.key,
+      unknownContract.installedPackageManifest.key,
+    ]);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get())
+      .toEqual({ count: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM city_evidence_snapshots").get())
+      .toEqual({ count: 0 });
+    expect(db.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
+
+    const healthyFixture = await sealInput(packageFixture());
+    const healthyDb = database();
+    const healthyStore = new SqliteCityEvidenceStore(
+      healthyDb,
+      INTEGRITY,
+      healthyFixture.packageReplay,
+    );
+    const healthy = healthyStore.seal(healthyFixture.input);
+    expect(healthyStore.loadVerified(healthy.id).snapshot.id).toBe(healthy.id);
+    expect(healthyDb.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get())
+      .toEqual({ count: 1 });
+    expect(healthyDb.prepare("SELECT COUNT(*) AS count FROM city_evidence_snapshots").get())
+      .toEqual({ count: 1 });
+  });
+
   test("narrows runtime integrity capabilities before pure replay", async () => {
     const receivers = new Set<string>();
     const guardedIntegrity: EvidenceIntegrity = Object.freeze({

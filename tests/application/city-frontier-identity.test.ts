@@ -3,8 +3,10 @@ import { createHash } from "node:crypto";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import {
+  cityCheckRunId,
   cityCriteriaPayloadHash,
   cityFrontierRunId,
+  type CityCheckRunIdentity,
   type CityCriteriaCommandPayload,
   type CityFrontierRunIdentity,
 } from "../../src/application/city-data-contracts";
@@ -116,6 +118,13 @@ const RUN_IDENTITY: CityFrontierRunIdentity = {
   verificationBudget: BUDGET,
 };
 
+const CHECK_IDENTITY: CityCheckRunIdentity = {
+  schemaVersion: "city-check-run@1",
+  runId: `city-frontier:${"1".repeat(64)}`,
+  cityId: "SI-LJUBLJANA",
+  rankingSnapshotId: `city-ranking:${"2".repeat(64)}`,
+};
+
 function canonical(value: unknown): string {
   const normalize = (input: unknown): unknown => {
     if (Array.isArray(input)) return input.map(normalize);
@@ -180,6 +189,12 @@ describe("city frontier exact contracts", () => {
       readonly rankingRulesVersion: "city-ranker@1";
       readonly verificationBudget: CityFrontierVerificationBudget;
     };
+    type ExpectedCheckIdentity = {
+      readonly schemaVersion: "city-check-run@1";
+      readonly runId: string;
+      readonly cityId: string;
+      readonly rankingSnapshotId: string;
+    };
     type ExpectedStartIntent = {
       readonly schemaVersion: "city-frontier-start-intent@1";
       readonly runId: string;
@@ -210,6 +225,7 @@ describe("city frontier exact contracts", () => {
 
     expectTypeOf<CityCriteriaCommandPayload>().toEqualTypeOf<ExpectedCriteriaPayload>();
     expectTypeOf<CityFrontierRunIdentity>().toEqualTypeOf<ExpectedRunIdentity>();
+    expectTypeOf<CityCheckRunIdentity>().toEqualTypeOf<ExpectedCheckIdentity>();
     expectTypeOf<CityFrontierStartIntent>().toEqualTypeOf<ExpectedStartIntent>();
     expectTypeOf<CityFrontierAppendInput>().toEqualTypeOf<ExpectedAppendInput>();
     expectTypeOf<CityCommandResult>().toEqualTypeOf<ExpectedCommandResult>();
@@ -222,6 +238,10 @@ describe("city frontier exact contracts", () => {
     ) => string>();
     expectTypeOf(cityFrontierRunId).toEqualTypeOf<(
       input: CityFrontierRunIdentity,
+      integrity: CityDecisionIntegrity,
+    ) => string>();
+    expectTypeOf(cityCheckRunId).toEqualTypeOf<(
+      input: CityCheckRunIdentity,
       integrity: CityDecisionIntegrity,
     ) => string>();
   });
@@ -915,5 +935,146 @@ describe("city frontier exact identity", () => {
       expect((first as Error).message).toBe("integrity_mismatch");
       expect((second as Error).message).toBe("integrity_mismatch");
     }
+  });
+});
+
+describe("city check run exact identity", () => {
+  test("hashes exactly the owned four-key identity and changes for each variable field", () => {
+    // Break caught: adding command/time/package authority or omitting run, city, or Ranking identity.
+    const baseline = cityCheckRunId(CHECK_IDENTITY, INTEGRITY);
+
+    expect(baseline).toBe(`city-check:${sha256(canonical(CHECK_IDENTITY))}`);
+    expect([
+      { ...CHECK_IDENTITY, runId: `city-frontier:${"3".repeat(64)}` },
+      { ...CHECK_IDENTITY, cityId: "SI-MARIBOR" },
+      { ...CHECK_IDENTITY, rankingSnapshotId: `city-ranking:${"4".repeat(64)}` },
+    ].map((input) => cityCheckRunId(input, INTEGRITY)))
+      .not.toContain(baseline);
+    expect(cityCheckRunId(structuredClone(CHECK_IDENTITY), INTEGRITY)).toBe(baseline);
+  });
+
+  test("feeds H exactly the distinct canonical sentinel through fresh neutral receivers", () => {
+    // Break caught: invoking capabilities on their borrowed receiver or hashing a private serializer.
+    const borrowed = structuredClone(CHECK_IDENTITY);
+    const canonicalInputs: unknown[] = [];
+    const hashInputs: string[] = [];
+    const receivers: unknown[] = [];
+    const digest = "5".repeat(64);
+    const integrity: CityDecisionIntegrity = {
+      canonical(this: unknown, value: unknown) {
+        receivers.push(this);
+        canonicalInputs.push(value);
+        (borrowed as MutableRecord).cityId = "SI-MUTATED";
+        return "check-run-canonical-sentinel";
+      },
+      hash(this: unknown, value: string) {
+        receivers.push(this);
+        hashInputs.push(value);
+        return digest;
+      },
+    };
+
+    expect(cityCheckRunId(borrowed, integrity)).toBe(`city-check:${digest}`);
+    expect(hashInputs).toEqual(["check-run-canonical-sentinel"]);
+    expect(canonicalInputs).toHaveLength(1);
+    expect(canonicalInputs[0]).toEqual(CHECK_IDENTITY);
+    expect(canonicalInputs[0]).not.toBe(borrowed);
+    recursivelyFrozen(canonicalInputs[0]);
+    expect(receivers).toHaveLength(2);
+    expect(receivers[0]).not.toBe(integrity);
+    expect(receivers[1]).not.toBe(integrity);
+    expect(receivers[0]).not.toBe(receivers[1]);
+    expect(receivers.map((receiver) => Reflect.ownKeys(receiver as object)))
+      .toEqual([["capability"], ["capability"]]);
+    receivers.forEach((receiver) => expect(Object.isFrozen(receiver)).toBe(true));
+  });
+
+  test("rejects representative scalar and complete-graph drift before C or H", () => {
+    // Break caught: hashing an open identity or accepting noncanonical/prefixless identity scalars.
+    let callbackCalls = 0;
+    let accessorReads = 0;
+    let proxyTraps = 0;
+    const integrity: CityDecisionIntegrity = {
+      canonical: () => { callbackCalls += 1; return "never"; },
+      hash: () => { callbackCalls += 1; return "6".repeat(64); },
+    };
+    const accessor = { ...CHECK_IDENTITY };
+    Object.defineProperty(accessor, "cityId", {
+      enumerable: true,
+      get() { accessorReads += 1; return "SI-LJUBLJANA"; },
+    });
+    const inherited = Object.assign(Object.create({ inherited: true }), CHECK_IDENTITY);
+    const withSymbol = Object.assign({ ...CHECK_IDENTITY }, { [Symbol("extra")]: true });
+    const proxied = new Proxy({ ...CHECK_IDENTITY }, {
+      ownKeys() { proxyTraps += 1; throw new Error("proxy_trap"); },
+      getOwnPropertyDescriptor() { proxyTraps += 1; throw new Error("proxy_trap"); },
+    });
+    const invalid: unknown[] = [
+      { ...CHECK_IDENTITY, extra: true },
+      accessor,
+      inherited,
+      withSymbol,
+      proxied,
+      { ...CHECK_IDENTITY, schemaVersion: "city-check-run@2" },
+      { ...CHECK_IDENTITY, runId: `city-frontier:${"1".repeat(63)}` },
+      { ...CHECK_IDENTITY, runId: `city-frontier:${"g".repeat(64)}` },
+      { ...CHECK_IDENTITY, runId: `city-frontier:${"A".repeat(64)}` },
+      { ...CHECK_IDENTITY, runId: `city-frontier:city-frontier:${"1".repeat(64)}` },
+      { ...CHECK_IDENTITY, cityId: "" },
+      { ...CHECK_IDENTITY, cityId: " Ljubljana " },
+      { ...CHECK_IDENTITY, cityId: "ljubljana\u0000" },
+      { ...CHECK_IDENTITY, rankingSnapshotId: `city-ranking:${"2".repeat(63)}` },
+      { ...CHECK_IDENTITY, rankingSnapshotId: `city-ranking:${"g".repeat(64)}` },
+      { ...CHECK_IDENTITY, rankingSnapshotId: `city-ranking:${"A".repeat(64)}` },
+      { ...CHECK_IDENTITY, rankingSnapshotId: `city-ranking:city-ranking:${"2".repeat(64)}` },
+    ];
+
+    for (const value of invalid) {
+      expectIntegrityMismatch(() => cityCheckRunId(
+        value as CityCheckRunIdentity,
+        integrity,
+      ));
+    }
+    expect(callbackCalls).toBe(0);
+    expect(accessorReads).toBe(0);
+    expect(proxyTraps).toBe(0);
+  });
+
+  test("normalizes hostile capability roots, callable proxies and results to fresh errors", () => {
+    // Break caught: leaking hostile errors, triggering Proxy traps, or caching a boundary Error.
+    let traps = 0;
+    const hostileError = new Error("hostile_check_identity");
+    const callableProxy = new Proxy((value: unknown) => canonical(value), {
+      apply() { traps += 1; throw hostileError; },
+    });
+    const rootProxy = new Proxy({ canonical, hash: sha256 }, {
+      ownKeys() { traps += 1; throw hostileError; },
+      getOwnPropertyDescriptor() { traps += 1; throw hostileError; },
+    });
+    const hostile: CityDecisionIntegrity[] = [
+      rootProxy,
+      { canonical: callableProxy, hash: sha256 },
+      { canonical: () => { throw hostileError; }, hash: sha256 },
+      { canonical, hash: () => "7".repeat(63) },
+      { canonical, hash: () => "g".repeat(64) },
+      { canonical, hash: () => `city-check:${"7".repeat(64)}` },
+      { canonical, hash: () => "A".repeat(64) },
+      { canonical, hash: () => Promise.resolve("7".repeat(64)) as unknown as string },
+    ];
+
+    for (const integrity of hostile) {
+      const errors: unknown[] = [];
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try { cityCheckRunId(CHECK_IDENTITY, integrity); } catch (error) { errors.push(error); }
+      }
+      expect(errors).toHaveLength(2);
+      expect(errors[0]).toBeInstanceOf(Error);
+      expect(errors[1]).toBeInstanceOf(Error);
+      expect(errors[0]).not.toBe(errors[1]);
+      expect(errors[0]).not.toBe(hostileError);
+      expect((errors[0] as Error).message).toBe("integrity_mismatch");
+      expect((errors[1] as Error).message).toBe("integrity_mismatch");
+    }
+    expect(traps).toBe(0);
   });
 });

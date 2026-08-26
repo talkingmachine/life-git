@@ -1,5 +1,10 @@
 import { types } from "node:util";
 
+export function isBorrowedProxy(value: unknown): boolean {
+  return (typeof value === "object" && value !== null || typeof value === "function") &&
+    types.isProxy(value);
+}
+
 import type {
   CityCatalogRevision,
   CityCatalogProjection,
@@ -225,6 +230,13 @@ export interface CityFrontierRunIdentity {
   readonly verificationBudget: CityFrontierVerificationBudget;
 }
 
+export type CityCheckRunIdentity = {
+  readonly schemaVersion: "city-check-run@1";
+  readonly runId: string;
+  readonly cityId: string;
+  readonly rankingSnapshotId: string;
+};
+
 type IdentityRecord = Record<string, unknown>;
 
 interface CapturedIdentityIntegrity {
@@ -250,6 +262,12 @@ const RUN_IDENTITY_KEYS = [
   "catalogRulesVersion",
   "rankingRulesVersion",
   "verificationBudget",
+] as const;
+const CHECK_IDENTITY_KEYS = [
+  "schemaVersion",
+  "runId",
+  "cityId",
+  "rankingSnapshotId",
 ] as const;
 
 function identityMismatch(): never {
@@ -418,6 +436,21 @@ function validateRunIdentity(value: unknown): CityFrontierRunIdentity {
   return identity as unknown as CityFrontierRunIdentity;
 }
 
+function validateCheckIdentity(value: unknown): CityCheckRunIdentity {
+  const identity = exactIdentityRecord(value, CHECK_IDENTITY_KEYS);
+  if (identity.schemaVersion !== "city-check-run@1" ||
+    typeof identity.runId !== "string" ||
+    !/^city-frontier:[0-9a-f]{64}$/.test(identity.runId) ||
+    typeof identity.cityId !== "string" || identity.cityId.length === 0 ||
+    identity.cityId.trim() !== identity.cityId ||
+    /[\u0000-\u001f\u007f-\u009f]/.test(identity.cityId) ||
+    typeof identity.rankingSnapshotId !== "string" ||
+    !/^city-ranking:[0-9a-f]{64}$/.test(identity.rankingSnapshotId)) {
+    identityMismatch();
+  }
+  return identity as unknown as CityCheckRunIdentity;
+}
+
 function captureIdentityIntegrity(value: CityDecisionIntegrity): CapturedIdentityIntegrity {
   if (value === null || typeof value !== "object" || Array.isArray(value) ||
     types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype ||
@@ -474,6 +507,17 @@ export function cityFrontierRunId(
     const capturedIntegrity = captureIdentityIntegrity(integrity);
     const owned = validateRunIdentity(ownIdentityGraph(input));
     return `city-frontier:${hashIdentity(owned, capturedIntegrity)}`;
+  });
+}
+
+export function cityCheckRunId(
+  input: CityCheckRunIdentity,
+  integrity: CityDecisionIntegrity,
+): string {
+  return atIdentityBoundary(() => {
+    const capturedIntegrity = captureIdentityIntegrity(integrity);
+    const owned = validateCheckIdentity(ownIdentityGraph(input));
+    return `city-check:${hashIdentity(owned, capturedIntegrity)}`;
   });
 }
 

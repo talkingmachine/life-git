@@ -485,9 +485,53 @@ export function reconstructCityFrontierRevision(
   integrity: CityDecisionIntegrity,
 ): CityFrontierRevision;
 
+export type CityFrontierProgressStage =
+  | "source_started:si-city-safety"
+  | "source_started:si-city-long-term-rent"
+  | "source_started:si-city-urban-transit"
+  | "source_started:si-city-fixed-broadband"
+  | "source_completed:si-city-safety"
+  | "source_completed:si-city-long-term-rent"
+  | "source_completed:si-city-urban-transit"
+  | "source_completed:si-city-fixed-broadband"
+  | "evidence_verified"
+  | "knowledge_published";
+
+interface CityFrontierProgressEventBase {
+  readonly type: "city_progress";
+  readonly runId: string;
+  readonly baseRevisionId: string;
+  readonly sequence: number;
+  readonly occurredAt: string;
+  readonly cityId: string;
+}
+
+export type CityFrontierProgressEvent =
+  | (CityFrontierProgressEventBase & {
+      readonly stage:
+        | "source_started:si-city-safety"
+        | "source_started:si-city-long-term-rent"
+        | "source_started:si-city-urban-transit"
+        | "source_started:si-city-fixed-broadband"
+        | "evidence_verified"
+        | "knowledge_published";
+      readonly sourceUrl?: never;
+    })
+  | (CityFrontierProgressEventBase & {
+      readonly stage:
+        | "source_completed:si-city-long-term-rent"
+        | "source_completed:si-city-urban-transit"
+        | "source_completed:si-city-fixed-broadband";
+      readonly sourceUrl: string;
+    })
+  | (CityFrontierProgressEventBase & {
+      readonly stage: "source_completed:si-city-safety";
+      readonly sourceUrl?: string;
+    });
+
 export type CityFrontierEvent =
   | { readonly type: "city_activated"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly rank: number }
-  | { readonly type: "city_progress"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly stage: string; readonly label: string; readonly detail?: string; readonly sourceUrl?: string }
+  | CityFrontierProgressEvent
   | { readonly type: "city_revision_committed"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly marker: CityLiveMarker; readonly revision: CityFrontierRevision }
   | { readonly type: "city_continuation_completed"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly readModel: CityFrontierReadModel };
 
@@ -870,7 +914,8 @@ marker digest; requires
 Profile/resolved-country mirrors between Ranking and parent. It requires the supplied fresh Task 11
 selection entry, warning token and ordered reviewed-link occurrence list to equal the exact selected
 terminal marker, derives every durable `CitySelectionSnapshotPayload` field server-side, seals its
-content ID, then invokes the pure Branch constructor. A caller never supplies parent/fork/digest/basis
+content ID, requires its canonical `createdAt >= terminal.createdAt` (equality valid), then invokes the
+pure Branch constructor. A caller never supplies parent/fork/digest/basis
 or durable context fields as independent authority; those values carried by the fresh Task 11
 projection are checked and rederived.
 
@@ -884,7 +929,8 @@ requires every derived Selection field—run, terminal, profile, Preference Prof
 criteria, Ranking, pre-city, selected-marker digest, Knowledge, Evidence, unknown basis, warning token,
 city and country—to equal the authority-derived value, plus
 `selection.preCityBranchCommitId === commit.parentId === commit.forkedFrom` and
-`selection.createdAt === commit.createdAt`. It structurally validates and content-binds the Selection
+`selection.createdAt === commit.createdAt`, and requires
+`selection.createdAt >= terminal.createdAt` with equality accepted. It structurally validates and content-binds the Selection
 command ID; Task 15's external command envelope separately verifies its idempotency binding. It does
 not rerun Task 11 policy or source replay: Task 15 must first obtain a fresh
 `CitySelectionProjection` from its
@@ -1810,12 +1856,15 @@ git commit -m "feat: persist city frontier"
 **Requirements:** REQ-CF-03, REQ-CF-04, REQ-CF-06; SCN-CF-03, SCN-CF-04, SCN-CF-06..08, SCN-CF-10
 
 **Files:**
-- Create: `src/application/city-verifier.ts`
 - Create: `src/application/city-frontier.ts`
-- Create: `src/infrastructure/city-verifier-adapter.ts`
 - Create: `src/infrastructure/city-frontier-composition.ts`
-- Create: `src/infrastructure/sources/slovenia-city-source-adapter.ts`
 - Create: `tests/integration/city-frontier.test.ts`
+- Modify: `src/application/city-data-contracts.ts`
+- Modify: `src/application/city-frontier-contracts.ts`
+- Modify: `src/decision/city-criteria.ts`
+- Modify: `tests/application/city-frontier-identity.test.ts`
+- Modify: `tests/branch/city.test.ts`
+- Modify: `tests/domain/city-criteria.test.ts`
 - Modify: `src/infrastructure/sqlite/city-package-manifest-store.ts`
 - Modify: `src/infrastructure/sources/installed-city-packages.ts`
 - Modify: `src/infrastructure/sqlite/city-evidence-store.ts`
@@ -1830,6 +1879,81 @@ git commit -m "feat: persist city frontier"
 **Interfaces:**
 
 ```ts
+export type CityFrontierProgressStage =
+  | "source_started:si-city-safety"
+  | "source_started:si-city-long-term-rent"
+  | "source_started:si-city-urban-transit"
+  | "source_started:si-city-fixed-broadband"
+  | "source_completed:si-city-safety"
+  | "source_completed:si-city-long-term-rent"
+  | "source_completed:si-city-urban-transit"
+  | "source_completed:si-city-fixed-broadband"
+  | "evidence_verified"
+  | "knowledge_published";
+
+interface CityFrontierProgressEventBase {
+  readonly type: "city_progress";
+  readonly runId: string;
+  readonly baseRevisionId: string;
+  readonly sequence: number;
+  readonly occurredAt: string;
+  readonly cityId: string;
+}
+
+export type CityFrontierProgressEvent =
+  | (CityFrontierProgressEventBase & {
+      readonly stage:
+        | "source_started:si-city-safety"
+        | "source_started:si-city-long-term-rent"
+        | "source_started:si-city-urban-transit"
+        | "source_started:si-city-fixed-broadband"
+        | "evidence_verified"
+        | "knowledge_published";
+      readonly sourceUrl?: never;
+    })
+  | (CityFrontierProgressEventBase & {
+      readonly stage:
+        | "source_completed:si-city-long-term-rent"
+        | "source_completed:si-city-urban-transit"
+        | "source_completed:si-city-fixed-broadband";
+      readonly sourceUrl: string;
+    })
+  | (CityFrontierProgressEventBase & {
+      readonly stage: "source_completed:si-city-safety";
+      readonly sourceUrl?: string;
+    });
+
+export type CityFrontierEvent =
+  | { readonly type: "city_activated"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly cityId: string; readonly rank: number }
+  | CityFrontierProgressEvent
+  | { readonly type: "city_revision_committed"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly marker: CityLiveMarker; readonly revision: CityFrontierRevision }
+  | { readonly type: "city_continuation_completed"; readonly runId: string; readonly baseRevisionId: string; readonly sequence: number; readonly occurredAt: string; readonly readModel: CityFrontierReadModel };
+
+export interface CityCheckRunIdentity {
+  readonly schemaVersion: "city-check-run@1";
+  readonly runId: string;
+  readonly cityId: string;
+  readonly rankingSnapshotId: string;
+}
+
+export function cityCheckRunId(
+  input: CityCheckRunIdentity,
+  integrity: CityDecisionIntegrity,
+): string;
+
+export function deriveCityCriteriaDraft(
+  profile: RelocationProfileSnapshot,
+  preferences: PreferenceProfileSnapshot,
+  defaults: InstalledCityCriteriaDefaults,
+  evaluators: CityCriterionEvaluatorRegistry,
+): CityCriteriaSnapshot["criteria"];
+export function deriveCityCriteriaDraft(
+  profile: RelocationProfileV2Snapshot,
+  preferences: PreferenceProfileV2Snapshot,
+  defaults: InstalledCityCriteriaDefaults,
+  evaluators: CityCriterionEvaluatorRegistry,
+): CityCriteriaSnapshot["criteria"];
+
 export interface StartCityFrontierInput {
   readonly resolvedCountryShortlistRevisionId: string;
   readonly countryCode: string;
@@ -1876,6 +2000,64 @@ export interface CityFrontierPrepared {
   readonly commandId: string;
 }
 
+export interface CityFrontierResolvedCountryReadPort {
+  requireResolvedCountryShortlistForCity(
+    revisionId: string,
+  ): Promise<ResolvedCountryShortlistSnapshot>;
+}
+
+export interface CityFrontierProfileReadPort {
+  loadRelocationAnyVerified(
+    id: string,
+  ): Promise<RelocationProfileSnapshot | RelocationProfileV2Snapshot>;
+  loadPreferenceForRankingVerified(
+    id: string,
+  ): Promise<PreferenceProfileSnapshot | PreferenceProfileV2Snapshot>;
+}
+
+export interface CityFrontierFixedRoutePorts {
+  readonly "si-city-long-term-rent": CityFixedRoutePort<
+    "si-city-long-term-rent",
+    CityFixedEvidenceClaim<"si-city-long-term-rent">
+  >;
+  readonly "si-city-urban-transit": CityFixedRoutePort<
+    "si-city-urban-transit",
+    CityFixedEvidenceClaim<"si-city-urban-transit">
+  >;
+  readonly "si-city-fixed-broadband": CityFixedRoutePort<
+    "si-city-fixed-broadband",
+    CityFixedEvidenceClaim<"si-city-fixed-broadband">
+  >;
+}
+
+export interface CityFrontierApplicationPorts {
+  readonly resolveAvailability: typeof getCityResearchPackageAvailability;
+  readonly resolvedCountries: CityFrontierResolvedCountryReadPort;
+  readonly profiles: CityFrontierProfileReadPort;
+  readonly installedPackages: InstalledCityPackageLookupPort;
+  readonly installedPackageManifests: Pick<InstalledCityPackageManifestStorePort, "loadVerified">;
+  readonly latestInstalledCatalog: InstalledCityCatalogReadPort;
+  readonly historicalCatalogs: Pick<CityCatalogStorePort, "loadVerified">;
+  readonly criteria: CityCriteriaReadPort;
+  readonly branches: CityBranchReadPort;
+  readonly rankings: CityRankingReadPort;
+  readonly frontierRead: CityFrontierReadPort;
+  readonly frontierAppend: CityFrontierAppendPort;
+  readonly startWriter: CityFrontierStartWriterPort;
+  readonly selectionHistory: CitySelectionHistoryReadPort;
+  readonly evidence: CityEvidenceStorePort;
+  readonly evidenceReplay: CityEvidenceReplayPorts;
+  readonly knowledge: CityKnowledgeStorePort;
+  readonly fixedRoutes: CityFrontierFixedRoutePorts;
+  readonly fixedDeadlineScheduler: CityFixedDeadlineScheduler;
+  readonly safetySearch: CitySafetySearchPort;
+  readonly safetyDocuments: CitySafetyOfficialDocumentPort;
+  readonly decisionIntegrity: CityDecisionIntegrity;
+  readonly evidenceIntegrity: EvidenceIntegrity;
+  readonly clock: () => Date;
+  readonly fixedSourceDeadlineAt: (now: Date) => Date;
+}
+
 export interface CityFrontierApplication {
   presentCityFrontierSetup(input: {
     readonly resolvedCountryShortlistRevisionId: string;
@@ -1892,11 +2074,76 @@ export interface CityFrontierApplication {
   ): Promise<CityFrontierReadModel>;
   presentCityFrontier(runId: string): Promise<CityFrontierReadModel>;
 }
+
+export interface VerifiedCityTerminalSelectionAuthority {
+  readonly readModel: CityFrontierReadModel;
+  readonly terminal: TerminalCityShortlistSnapshot;
+  readonly ranking: CityRankingSnapshot;
+  readonly preCityBranch: PreCityBranchCommit;
+  readonly preCitySource: PreCityBranchSourceProjection;
+  readonly frontier: ReconstructCityFrontierInput;
+}
+
+export interface CityFrontierSelectionAuthorityPort {
+  loadCurrentTerminalSelectionAuthority(
+    terminalCityShortlistSnapshotId: string,
+  ): Promise<VerifiedCityTerminalSelectionAuthority>;
+}
+
+export interface CityFrontierApplicationAssembly {
+  readonly application: Readonly<CityFrontierApplication>;
+  readonly selectionAuthority: Readonly<CityFrontierSelectionAuthorityPort>;
+}
+
+export function createCityFrontierApplication(
+  ports: CityFrontierApplicationPorts,
+): Readonly<CityFrontierApplicationAssembly>;
+
+export type CityFrontierLiveSourceConfiguration =
+  | { readonly kind: "unconfigured" }
+  | {
+      readonly kind: "configured";
+      readonly fixedRoutes: CityFrontierFixedRoutePorts;
+      readonly safetyDocuments: CitySafetyOfficialDocumentPort;
+      readonly citySafetySearch?: Readonly<{
+        readonly config: HttpCitySafetySearchConfig;
+        readonly request: CitySafetySearchHttpRequest;
+      }>;
+    };
+
+export interface CityFrontierFixedTiming {
+  readonly fixedSourceDeadlineAt: (now: Date) => Date;
+  readonly fixedDeadlineScheduler: CityFixedDeadlineScheduler;
+}
+
+export interface CityFrontierCompositionOptions {
+  readonly database: Database.Database;
+  readonly hmacKey: string;
+  readonly resolvedCountries: CityFrontierResolvedCountryReadPort;
+  readonly profiles: CityFrontierProfileReadPort;
+  readonly liveSources: CityFrontierLiveSourceConfiguration;
+  readonly selectionHistory?: CitySelectionHistoryReadPort;
+  readonly resolveAvailability?: typeof getCityResearchPackageAvailability;
+  readonly clock?: () => Date;
+  readonly fixedTiming?: CityFrontierFixedTiming;
+}
+
+export function createCityFrontierComposition(
+  options: CityFrontierCompositionOptions,
+): Readonly<CityFrontierApplicationAssembly>;
 ```
 
 The setup read model contains the verified country entry, installed package/definition metadata and a
 four-criterion draft derived from the exact relocation and Preference Profile snapshots bound by the
-resolved-country source; it performs no HTTP. Start and Prepare accept exactly the public keys shown
+resolved-country source; it performs no HTTP. The profile pair is exactly matched `@1/@1` or `@2/@2`.
+The established `@1` mapping is unchanged: `personal_safety` supplies only safety mode/importance,
+`infrastructure` supplies only transit and broadband mode/importance, and rent remains the installed
+default. The exact ordered `@2` `cityCriteria` tuple maps only mode/importance one-to-one for safety,
+rent, transit and broadband. In both versions the authenticated installed defaults retain criterion ID,
+definition ID and canonical package-unit target; free-form Profile v2 target text never reaches an
+evaluator and relocation fields are binding authority only. Mixed versions, source/profile ID drift or
+tuple/ID/order drift is `integrity_mismatch` before evaluator, Knowledge, ranking or write callbacks.
+Start and Prepare accept exactly the public keys shown
 above; extra client run, snapshot, clock, package, parent, ranking, fact or digest authority is rejected.
 Prepared continuation contains only the six exact server-verified fields shown above. Prepare does not
 load Ranking or derive active-city/check/source context; Continue reloads head plus Ranking, derives
@@ -1909,10 +2156,66 @@ Application receives Task 13's
 Task 15, the injected implementation returns a fresh frozen empty array rather than a hardcoded future
 history in the use case.
 
+`createCityFrontierApplication` is the sole constructible Application boundary. It descriptor-owns and
+closes the exact `CityFrontierApplicationPorts` graph and captures every method reference before the
+first callback; Application imports no Infrastructure type or implementation. The factory and returned
+assembly are recursively frozen. Only `assembly.application` is a public delivery/use-case surface;
+`assembly.selectionAuthority` is an internal Application-to-Application port and is never exposed on an
+HTTP body, event or read model. The listed ports are least-authority inward views: SQLite, HTTP,
+timer and environment construction remains in composition. In particular,
+`installedPackageManifests` is only
+`Pick<InstalledCityPackageManifestStorePort, "loadVerified">`: Application receives an independent
+authenticated manifest anchor without append/latest authority and without enriching the convenient
+installed-package lookup DTO or importing an Infrastructure store. At factory capture, Application
+also creates one private frozen narrowed `{ canonical, hash }` view from the descriptor-captured
+`ports.evidenceIntegrity` methods. Every manifest payload/content-ID and administrative artifact
+equation in the early package gate uses exactly that Evidence C→H chain. `decisionIntegrity` remains
+authority only for Decision reconstruction/content IDs; the early package gate never calls `sign`.
+
+`CityFrontierLiveSourceConfiguration` is a closed discriminated union. The configured branch requires
+all three exact fixed route ports plus the official-document port; its optional search value is atomic,
+so a partial config/request pair is invalid. Composition maps a present pair exactly through
+`createHttpCitySafetySearchStep` and `createCitySafetySearchPort`, and maps absence through
+`createUnconfiguredCitySafetySearchPort`. The wholly unconfigured branch supplies fixed/document ports
+that fail closed with `city_source_adapter_unconfigured` if reached. Current SI fails the pure readiness
+gate first, so those ports are unreachable. Real Slovenia fixed/document adapters, analyzers and
+population implementations remain explicitly deferred until an approved package becomes ready;
+positive Task 14 cases inject configured synthetic inward ports.
+
+`ConfirmedLifeCompositionOptions` adds only optional `cityFrontierLiveSources`,
+`cityFrontierResolveAvailability` and `cityFrontierFixedTiming`. The root passes
+`cityFrontierLiveSources ?? { kind: "unconfigured" }` explicitly and forwards the other two only when
+present. It constructs one Task 14 assembly and exposes only `assembly.application` methods.
+`createCityFrontierComposition` constructs the Task 13 stores, production installed-package
+behavior/default/evaluator registries, exact Evidence replay dependencies and the Task 13 empty-history
+adapter when `selectionHistory` is absent; that adapter returns a new frozen empty array per call until
+Task 15. Task 15 injects its same writer through `selectionHistory` and consumes
+`assembly.selectionAuthority` from that one assembly, rather than constructing a second Task 14 graph.
+Composition constructs exactly one authenticated `SqliteCityPackageManifestStore`, captures its
+`loadVerified` receiver for the same store already underlying `InstalledCityPackages`, and injects a
+fresh recursively frozen plain adapter with exactly one own method:
+`{ loadVerified(key) { return capturedManifestStoreLoad(key); } }`. The adapter is not the store and
+exposes no append/latest or inherited store-prototype capability. Composition does not construct a
+second manifest authority. No source implementation is constructed by Application.
+
+`loadCurrentTerminalSelectionAuthority(terminalCityShortlistSnapshotId)` structurally loads the exact
+terminal/full chain, requires that ID to be the run's unique current terminal, and loads its frozen
+package, then exact-loads and verifies the independent full manifest through the same read-only port
+before Catalog or semantic work. It rejects authenticated `@1` as
+`city_catalog_upgrade_required` before Criteria/evaluator/Knowledge/Evidence/Task 11 callbacks even
+though public Present remains historical-`@1` capable. On current rules it performs the same complete
+profile/source, Criteria, Ranking, Evidence, Knowledge, marker and Task 11 semantic replay as verified
+presentation and returns a fresh recursively frozen exact `VerifiedCityTerminalSelectionAuthority`.
+`preCitySource` is rebuilt from the verified resolved-country/profile graph, never copied from a Task15
+caller. The internal port emits no event and is not a delivery/public read API.
+
 **Offline-installation port amendment (2026-08-24):** latest installed-root reads use the separately
 injected `InstalledCityCatalogReadPort.latestInstalledVerified(countryCode)`. Exact historical reads
-continue to use `CityCatalogStorePort.loadVerified(id)`. Core composition injects both inward ports and
-never obtains latest state from raw Catalog rows.
+continue to use `CityCatalogStorePort.loadVerified(id)`. Exact package-manifest authority uses the
+independent read-only `installedPackageManifests.loadVerified(key)` adapter delegating to the captured
+receiver of the one authenticated manifest store that backs package lookup. Core composition injects
+all three inward views and never
+obtains latest state from raw Catalog or manifest rows.
 
 - [ ] **Step 1: Write Start/Present RED tests**
 
@@ -1926,14 +2229,18 @@ and coordinates; confirmed criteria; deterministic pre-city parent created from 
 after each Start insert leaves zero partial rows; exact retry converges; two canonical presentations
 with zero source/request-step/search calls; exact four-fact accepted/reviewed-link marker projections;
 exact `lastCheckedAt`, raw 64-hex marker digest and verified selection/branch history after reload.
-Compile/runtime-pin the exact Start/Prepare keys. Pin the exact Criteria payload hash, deterministic run
-ID and timestamp-free Start intent, and require one `startAt` after all verified inputs. Require
+Compile/runtime-pin the exact Start/Prepare keys, the exact Application/composition option key sets and
+the absence of runtime Infrastructure imports from `city-frontier.ts`. Pin the exact Criteria payload
+hash, deterministic run ID and timestamp-free Start intent, and require one `startAt` after all verified
+inputs. Require
 `criteria.confirmedAt = ranking.assessmentAt = ranking.createdAt = root.createdAt = startAt`, while
 `preCityBranch.createdAt = resolvedSnapshot.createdAt <= startAt`. Prove source-key parent lookup/replay
 happens before Ranking seal; retries and two races that obtain different clocks still use byte-identical
 parent bytes/ID. Require `publishStart` to return the granular four-artifact result and Application to
 assemble the rich model only after semantic reload. The initial selection-history adapter is called and
-returns a fresh frozen empty list; no hardcoded `selections: []` path exists.
+returns a new fresh recursively frozen empty list on every call; no hardcoded `selections: []` path exists.
+Require the Task 14 `CityFrontierProgressStage`, `CityFrontierProgressEvent` and `CityFrontierEvent`
+declarations above to remain byte-equal to the global Core/master public ledger declarations.
 Pin Setup's exact key set, `catalogMemberCount === verifiedCatalog.members.length` as safe `0..100`,
 and exact fresh closed coverage equality; count/coverage drift or aliasing fails before return.
 For Start reload and both presentations, rehash one otherwise authentic Criteria/Ranking/root cross-row
@@ -1971,8 +2278,15 @@ end-to-end RED presents an authentic `@1` terminal through manifest → Evidence
 Evidence seal and Knowledge publication probes fail `city_catalog_upgrade_required` before insert;
 unknown rules fail `integrity_mismatch`.
 
-Add the package-readiness preflight ahead of any database, source or ranking port. For the current SI
-candidate, both Setup and Start fail `city_package_not_ready` with all four readiness issues and zero
+Add the package-readiness preflight ahead of any database, source or ranking port. The Application
+invokes only the descriptor-captured `ports.resolveAvailability` capability; compile/runtime-pin its
+identity and require it to be the first behavior callback. It never direct-calls an imported
+`getCityResearchPackageAvailability` inside the use case. For the current SI
+candidate, independently assert its exact fresh recursively frozen readiness value is
+`{ status: "not_ready", issues: ["catalog_v2_projection_unsealed",
+"registry_coordinates_unsealed", "per_member_source_plan_artifacts_unsealed",
+"criteria_policy_unapproved"] }`. Both Setup and Start then throw an `Error` whose message is exactly
+`city_package_not_ready`, with zero
 installed-lookup/database/source/ranking calls. `city_package_not_installed` is distinct and applies
 only when pure readiness returns a `CityResearchPackageReadyCandidate` and the subsequent
 `InstalledCityPackageLookupPort.findReady(countryCode)` result is absent; never accept a slash-form
@@ -1982,15 +2296,42 @@ Task 9 administrative Evidence installer with an independently compiled
 `ApprovedCityCriteriaDefaultsRegistry`; do not substitute a caller-presealed object or fabricated HTTP
 provenance.
 
+Add bounded identity and profile RED without Cartesian expansion. `CityCheckRunIdentity` is the exact
+four-key value `{ schemaVersion: "city-check-run@1", runId, cityId, rankingSnapshotId }`, and
+`cityCheckRunId(input, integrity)` is exactly
+`"city-check:" + H(C(exact descriptor-owned identity))`. Require `runId` to be
+`city-frontier:<lowercase-64>`, `rankingSnapshotId` to be `city-ranking:<lowercase-64>` and `cityId` to
+be a nonempty canonical identifier. The boundary owns/closes the complete graph before capturing the
+neutral `canonical` then `hash` capabilities, feeds H exactly C's returned string, accepts only a raw
+lowercase-64 digest and normalizes every malformed input/capability/result to a fresh
+`integrity_mismatch`. Test representative accessor/symbol/proxy/custom-prototype/extra-key graphs,
+callable capability proxies, formula sentinel chaining and sensitivity of each variable field. Command,
+time, package and Catalog are absent, so identical run/city/Ranking retries derive the same ID.
+Compile/runtime-pin both `deriveCityCriteriaDraft` overloads and the exact matched profile pairs. Keep
+the v1 result byte-compatible; prove v2 copies only the four exact mode/importance pairs, ignores its
+free-form targets and preserves all installed definition/target authority. Mixed versions fail before
+the first evaluator callback.
+
+Compile/runtime-pin the exact frozen assembly and keep its selection-authority port off the public
+application keys, wire DTOs and events. An exact current terminal returns fresh non-aliased authority
+after full semantic replay; the same authenticated `@1` terminal remains accepted by public Present but
+the internal selection authority fails `city_catalog_upgrade_required` before semantic callbacks. Prove
+composition constructs the Application factory exactly once, forwards an injected `selectionHistory` by
+identity, constructs one manifest store shared as the underlying lookup receiver, and injects a distinct
+fresh frozen exact-one-key read adapter whose `loadVerified` delegates to that captured receiver. Pin no
+adapter/store identity equality and reject append/latest/inherited prototype capability on the nested
+factory port. It otherwise calls the fresh-empty adapter on every rich presentation. This is Task 14's
+inward seam for Task 15; Task 14 imports no Task 15 module.
+
 After the synthetic ready lookup returns, independently forge Registry/catalog IDs and inconsistent
 Registry entry/root or catalog candidate/member/coverage drift; the pure reconstruction gate rejects
 those cases. Separately build a fully valid alternate Registry+catalog root with its membership and both
 hash-derived IDs recomputed. Prove pure `reconstructVerifiedCityCatalog` accepts that alternate as
 self-consistent but Setup and Start still reject it because it differs from the independent
 `InstalledCityCatalogReadPort.latestInstalledVerified(countryCode)` projection. Require exact Registry ID,
-catalog ID and canonical full-`{ registry, catalog }` equality with that trusted root. The authenticated
-catalog-store read is the only permitted persistence call after `findReady` in this initial trust gate;
-until equality succeeds, observe no package manifest/member/plan/directory/default, country guard,
+catalog ID and canonical full-`{ registry, catalog }` equality with that trusted root. Until equality
+succeeds, the catalog-store read is the only permitted persistence call after `findReady`; observe no
+package-manifest/member/plan/directory/default, country guard,
 profile, Knowledge, ranking, fixed-route, safety, evaluator, search or official-document callback and
 write no durable Start row.
 
@@ -2000,13 +2341,26 @@ Immediately after that root equality, require the server to validate the returne
 `InstalledCityPackageExactKey`. Compare `countryCode`/`packageId` with the ready candidate, signed
 package definition and trusted Registry/catalog identity; compare `catalogRevisionId` with the
 reconstructed and authoritative Catalog ID; and compare `packageSchemaVersion` plus
-`evidenceRulesVersion` only with the signed package definition/manifest, never with either Catalog
-version field. Then construct exactly one fresh frozen
-`installedPackageContext` copy before any other read or callback. The audit ID is authenticated by the
-lookup-adapter postcondition but has no independently persisted Application expectation. For every
-positive Setup/Start case, require the setup read model and sealed Ranking snapshot to carry that same
-context. Give the manifest/key a missing or extra key, accessor, symbol, custom prototype or unfrozen
-node; use an empty/non-string audit ID; mutate each signed key field; replace
+`evidenceRulesVersion` only with the signed package definition, never with either Catalog version
+field. Then construct exactly one fresh frozen `installedPackageContext` copy and pass that exact owned
+key to
+`installedPackageManifests.loadVerified(installedPackageContext)`. This is the next and only permitted
+persistence read in the initial trust gate. Absence, a non-owned/malformed return or any key/binding
+drift is fresh `integrity_mismatch`. Descriptor-own the complete returned
+`InstalledCityPackageManifest`, require exact closed payload fields, require its `id` and `key` to equal
+the lookup result's audit ID and key, and independently check
+`payloadHash === packageArtifactIntegrity.hash(packageArtifactIntegrity.canonical(exact manifest
+payload without id/payloadHash/hmac))` plus
+`id === "installed-city-package-manifest:" + payloadHash`; HMAC verification remains the manifest
+store/Infrastructure postcondition. Bind its complete definition/source-contract/readiness and
+Catalog-root fields to the ready lookup and authenticated latest root before member inspection. The
+audit ID is therefore independently anchored by the exact
+verified manifest rather than trusted as opaque lookup metadata. For every positive Setup/Start case,
+require the setup read model and sealed Ranking snapshot to carry that same context. Give either the
+lookup manifest/key or the full verified manifest a missing or extra key, accessor, symbol, custom
+prototype or unfrozen node; return no exact manifest, a different authentic manifest, a forged
+ID/payload hash or mismatched audit ID/key; use an empty/non-string audit ID; mutate each signed key
+field; replace
 `evidenceRulesVersion` with the ranker's `rulesVersion`; or hide key drift behind otherwise matching
 visible definition/catalog. Explicitly set `key.packageSchemaVersion` to `"city-catalog@2"` while the
 signed package definition retains its own package schema and reject the key/definition mismatch; set
@@ -2014,18 +2368,37 @@ signed package definition retains its own package schema and reject the key/defi
 `catalog.rulesVersion === LEGACY_CITY_CATALOG_RULES_VERSION` exercises
 `city_catalog_upgrade_required`.
 Trace the exact prefix as pure readiness → `findReady` → pure catalog reconstruction →
-`latestInstalledVerified`/root equality → manifest/key validation → context freeze, then fail with zero
+`latestInstalledVerified`/root equality → lookup manifest/key validation → context freeze → exact
+manifest load/verification, then fail with zero
 country-guard/profile/Criteria/Knowledge read, ranking/fixed-plan/safety/directory/evaluator/validator
 callback, source call or durable Start row. No later phase may reread or revalidate the raw manifest/key.
+Use one bounded discriminating integrity probe, not a matrix: configure Decision C/H and Evidence C/H
+to return distinguishable sentinels, require the manifest plus every administrative artifact equation
+to feed Evidence H exactly the string returned by Evidence C, and require zero Evidence `sign` calls.
+Decision C/H may still serve the separately observed Decision reconstruction/ID work but never satisfy
+an artifact or manifest hash assertion.
 Separately, after a successful gate, diverge a copied context field or the Ranking's top-level
 country/package/schema/catalog mirrors; Task 13 structural reconstruction must reject it before
 `publishStart` without rerunning the manifest gate.
 
-For the final member in canonical catalog order, separately corrupt the final fixed-broadband tuple's
-route closure/URL, parser or rules version, plan/city/source/criterion/definition binding and claim
-contract. Setup and Start must reject the entire installed package before ranking or any source call,
-not merely defer failure until that city is active. Assert all three plans of every member tuple passed
-through `reconstructCityFixedSourcePlan(value, tupleExpectedSourceId)`, including a cross-source literal
+For every trusted Catalog member in canonical order and each fixed tuple position, first pass the
+returned plan through `reconstructCityFixedSourcePlan(value, tupleExpectedSourceId)`, then bind its exact
+plan/city/source/criterion/definition/parser/rules/claim scalars to the corresponding full-manifest
+binding and require
+`packageArtifactIntegrity.hash(packageArtifactIntegrity.canonical(reconstructedPlan)) ===
+planArtifact.sha256`, where `packageArtifactIntegrity` is the captured narrowed Evidence view.
+Apply the analogous Evidence C→H and visible-ID/version binding to the reconstructed safety plan,
+official authority directory, Criteria defaults and criterion definitions against their manifest
+artifacts. Bind definition/evaluator registry/evaluator version IDs and both validator policy IDs from
+the manifest without comparing JavaScript function bytes. Only after all bindings succeed may any
+Criteria/Evidence/Knowledge/flight/source callback occur; Task 7 package replay remains zero during this
+gate. For the final member in canonical catalog order, separately corrupt the final fixed-broadband
+tuple's route closure/URL, parser or rules version, plan/city/source/criterion/definition binding and
+claim contract. Also return an authentic later-B fixed plan under package A's exact key and A manifest;
+the independent artifact binding must reject it. Setup and Start must reject the entire installed
+package before ranking or any source call, not merely defer failure until that city is active. Assert
+all three plans of every member tuple passed through
+`reconstructCityFixedSourcePlan(value, tupleExpectedSourceId)`, including a cross-source literal
 mismatch, and no partial Start row exists. With the real installed-package adapter, omit the approved
 defaults selection or re-sign a changed mapping, target, mode or importance; Setup and Start fail closed
 before evaluator normalization, country guard, profile/Knowledge reads, ranking, any source call or a
@@ -2034,7 +2407,10 @@ durable row. The manifest mapping version alone never authorizes a default draft
 - [ ] **Step 2: Run RED**
 
 ```bash
-./node_modules/.bin/vitest run tests/integration/city-frontier.test.ts \
+./node_modules/.bin/vitest run tests/application/city-frontier-identity.test.ts \
+  tests/domain/city-criteria.test.ts \
+  tests/branch/city.test.ts \
+  tests/integration/city-frontier.test.ts \
   tests/integration/city-package-manifest-store.test.ts \
   tests/integration/city-evidence-store.test.ts \
   tests/integration/city-evidence-replay.test.ts \
@@ -2042,6 +2418,15 @@ durable row. The manifest mapping version alone never authorizes a default draft
 ```
 
 - [ ] **Step 3: Implement Start and graph verification**
+
+Implement the public identity helper in `city-data-contracts.ts`, not in a verifier module, and widen
+`deriveCityCriteriaDraft` only through the two exact matched overloads above. The Application factory
+accepts only the exact closed port object, snapshots all data descriptors and function references before
+invoking any behavior, and returns the exact frozen `Readonly<CityFrontierApplicationAssembly>`. Its source imports point
+only inward to Application/Decision/Research contracts. A structural import audit rejects SQLite,
+Infrastructure source/timer/HTTP implementations, `better-sqlite3` and `node:*` from the Application
+module. Runtime ownership RED passes accessors, symbols, proxies, custom prototypes, extra/missing keys
+and swapped methods and requires fresh `integrity_mismatch` before a port call.
 
 First widen only the shared persisted-manifest chain reconstructor and authenticated read projections
 to the known `@1 | @2` Catalog union. Do not leave a current-rules assertion buried in
@@ -2054,8 +2439,8 @@ onto their mutation boundaries. Evidence load/Application replay and Knowledge l
 exact package-bound known literal; Evidence `seal` and Knowledge `publishFromEvidence` require current
 rules before write. Present chains those read-only APIs and performs no repair publication for `@1`.
 
-Setup and Start share one private Application initial-trust-gate helper and first call pure
-`getCityResearchPackageAvailability(countryCode)` and
+Setup and Start share one private Application initial-trust-gate helper and first call the
+descriptor-captured `ports.resolveAvailability(countryCode)` and
 `assertCityPackageReady` without touching a port. An existing but unready candidate throws
 `city_package_not_ready`; only the returned `CityResearchPackageReadyCandidate` proceeds to
 `InstalledCityPackageLookupPort.findReady(countryCode)`, where absence throws
@@ -2080,8 +2465,9 @@ with exactly
 `countryCode`/`packageId` with the ready candidate, signed installed package definition and
 reconstructed/authoritative Catalog identity; compare `catalogRevisionId` with both Catalog IDs; and
 compare `packageSchemaVersion` plus `evidenceRulesVersion` only with the signed installed package
-definition/manifest—never with either Catalog version field. The audit ID
-remains adapter-authenticated metadata and is not compared with an unavailable Application expectation.
+definition—never with either Catalog version field. The audit ID is not self-authorizing lookup
+metadata: after the owned context below is built, load its independent exact verified manifest and
+require that manifest's ID/key to equal the lookup audit ID/key.
 Require both reconstructed and authoritative Catalogs to keep
 `schemaVersion === "city-catalog@1"` and
 `rulesVersion === CITY_CATALOG_RULES_VERSION` (`"city-catalog@2"`); the legacy Catalog rules value
@@ -2099,16 +2485,30 @@ const installedPackageContext: InstalledCityPackageExactKey = Object.freeze({
 });
 ```
 
-The gate projects the fresh frozen lookup value once into a private manifest-free, identity-verified
-Application trust record containing the trusted Registry+catalog projection, opaque manifest audit ID,
-`installedPackageContext`, owned frozen copies of the installed definition/readiness/data projections
-and the exact opaque validator capability references needed later; it exposes no new public contract.
-The record contains neither `installedPackageManifest` nor the raw key. Drop the raw installed,
-manifest and key locals at this boundary. Every later Setup/Start step receives only this frozen trust
-record and uses its context for package identity; no later stage can reread, reconstruct or revalidate
-the manifest/key. The only port reads before this return are `findReady` and
-`latestInstalledVerified`; the only callbacks are the pure
-catalog/root reconstruction and canonical equality. No failure in this gate writes a durable Start row.
+Call descriptor-captured
+`installedPackageManifests.loadVerified(installedPackageContext)` with that exact owned key. Absence,
+malformed descriptors/closure, key or visible binding drift normalizes to a fresh
+`integrity_mismatch`. Own the exact complete `InstalledCityPackageManifest`, require its ID/key to equal
+the lookup audit ID/key, extract its exact payload by omitting only `id/payloadHash/hmac`, and require
+`payloadHash === packageArtifactIntegrity.hash(packageArtifactIntegrity.canonical(payload))` and
+`id === "installed-city-package-manifest:" + payloadHash`. The manifest store remains solely
+responsible for its persisted HMAC; `packageArtifactIntegrity` is the already captured frozen narrowed
+`{ canonical, hash }` Evidence view, and Application neither imports nor recreates Infrastructure signing
+nor calls `ports.evidenceIntegrity.sign` in this early gate. Decision integrity remains limited to
+Decision reconstruction and IDs.
+Bind the manifest's complete definition, source-contract status and ready value to the pure ready
+candidate and lookup projection, and bind its Registry/Catalog root exactly to the already authenticated
+latest root before reading a member plan.
+The gate projects the fresh frozen lookup value and exact verified manifest once into a private
+identity-verified Application trust record containing the trusted Registry+catalog projection,
+manifest-anchored audit ID, `installedPackageContext`, owned frozen copies of the installed
+definition/readiness/data projections and exact opaque validator capability references needed later;
+it exposes no new public contract. Drop the raw installed, lookup manifest and key locals at this
+boundary. Every later Setup/Start step receives only this frozen trust record and uses its context for
+package identity; no later stage can reread the raw lookup manifest/key. The only port reads before this
+return are `findReady`, `latestInstalledVerified` and the exact manifest load; the only behavior before
+the manifest read is pure catalog/root reconstruction and canonical equality. No failure in this gate
+writes a durable Start row.
 
 Use only the initial identity-verified trust record's fresh frozen Registry+catalog projection and
 installed data from that point onward. Require them to repeat the ready candidate's exact
@@ -2118,11 +2518,19 @@ each value to be a dense three-item tuple. In canonical member order, call
 `reconstructCityFixedSourcePlan(value, tupleExpectedSourceId)` for all three
 long-rent/transit/broadband values in every tuple before
 ranking; bind each returned plan's exact plan/city/source/criterion/definition/parser/rules and complete
-claim contract to the member, approved criterion definitions and `SLOVENIA_CITY_FACT_VERSIONS`.
+claim contract to the member, approved criterion definitions, `SLOVENIA_CITY_FACT_VERSIONS` and the
+corresponding exact manifest binding. Require the plan's canonical digest to equal
+`planArtifact.sha256` using the same narrowed Evidence C→H view. An authentic later package plan under
+the frozen package key therefore fails even
+when the structural reconstructor accepts it.
 Only after the final member's final plan passes may Application reconstruct and bind the official
-authority directory and safety plan against the same trusted catalog and narrow integrity. Copy and
-freeze those reconstructed plans/directory, definition, criteria defaults and trusted catalog
-projection as the one
+authority directory and safety plan against the same trusted catalog and narrow integrity. Require
+their canonical digests and visible IDs/versions to equal the manifest's safety artifacts/bindings; do
+the same for Criteria defaults and definitions, always through that Evidence C→H view. Require exact
+definition, evaluator registry/evaluator,
+value-validator and source-period-validator version IDs from the manifest, while retaining the exact
+opaque function references without comparing function bytes. Copy and freeze those reconstructed
+plans/directory, definition, criteria defaults and trusted catalog projection as the one
 Application installed-package data context, `verifiedInstalled`, and carry the already frozen
 `installedPackageContext` unchanged while binding—without freezing—the exact validator capabilities.
 The defaults may enter this context only through the Task 9 lookup adapter's
@@ -2131,8 +2539,10 @@ approved-defaults selection before evaluator normalization; a signed manifest ma
 second trust source. Never read the raw installed Registry/catalog/plan/default objects again. For a
 matching verified installed package, both then call the existing country guard before any other use-
 case work. That guard returns the exact `ResolvedCountryShortlistSnapshot` and unique selected
-`ResolvedCountryEntry`. Application verifies both exact profile IDs from the snapshot source and the
-profile snapshots, then builds one fresh plain frozen `PreCityBranchSourceProjection` containing those
+`ResolvedCountryEntry`. Application loads profiles only through the two union read methods, verifies both
+exact profile IDs from the snapshot source and the profile snapshots, requires an exact `@1/@1` or
+`@2/@2` pair, and only then invokes the matching Criteria overload. It then builds one fresh plain frozen
+`PreCityBranchSourceProjection` containing those
 IDs, the resolved snapshot ID and the complete exact entry. Setup derives its draft only from those
 snapshots and the frozen approved installed defaults. Start revalidates the entry/draft and both profile
 IDs, loads current Knowledge and completes every semantic input check, then obtains exactly one
@@ -2162,8 +2572,13 @@ run identity/run ID and five-key Start intent from the reloaded Criteria/Ranking
 cross-row bindings plus stored command-envelope equality, reads verified selection history, and only
 then assembles the rich `CityFrontierReadModel`.
 Presentation first obtains the structurally verified Ranking through `loadRankingVerified(id)`, then
-uses its returned manifest context to resolve the exact installed package/catalog/criteria/Knowledge
-inputs, requires the manifest package schema to equal its signed package definition, requires every
+uses its returned manifest context to resolve the exact installed package, owns/key-validates that
+lookup result, and calls `installedPackageManifests.loadVerified` with the same exact context before
+semantic work. It requires the full manifest ID/key, canonical payload hash/content ID,
+definition/readiness/catalog root and every package artifact/version binding exactly as Setup/Start and
+Continue do; no Task 7 package replay substitutes for this gate. It then resolves the exact historical
+catalog/criteria/Knowledge inputs, requires the manifest package schema to equal its signed package
+definition, requires every
 reconstructed/authoritative Catalog to retain schema `"city-catalog@1"` and the exact authenticated
 closed `LEGACY_CITY_CATALOG_RULES_VERSION | CITY_CATALOG_RULES_VERSION` literal bound into the run
 identity, and calls
@@ -2195,6 +2610,63 @@ capability reaches `CityFixedSourceRunInput`. Make one route port never settle a
 aborts/rejects the shared operation with zero Evidence, Knowledge, marker or budget advancement and
 no late output.
 
+Use bounded, non-Cartesian RED groups for the newly closed seams. For source composition, cover exact
+configured synthetic fixed/document ports with and without the atomic search bundle, the absent-search
+unconfigured factory branch, partial/hostile config rejection and the current-SI readiness failure before
+any unconfigured source is reached. For timing, require the default `fixedSourceDeadlineAt` to add exactly
+`45_000` milliseconds and the real scheduler to accept only a canonical future deadline, invoke its
+callback at most once, make `cancel()` idempotent/non-throwing and forbid a callback after cancellation.
+Application captures one `researchStartedAt`, calls the deadline policy exactly once for each of the
+three fixed sources with a fresh Date copy of that same instant, requires all three returned canonical
+future instants to be byte-equal, and rejects a non-Date, invalid, noncanonical or non-future result
+before source, event or write. Preserve exact fixed-run clock/deadline/abort/protocol
+errors; do not turn them into a completed unknown. Compile-pin the existing
+`CityFixedSourceRunInput.now: () => string`: Application supplies only an owned wrapper over its captured
+`() => Date` clock, never a Date or borrowed clock capability. Each call owns/validates the returned Date
+and produces canonical ISO; bound invalid/hostile/throwing clock cases fail before Research output or
+write and preserve native throws.
+
+Table-drive the shared Prepare/Continue command-miss classification with an authenticated same-run/
+same-Ranking non-head ancestor, a missing claimed revision, cross-run revision, cross-Ranking revision
+and forged row. Only the first throws `stale_city_frontier_head`; every other row throws a fresh
+`integrity_mismatch`. Catch only the exact structural not-found error needed to normalize absence. Keep
+the command-hit path and its zero-event replay unchanged.
+
+Pin the complete single-flight identity as the exact closed value
+`{ cityCheckRunId, runId, baseRevisionId, rankingSnapshotId, cityId, assessmentAt,
+installedPackageContext }`. Identical concurrent attempts share one factory-scoped flight; changing any
+field while retaining the check ID is `integrity_mismatch`. Cover one waiter aborting while another
+survives, all waiters aborting before publication, abort immediately before Evidence seal, abort after
+the durable Evidence/Knowledge boundary, and recovery after that boundary with zero new source call.
+Per-call signals and emitters must never be retained by the flight.
+
+Compile/runtime-pin `CityFrontierProgressStage` as the exact exported ten-literal union in canonical
+`SLOVENIA_CITY_FACT_SOURCE_IDS` order: the four `source_started:<sourceId>` values, the four
+`source_completed:<sourceId>` values, `evidence_verified` and `knowledge_published`. Pin every event's
+exact own-key set and reject every extra display-text key and every unknown stage. A start event,
+Evidence event or Knowledge event forbids `sourceUrl`; each fixed-source completion requires its exact
+deterministic installed route URL: a verified outcome uses the accepted attempt's `navigationUrl`, while
+a completed unknown after every route was rejected uses the final attempted installed route's
+`navigationUrl`. Add one two-route success RED and one all-routes-rejected RED. The safety completion may include `sourceUrl` only when it is an
+authority-validated official document/navigation URL, and includes it iff that authority exists. No event string may contain a provider candidate,
+query, snippet, credential or raw error text; include hostile-text runtime cases in the bounded RED.
+
+Assert bounded exact event traces rather than a product matrix: `city_activated` is sequence 1 before
+source; each caller receives a private contiguous one-based, canonical-time, nondecreasing, fresh frozen
+stream; validated source progress is future-only. Cover
+parallel sources completing in different physical orders while every caller still observes source-start
+and source-completed drafts in the canonical four-source order. Cover
+an entry command hit with zero events, identical in-flight waiters with private commit/completed frames,
+a different-command stale loser with neither frame, an emitter failure before append, and an emitter
+failure after append. Append precedes committed, which precedes exactly one completed frame whose model
+canonically equals the callback return; detachment/failure permits no late event.
+
+Cover the durable recovery trace separately: a command miss with completed Evidence/Knowledge emits its
+private `city_activated`, then only `evidence_verified` and `knowledge_published`, with no source-start or
+source-completed frame, then append, `city_revision_committed` and
+`city_continuation_completed`. Require the same private pump, abort, emitter-failure and no-late-event laws
+whether Knowledge is recovered from Evidence or was already present.
+
 Add a fresh HTTP Prepare+Continue retry after an earlier identical command produced a working winner,
 and another after it produced a terminal winner. Prepare must find the committed command before testing
 the current head, recover the original base and return the exact six-key value; Continue semantically
@@ -2211,11 +2683,16 @@ Start a run against catalog A, install a valid successor catalog B for the same 
 evidence-rules tuple, and require Continue of the frozen A run to call
 `InstalledCityPackageLookupPort.findExact(ranking.installedPackageContext)` with that exact closed
 object and no field-by-field reconstruction or override. It must continue successfully
-with A's package/plans and `CityCatalogStorePort.loadVerified(A.id)`, with zero `findReady` or
+with A's package/plans, exact manifest A and `CityCatalogStorePort.loadVerified(A.id)`, with zero `findReady` or
 `latestInstalledVerified` call; B becoming latest must not redirect or invalidate A. An absent exact
 package maps to `city_package_revision_not_installed`; a non-undefined returned package that differs
-from any requested key field, hides drift only in `installedPackageManifest.key`, or drifts any full
-replayed projection is `integrity_mismatch`. Both fail before the first fixed/safety/search/
+from any requested key field or hides drift only in `installedPackageManifest.key` is
+`integrity_mismatch`. After owning that lookup result, Continue passes the exact owned Ranking context to
+`installedPackageManifests.loadVerified`; an absent manifest, alternate authentic manifest, forged
+ID/payload hash, malformed graph or any audit-ID/key/definition/readiness/catalog-root binding drift is
+fresh `integrity_mismatch`. Return a real authenticated B plan under the unchanged A lookup key while
+the independently loaded A manifest remains exact; its canonical artifact mismatch must fail. These
+fail before the first fixed/safety/search/
 document call, before completed-Evidence lookup or Task 7 replay, before Knowledge recovery,
 single-flight or any event/callback, and with zero Evidence/Knowledge/marker/cursor/budget write. Count
 all of those ports/callbacks across Prepare+Continue and require zero calls for both failures.
@@ -2234,13 +2711,17 @@ Separately rehash a Catalog with `schemaVersion: "city-catalog@2"` and reject it
 package schema and reject that package binding as `integrity_mismatch`; neither mutation may reach
 completed Evidence or Knowledge.
 
-Repeat the inconsistent forged-ID/root/member cases for Continue after its `findExact`. Also return a
+Repeat the inconsistent forged-ID/root/member cases for Continue after its `findExact` and exact
+manifest load. Also return a
 fully valid alternate root with recomputed membership and IDs: pure reconstruction succeeds, but exact
 comparison with `CityCatalogStorePort.loadVerified(frozenCatalogRevisionId)` fails. Never consult
 `latestInstalledVerified` for Continue. Repeat the malformed final-member/final-broadband route,
 version and binding cases. Each fails before the first fixed/safety/search/document call, before a
 single-flight research promise is installed and with zero Evidence, Knowledge, marker, cursor or budget
-write. Assert all member tuples were preflight in the valid case. Store-level seal/load tests still
+write. Assert all member tuples were preflight in the valid case, with each reconstructed plan's exact
+scalar manifest binding and canonical digest, followed by the safety/directory/default/definition
+artifact bindings through the captured Evidence C→H view and non-function version authorities.
+Store-level seal/load tests still
 independently reject a replay mismatch later; Core's early trust gate is not a substitute for the Task 7
 store gate.
 
@@ -2262,8 +2743,11 @@ three-key input, then calls `findCommandVerified(runId, commandId)` before any h
 requires a `city_completed` operation whose `expectedHeadRevisionId === input.expectedRevisionId`,
 structurally loads and verifies that base revision, and derives the exact six-key Prepared value from
 the base even if the committed winner has since made the current head terminal. On a miss it loads the
-unique head, requires a working head whose ID equals `input.expectedRevisionId`, and derives the same
-six-key value from that head. Prepare may call only these no-context frontier loaders; it must not load
+unique head. If its ID differs, Prepare exact-loads the claimed revision and applies the same bounded
+classification as Continue: authenticated same-run/same-Ranking non-head ancestor is
+`stale_city_frontier_head`; missing/cross-run/cross-Ranking/forged/misbound is `integrity_mismatch`, with
+only exact `city_frontier_not_found` caught for absence normalization. A matching head must be working,
+and Prepare derives the same six-key value from it. Prepare may call only these no-context frontier loaders; it must not load
 Ranking or derive active city/rank/check ID, prefetch completed Evidence/check, replay Task 7,
 read/write Knowledge, resolve a package, install single-flight or invoke an event/source callback.
 `continueCityFrontier` revalidates rather than trusting that prepared object, so the order below applies
@@ -2275,8 +2759,12 @@ schema, IDs, positive safe next rank and no symbols/accessors/proxy/custom proto
 revision and requires exact base run/Ranking/next-rank equations. A committed `city_completed`
 operation must have `expectedHeadRevisionId === prepared.baseRevisionId` and exact command; drift is
 `integrity_mismatch`. It does not yet run semantic replay or return. Only an absent command loads the
-no-context `loadHeadVerified(runId)`, requires a working head whose ID equals
-`prepared.baseRevisionId`, validates the ten-marker ceiling and `prepared.nextUncheckedRank`, then
+no-context `loadHeadVerified(runId)`. If its ID differs from the claimed base, Continue exact-loads that
+claimed revision before classifying it: only an authenticated same-run/same-Ranking ancestor that is not
+the unique head is `stale_city_frontier_head`; missing, cross-run, cross-Ranking, forged or otherwise
+misbound values are `integrity_mismatch`. It catches only the exact `city_frontier_not_found` from that
+claimed-base load for absence normalization. The matching unique head must be working, validate the
+ten-marker ceiling and `prepared.nextUncheckedRank`, then
 checks abort. Both branches next call exactly `loadRankingVerified(base.rankingSnapshotId)` with no
 caller context, verify the returned snapshot ID/run/revision binding and read its structurally verified
 `installedPackageContext`. These base/head/Ranking operations are the only reads permitted before the
@@ -2288,8 +2776,10 @@ definition must not reinterpret a frozen run. Both hit and miss traverse the sam
 authentication below and require current rules before any Criteria/evaluator/Knowledge/Evidence/Task 11,
 event or source callback. After that complete semantic gate, a command hit returns the committed
 working-or-terminal rich model with zero source/event/append; only a miss continues.
-Only after Ranking semantic verification on that miss does Continue derive the active city, rank and deterministic
-`cityCheckRunId`; none are trusted from Prepared. RED covers committed retries whose winner left a
+Only after Ranking semantic verification on that miss does Continue derive the active city, rank and
+the exact `CityCheckRunIdentity`; none are trusted from Prepared. It calls `cityCheckRunId` over exactly
+`{ schemaVersion: "city-check-run@1", runId, cityId, rankingSnapshotId }`, yielding
+`city-check:${H(C(identity))}` with no command, time or package field. RED covers committed retries whose winner left a
 working head and whose winner terminalized the run, both returning the same semantic model without
 source access.
 Bounded RED mutates Prepared schema, Ranking ID and next rank on committed replay and requires
@@ -2299,8 +2789,13 @@ callback.
 
 `undefined` throws `city_package_revision_not_installed`. A returned value must expose a fresh frozen
 `installedPackageManifest` whose key canonically equals the exact requested context. Its ID is audit
-metadata already authenticated by the manifest-store/lookup adapter postcondition; Continue has no
-independent expected ID and does not compare it. Its visible definition country/
+metadata only until independently anchored: after owning/closing the lookup result and exact key,
+Continue calls
+`installedPackageManifests.loadVerified(ranking.installedPackageContext)` with that same key object.
+Absence, hostile/malformed descriptors or any returned binding drift is fresh `integrity_mismatch`.
+Require the full manifest ID/key to equal the lookup audit ID/key, verify the exact closed payload's
+canonical hash and `installed-city-package-manifest:<payloadHash>` content-ID equation, and retain HMAC
+verification as the manifest-store postcondition. The lookup result's visible definition country/
 package/schema/evidence-rules and reconstructed catalog ID must equal the same key; any visible or
 hidden-key/full-projection mismatch throws
 `integrity_mismatch`. Until this succeeds, Continue performs no completed-Evidence/check lookup, Task 7
@@ -2317,11 +2812,16 @@ Require both reconstructed and authoritative Catalogs to retain
 `schemaVersion === "city-catalog@1"` and
 `rulesVersion === CITY_CATALOG_RULES_VERSION`; legacy Catalog rules are
 `city_catalog_upgrade_required`. Require the Ranking snapshot's top-level country/package/schema/catalog duplicates to obey
-their equality equations. Before any completed-Evidence or Knowledge read and before installing
-single-flight, enumerate the complete trusted member set and pass all three plans of every tuple through
+their equality equations. Bind the complete manifest's definition/readiness/catalog root to the trusted
+package/Catalog. Before any completed-Evidence or Knowledge read and before installing single-flight,
+enumerate the complete trusted member set and pass all three plans of every tuple through
 `reconstructCityFixedSourcePlan(value, tupleExpectedSourceId)`, including exact member/source/criterion/
-definition/parser/rules/claim binding; then reconstruct the safety plan/directory and bind all exact
-criteria and compiled behavior versions. Now load the exact Criteria snapshot and every non-null
+definition/parser/rules/claim binding. For each reconstructed plan require exact scalar equality with
+its manifest tuple binding and canonical digest equality with `planArtifact.sha256`. Then reconstruct
+the safety plan/directory/defaults/definitions, require their visible manifest bindings and canonical
+artifact hashes through the same captured narrowed Evidence C→H view, and bind exact
+evaluator/validator policy version IDs without comparing function
+bytes. Now load the exact Criteria snapshot and every non-null
 Knowledge revision named by the structurally verified Ranking, build the complete
 `CityRankingSemanticInputs` with the trusted Registry/catalog and installed evaluator registry, and
 call `verifyCityRankingSnapshotSemantics` exactly once. Missing/extra/drifting input or ranking output is
@@ -2329,14 +2829,20 @@ call `verifyCityRankingSnapshotSemantics` exactly once. Missing/extra/drifting i
 
 Only after the entire frozen trust/preflight gate passes does Continue look up the completed check by
 deterministic ID. If present it replays Task 7 Evidence and publishes missing Knowledge; if absent it
-uses one composition-scoped promise keyed by `cityCheckRunId` so concurrent identical commands share
-the same bounded four-fact research call. Recovery and fresh research therefore use the same exact
+uses one Application-factory-scoped `Map` keyed by `cityCheckRunId`. Each entry stores the canonical
+complete identity `{ cityCheckRunId, runId, baseRevisionId, rankingSnapshotId, cityId, assessmentAt,
+installedPackageContext }` beside one promise; a same-key identity difference is
+`integrity_mismatch`. The promise owns the entire fixed+safety research, captured artifacts, one
+`completedAt`, generic seal, City Evidence seal/reload, Knowledge publish/reload and verified marker
+authority. Followers never re-clock, re-run, reseal or republish any of those stages. Recovery and fresh research therefore use the same exact
 historical installed package after restart and cannot be redirected to the latest package. The raw
 installed package merely supplies its immutable per-member `CityFixedSourcePlan` values,
 Registry+catalog projection, safety plan/directory and validators; it never constructs or imports an
 adapter. Composition injects the inward `InstalledCityCatalogReadPort` for latest installed-root reads
-and `CityCatalogStorePort` for exact historical reads; Application knows no SQLite type, and neither
-port is added to the City
+and `CityCatalogStorePort` for exact historical reads, plus the fresh frozen exact-one-key manifest
+adapter delegating to the captured `loadVerified` receiver of the one store used by
+`InstalledCityPackages`; Application knows
+no SQLite type, and none of those ports is added to the City
 Evidence store constructor. Composition also exposes the Task 7
 `CityEvidencePackageReplayPort` projection from
 that same installed value and injects it, together with the same `EvidenceIntegrity`, into the
@@ -2347,19 +2853,70 @@ reconstruction receives only `CityDecisionIntegrity { canonical, hash }`. The st
 no-sign `CityEvidenceReplayIntegrity { canonical, hash, hashBytes }` Infrastructure implementation for
 the artifact bridge; no Research/Application module imports crypto. At seal and load, the store independently reloads and
 re-verifies the exact Registry+catalog projection and plans; it never trusts Core's earlier verification.
-`city-frontier-composition.ts` separately constructs
-`slovenia-city-source-adapter.ts` as the Infrastructure implementation of `CityFixedRoutePort` and
-constructs the Infrastructure `CityFixedDeadlineScheduler` over the real timer primitive. It injects
-both ports into Application; Application owns/injects the canonical clock and derives each absolute
-deadline. For every fixed run, Application passes `now` from that clock,
+`city-frontier-composition.ts` accepts only the closed configured/unconfigured live-source union. It
+never claims a real Slovenia fixed/document adapter, analyzer or population implementation. Configured
+positive paths inject all three synthetic `CityFixedRoutePort` values and the synthetic official-document
+port. An absent search bundle creates `createUnconfiguredCitySafetySearchPort()`; a present atomic bundle
+creates exactly
+`createCitySafetySearchPort({ step: createHttpCitySafetySearchStep(config, request),
+providerId: config.providerId })`. The unconfigured live-source branch creates fixed/document ports that
+throw exactly `city_source_adapter_unconfigured` if reached, although current SI readiness prevents that.
+Composition injects `options.resolveAvailability ?? getCityResearchPackageAvailability`, the canonical
+clock and timing pair into Application. The use case never imports or direct-calls the pure default.
+When `fixedTiming` is absent,
+the deadline policy is exactly `(now) => new Date(now.getTime() + 45_000)` and the scheduler uses the real
+`setTimeout`; it validates a canonical future deadline, invokes `onDeadline` at most once and returns an
+idempotent non-throwing cancel handle that prevents any later callback. Application captures one
+`researchStartedAt`, invokes `fixedSourceDeadlineAt` exactly once for each of the three sources with a
+fresh Date copy of that one instant, validates every returned Date/canonical/future result, requires all
+three deadline strings to be byte-equal before source/event/write and then passes an owned captured
+`now: () => string` wrapper into every `CityFixedSourceRunInput`. Each wrapper invocation calls the
+descriptor-captured Application `clock: () => Date`, owns and validates the returned Date and returns
+its canonical ISO string; a Date never crosses the Research boundary. An invalid Date, hostile value or
+clock throw is rejected or preserved before the runner may consume time. Application also passes
 `deadlineScheduler` from Infrastructure, exact `validateValue: verifiedInstalled.validateValue`, and exact
 `validateSourcePeriod: verifiedInstalled.validateSourcePeriod` into `CityFixedSourceRunInput`. Run the three
 strict fixed plans independently through `runCityFixedSourcePlan`; neither Research nor the source
-adapter reads `Date`, creates a timer or chooses a validator. Application invokes
+route port reads `Date`, creates a timer or chooses a validator. Application invokes
 `runCitySafetyDiscovery` separately with the verified installed safety plan/directory, public
 city/year/criterion terms and injected search/document ports, then converts its Research-owned replay
 ledger through the pure safety terminal adapter using the same reconstructed plan/directory and
 `cityCheckRunId`, including deterministic official fallback lineage for a zero-candidate unknown.
+The existing safety-search timeout remains a separate policy and is never derived from or substituted
+for the fixed-source deadline.
+
+The flight stores only its owned identity, shared `AbortController`, waiter set, validated progress and
+promise; it never stores a caller signal or emitter. Each caller owns a serialized event pump. It emits
+a fresh frozen `city_activated` as sequence 1 before source work, then receives only future
+validated progress broadcasts while attached. Every caller's sequence is contiguous and one-based and
+its canonical `occurredAt` values are nondecreasing. The flight never invokes or awaits an emitter.
+Progress uses only the exported ten-stage union and contains no extra display-text fields. Start, Evidence and
+Knowledge stages forbid `sourceUrl`; a fixed completion takes the accepted attempt's installed
+`navigationUrl` when verified, or the final attempted installed route's `navigationUrl` when all routes
+were rejected and the completed outcome is unknown; safety
+completion includes one iff an authority-directory-validated official document/navigation exists.
+Provider candidate URLs, query/snippet text, credentials and raw error strings never enter any event
+string.
+
+A caller abort detaches only that waiter and rejects it with the existing `signal.reason`, or a platform
+`AbortError` when no reason exists; there is no `city_frontier_aborted` code. If the last waiter detaches
+while research is still pre-publication, abort the shared controller and publish no Evidence, Knowledge
+or frontier revision. Immediately before Evidence seal, recheck that at least one waiter remains and
+atomically move the flight to `publishing`; after the durable Evidence/Knowledge boundary no abort rolls
+those values back, but an aborted caller performs no append and receives no further event. A later retry
+recovers those durable values with zero source call. Clear the map in `finally` only if it still contains
+the same entry identity, so an older promise cannot delete a replacement flight.
+
+Parallel Promise completion never determines event order. Before launching research, the flight
+broadcasts the four source-start drafts in canonical source order. It retains no completion callback
+event; only after every result is structurally and authority-validated does it broadcast the four
+source-completed drafts in that same canonical order, followed by Evidence and Knowledge drafts. Each
+attached caller's pump alone assigns its next sequence and canonical occurrence time.
+
+On a command miss whose completed Evidence already exists, the same pump emits activation and skips all
+eight source stages. After exact Evidence replay it emits `evidence_verified`; after loading or recovering
+the exact Knowledge revision it emits `knowledge_published`; only then may it append and emit committed
+and completed. Recovery and already-present Knowledge obey identical waiter, abort and emitter laws.
 
 Call `composeTerminalEvidenceEntries` with the canonical four-source order, the three fixed terminal
 entries and the safety terminal entry. The fixed runner entries already contain the ordered union of
@@ -2404,31 +2961,35 @@ and recovery rebuild the authority from verified persisted Knowledge/Evidence, v
 marker through `reconstructCityLiveMarker`, recompute its digest, then reconstruct the frontier with
 zero network; they never trust marker facts or digest merely because a frontier row is signed.
 
-Seal the Task 11 would-be successor through `sealCityFrontierRevision`, append that verified revision,
-emit the committed marker, construct the verified
-working-or-terminal read model, emit exactly one
-`city_continuation_completed`, then return the canonically identical model. Abort/deadline,
-malformed source output and every fixed operation failure publish no Evidence/Knowledge and advance
-no cursor or city budget; they never become unknown.
-`city-frontier-composition.ts` constructs the provider-neutral search port exactly as Task S2
-specifies: valid config uses
-`createCitySafetySearchPort({step:createHttpCitySafetySearchStep(config, request), providerId:config.providerId})`;
-missing config uses `createUnconfiguredCitySafetySearchPort()`, stays explicitly unconfigured and
-may close `source_unavailable` after configured official routes are exhausted; it does not invalidate an otherwise complete installed plan. Current SI never reaches this path while its candidate is unready.
+Seal the Task 11 would-be successor through `sealCityFrontierRevision` and append that verified revision
+before enqueueing the fresh frozen committed-marker event. Only after that event resolves does the caller
+construct the verified working-or-terminal read model, enqueue exactly one fresh frozen
+`city_continuation_completed`, await it and return the canonically identical model. A command hit at
+entry emits nothing. Identical-command waiters may each emit private committed/completed frames after the
+exact append/replay; a different-command stale loser emits neither. An emitter failure before append
+leaves no frontier successor, although the shared Evidence/Knowledge may already be durable; a failure
+after append preserves the winner and suppresses every later frame. Detach and pump failure permit no
+late event.
+
+Preserve exact fixed abort/deadline/clock/protocol/native failures and the existing safety-search error
+semantics. Only the bounded completed outcomes already defined by the fixed and safety runners become
+domain unknown. No catch-all relabels a crash, cancellation, storage, integrity, malformed source output
+or unexpected error, and no such pre-publication failure advances the cursor or city budget.
 Recovery reuses the one already sealed generic four-source bundle and overlay without network or a
 second seal. Lookup always uses `${cityCheckRunId}:evidence`: an exact retry is idempotent only when the
 generic bundle, context, all ledgers and overlay payload are canonically identical. The same check-run
 paired with any different ID, or with the derived ID but different bytes/metadata, is an integrity
 conflict. A row for a different check-run occupying either unique key is likewise a conflict; all such
 conflicts perform no write or source retry. A different check-run otherwise derives a different ID.
-An emit failure after append never
-rolls back the revision. Clear
-the single-flight entry in `finally`; never hold SQLite across HTTP/search or add a lease table.
+Never hold SQLite across HTTP/search or add a lease table.
 
 - [ ] **Step 6: Run GREEN and commit**
 
 ```bash
-./node_modules/.bin/vitest run tests/integration/city-frontier.test.ts \
+./node_modules/.bin/vitest run tests/application/city-frontier-identity.test.ts \
+  tests/domain/city-criteria.test.ts \
+  tests/branch/city.test.ts \
+  tests/integration/city-frontier.test.ts \
   tests/integration/city-frontier-store.test.ts \
   tests/integration/city-package-manifest-store.test.ts \
   tests/integration/city-evidence-store.test.ts \
@@ -2436,28 +2997,39 @@ the single-flight entry in `finally`; never hold SQLite across HTTP/search or ad
   tests/integration/city-knowledge-store.test.ts \
   tests/integration/country-resolution.test.ts
 ./node_modules/.bin/tsc --noEmit
-./node_modules/.bin/eslint src/application/city-{frontier,verifier}.ts \
+./node_modules/.bin/eslint src/application/city-data-contracts.ts \
+  src/application/city-frontier-contracts.ts \
+  src/application/city-frontier.ts \
   src/application/replay-city-evidence.ts \
-  src/infrastructure/city-{frontier-composition,verifier-adapter}.ts \
+  src/decision/city-criteria.ts \
+  src/infrastructure/city-frontier-composition.ts \
   src/infrastructure/composition-root.ts \
-  src/infrastructure/sqlite/city-{package-manifest,evidence,knowledge}-store.ts \
-  src/infrastructure/sources/{installed-city-packages,slovenia-city-source-adapter}.ts \
+  src/infrastructure/sqlite/city-package-manifest-store.ts \
+  src/infrastructure/sqlite/city-evidence-store.ts \
+  src/infrastructure/sqlite/city-knowledge-store.ts \
+  src/infrastructure/sources/installed-city-packages.ts \
+  tests/application/city-frontier-identity.test.ts \
+  tests/domain/city-criteria.test.ts \
+  tests/branch/city.test.ts \
   tests/integration/city-frontier.test.ts \
   tests/integration/city-package-manifest-store.test.ts \
   tests/integration/city-evidence-store.test.ts \
   tests/integration/city-evidence-replay.test.ts \
   tests/integration/city-knowledge-store.test.ts
 git diff --check
-git add src/application/city-frontier.ts src/application/city-verifier.ts \
+git add src/application/city-data-contracts.ts src/application/city-frontier.ts \
+  src/application/city-frontier-contracts.ts \
+  src/decision/city-criteria.ts \
   src/infrastructure/city-frontier-composition.ts \
-  src/infrastructure/city-verifier-adapter.ts \
   src/application/replay-city-evidence.ts \
   src/infrastructure/sqlite/city-package-manifest-store.ts \
   src/infrastructure/sqlite/city-evidence-store.ts \
   src/infrastructure/sqlite/city-knowledge-store.ts \
   src/infrastructure/sources/installed-city-packages.ts \
-  src/infrastructure/sources/slovenia-city-source-adapter.ts \
   src/infrastructure/composition-root.ts \
+  tests/application/city-frontier-identity.test.ts \
+  tests/domain/city-criteria.test.ts \
+  tests/branch/city.test.ts \
   tests/integration/city-frontier.test.ts \
   tests/integration/city-package-manifest-store.test.ts \
   tests/integration/city-evidence-store.test.ts \
@@ -2476,6 +3048,11 @@ git commit -m "feat: run city frontier"
 - Create: `src/application/city-selection.ts`
 - Create: `src/infrastructure/sqlite/city-selection-writer.ts`
 - Create: `tests/integration/city-selection.test.ts`
+- Create: `tests/support/city-selection-publication-worker.ts`
+- Modify: `src/application/city-frontier-contracts.ts`
+- Modify: `src/branch/city.ts`
+- Modify: `tests/branch/city.test.ts`
+- Modify: `tests/integration/city-frontier.test.ts`
 - Modify: `src/infrastructure/city-frontier-composition.ts`
 - Modify: `src/infrastructure/composition-root.ts`
 
@@ -2496,6 +3073,22 @@ export interface CitySelectionApplication {
     readonly readModel: CityFrontierReadModel;
   }>;
 }
+
+export interface CitySelectionApplicationPorts {
+  readonly frontier: CityFrontierSelectionAuthorityPort;
+  readonly writer: CitySelectionWriterPort;
+  readonly integrity: CityDecisionIntegrity;
+  readonly clock: () => Date;
+}
+
+export function createCitySelectionApplication(
+  ports: CitySelectionApplicationPorts,
+): Readonly<CitySelectionApplication>;
+
+// Task 15 replaces the Task 14 composition return after consuming its internal assembly.
+export function createCityFrontierComposition(
+  options: CityFrontierCompositionOptions,
+): Readonly<CityFrontierApplication & CitySelectionApplication>;
 
 export interface CitySelectionCommandIntent {
   readonly terminalCityShortlistSnapshotId: string;
@@ -2526,6 +3119,24 @@ export interface CitySelectionWriterPort extends CitySelectionReadPort {
 
 Accept only the exact `SelectCityInput` keys; accept a terminal selectable city with 0 or nonzero warnings; reject working/empty/missing/excluded/tampered city, wrong copy-version presence/value and client `runId`, basis or parent fields. After the Application command envelope is removed, compile/runtime-pin the pure request to exactly `{ cityId, warningCopyVersion? }`; reject terminal ID, command ID, digest, facts, basis, links and parent on that nested surface. Require `reconstructCitySelection` to return the exact fresh terminal entry plus transient reviewed links flattened from the selected marker in four-fact/link occurrence order without deduplication. Derive `runId` from the verified terminal snapshot before command lookup. Assert idempotency is keyed by that derived `runId + commandId`: an identical canonical remainder `{ terminalCityShortlistSnapshotId, cityId, warningCopyVersion? }` returns both prior rows, while the same key with any changed remainder conflicts. Inject failure before either insert and verify neither row exists. Returned/presented read models contain verified sibling selection/branch history. Cover `loadSelectionWithBranchVerified(citySelectionSnapshotId)` success, missing ID, duplicate or mismatched selection/commit rows, tampered root/context bindings and fresh frozen copies; the lookup must not accept `runId` or browser-supplied context as authority.
 
+Compile/runtime-pin the exact closed `CitySelectionApplicationPorts` and
+`createCitySelectionApplication(ports): Readonly<CitySelectionApplication>` as the sole constructible
+Task 15 use-case boundary. It descriptor-owns/captures the four inward authorities before callbacks,
+imports no Infrastructure module and uses `ports.frontier.loadCurrentTerminalSelectionAuthority` as its
+only terminal authority. It source-replays the returned `preCityBranch` against returned `preCitySource`,
+invokes the pair wrapper and writer exactly once, reloads that same terminal authority, and requires exactly one matching
+history pair in its returned read model. Task 15 never causes Task 14 to import it back.
+At composition, count and identity-pin exactly one writer construction, exactly one Task 14 factory call
+and exactly one Task 15 factory call; the same writer object must be both Task 14 history and Task 15
+writer, and only the frozen combined public methods may escape. Update the existing Frontier integration
+tests to consume that exact combined return directly rather than the former `.application` assembly
+member, and pin the absence of internal assembly/authority keys.
+
+Compile/runtime-pin branch chronology: both create and reconstruct require
+`selection.createdAt >= verified terminal.createdAt`; a regressing canonical timestamp is
+`integrity_mismatch`, while equality is accepted. This is in addition to the existing exact equality
+between Selection and sibling commit creation times.
+
 An authentic audit-only terminal whose bound Catalog rules are `city-catalog@1` fails
 `city_catalog_upgrade_required` immediately after exact package/Catalog authentication and before
 Criteria/evaluator, Knowledge/Evidence, semantic Ranking, Task 11, pair construction or writer
@@ -2541,15 +3152,28 @@ writer assembles or accepts independently authoritative Selection/Branch literal
 Insert siblings in reverse physical order, including equal timestamps, and require both the structural
 history port and semantically verified rich presentation to use the exact total order
 `selection.createdAt ASC, selection.id ASC`. Inject evaluator, Knowledge, Evidence and Task 11 spies
-and statically pin imports: Application invokes them before construction and after structural reload;
+and statically pin imports: the Task 14 frontier authority invokes them before construction and again
+on the post-write authority reload, while Task 15 imports only that inward port;
 `city-selection-writer.ts` invokes none of them and accepts only the exact timestamp-free command
 intent plus the already constructed pair. Descriptor-own/exact-key pin the explicit intent interface;
 future public Select fields cannot silently enter command equality.
 
+Pin hit/miss clock authority explicitly. Every Select invocation, after Task 14 authority and pure
+selection, obtains exactly one owned server time, constructs exactly one pair candidate/publication and
+then calls the writer. An identical command first written at `t1` and retried under a later server clock
+`t2` still reconstructs and semantically verifies the stored pair using its stored `createdAt`: on a hit,
+including a race hit, the writer compares only the timestamp-free command intent and entirely ignores
+and never canonical-compares candidate bytes, ID or `createdAt`. A miss alone validates and inserts that
+candidate. Add two bounded
+separate-connection races: identical same-key requests converge to one pair, while same key with changed
+remainder yields one winner plus fresh `integrity_mismatch`; neither path leaks SQLite UNIQUE or BUSY.
+`city-selection.test.ts` imports the dedicated `city-selection-publication-worker.ts` harness for these
+real separate connections; do not expand or reuse Task 13's Frontier publication worker.
+
 - [ ] **Step 2: Run RED**
 
 ```bash
-./node_modules/.bin/vitest run tests/integration/city-selection.test.ts
+./node_modules/.bin/vitest run tests/integration/city-selection.test.ts tests/branch/city.test.ts
 ```
 
 - [ ] **Step 3: Implement the atomic writer over the existing tables**
@@ -2558,48 +3182,68 @@ Use the Task 13 `city_selection_snapshots` and `city_branch_commits` schemas. Ve
 context/marker/pair fields through Task 12 structural replay; separately verify command identity and
 idempotency through the writer-owned timestamp-free command envelope. Require
 `parent_id = forked_from`, exact selection FK and the same country/profile context as the verified
-`pre_city` parent. A selection-kind City Branch row is never accepted or persisted independently from
+`pre_city` parent. Both pure construction and reconstruction require the canonical
+`selection.createdAt` to be no earlier than the verified terminal's `createdAt`; equality is valid, a
+regression is `integrity_mismatch`. A selection-kind City Branch row is never accepted or persisted independently from
 its Selection snapshot. The writer accepts exactly `CitySelectionPublication`, not a Task 11 projection,
 evaluator registry, Knowledge/Evidence graph, digest proof or caller-assembled authority DTO.
 
 - [ ] **Step 4: Implement one atomic writer transaction**
 
-Application `selectCity` first structurally loads the complete terminal chain and the minimum
-Ranking/pre-city references needed to exact-load and authenticate the historical package/Registry/
-Catalog. Immediately after that Catalog authentication—and before Application Criteria/evaluator,
-Knowledge, Evidence, semantic Ranking, Task 11, wrapper or writer callbacks—it requires the exact bound
-Catalog rules to equal `CITY_CATALOG_RULES_VERSION`; `@1` is audit-only and fails
-`city_catalog_upgrade_required`. Only the current-rules path loads/reconstructs Criteria, semantic
-Ranking and every Knowledge/Evidence marker authority, recomputes digests, and reruns Task 11 frontier
-reconstruction. It then calls `reconstructCitySelection` with only the exact city/version
-request. Application rebuilds the exact resolved-country/profile source through the full semantic guard,
-source-replays the parent, and passes that fresh parent, the fresh selection projection, the verified
-terminal/ranking authority, client command ID and one server creation time to
+Application `selectCity` first calls its exact Task 14
+`CityFrontierSelectionAuthorityPort.loadCurrentTerminalSelectionAuthority` and accepts no caller-built
+terminal graph. That authority has already structurally loaded the full terminal chain, authenticated
+the exact historical package/Registry/Catalog, rejected `@1` before semantic callbacks and completed
+current Criteria/Ranking/Knowledge/Evidence/Task 11 replay. Task 15 source-replays
+`authority.preCityBranch` against `authority.preCitySource`, calls `reconstructCitySelection` with only
+the exact city/version request against `authority.frontier`, and passes that fresh parent, fresh
+selection projection, `authority.terminal`, `authority.ranking`, client command ID and one server
+creation time to
 `createCitySelectionWithBranch`. The wrapper maps
 `entry.cityId/markerDigest/knowledgeRevisionId/evidenceSnapshotId/unknownBasis` and optional version to
 the Selection Snapshot, derives the exact parent/fork/context and invokes the pure Branch helper.
 `reviewedSourceLinks` is a verified transient result for presentation/command binding and is not
 persisted as a second array. It builds exact `CitySelectionPublication` with the timestamp-free intent
-and calls the writer.
+and calls the writer. This clock/wrapper/publication sequence runs exactly once on every invocation,
+before the writer can reveal whether the command is a hit or miss; only the writer decides whether the
+candidate is ignored or validated.
 
-Before SQL the writer owns/closes the exact publication and its pure preflight requires
-`pair.selection.commandId === publication.commandId`, derives
-the run ID from the sealed pair, and requires exact intent-to-selection equality for terminal revision,
-city and optional warning-copy presence/value. Outer command/intent drift is `integrity_mismatch` with
-zero inserts and zero semantic callbacks. It then begins immediate; lookup by
-`(derived pair.selection.runId, commandId)` is the first SQL action. Changed stored intent is
-`integrity_mismatch`. For an exact command hit it authenticates the stored pair's referenced Catalog;
-for a miss it authenticates the candidate pair's referenced Catalog. It rejects `@1` as
+Composition creates one `SqliteCitySelectionWriter`. It injects that exact object by identity as Task 14
+`selectionHistory`, constructs the Task 14 assembly exactly once, then constructs Task 15 from
+`assembly.selectionAuthority` plus that same writer. The root exposes a recursively frozen public union
+of Task 14 and Task 15 Application methods only; neither internal authority nor writer escapes. Task 15
+removes `selectionHistory?` from the public `CityFrontierCompositionOptions` and replaces only the
+composition return with exact `Readonly<CityFrontierApplication & CitySelectionApplication>`. The Task 14
+Application factory still returns its internal assembly and imports no Task 15 type. Once Task 15 is
+composed there is no external public history override and no second Task 14 assembly.
+
+Before SQL the writer descriptor-owns the exact outer publication, validates the command ID and closed
+timestamp-free intent, and captures only the canonical run-ID scalar needed from
+`pair.selection.runId` for the lookup key; it does not structurally reconstruct or canonically compare
+the candidate pair. It then begins immediate; lookup by `(captured runId, commandId)` is the first SQL
+action. A hit compares only the stored timestamp-free intent; changed intent is `integrity_mismatch`,
+while candidate command/time/ID/bytes are ignored. Only a miss reconstructs the candidate pair and
+requires `pair.selection.commandId === publication.commandId`, run equality and exact
+intent-to-selection equality for terminal revision, city and optional warning-copy presence/value.
+Candidate drift on a miss is `integrity_mismatch` with zero inserts and zero semantic callbacks. For an
+exact command hit it authenticates the stored pair's referenced Catalog; for a miss it authenticates the
+candidate pair's referenced Catalog. It rejects `@1` as
 `city_catalog_upgrade_required` before returning replay, loading further run rows or inserting. Both
 current-rules hit and miss paths then load all immutable structural terminal/Ranking/pre-city/reference
 rows, derive the stored pre-city source
 through Task 13's country-resolution-chain adapter, calls Task 12 structural
-`reconstructCitySelectionWithBranch`, and verify mirrors/FKs/pair topology. A hit applies those checks to
-the stored pair and only then returns a fresh pair. A miss applies them to the candidate, inserts both
+`reconstructCitySelectionWithBranch`, and verify mirrors/FKs/pair topology. A hit, including the loser
+of an insert race, compares only stored/caller timestamp-free intent, ignores the supplied candidate
+pair completely, uses the stored pair's `createdAt` for structural reconstruction and only then returns
+a fresh pair. A miss alone validates the candidate and inserts both
 rows, reloads the same structural graph/pair and commits. Insert order is Selection first and selection-kind Branch
 second because the Branch owns the Selection FK; failure probes immediately before Selection, between
 Selection and Branch, and after Branch/reload roll back both rows. It performs zero evaluator, Knowledge, Evidence or Task 11
 callbacks. Immutable append-only references make the prior Application semantic check safe.
+Across separate SQLite connections, bounded transaction acquisition/retry preserves the same
+command-first authority: identical same-key contenders converge to the one verified stored pair, while
+changed-remainder contenders produce one winner and fresh `integrity_mismatch`; native UNIQUE/BUSY is
+never a public result.
 
 Implement both `loadSelectionWithBranchVerified(citySelectionSnapshotId)` and inherited
 `listSelectionsWithBranchesVerified(runId)` in `city-selection-writer.ts`. The by-ID method loads the
@@ -2609,7 +3253,8 @@ exact selection/commit pair in one read transaction; verifies
 rejects missing as `city_selection_not_found`, duplicate, mismatched or tampered rows; and returns a
 fresh frozen pair. The list method verifies every pair and orders it by
 `(selection.createdAt ASC, selection.id ASC)` without `rowid`. After write/load, Application repeats the
-full semantic graph, Task 11 selection and pair equality before returning or presenting the rich model.
+same terminal-authority load, source replay, Task 11 selection and pair equality, and requires exactly
+one matching history pair before returning or presenting the rich model.
 Source links never affect selectability by themselves. A second city from the same terminal reuses the
 same pre-city parent and creates a sibling commit.
 
@@ -2627,14 +3272,20 @@ returns `integrity_mismatch` for the same derived key with a different remainder
   tests/integration/confirmed-life.test.ts tests/branch/life-git.test.ts
 ./node_modules/.bin/tsc --noEmit
 ./node_modules/.bin/eslint src/application/city-selection.ts \
+  src/application/city-frontier-contracts.ts src/branch/city.ts \
   src/infrastructure/sqlite/city-selection-writer.ts \
   src/infrastructure/city-frontier-composition.ts \
   src/infrastructure/composition-root.ts \
-  tests/integration/city-selection.test.ts
+  tests/integration/city-selection.test.ts \
+  tests/support/city-selection-publication-worker.ts \
+  tests/integration/city-frontier.test.ts tests/branch/city.test.ts
 git diff --check
 git add src/application/city-selection.ts \
+  src/application/city-frontier-contracts.ts src/branch/city.ts \
   src/infrastructure/sqlite/city-selection-writer.ts \
   src/infrastructure/city-frontier-composition.ts \
-  src/infrastructure/composition-root.ts tests/integration/city-selection.test.ts
+  src/infrastructure/composition-root.ts tests/integration/city-selection.test.ts \
+  tests/support/city-selection-publication-worker.ts \
+  tests/integration/city-frontier.test.ts tests/branch/city.test.ts
 git commit -m "feat: select city branch"
 ```

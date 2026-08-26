@@ -19,6 +19,7 @@ import {
   buildCityCatalogRevision,
   buildCityRegistryRevision,
   type CityCatalogProjection,
+  type CityCatalogRevision,
 } from "../../src/decision/city-catalog";
 import {
   CITY_CRITERION_IDS,
@@ -53,7 +54,10 @@ import {
   type InstalledCityPackageJsonArtifactRole,
   type SealedCityPackageAdministrativeEvidence,
 } from "../../src/research/city-package-artifact-set";
-import type { CityResearchPackageReadyCandidate } from "../../src/research/city-package";
+import type {
+  CityResearchPackageReadyCandidate,
+  InstalledCityPackageManifestPayload,
+} from "../../src/research/city-package";
 import {
   buildCitySafetySourcePlan,
   buildOfficialAuthorityDirectory,
@@ -422,6 +426,83 @@ async function preparedInput(
   };
 }
 
+async function preparedUnknownCatalogRulesInput(
+  database: Database.Database,
+  suffix: string,
+  installedAt: string,
+): Promise<InstalledCityPackageManifestAppendInput> {
+  const legacy = await preparedInput(database, suffix, installedAt, "city-catalog@1");
+  const { id: _catalogId, ...catalogBase } = structuredClone(legacy.catalog.catalog);
+  void _catalogId;
+  const catalogPayload = { ...catalogBase, rulesVersion: "city-catalog@999" };
+  const catalog = {
+    id: `city-catalog:${INTEGRITY.hash(INTEGRITY.canonical(catalogPayload))}`,
+    ...catalogPayload,
+  } as CityCatalogRevision;
+  const catalogBundle = { registry: legacy.catalog.registry, catalog } as CityCatalogProjection;
+  const { id: _directoryId, ...directoryBase } = structuredClone(
+    legacy.officialAuthorityDirectory,
+  );
+  void _directoryId;
+  const directoryPayload = { ...directoryBase, catalogRevisionId: catalog.id };
+  const officialAuthorityDirectory = {
+    id: `official-authority-directory:${INTEGRITY.hash(INTEGRITY.canonical(directoryPayload))}`,
+    ...directoryPayload,
+  };
+  const { id: _sourcePlanId, ...sourcePlanBase } = structuredClone(legacy.safetySourcePlan);
+  void _sourcePlanId;
+  const sourcePlanPayload = {
+    ...sourcePlanBase,
+    catalogRevisionId: catalog.id,
+    authorityDirectoryId: officialAuthorityDirectory.id,
+  };
+  const safetySourcePlan = {
+    id: `city-safety-source-plan:${INTEGRITY.hash(INTEGRITY.canonical(sourcePlanPayload))}`,
+    ...sourcePlanPayload,
+  };
+  database.prepare("DELETE FROM city_catalog_revisions WHERE id = ?")
+    .run(legacy.catalog.catalog.id);
+  const canonicalBundle = INTEGRITY.canonical(catalogBundle);
+  database.prepare(`
+    INSERT INTO city_catalog_revisions (
+      id, registry_revision_id, country_code, package_id, package_schema_version,
+      registry_evidence_snapshot_id, catalog_evidence_snapshot_id, rules_version,
+      created_at, payload_json, payload_hash, hmac
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    catalog.id, catalog.registryRevisionId, catalog.countryCode, catalog.packageId,
+    catalog.packageSchemaVersion, legacy.catalog.registry.evidenceSnapshotId,
+    catalog.evidenceSnapshotId, catalog.rulesVersion, catalog.createdAt,
+    canonicalBundle, INTEGRITY.hash(canonicalBundle), INTEGRITY.sign(canonicalBundle),
+  );
+  const administrativeEvidence = await sealCityPackageAdministrativeEvidence({
+    key: {
+      countryCode: legacy.ready.definition.countryCode,
+      packageId: legacy.ready.definition.packageId,
+      packageSchemaVersion: legacy.ready.definition.packageSchemaVersion,
+      catalogRevisionId: catalog.id,
+      evidenceRulesVersion: legacy.ready.definition.evidenceRulesVersion,
+    },
+    installedAt,
+    catalogMemberIds: catalog.members.map(({ cityId }) => cityId),
+    fixedPlansByCityId: legacy.fixedPlansByCityId,
+    safetySourcePlan,
+    officialAuthorityDirectory,
+    criteriaDefaults: legacy.criteriaDefaults,
+    criterionDefinitions: legacy.criterionDefinitions,
+  }, {
+    store: new SqliteAdministrativeEvidenceStore(database, INTEGRITY),
+    integrity: INTEGRITY,
+  });
+  return {
+    ...legacy,
+    catalog: catalogBundle,
+    safetySourcePlan,
+    officialAuthorityDirectory,
+    administrativeEvidence,
+  } as InstalledCityPackageManifestAppendInput;
+}
+
 async function withRawJsonArtifact(
   database: Database.Database,
   borrowed: InstalledCityPackageManifestAppendInput,
@@ -555,6 +636,102 @@ function store(database: Database.Database) {
 
 function count(database: Database.Database, table: string): number {
   return database.prepare(`SELECT COUNT(*) FROM ${table}`).pluck().get() as number;
+}
+
+function insertAuthenticatedManifestFixture(
+  database: Database.Database,
+  input: InstalledCityPackageManifestAppendInput,
+  predecessorManifestId: string | null = null,
+): { readonly id: string; readonly key: InstalledCityPackageManifestPayload["key"] } {
+  const key = {
+    countryCode: input.ready.definition.countryCode,
+    packageId: input.ready.definition.packageId,
+    packageSchemaVersion: input.ready.definition.packageSchemaVersion,
+    catalogRevisionId: input.catalog.catalog.id,
+    evidenceRulesVersion: input.ready.definition.evidenceRulesVersion,
+  };
+  const bindings = input.administrativeEvidence.bindings;
+  const memberIds = input.catalog.catalog.members.map(({ cityId }) => cityId);
+  const fixedPlansByCityId = Object.fromEntries(memberIds.map((cityId, memberIndex) => [
+    cityId,
+    input.fixedPlansByCityId[cityId]!.map((plan, sourceIndex) => ({
+      sourceId: plan.sourceId,
+      cityId: plan.cityId,
+      planId: plan.planId,
+      criterionId: plan.criterionId,
+      definitionId: plan.definitionId,
+      parserVersion: plan.parserVersion,
+      rulesVersion: plan.rulesVersion,
+      freshnessPolicyVersion: plan.claimContract.freshnessPolicyVersion,
+      valuePolicyVersion: plan.claimContract.valuePolicyVersion,
+      sourcePeriodPolicyVersion: plan.claimContract.sourcePeriodPolicyVersion,
+      planArtifact: bindings[memberIndex * 3 + sourceIndex]!,
+    })),
+  ])) as unknown as InstalledCityPackageManifestPayload["fixedPlansByCityId"];
+  const singletonOffset = memberIds.length * 3;
+  const payload: InstalledCityPackageManifestPayload = {
+    schemaVersion: "installed-city-package-manifest@1",
+    key,
+    definition: input.ready.definition,
+    sourceContractStatus: input.ready.sourceContractStatus,
+    readiness: input.ready.readiness,
+    catalogRoot: {
+      registryRevisionId: input.catalog.registry.id,
+      catalogRevisionId: input.catalog.catalog.id,
+    },
+    fixedPlansByCityId,
+    safety: {
+      sourcePlanId: input.safetySourcePlan.id,
+      sourcePlanSchemaVersion: input.safetySourcePlan.schemaVersion,
+      authorityDirectoryId: input.safetySourcePlan.authorityDirectoryId,
+      queryTemplateVersion: input.safetySourcePlan.queryTemplateVersion,
+      definitionId: input.safetySourcePlan.definitionId,
+      freshnessPolicyVersion: input.safetySourcePlan.freshnessPolicyVersion,
+      discoveryRulesVersion: input.safetySourcePlan.discoveryRulesVersion,
+      sourcePlanArtifact: bindings[singletonOffset] as InstalledCityPackageManifestPayload["safety"]["sourcePlanArtifact"],
+      authorityDirectoryArtifact: bindings[singletonOffset + 1] as InstalledCityPackageManifestPayload["safety"]["authorityDirectoryArtifact"],
+    },
+    criteria: {
+      defaultsMappingVersion: input.criteriaDefaults.mappingVersion,
+      definitionIds: Object.fromEntries(input.criterionDefinitions.map((definition) => [
+        definition.criterionId,
+        definition.definitionId,
+      ])) as InstalledCityPackageManifestPayload["criteria"]["definitionIds"],
+      evaluatorRegistryVersionId: VERSION_KEY.evaluatorRegistryVersionId,
+      evaluatorVersionIds: VERSION_KEY.evaluatorVersionIds,
+      defaultsArtifact: bindings[singletonOffset + 2] as InstalledCityPackageManifestPayload["criteria"]["defaultsArtifact"],
+      definitionsArtifact: bindings[singletonOffset + 3] as InstalledCityPackageManifestPayload["criteria"]["definitionsArtifact"],
+    },
+    valueValidatorVersionId: VERSION_KEY.valueValidatorVersionId,
+    sourcePeriodValidatorVersionId: VERSION_KEY.sourcePeriodValidatorVersionId,
+    predecessorManifestId,
+    installedAt: input.installedAt,
+  };
+  const canonical = INTEGRITY.canonical(payload);
+  const payloadHash = INTEGRITY.hash(canonical);
+  const id = `installed-city-package-manifest:${payloadHash}`;
+  database.prepare(`
+    INSERT INTO installed_city_package_manifests (
+      id, country_code, package_id, package_schema_version, catalog_revision_id,
+      evidence_rules_version, predecessor_manifest_id, administrative_evidence_snapshot_id,
+      installed_at, payload_json, payload_hash, hmac
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, key.countryCode, key.packageId, key.packageSchemaVersion, key.catalogRevisionId,
+    key.evidenceRulesVersion, predecessorManifestId, input.administrativeEvidence.evidenceId,
+    input.installedAt, canonical, payloadHash, INTEGRITY.sign(canonical),
+  );
+  if (predecessorManifestId === null) {
+    database.prepare(`
+      INSERT INTO installed_city_package_heads (country_code, current_manifest_id) VALUES (?, ?)
+    `).run(key.countryCode, id);
+  } else {
+    database.prepare(`
+      UPDATE installed_city_package_heads SET current_manifest_id = ?
+      WHERE country_code = ? AND current_manifest_id = ?
+    `).run(id, key.countryCode, predecessorManifestId);
+  }
+  return { id, key };
 }
 
 function totalChanges(database: Database.Database): number {
@@ -1152,6 +1329,79 @@ describe("SqliteCityPackageManifestStore", () => {
     expect(installed.findExact(manifestA.key)).not.toBe(exactA);
   });
 
+  test("reads an authenticated legacy predecessor while the exact current head remains writable", async () => {
+    // Break caught: a current-only shared reconstructor poisons mixed @1-root to @2-head history.
+    const database = memoryDatabase();
+    const legacyInput = await preparedInput(
+      database,
+      "a",
+      "2026-08-24T10:00:00.000Z",
+      "city-catalog@1",
+    );
+    const legacy = insertAuthenticatedManifestFixture(database, legacyInput);
+    const currentInput = await preparedInput(
+      database,
+      "b",
+      "2026-08-25T10:00:00.000Z",
+      "city-catalog@2",
+    );
+    const manifests = store(database);
+    const current = manifests.appendPrepared(currentInput);
+    const installed = new InstalledCityPackages(manifests);
+
+    expect(current.predecessorManifestId).toBe(legacy.id);
+    expect(manifests.loadVerified(legacy.key)?.id).toBe(legacy.id);
+    expect(manifests.latestVerified("SI")?.id).toBe(current.id);
+    expect(installed.findExact(legacy.key)?.catalog.rulesVersion).toBe("city-catalog@1");
+    expect(installed.loadExactReplayContract(legacy.key)?.catalogProjection.catalog.rulesVersion)
+      .toBe("city-catalog@1");
+    expect(installed.findReady("SI")?.catalog.rulesVersion).toBe("city-catalog@2");
+    expect(installed.latestInstalledVerified("SI")?.catalog.rulesVersion).toBe("city-catalog@2");
+    expect(count(database, "installed_city_package_manifests")).toBe(2);
+    expect(count(database, "installed_city_package_heads")).toBe(1);
+  });
+
+  test("rejects an authenticated unknown Catalog rules manifest without poisoning current @2", async () => {
+    // Break caught: widening historical read acceptance beyond the exact @1/@2 rules set.
+    const unknownDatabase = memoryDatabase();
+    const unknownInput = await preparedUnknownCatalogRulesInput(
+      unknownDatabase,
+      "a",
+      "2026-08-24T10:00:00.000Z",
+    );
+    const unknown = insertAuthenticatedManifestFixture(unknownDatabase, unknownInput);
+    const unknownManifests = store(unknownDatabase);
+    const unknownInstalled = new InstalledCityPackages(unknownManifests);
+    const capture = (read: () => unknown): unknown => {
+      try {
+        read();
+      } catch (error) {
+        return error;
+      }
+      throw new Error("expected_failure");
+    };
+    const manifestError = capture(() => unknownManifests.loadVerified(unknown.key));
+    const installedError = capture(() => unknownInstalled.findExact(unknown.key));
+    expect(manifestError).toEqual(new Error("integrity_mismatch"));
+    expect(installedError).toEqual(new Error("integrity_mismatch"));
+    expect(manifestError).not.toBe(installedError);
+
+    const healthyDatabase = memoryDatabase();
+    const currentInput = await preparedInput(
+      healthyDatabase,
+      "b",
+      "2026-08-25T10:00:00.000Z",
+      "city-catalog@2",
+    );
+    const manifests = store(healthyDatabase);
+    const current = manifests.appendPrepared(currentInput);
+    const installed = new InstalledCityPackages(manifests);
+
+    expect(manifests.latestVerified("SI")?.id).toBe(current.id);
+    expect(installed.findReady("SI")?.catalog.rulesVersion).toBe("city-catalog@2");
+    expect(installed.latestInstalledVerified("SI")?.catalog.id).toBe(current.key.catalogRevisionId);
+  });
+
   test("descriptor-owns the complete append graph and bytes before any integrity callback", async () => {
     // Break caught: integrity callbacks mutate borrowed plans, bindings, or Uint8Array bytes mid-append.
     const database = memoryDatabase();
@@ -1525,7 +1775,7 @@ describe("SqliteCityPackageManifestStore", () => {
     const input = await preparedInput(
       database, "a", "2026-08-24T10:00:00.000Z", "city-catalog@1",
     );
-    expect(() => store(database).appendPrepared(input)).toThrow("integrity_mismatch");
+    expect(() => store(database).appendPrepared(input)).toThrow("city_catalog_upgrade_required");
     expect(count(database, "installed_city_package_manifests")).toBe(0);
     expect(count(database, "installed_city_package_heads")).toBe(0);
   });

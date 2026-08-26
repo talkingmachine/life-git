@@ -153,6 +153,50 @@ export interface CityFrontierReadModel {
   readonly selections: readonly CitySelectionWithBranch[];
 }
 
+export type CityFrontierProgressStage =
+  | "source_started:si-city-safety"
+  | "source_started:si-city-long-term-rent"
+  | "source_started:si-city-urban-transit"
+  | "source_started:si-city-fixed-broadband"
+  | "source_completed:si-city-safety"
+  | "source_completed:si-city-long-term-rent"
+  | "source_completed:si-city-urban-transit"
+  | "source_completed:si-city-fixed-broadband"
+  | "evidence_verified"
+  | "knowledge_published";
+
+interface CityFrontierProgressEventBase {
+  readonly type: "city_progress";
+  readonly runId: string;
+  readonly baseRevisionId: string;
+  readonly sequence: number;
+  readonly occurredAt: string;
+  readonly cityId: string;
+}
+
+export type CityFrontierProgressEvent =
+  | (CityFrontierProgressEventBase & {
+      readonly stage:
+        | "source_started:si-city-safety"
+        | "source_started:si-city-long-term-rent"
+        | "source_started:si-city-urban-transit"
+        | "source_started:si-city-fixed-broadband"
+        | "evidence_verified"
+        | "knowledge_published";
+      readonly sourceUrl?: never;
+    })
+  | (CityFrontierProgressEventBase & {
+      readonly stage:
+        | "source_completed:si-city-long-term-rent"
+        | "source_completed:si-city-urban-transit"
+        | "source_completed:si-city-fixed-broadband";
+      readonly sourceUrl: string;
+    })
+  | (CityFrontierProgressEventBase & {
+      readonly stage: "source_completed:si-city-safety";
+      readonly sourceUrl?: string;
+    });
+
 export type CityFrontierEvent =
   | {
       readonly type: "city_activated";
@@ -163,18 +207,7 @@ export type CityFrontierEvent =
       readonly cityId: string;
       readonly rank: number;
     }
-  | {
-      readonly type: "city_progress";
-      readonly runId: string;
-      readonly baseRevisionId: string;
-      readonly sequence: number;
-      readonly occurredAt: string;
-      readonly cityId: string;
-      readonly stage: string;
-      readonly label: string;
-      readonly detail?: string;
-      readonly sourceUrl?: string;
-    }
+  | CityFrontierProgressEvent
   | {
       readonly type: "city_revision_committed";
       readonly runId: string;

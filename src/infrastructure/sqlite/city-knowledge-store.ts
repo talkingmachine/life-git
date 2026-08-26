@@ -8,6 +8,7 @@ import type {
 } from "../../application/city-data-contracts";
 import {
   CITY_CATALOG_RULES_VERSION,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
   reconstructVerifiedCityCatalog,
   type CityCatalogProjection,
 } from "../../decision/city-catalog";
@@ -101,17 +102,26 @@ function integrityView(value: EvidenceIntegrity): IntegrityView {
 }
 
 function packageReplayView(value: CityEvidencePackageReplayPort): CityEvidencePackageReplayPort {
-  if (value === null || typeof value !== "object") mismatch();
-  const descriptor = Object.getOwnPropertyDescriptor(value, "loadExactReplayContract");
-  if (descriptor === undefined || !("value" in descriptor) ||
-    typeof descriptor.value !== "function") mismatch();
-  const load = descriptor.value as CityEvidencePackageReplayPort["loadExactReplayContract"];
-  const view: CityEvidencePackageReplayPort = Object.freeze({
-    loadExactReplayContract(key: InstalledCityPackageExactKey) {
-      return load.call(view, key);
-    },
-  });
-  return view;
+  try {
+    if (value === null || typeof value !== "object") mismatch();
+    let owner: object | null = value;
+    let descriptor: PropertyDescriptor | undefined;
+    while (owner !== null && owner !== Object.prototype && descriptor === undefined) {
+      descriptor = Object.getOwnPropertyDescriptor(owner, "loadExactReplayContract");
+      if (descriptor === undefined) owner = Object.getPrototypeOf(owner) as object | null;
+    }
+    if (descriptor === undefined || !("value" in descriptor) ||
+      typeof descriptor.value !== "function") mismatch();
+    const load = descriptor.value as CityEvidencePackageReplayPort["loadExactReplayContract"];
+    const view: CityEvidencePackageReplayPort = Object.freeze({
+      loadExactReplayContract(key: InstalledCityPackageExactKey) {
+        return load.call(value, key);
+      },
+    });
+    return view;
+  } catch {
+    mismatch();
+  }
 }
 
 function plainRecord(value: unknown): value is Record<string, unknown> {
@@ -306,7 +316,8 @@ function verifyReplay(
       ownedCatalog as CityCatalogProjection,
       decisionIntegrity,
     );
-    if (catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION ||
+    if ((catalog.catalog.rulesVersion !== LEGACY_CITY_CATALOG_RULES_VERSION &&
+      catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) ||
       catalog.registry.evidenceSnapshotId !== catalog.catalog.evidenceSnapshotId ||
       catalog.catalog.id !== key.catalogRevisionId || catalog.catalog.countryCode !== key.countryCode ||
       catalog.registry.countryCode !== key.countryCode || catalog.catalog.packageId !== key.packageId ||
@@ -454,7 +465,9 @@ function constraint(error: unknown): boolean {
 }
 
 function normalize(error: unknown): never {
-  if (error instanceof Error && error.message === "city_knowledge_not_found") throw error;
+  if (error instanceof Error &&
+    (error.message === "city_knowledge_not_found" ||
+      error.message === "city_catalog_upgrade_required")) throw error;
   mismatch();
 }
 
@@ -477,6 +490,9 @@ export class SqliteCityKnowledgeStore implements CityKnowledgeStorePort {
       const ownedCreatedAt = instant(createdAt);
       const publish = this.database.transaction(() => {
         const { evidence, replay } = this.loadEvidenceAndReplay(ownedEvidenceId);
+        if (replay.catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) {
+          throw new Error("city_catalog_upgrade_required");
+        }
         const factContracts = contracts(replay, evidence.snapshot.cityId);
         const existingRows = this.rowsByEvidence(ownedEvidenceId);
         if (existingRows.length > 1) mismatch();

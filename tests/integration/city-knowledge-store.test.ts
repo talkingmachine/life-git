@@ -12,6 +12,7 @@ import {
   type CityCatalogStorePort,
   type CityEvidenceContext,
   type CityEvidencePackageReplayPort,
+  type CityEvidencePayload,
   type CityEvidenceSealInput,
   type CityKnowledgeStorePort,
   type CityPackageEvidenceReplayContract,
@@ -25,14 +26,27 @@ import {
   type CityCatalogRevision,
   type CityRegistryRevision,
 } from "../../src/decision/city-catalog";
-import type { CityKnowledgeRevision } from "../../src/research/city-knowledge";
-import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
+import {
+  buildCityKnowledgeRevision,
+  type CityKnowledgeEvidenceView,
+  type CityKnowledgeFactContractTuple,
+  type CityKnowledgeRevision,
+} from "../../src/research/city-knowledge";
+import {
+  createCityDecisionIntegrityView,
+  createEvidenceIntegrity,
+} from "../../src/infrastructure/integrity";
 import { SqliteCityCatalogStore } from "../../src/infrastructure/sqlite/city-catalog-store";
 import { SqliteCityEvidenceStore } from "../../src/infrastructure/sqlite/city-evidence-store";
 import { SqliteCityKnowledgeStore } from "../../src/infrastructure/sqlite/city-knowledge-store";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import {
+  insertSealedEvidence,
+  loadVerifiedEvidenceBundle,
+} from "../../src/infrastructure/sqlite/evidence-store";
+import {
   citySafetyTerminalEntry,
+  SLOVENIA_CITY_SAFETY_FACT_CONTRACT,
   SLOVENIA_CITY_FACT_SOURCE_IDS,
   type CityEvidenceClaim,
   type CityFixedAttemptLedger,
@@ -862,8 +876,232 @@ async function seedEvidence(
     .seal(await evidenceInput(fixture, sequence, rent));
 }
 
+function contractWithCatalogRules(
+  value: CityPackageEvidenceReplayContract,
+  rulesVersion: string,
+): CityPackageEvidenceReplayContract {
+  const contract = structuredClone({
+    installedPackageManifest: value.installedPackageManifest,
+    definition: value.definition,
+    catalogProjection: value.catalogProjection,
+    fixedPlansByCityId: value.fixedPlansByCityId,
+    safetySourcePlan: value.safetySourcePlan,
+    officialAuthorityDirectory: value.officialAuthorityDirectory,
+  });
+  const { id: _catalogId, ...catalogBase } = contract.catalogProjection.catalog;
+  void _catalogId;
+  const catalogPayload = { ...catalogBase, rulesVersion };
+  const catalog = {
+    id: `city-catalog:${INTEGRITY.hash(INTEGRITY.canonical(catalogPayload))}`,
+    ...catalogPayload,
+  } as CityCatalogRevision;
+  const { id: _directoryId, ...directoryBase } = contract.officialAuthorityDirectory;
+  void _directoryId;
+  const directoryPayload = { ...directoryBase, catalogRevisionId: catalog.id };
+  const officialAuthorityDirectory = {
+    id: `official-authority-directory:${INTEGRITY.hash(INTEGRITY.canonical(directoryPayload))}`,
+    ...directoryPayload,
+  };
+  const { id: _sourcePlanId, ...sourcePlanBase } = contract.safetySourcePlan;
+  void _sourcePlanId;
+  const sourcePlanPayload = {
+    ...sourcePlanBase,
+    catalogRevisionId: catalog.id,
+    authorityDirectoryId: officialAuthorityDirectory.id,
+  };
+  const safetySourcePlan = {
+    id: `city-safety-source-plan:${INTEGRITY.hash(INTEGRITY.canonical(sourcePlanPayload))}`,
+    ...sourcePlanPayload,
+  };
+  return {
+    ...value,
+    installedPackageManifest: Object.freeze({
+      id: `${value.installedPackageManifest.id}:${rulesVersion}`,
+      key: Object.freeze({
+        ...value.installedPackageManifest.key,
+        catalogRevisionId: catalog.id,
+      }),
+    }),
+    catalogProjection: { registry: contract.catalogProjection.registry, catalog },
+    officialAuthorityDirectory,
+    safetySourcePlan,
+  } as CityPackageEvidenceReplayContract;
+}
+
+function rebindEvidenceInput(
+  value: CityEvidenceSealInput,
+  contract: CityPackageEvidenceReplayContract,
+): CityEvidenceSealInput {
+  const input = structuredClone(value);
+  const mutableInput = input as unknown as Record<string, unknown>;
+  const ledger = input.safetyAttemptLedger as unknown as Record<string, unknown>;
+  mutableInput.catalogRevisionId = contract.catalogProjection.catalog.id;
+  ledger.catalogRevisionId = contract.catalogProjection.catalog.id;
+  ledger.authorityDirectoryId = contract.officialAuthorityDirectory.id;
+  ledger.sourcePlanId = contract.safetySourcePlan.id;
+  const evidenceContext: CityEvidenceContext = {
+    schemaVersion: input.schemaVersion,
+    cityCheckRunId: input.cityCheckRunId,
+    frontierRunId: input.frontierRunId,
+    cityId: input.cityId,
+    countryCode: input.countryCode,
+    packageId: input.packageId,
+    packageSchemaVersion: input.packageSchemaVersion,
+    catalogRevisionId: input.catalogRevisionId,
+    criteriaSnapshotId: input.criteriaSnapshotId,
+    rankingSnapshotId: input.rankingSnapshotId,
+    definitionIds: input.definitionIds,
+    evidenceRulesVersion: input.evidenceRulesVersion,
+    assessmentAt: input.assessmentAt,
+    completedAt: input.completedAt,
+  };
+  const snapshot = input.genericEvidence.snapshot as unknown as Record<string, unknown>;
+  const manifest = input.genericEvidence.manifest as unknown as Record<string, unknown>;
+  snapshot.contextHash = cityEvidenceContextHash(evidenceContext, INTEGRITY);
+  manifest.snapshot = Object.fromEntries(Object.entries(structuredClone(input.genericEvidence.snapshot))
+    .filter(([key]) => key !== "manifestHash" && key !== "hmac"));
+  const canonicalManifest = INTEGRITY.canonical(input.genericEvidence.manifest);
+  (input.genericEvidence as unknown as Record<string, unknown>).canonicalManifest = canonicalManifest;
+  snapshot.manifestHash = INTEGRITY.hash(canonicalManifest);
+  snapshot.hmac = INTEGRITY.sign(canonicalManifest);
+  return input;
+}
+
+function insertAuthenticatedEvidence(
+  db: Database.Database,
+  input: CityEvidenceSealInput,
+): CityEvidencePayload {
+  insertSealedEvidence(db, input.genericEvidence, INTEGRITY);
+  const evidenceContext: CityEvidenceContext = {
+    schemaVersion: input.schemaVersion,
+    cityCheckRunId: input.cityCheckRunId,
+    frontierRunId: input.frontierRunId,
+    cityId: input.cityId,
+    countryCode: input.countryCode,
+    packageId: input.packageId,
+    packageSchemaVersion: input.packageSchemaVersion,
+    catalogRevisionId: input.catalogRevisionId,
+    criteriaSnapshotId: input.criteriaSnapshotId,
+    rankingSnapshotId: input.rankingSnapshotId,
+    definitionIds: input.definitionIds,
+    evidenceRulesVersion: input.evidenceRulesVersion,
+    assessmentAt: input.assessmentAt,
+    completedAt: input.completedAt,
+  };
+  const payload: CityEvidencePayload = {
+    schemaVersion: "city-evidence@1",
+    id: `${input.cityCheckRunId}:evidence`,
+    cityCheckRunId: input.cityCheckRunId,
+    frontierRunId: input.frontierRunId,
+    cityId: input.cityId,
+    countryCode: input.countryCode,
+    packageId: input.packageId,
+    packageSchemaVersion: input.packageSchemaVersion,
+    catalogRevisionId: input.catalogRevisionId,
+    criteriaSnapshotId: input.criteriaSnapshotId,
+    rankingSnapshotId: input.rankingSnapshotId,
+    definitionIds: structuredClone(input.definitionIds),
+    evidenceRulesVersion: input.evidenceRulesVersion,
+    assessmentAt: input.assessmentAt,
+    fixedAttemptLedgers: structuredClone(input.fixedAttemptLedgers),
+    safetyAttemptLedger: structuredClone(input.safetyAttemptLedger),
+    contextHash: cityEvidenceContextHash(evidenceContext, INTEGRITY),
+    completedAt: input.completedAt,
+  };
+  const canonical = INTEGRITY.canonical(payload);
+  db.prepare(`
+    INSERT INTO city_evidence_snapshots (
+      id, city_check_run_id, frontier_run_id, city_id, country_code, package_id,
+      package_schema_version, catalog_revision_id, criteria_snapshot_id, ranking_snapshot_id,
+      evidence_rules_version, context_hash, assessment_at, completed_at, canonical_payload,
+      payload_hash, hmac
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    payload.id, payload.cityCheckRunId, payload.frontierRunId, payload.cityId,
+    payload.countryCode, payload.packageId, payload.packageSchemaVersion,
+    payload.catalogRevisionId, payload.criteriaSnapshotId, payload.rankingSnapshotId,
+    payload.evidenceRulesVersion, payload.contextHash, payload.assessmentAt,
+    payload.completedAt, canonical, INTEGRITY.hash(canonical), INTEGRITY.sign(canonical),
+  );
+  return payload;
+}
+
+function insertAuthenticatedKnowledge(
+  db: Database.Database,
+  revision: CityKnowledgeRevision,
+): void {
+  const canonical = INTEGRITY.canonical(revision);
+  db.prepare(`
+    INSERT INTO city_knowledge_revisions (
+      id, city_id, country_code, package_id, package_schema_version, rules_version,
+      predecessor_id, evidence_snapshot_id, last_checked_at, knowledge_updated_at,
+      created_at, payload_json, payload_hash, hmac
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    revision.id, revision.cityId, revision.countryCode, revision.packageId,
+    revision.packageSchemaVersion, revision.rulesVersion,
+    revision.predecessorRevisionId ?? null, revision.evidenceSnapshotId,
+    revision.lastCheckedAt, revision.knowledgeUpdatedAt, revision.createdAt,
+    canonical, INTEGRITY.hash(canonical), INTEGRITY.sign(canonical),
+  );
+}
+
+function knowledgeContracts(
+  fixture: ReturnType<typeof packageFixture>,
+): CityKnowledgeFactContractTuple {
+  const safetyEntry = fixture.contract.safetySourcePlan.entries.find(({ cityId }) => cityId === CITY_ID);
+  if (safetyEntry === undefined) throw new Error("missing_safety_entry");
+  const safety = {
+    sourceId: SLOVENIA_CITY_SAFETY_FACT_CONTRACT.sourceId,
+    criterionId: SLOVENIA_CITY_SAFETY_FACT_CONTRACT.criterionId,
+    definitionId: fixture.contract.safetySourcePlan.definitionId,
+    scope: `municipality:${safetyEntry.municipalityCode}`,
+    geoScope: SLOVENIA_CITY_SAFETY_FACT_CONTRACT.geoScope,
+    officialAreaId: safetyEntry.municipalityCode,
+    unit: SLOVENIA_CITY_SAFETY_FACT_CONTRACT.unit,
+    denominator: SLOVENIA_CITY_SAFETY_FACT_CONTRACT.denominator,
+    freshnessPolicyVersion: fixture.contract.safetySourcePlan.freshnessPolicyVersion,
+  } as const;
+  const fixed = fixture.fixedPlans.map(({ claimContract }) => ({
+    sourceId: claimContract.sourceId,
+    criterionId: claimContract.criterionId,
+    definitionId: claimContract.definitionId,
+    scope: claimContract.scope,
+    geoScope: claimContract.geoScope,
+    officialAreaId: claimContract.officialAreaId,
+    unit: claimContract.unit,
+    denominator: claimContract.denominator,
+    freshnessPolicyVersion: claimContract.freshnessPolicyVersion,
+  }));
+  return [safety, fixed[0]!, fixed[1]!, fixed[2]!] as CityKnowledgeFactContractTuple;
+}
+
 function count(db: Database.Database, table: string): number {
   return (db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { readonly count: number }).count;
+}
+
+function expectRecursivelyFrozen(value: unknown, seen = new Set<object>()): void {
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  expect(Object.isFrozen(value)).toBe(true);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    expect(descriptor).toBeDefined();
+    expect(descriptor !== undefined && "value" in descriptor).toBe(true);
+    if (descriptor !== undefined && "value" in descriptor) {
+      expectRecursivelyFrozen(descriptor.value, seen);
+    }
+  }
+}
+
+function captureError(action: () => unknown): Error {
+  try {
+    action();
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    return error as Error;
+  }
+  throw new Error("expected_error");
 }
 
 function catalogProjection(fixture: ReturnType<typeof packageFixture>): CityCatalogProjection {
@@ -1119,6 +1357,153 @@ describe("SQLite City Catalog store", () => {
 });
 
 describe("SQLite City Knowledge store", () => {
+  test("reads authenticated @1 Knowledge, rejects @1 writes and unknown rules without poisoning @2", async () => {
+    // Break caught: sharing the current write gate with the closed historical read reconstructor.
+    const currentFixture = packageFixture();
+    const currentDb = database();
+    const currentEvidence = await seedEvidence(currentDb, currentFixture, 0, "unknown");
+    const currentStore = new SqliteCityKnowledgeStore(
+      currentDb,
+      INTEGRITY,
+      replayPort(currentFixture),
+    );
+    const currentRevision = currentStore.publishFromEvidence(currentEvidence.id, at(0, 50_000_000));
+
+    const legacyFixture = packageFixture(
+      INTEGRITY,
+      CATALOG_EVIDENCE_ID,
+      LEGACY_CITY_CATALOG_RULES_VERSION,
+    );
+    const legacyInput = await evidenceInput(legacyFixture, 0, "unknown");
+    const legacyDb = database();
+    const legacyEvidencePayload = insertAuthenticatedEvidence(legacyDb, legacyInput);
+    const verifiedLegacyGeneric = loadVerifiedEvidenceBundle<
+      SloveniaCityFactSourceId,
+      CityEvidenceClaim
+    >(
+      legacyDb,
+      legacyInput.genericEvidence.snapshot.id,
+      INTEGRITY,
+      {
+        assessmentDate: legacyEvidencePayload.assessmentAt.slice(0, 10),
+        rulesVersion: legacyEvidencePayload.evidenceRulesVersion,
+      },
+    );
+    const legacyRevision = buildCityKnowledgeRevision({
+      packageKey: legacyFixture.contract.installedPackageManifest.key,
+      evidence: {
+        snapshot: legacyEvidencePayload,
+        genericEvidence: verifiedLegacyGeneric,
+      } as CityKnowledgeEvidenceView,
+      factContracts: knowledgeContracts(legacyFixture),
+      createdAt: at(0, 50_000_000),
+    }, createCityDecisionIntegrityView(INTEGRITY));
+    insertAuthenticatedKnowledge(legacyDb, legacyRevision);
+    const legacyStore = new SqliteCityKnowledgeStore(
+      legacyDb,
+      INTEGRITY,
+      replayPort(legacyFixture),
+    );
+    const legacyA = legacyStore.loadVerified(legacyRevision.id);
+    const legacyB = legacyStore.loadVerified(legacyRevision.id);
+    expect(legacyA).toEqual(legacyRevision);
+    expect(legacyB).toEqual(legacyA);
+    expect(legacyA).not.toBe(legacyB);
+    expect(legacyA.facts).not.toBe(legacyB.facts);
+    expectRecursivelyFrozen(legacyA);
+    expectRecursivelyFrozen(legacyB);
+
+    const legacyWriteDb = database();
+    const legacyEvidence = insertAuthenticatedEvidence(legacyWriteDb, legacyInput);
+    const legacyWriter = new SqliteCityKnowledgeStore(
+      legacyWriteDb,
+      INTEGRITY,
+      replayPort(legacyFixture),
+    );
+    expect(() => legacyWriter.publishFromEvidence(legacyEvidence.id, at(0, 50_000_000)))
+      .toThrow("city_catalog_upgrade_required");
+    expect(count(legacyWriteDb, "city_knowledge_revisions")).toBe(0);
+
+    const unknownContract = contractWithCatalogRules(legacyFixture.contract, "city-catalog@999");
+    const unknownInput = rebindEvidenceInput(legacyInput, unknownContract);
+    const unknownDb = database();
+    insertAuthenticatedEvidence(unknownDb, unknownInput);
+    insertAuthenticatedKnowledge(unknownDb, legacyRevision);
+    const unknownStore = new SqliteCityKnowledgeStore(unknownDb, INTEGRITY, {
+      loadExactReplayContract: () => unknownContract,
+    });
+    const unknownA = captureError(() => unknownStore.loadVerified(legacyRevision.id));
+    const unknownB = captureError(() => unknownStore.loadVerified(legacyRevision.id));
+    expect(unknownA).toEqual(new Error("integrity_mismatch"));
+    expect(unknownB).toEqual(new Error("integrity_mismatch"));
+    expect(unknownA).not.toBe(unknownB);
+    expect(currentStore.loadVerified(currentRevision.id)).toEqual(currentRevision);
+  });
+
+  test("rejects an authenticated unknown-rules Evidence publication before Knowledge persistence", async () => {
+    // Break caught: classifying unknown rules as an upgrade or writing Knowledge before replay closes them.
+    const legacyFixture = packageFixture(
+      INTEGRITY,
+      CATALOG_EVIDENCE_ID,
+      LEGACY_CITY_CATALOG_RULES_VERSION,
+    );
+    const legacyInput = await evidenceInput(legacyFixture, 0, "unknown");
+    const unknownContract = contractWithCatalogRules(
+      legacyFixture.contract,
+      "city-catalog@999",
+    );
+    const unknownInput = rebindEvidenceInput(legacyInput, unknownContract);
+    expect(unknownContract.catalogProjection.catalog.rulesVersion).toBe("city-catalog@999");
+    expect(unknownInput.catalogRevisionId).toBe(unknownContract.catalogProjection.catalog.id);
+    expect(unknownInput.safetyAttemptLedger).toMatchObject({
+      catalogRevisionId: unknownContract.catalogProjection.catalog.id,
+      sourcePlanId: unknownContract.safetySourcePlan.id,
+      authorityDirectoryId: unknownContract.officialAuthorityDirectory.id,
+    });
+    const unknownDb = database();
+    const unknownEvidence = insertAuthenticatedEvidence(unknownDb, unknownInput);
+    const evidenceRowsBefore = count(unknownDb, "evidence_snapshots");
+    const cityEvidenceRowsBefore = count(unknownDb, "city_evidence_snapshots");
+    const changesBefore = unknownDb.prepare("SELECT total_changes() AS count").get();
+    const replayKeys: unknown[] = [];
+    const unknownStore = new SqliteCityKnowledgeStore(unknownDb, INTEGRITY, {
+      loadExactReplayContract: (key) => {
+        replayKeys.push(structuredClone(key));
+        return unknownContract;
+      },
+    });
+    const first = captureError(() =>
+      unknownStore.publishFromEvidence(unknownEvidence.id, at(0, 50_000_000)));
+    const second = captureError(() =>
+      unknownStore.publishFromEvidence(unknownEvidence.id, at(0, 50_000_000)));
+    expect(first).toEqual(new Error("integrity_mismatch"));
+    expect(second).toEqual(new Error("integrity_mismatch"));
+    expect(first).not.toBe(second);
+    expect(replayKeys).toEqual([
+      unknownContract.installedPackageManifest.key,
+      unknownContract.installedPackageManifest.key,
+    ]);
+    expect(count(unknownDb, "city_knowledge_revisions")).toBe(0);
+    expect(count(unknownDb, "evidence_snapshots")).toBe(evidenceRowsBefore);
+    expect(count(unknownDb, "city_evidence_snapshots")).toBe(cityEvidenceRowsBefore);
+    expect(unknownDb.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
+
+    const healthyFixture = packageFixture();
+    const healthyDb = database();
+    const healthyEvidence = await seedEvidence(healthyDb, healthyFixture, 0, "unknown");
+    const healthyStore = new SqliteCityKnowledgeStore(
+      healthyDb,
+      INTEGRITY,
+      replayPort(healthyFixture),
+    );
+    const healthy = healthyStore.publishFromEvidence(
+      healthyEvidence.id,
+      at(0, 50_000_000),
+    );
+    expect(healthyStore.loadVerified(healthy.id)).toEqual(healthy);
+    expect(count(healthyDb, "city_knowledge_revisions")).toBe(1);
+  });
+
   test("publishes four replay-contracted facts inside one immediate Evidence transaction", async () => {
     // Break caught: deriving unknown fact metadata from blockers/callers or replaying after a Knowledge write.
     const db = database();
