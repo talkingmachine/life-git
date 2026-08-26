@@ -1026,6 +1026,7 @@ async function executeDiscovery(
     abortIfNeeded(input.signal);
     const queryId = `city-safety-query:${input.runId}:${queryIndex + 1}`;
     const searchedAt = clockInstant(ports.clock);
+    abortIfNeeded(input.signal);
     const resultLimit = MAX_CANDIDATES - candidateAttempts.length;
     const response = validateSearchResponse(await ports.search.search({
       queryId,

@@ -1597,6 +1597,17 @@ async function prepareModel(
 interface ContinuePreflight {
   readonly prepared: CityFrontierPrepared;
   readonly base: CityFrontierRevision;
+  readonly completed?: CityFrontierRevision;
+}
+
+interface ContinuationFlightIdentity {
+  readonly cityCheckRunId: string;
+  readonly runId: string;
+  readonly baseRevisionId: string;
+  readonly rankingSnapshotId: string;
+  readonly cityId: string;
+  readonly assessmentAt: string;
+  readonly installedPackageContext: InstalledCityPackageExactKey;
 }
 
 interface ContinueAuthority extends ContinuePreflight {
@@ -1608,6 +1619,8 @@ interface ContinueAuthority extends ContinuePreflight {
   readonly cityId: string;
   readonly rank: number;
   readonly cityCheckRunId: string;
+  readonly flightIdentity: ContinuationFlightIdentity;
+  readonly recoveredEvidencePresent: boolean;
 }
 
 function loadHistoricalRanking(
@@ -1721,7 +1734,7 @@ async function loadContinueAuthority(
     cityId: ranked.cityId,
     rankingSnapshotId: ranking.id,
   }), ports.decisionIntegrity);
-  const flightIdentity = Object.freeze({
+  const flightIdentity = ownedJson({
     cityCheckRunId: checkRunId,
     runId: prepared.runId,
     baseRevisionId: prepared.baseRevisionId,
@@ -1729,9 +1742,12 @@ async function loadContinueAuthority(
     cityId: ranked.cityId,
     assessmentAt: ranking.assessmentAt,
     installedPackageContext: trust.context,
-  });
-  if (typeof ports.decisionIntegrity.canonical(flightIdentity) !== "string") mismatch();
-  if (ports.evidence.findVerifiedByCheckRunId(checkRunId) !== undefined) mismatch();
+  }) as ContinuationFlightIdentity;
+  const recoveredEvidenceProbe = ports.evidence.findVerifiedByCheckRunId(checkRunId);
+  if (recoveredEvidenceProbe !== undefined &&
+    (recoveredEvidenceProbe === null || typeof recoveredEvidenceProbe !== "object" ||
+      isBorrowedProxy(recoveredEvidenceProbe))) mismatch();
+  const recoveredEvidencePresent = recoveredEvidenceProbe !== undefined;
   return Object.freeze({
     ...preflight,
     ranking,
@@ -1742,11 +1758,34 @@ async function loadContinueAuthority(
     cityId: ranked.cityId,
     rank: ranked.rank,
     cityCheckRunId: checkRunId,
+    flightIdentity,
+    recoveredEvidencePresent,
   });
 }
 
+const abortSignalAbortedGetter = Object.getOwnPropertyDescriptor(
+  AbortSignal.prototype,
+  "aborted",
+)?.get;
+const abortSignalReasonGetter = Object.getOwnPropertyDescriptor(
+  AbortSignal.prototype,
+  "reason",
+)?.get;
+
+function nativeSignalAborted(signal: AbortSignal): boolean {
+  if (abortSignalAbortedGetter === undefined) mismatch();
+  const value = Reflect.apply(abortSignalAbortedGetter, signal, []);
+  if (typeof value !== "boolean") mismatch();
+  return value;
+}
+
+function nativeSignalReason(signal: AbortSignal): unknown {
+  if (abortSignalReasonGetter === undefined) mismatch();
+  return Reflect.apply(abortSignalReasonGetter, signal, []);
+}
+
 function abortReason(signal: AbortSignal): never {
-  throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  throw nativeSignalReason(signal) ?? new DOMException("Aborted", "AbortError");
 }
 
 function continuationDeadlines(
@@ -1784,8 +1823,9 @@ function continuationEventPump(
   let priorAt = authority.ranking.assessmentAt;
   return Object.freeze({
     async emit(payload: ContinuationEventPayload) {
-      if (signal.aborted) abortReason(signal);
+      if (nativeSignalAborted(signal)) abortReason(signal);
       const occurredAt = ownedClockInstant(ports.clock());
+      if (nativeSignalAborted(signal)) abortReason(signal);
       if (occurredAt < priorAt) mismatch();
       priorAt = occurredAt;
       sequence += 1;
@@ -1797,7 +1837,7 @@ function continuationEventPump(
         occurredAt,
       }) as CityFrontierEvent;
       await emit(event);
-      if (signal.aborted) abortReason(signal);
+      if (nativeSignalAborted(signal)) abortReason(signal);
     },
   });
 }
@@ -1848,19 +1888,10 @@ function selectedFixedPlans(authority: ContinueAuthority): ContinuationResearch[
 async function runContinuationResearch(
   authority: ContinueAuthority,
   deadlines: readonly [string, string, string],
-  pump: ContinuationEventPump,
   signal: AbortSignal,
   ports: Readonly<CityFrontierApplicationPorts>,
 ): Promise<ContinuationResearch> {
   const plans = selectedFixedPlans(authority);
-  await pump.emit({ type: "city_activated", cityId: authority.cityId, rank: authority.rank });
-  for (const sourceId of SLOVENIA_CITY_FACT_SOURCE_IDS) {
-    await pump.emit({
-      type: "city_progress",
-      cityId: authority.cityId,
-      stage: `source_started:${sourceId}`,
-    } as ContinuationEventPayload);
-  }
   const fixedNow = () => (): string => ownedClockInstant(ports.clock());
   const safetyPromise = runCitySafetyDiscovery({
     runId: authority.cityCheckRunId,
@@ -1934,21 +1965,6 @@ async function runContinuationResearch(
     sourcePlan: authority.trust.installed.safetySourcePlan,
     authorityDirectory: authority.trust.installed.officialAuthorityDirectory,
   });
-  const completedUrls = [
-    safetyEntry.parserEntry.navigationUrl,
-    rent.entry.parserEntry.navigationUrl,
-    transit.entry.parserEntry.navigationUrl,
-    broadband.entry.parserEntry.navigationUrl,
-  ] as const;
-  for (let index = 0; index < SLOVENIA_CITY_FACT_SOURCE_IDS.length; index += 1) {
-    const sourceId = SLOVENIA_CITY_FACT_SOURCE_IDS[index]!;
-    await pump.emit({
-      type: "city_progress",
-      cityId: authority.cityId,
-      stage: `source_completed:${sourceId}`,
-      sourceUrl: completedUrls[index],
-    } as ContinuationEventPayload);
-  }
   return Object.freeze({
     fixedPlans: plans,
     fixed: Object.freeze([rent, transit, broadband]) as FixedRunResults,
@@ -2015,6 +2031,7 @@ async function sealContinuationEvidence(
   authority: ContinueAuthority,
   research: ContinuationResearch,
   completedAt: string,
+  beforeDurableWrite: () => void,
   ports: Readonly<CityFrontierApplicationPorts>,
 ): Promise<Readonly<{ context: CityEvidenceContext; verified: VerifiedCityEvidence }>> {
   const context = continuationEvidenceContext(authority, research, completedAt);
@@ -2060,6 +2077,7 @@ async function sealContinuationEvidence(
     fixedAttemptLedgers,
     safetyAttemptLedger: research.safety.ledger,
   });
+  beforeDurableWrite();
   const sealed = ports.evidence.seal(sealInput);
   if (sealed.id !== evidenceId || sealed.cityCheckRunId !== authority.cityCheckRunId) mismatch();
   const verified = await replayCityEvidence({
@@ -2069,6 +2087,50 @@ async function sealContinuationEvidence(
   }, ports.evidenceReplay);
   bindVerifiedEvidence(verified, context, sealed.id, ports);
   if (!sameDecision(verified.snapshot, sealed, ports.decisionIntegrity)) mismatch();
+  return Object.freeze({ context, verified });
+}
+
+function recoveredEvidenceContext(
+  authority: ContinueAuthority,
+  evidence: VerifiedCityEvidence,
+): CityEvidenceContext {
+  const plans = selectedFixedPlans(authority);
+  return Object.freeze({
+    schemaVersion: "city-evidence-context@1",
+    cityCheckRunId: authority.cityCheckRunId,
+    frontierRunId: authority.prepared.runId,
+    cityId: authority.cityId,
+    countryCode: authority.trust.context.countryCode,
+    packageId: authority.trust.context.packageId,
+    packageSchemaVersion: authority.trust.context.packageSchemaVersion,
+    catalogRevisionId: authority.trust.context.catalogRevisionId,
+    criteriaSnapshotId: authority.criteria.id,
+    rankingSnapshotId: authority.ranking.id,
+    definitionIds: Object.freeze({
+      safety: authority.trust.installed.safetySourcePlan.definitionId,
+      long_term_rent: plans[0].definitionId,
+      urban_transit: plans[1].definitionId,
+      fixed_broadband: plans[2].definitionId,
+    }),
+    evidenceRulesVersion: authority.trust.context.evidenceRulesVersion,
+    assessmentAt: authority.ranking.assessmentAt,
+    completedAt: evidence.snapshot.completedAt,
+  });
+}
+
+async function recoverContinuationEvidence(
+  authority: ContinueAuthority,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<Readonly<{ context: CityEvidenceContext; verified: VerifiedCityEvidence }>> {
+  if (!authority.recoveredEvidencePresent) mismatch();
+  const evidenceId = `${authority.cityCheckRunId}:evidence`;
+  const verified = await replayCityEvidence({
+    evidenceSnapshotId: evidenceId,
+    cityId: authority.cityId,
+    packageId: authority.trust.context.packageId,
+  }, ports.evidenceReplay);
+  const context = recoveredEvidenceContext(authority, verified);
+  bindVerifiedEvidence(verified, context, evidenceId, ports);
   return Object.freeze({ context, verified });
 }
 
@@ -2130,13 +2192,17 @@ function reconstructContinuationKnowledge(
 function publishContinuationKnowledge(
   evidence: VerifiedCityEvidence,
   authority: ContinueAuthority,
+  beforePublish: () => void,
   ports: Readonly<CityFrontierApplicationPorts>,
 ): CityKnowledgeRevision {
   const contracts = knowledgeContracts(authority.trust, authority.cityId);
+  const evidenceSnapshotId = evidence.snapshot.id;
+  const completedAt = evidence.snapshot.completedAt;
+  beforePublish();
   const published = reconstructContinuationKnowledge(
     ports.knowledge.publishFromEvidence(
-      evidence.snapshot.id,
-      evidence.snapshot.completedAt,
+      evidenceSnapshotId,
+      completedAt,
     ),
     evidence,
     contracts,
@@ -2151,6 +2217,32 @@ function publishContinuationKnowledge(
     ports,
   );
   if (!sameDecision(loaded, published, ports.decisionIntegrity)) mismatch();
+  return loaded;
+}
+
+function recoverContinuationKnowledge(
+  evidence: VerifiedCityEvidence,
+  authority: ContinueAuthority,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): CityKnowledgeRevision | undefined {
+  const found = ports.knowledge.findByEvidenceVerified(evidence.snapshot.id);
+  if (found === undefined) return undefined;
+  const contracts = knowledgeContracts(authority.trust, authority.cityId);
+  const reconstructed = reconstructContinuationKnowledge(
+    found,
+    evidence,
+    contracts,
+    authority,
+    ports,
+  );
+  const loaded = reconstructContinuationKnowledge(
+    ports.knowledge.loadVerified(reconstructed.id),
+    evidence,
+    contracts,
+    authority,
+    ports,
+  );
+  if (!sameDecision(loaded, reconstructed, ports.decisionIntegrity)) mismatch();
   return loaded;
 }
 
@@ -2221,6 +2313,7 @@ function commitContinuationRevision(
   evidence: VerifiedCityEvidence,
   completedAt: string,
   authority: ContinueAuthority,
+  beforeAppend: () => void,
   ports: Readonly<CityFrontierApplicationPorts>,
 ): ContinuationCommit {
   if (knowledge.lastCheckedAt !== completedAt || knowledge.createdAt !== completedAt ||
@@ -2268,6 +2361,7 @@ function commitContinuationRevision(
     },
     createdAt: completedAt,
   }, ports.decisionIntegrity);
+  beforeAppend();
   const revision = reconstructCityFrontierRevision(
     ports.frontierAppend.appendRevision({ revision: candidate }),
     ports.decisionIntegrity,
@@ -2447,7 +2541,7 @@ function continuePreflight(
     if (base.kind !== "working" || base.runId !== prepared.runId ||
       base.rankingSnapshotId !== prepared.rankingSnapshotId ||
       base.nextUncheckedRank !== prepared.nextUncheckedRank) mismatch();
-    return Object.freeze({ prepared, base });
+    return Object.freeze({ prepared, base, completed: revision });
   }
 
   const head = reconstructCityFrontierRevision(
@@ -2466,74 +2560,337 @@ function continuePreflight(
   return Object.freeze({ prepared, base: head });
 }
 
+type ContinuationEvidence = Readonly<{
+  context: CityEvidenceContext;
+  verified: VerifiedCityEvidence;
+}>;
+
+interface ContinuationFlight {
+  readonly identityCanonical: string;
+  readonly controller: AbortController;
+  readonly waiters: Set<symbol>;
+  readonly recovery: boolean;
+  start(): void;
+  readonly research: Promise<ContinuationResearch | undefined>;
+  readonly evidence: Promise<ContinuationEvidence>;
+  readonly knowledge: Promise<CityKnowledgeRevision>;
+}
+
+type ContinuationFlights = Map<string, ContinuationFlight>;
+
+const abortSignalAddEventListener = AbortSignal.prototype.addEventListener;
+const abortSignalRemoveEventListener = AbortSignal.prototype.removeEventListener;
+
+function addNativeAbortListener(signal: AbortSignal, listener: () => void): void {
+  Reflect.apply(abortSignalAddEventListener, signal, ["abort", listener, { once: true }]);
+}
+
+function removeNativeAbortListener(signal: AbortSignal, listener: () => void): void {
+  Reflect.apply(abortSignalRemoveEventListener, signal, ["abort", listener]);
+}
+
+function clearContinuationFlight(
+  flights: ContinuationFlights,
+  checkRunId: string,
+  flight: ContinuationFlight,
+): void {
+  if (flights.get(checkRunId) === flight) flights.delete(checkRunId);
+}
+
+function abortContinuationFlight(flight: ContinuationFlight): void {
+  if (!nativeSignalAborted(flight.controller.signal)) {
+    flight.controller.abort(new DOMException("Aborted", "AbortError"));
+  }
+}
+
+function requireContinuationWaiter(flight: ContinuationFlight): void {
+  if (flight.waiters.size === 0 || nativeSignalAborted(flight.controller.signal)) {
+    abortReason(flight.controller.signal);
+  }
+}
+
+function createContinuationFlight(
+  authority: ContinueAuthority,
+  identityCanonical: string,
+  deadlines: readonly [string, string, string] | undefined,
+  flights: ContinuationFlights,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): ContinuationFlight {
+  const controller = new AbortController();
+  const waiters = new Set<symbol>();
+  const recovery = authority.recoveredEvidencePresent;
+  if (recovery !== (deadlines === undefined)) mismatch();
+  let startFlight!: () => void;
+  const started = new Promise<void>((resolve) => { startFlight = resolve; });
+  let startClaimed = false;
+  const rawResearch: Promise<ContinuationResearch | undefined> = recovery
+    ? started.then(() => undefined)
+    : started.then(() => runContinuationResearch(
+        authority,
+        deadlines!,
+        controller.signal,
+        ports,
+      ));
+  const research = rawResearch.catch((error: unknown) => {
+    abortContinuationFlight(flight);
+    throw error;
+  });
+  const evidence = recovery
+    ? research.then(() => recoverContinuationEvidence(authority, ports))
+    : research.then(async (completedResearch): Promise<ContinuationEvidence> => {
+        if (completedResearch === undefined) mismatch();
+        requireContinuationWaiter(flight);
+        const completedAt = ownedClockInstant(ports.clock());
+        return sealContinuationEvidence(
+          authority,
+          completedResearch,
+          completedAt,
+          () => requireContinuationWaiter(flight),
+          ports,
+        );
+      });
+  const knowledge = evidence.then((verifiedEvidence) => {
+    requireContinuationWaiter(flight);
+    if (recovery) {
+      const recovered = recoverContinuationKnowledge(
+        verifiedEvidence.verified,
+        authority,
+        ports,
+      );
+      if (recovered !== undefined) return recovered;
+    }
+    return publishContinuationKnowledge(
+      verifiedEvidence.verified,
+      authority,
+      () => requireContinuationWaiter(flight),
+      ports,
+    );
+  });
+  const flight: ContinuationFlight = Object.freeze({
+    identityCanonical,
+    controller,
+    waiters,
+    recovery,
+    start() {
+      requireContinuationWaiter(flight);
+      if (startClaimed) return;
+      startClaimed = true;
+      startFlight();
+    },
+    research,
+    evidence,
+    knowledge,
+  });
+  flights.set(authority.cityCheckRunId, flight);
+  void knowledge.then(
+    () => undefined,
+    () => {
+      abortContinuationFlight(flight);
+      clearContinuationFlight(flights, authority.cityCheckRunId, flight);
+    },
+  );
+  return flight;
+}
+
+function continuationFlight(
+  authority: ContinueAuthority,
+  flights: ContinuationFlights,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): ContinuationFlight {
+  const active = flights.get(authority.cityCheckRunId);
+  if (active === undefined) {
+    const deadlines = !authority.recoveredEvidencePresent
+      ? continuationDeadlines(ports)
+      : undefined;
+    const identityCanonical = ports.decisionIntegrity.canonical(authority.flightIdentity);
+    if (typeof identityCanonical !== "string") mismatch();
+    return createContinuationFlight(authority, identityCanonical, deadlines, flights, ports);
+  }
+  const identityCanonical = ports.decisionIntegrity.canonical(authority.flightIdentity);
+  if (typeof identityCanonical !== "string" ||
+    active.identityCanonical !== identityCanonical) mismatch();
+  return active;
+}
+
+async function emitResearchStart(
+  authority: ContinueAuthority,
+  pump: ContinuationEventPump,
+): Promise<void> {
+  await pump.emit({ type: "city_activated", cityId: authority.cityId, rank: authority.rank });
+  for (const sourceId of SLOVENIA_CITY_FACT_SOURCE_IDS) {
+    await pump.emit({
+      type: "city_progress",
+      cityId: authority.cityId,
+      stage: `source_started:${sourceId}`,
+    } as ContinuationEventPayload);
+  }
+}
+
+async function emitResearchCompletion(
+  authority: ContinueAuthority,
+  research: ContinuationResearch,
+  pump: ContinuationEventPump,
+): Promise<void> {
+  const completedUrls = [
+    research.safetyEntry.parserEntry.navigationUrl,
+    research.fixed[0].entry.parserEntry.navigationUrl,
+    research.fixed[1].entry.parserEntry.navigationUrl,
+    research.fixed[2].entry.parserEntry.navigationUrl,
+  ] as const;
+  for (let index = 0; index < SLOVENIA_CITY_FACT_SOURCE_IDS.length; index += 1) {
+    const sourceId = SLOVENIA_CITY_FACT_SOURCE_IDS[index]!;
+    await pump.emit({
+      type: "city_progress",
+      cityId: authority.cityId,
+      stage: `source_completed:${sourceId}`,
+      sourceUrl: completedUrls[index],
+    } as ContinuationEventPayload);
+  }
+}
+
+async function runContinuationWaiter(
+  authority: ContinueAuthority,
+  flight: ContinuationFlight,
+  emit: (event: CityFrontierEvent) => void | Promise<void>,
+  signal: AbortSignal,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<CityFrontierReadModel> {
+  const pump = continuationEventPump(authority, emit, signal, ports);
+  if (flight.recovery) {
+    await pump.emit({ type: "city_activated", cityId: authority.cityId, rank: authority.rank });
+    flight.start();
+  } else {
+    await emitResearchStart(authority, pump);
+    flight.start();
+    const research = await flight.research;
+    if (research === undefined) mismatch();
+    await emitResearchCompletion(authority, research, pump);
+  }
+  const evidence = await flight.evidence;
+  await pump.emit({
+    type: "city_progress",
+    cityId: authority.cityId,
+    stage: "evidence_verified",
+  });
+  const knowledge = await flight.knowledge;
+  await pump.emit({
+    type: "city_progress",
+    cityId: authority.cityId,
+    stage: "knowledge_published",
+  });
+  if (nativeSignalAborted(signal)) abortReason(signal);
+  const completedAt = evidence.verified.snapshot.completedAt;
+  const committed = commitContinuationRevision(
+    knowledge,
+    evidence.verified,
+    completedAt,
+    authority,
+    () => {
+      if (nativeSignalAborted(signal)) abortReason(signal);
+      requireContinuationWaiter(flight);
+    },
+    ports,
+  );
+  await pump.emit({
+    type: "city_revision_committed",
+    marker: committed.marker,
+    revision: committed.revision,
+  });
+  const readModel = await reloadContinuationReadModel(
+    authority,
+    committed,
+    evidence,
+    knowledge,
+    ports,
+  );
+  await pump.emit({
+    type: "city_continuation_completed",
+    readModel,
+  });
+  return readModel;
+}
+
+function attachContinuationWaiter(
+  authority: ContinueAuthority,
+  flight: ContinuationFlight,
+  emit: (event: CityFrontierEvent) => void | Promise<void>,
+  callerSignal: AbortSignal,
+  flights: ContinuationFlights,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<CityFrontierReadModel> {
+  const token = Symbol("city-continuation-waiter");
+  const privateController = new AbortController();
+  return new Promise<CityFrontierReadModel>((resolve, reject) => {
+    let settled = false;
+    const detach = (abortShared: boolean): void => {
+      flight.waiters.delete(token);
+      if (flight.waiters.size !== 0) return;
+      if (abortShared) abortContinuationFlight(flight);
+      clearContinuationFlight(flights, authority.cityCheckRunId, flight);
+    };
+    const finish = (
+      settle: (value: CityFrontierReadModel | PromiseLike<CityFrontierReadModel>) => void,
+      value: CityFrontierReadModel,
+    ): void => {
+      if (settled) return;
+      settled = true;
+      removeNativeAbortListener(callerSignal, onCallerAbort);
+      detach(false);
+      settle(value);
+    };
+    const fail = (error: unknown, abortShared: boolean): void => {
+      if (settled) return;
+      settled = true;
+      removeNativeAbortListener(callerSignal, onCallerAbort);
+      if (!nativeSignalAborted(privateController.signal)) privateController.abort(error);
+      detach(abortShared);
+      reject(error);
+    };
+    const onCallerAbort = (): void => fail(
+      nativeSignalReason(callerSignal) ?? new DOMException("Aborted", "AbortError"),
+      true,
+    );
+    try {
+      addNativeAbortListener(callerSignal, onCallerAbort);
+    } catch (error: unknown) {
+      if (flight.waiters.size === 0) {
+        abortContinuationFlight(flight);
+        clearContinuationFlight(flights, authority.cityCheckRunId, flight);
+      }
+      reject(error);
+      return;
+    }
+    flight.waiters.add(token);
+    if (nativeSignalAborted(callerSignal)) {
+      onCallerAbort();
+      return;
+    }
+    void runContinuationWaiter(
+      authority,
+      flight,
+      emit,
+      privateController.signal,
+      ports,
+    ).then(
+      (value) => finish(resolve, value),
+      (error: unknown) => fail(error, true),
+    );
+  });
+}
+
 async function continueModel(
   prepared: CityFrontierPrepared,
   emit: (event: CityFrontierEvent) => void | Promise<void>,
   callerSignal: AbortSignal,
+  flights: ContinuationFlights,
   ports: Readonly<CityFrontierApplicationPorts>,
 ): Promise<CityFrontierReadModel> {
-  const authority = await loadContinueAuthority(continuePreflight(prepared, ports), ports);
-  if (callerSignal.aborted) abortReason(callerSignal);
-  const deadlines = continuationDeadlines(ports);
-  const controller = new AbortController();
-  const onCallerAbort = (): void => controller.abort(
-    callerSignal.reason ?? new DOMException("Aborted", "AbortError"),
-  );
-  callerSignal.addEventListener("abort", onCallerAbort, { once: true });
-  try {
-    const pump = continuationEventPump(authority, emit, controller.signal, ports);
-    const research = await runContinuationResearch(
-      authority,
-      deadlines,
-      pump,
-      controller.signal,
-      ports,
-    );
-    if (controller.signal.aborted) abortReason(controller.signal);
-    const completedAt = ownedClockInstant(ports.clock());
-    const evidence = await sealContinuationEvidence(authority, research, completedAt, ports);
-    await pump.emit({
-      type: "city_progress",
-      cityId: authority.cityId,
-      stage: "evidence_verified",
-    });
-    const knowledge = publishContinuationKnowledge(
-      evidence.verified,
-      authority,
-      ports,
-    );
-    await pump.emit({
-      type: "city_progress",
-      cityId: authority.cityId,
-      stage: "knowledge_published",
-    });
-    const committed = commitContinuationRevision(
-      knowledge,
-      evidence.verified,
-      completedAt,
-      authority,
-      ports,
-    );
-    await pump.emit({
-      type: "city_revision_committed",
-      marker: committed.marker,
-      revision: committed.revision,
-    });
-    const readModel = await reloadContinuationReadModel(
-      authority,
-      committed,
-      evidence,
-      knowledge,
-      ports,
-    );
-    await pump.emit({
-      type: "city_continuation_completed",
-      readModel,
-    });
-    return readModel;
-  } finally {
-    callerSignal.removeEventListener("abort", onCallerAbort);
-  }
+  const preflight = continuePreflight(prepared, ports);
+  if (preflight.completed !== undefined) return presentModel(prepared.runId, ports);
+  const authority = await loadContinueAuthority(preflight, ports);
+  if (nativeSignalAborted(callerSignal)) abortReason(callerSignal);
+  const flight = continuationFlight(authority, flights, ports);
+  return attachContinuationWaiter(authority, flight, emit, callerSignal, flights, ports);
 }
 
 async function presentModel(
@@ -2735,6 +3092,7 @@ export function createCityFrontierApplication(
   ports: CityFrontierApplicationPorts,
 ): Readonly<CityFrontierApplicationAssembly> {
   const captured = capturePorts(ports);
+  const continuationFlights: ContinuationFlights = new Map();
   const application: Readonly<CityFrontierApplication> = Object.freeze({
     presentCityFrontierSetup: async (
       input: Parameters<CityFrontierApplication["presentCityFrontierSetup"]>[0],
@@ -2751,8 +3109,8 @@ export function createCityFrontierApplication(
     ) => {
       const ownedPrepared = inputPrepared(prepared);
       if (typeof emit !== "function" || isBorrowedProxy(emit) ||
-        !(signal instanceof AbortSignal)) mismatch();
-      return continueModel(ownedPrepared, emit, signal, captured);
+        isBorrowedProxy(signal) || !(signal instanceof AbortSignal)) mismatch();
+      return continueModel(ownedPrepared, emit, signal, continuationFlights, captured);
     },
     presentCityFrontier: async (runId: string) => presentModel(identifier(runId), captured),
   });

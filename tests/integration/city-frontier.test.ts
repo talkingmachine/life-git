@@ -748,6 +748,13 @@ function recursivelyNotAliased(left: unknown, right: unknown, seen = new Set<obj
   if (left === null || right === null || typeof left !== "object" || typeof right !== "object" ||
     seen.has(left)) return;
   seen.add(left);
+  if (left instanceof Uint8Array && right instanceof Uint8Array &&
+    Object.getPrototypeOf(left) === Uint8Array.prototype &&
+    Object.getPrototypeOf(right) === Uint8Array.prototype) {
+    expect(left).not.toBe(right);
+    expect(left.buffer).not.toBe(right.buffer);
+    return;
+  }
   expect(left).not.toBe(right);
   for (const key of Reflect.ownKeys(left)) {
     const leftDescriptor = Object.getOwnPropertyDescriptor(left, key);
@@ -2356,6 +2363,13 @@ function fixedRoutePort<S extends SloveniaCityFixedSourceId>(
 function recursivelyFrozen(value: unknown, seen = new Set<object>()): void {
   if (value === null || typeof value !== "object" || seen.has(value)) return;
   seen.add(value);
+  if (value instanceof Uint8Array && Object.getPrototypeOf(value) === Uint8Array.prototype) {
+    expect(value.buffer).toBeInstanceOf(ArrayBuffer);
+    if (typeof SharedArrayBuffer !== "undefined") {
+      expect(value.buffer).not.toBeInstanceOf(SharedArrayBuffer);
+    }
+    return;
+  }
   expect(Object.isFrozen(value)).toBe(true);
   for (const key of Reflect.ownKeys(value)) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
@@ -2589,6 +2603,7 @@ interface SyntheticApplicationHarness {
       disposition: "second_verified" | "all_rejected" | "first_verified" | undefined,
     ): void;
     failCompletedEvidenceRead(error: Error | undefined): void;
+    overrideCompletedEvidenceProbe(value: unknown): void;
     bindLegacyStart(): Promise<{
       readonly installed: InstalledCityResearchPackage;
       readonly manifest: InstalledCityPackageManifest;
@@ -2776,8 +2791,11 @@ interface SyntheticHarnessOptions {
   readonly assessmentAt?: string;
   readonly safetySearch?: CitySafetySearchPort;
   readonly safetyDocuments?: CitySafetyOfficialDocumentPort;
+  readonly afterSafetyDocumentReturn?: () => void;
+  readonly afterClock?: (callCount: number) => void;
   readonly preserveRuns?: boolean;
   readonly failKnowledgePublishOnce?: Error;
+  readonly beforeKnowledgeFindReturn?: () => void;
   readonly failAppendBeforePersistenceOnce?: Error;
   readonly installedPackagesFactory?: (
     fixture: SyntheticAuthorityFixture,
@@ -2912,6 +2930,8 @@ async function syntheticApplicationHarness(
   } | undefined;
   let manifestLoadFailure: Error | undefined;
   let completedEvidenceReadFailure: Error | undefined;
+  const noCompletedEvidenceProbeOverride = Symbol("no-completed-evidence-probe-override");
+  let completedEvidenceProbeOverride: unknown = noCompletedEvidenceProbeOverride;
   let finalMemberBroadbandPlanOverride: unknown;
   let fixedPlansByCityIdOverride: unknown;
   let evaluatorRegistryOverride: CityCriterionEvaluatorRegistry | undefined;
@@ -3395,7 +3415,6 @@ async function syntheticApplicationHarness(
         branch: calls.reloads.filter((value) => value.startsWith("branch:")).length,
         evidence: calls.authorityOrder.filter((value) => value.startsWith("evidence.")).length,
         knowledge: calls.authorityOrder.filter((value) => value.startsWith("knowledge.")).length,
-        evaluation: fixture.policyCalls.evaluations.length,
       });
       const candidate = reconstructCityFrontierRevision(input.revision, applicationIntegrity);
       calls.appends.push(structuredClone(candidate));
@@ -3550,6 +3569,11 @@ async function syntheticApplicationHarness(
     findVerifiedByCheckRunId: (id: string) => {
       calls.authorityOrder.push(`evidence.find:${id}`);
       if (completedEvidenceReadFailure !== undefined) throw completedEvidenceReadFailure;
+      if (completedEvidenceProbeOverride !== noCompletedEvidenceProbeOverride) {
+        return completedEvidenceProbeOverride as ReturnType<
+          CityEvidenceStorePort["findVerifiedByCheckRunId"]
+        >;
+      }
       return withInfrastructurePlanGateRead(() =>
         fixture.evidenceStore.findVerifiedByCheckRunId(id));
     },
@@ -3585,8 +3609,10 @@ async function syntheticApplicationHarness(
     },
     findByEvidenceVerified: (id: string) => {
       calls.authorityOrder.push(`knowledge.find:${id}`);
-      return withInfrastructurePlanGateRead(() =>
+      const found = withInfrastructurePlanGateRead(() =>
         fixture.knowledgeStore.findByEvidenceVerified(id));
+      options.beforeKnowledgeFindReturn?.();
+      return found;
     },
   };
   const dynamicFixedRoute = <S extends SloveniaCityFixedSourceId>(
@@ -3707,6 +3733,7 @@ async function syntheticApplicationHarness(
       if (options.safetyDocuments !== undefined) {
         const delegated = await options.safetyDocuments.inspect(input);
         calls.safetyDocumentOutputs.push(structuredClone(delegated));
+        options.afterSafetyDocumentReturn?.();
         return delegated;
       }
       const bytes = new TextEncoder().encode(`safety-navigation:${input.candidateUrl}`);
@@ -3773,6 +3800,7 @@ async function syntheticApplicationHarness(
         calls.finalResearchResultsReturned.push("si-city-safety");
       }
       calls.safetyDocumentOutputs.push(structuredClone(output));
+      options.afterSafetyDocumentReturn?.();
       return output;
     },
   };
@@ -3819,6 +3847,7 @@ async function syntheticApplicationHarness(
       }
     }
     calls.clocks.push(observed);
+    options.afterClock?.(calls.clocks.length);
     return rawValue as Date;
   };
   fixedRunnerHarness.beforeDelegate = options.runnerNow === undefined
@@ -4000,6 +4029,7 @@ async function syntheticApplicationHarness(
         else fixedDispositionOverrides.set(sourceId, disposition);
       },
       failCompletedEvidenceRead(error) { completedEvidenceReadFailure = error; },
+      overrideCompletedEvidenceProbe(value) { completedEvidenceProbeOverride = value; },
       async bindLegacyStart() {
         const history = await withInfrastructurePlanGateReadAsync(() =>
           installAuthenticLegacyHistory(fixture));
@@ -4078,6 +4108,18 @@ function capturedResearchSignals(harness: SyntheticApplicationHarness): AbortSig
     ...harness.calls.safetyDocumentInputs.map((value) =>
       (value as { readonly signal: AbortSignal }).signal),
   ];
+}
+
+function expectOpaqueSharedAbort(signals: readonly AbortSignal[], secret: Error): void {
+  expect(signals.length).toBeGreaterThan(0);
+  expect(new Set(signals).size).toBe(1);
+  expect(signals.every(({ aborted }) => aborted)).toBe(true);
+  const reason = signals[0]!.reason;
+  expect(reason).not.toBe(secret);
+  expect(reason).toBeInstanceOf(DOMException);
+  expect((reason as DOMException).name).toBe("AbortError");
+  expect((reason as DOMException).message).toBe("Aborted");
+  expect((reason as DOMException).message).not.toContain(secret.message);
 }
 
 function expectPrivateSuccessfulTrace(
@@ -4333,7 +4375,6 @@ function recoveryAuthorityCounts(
       value.startsWith("evidence.")).length,
     knowledge: harness.calls.authorityOrder.filter((value) =>
       value.startsWith("knowledge.")).length,
-    evaluation: harness.fixture.policyCalls.evaluations.length,
   };
 }
 
@@ -8848,9 +8889,7 @@ describe("City Frontier Application public boundary", () => {
       expect(outcome.error).toBeInstanceOf(Error);
       failureError = outcome.error as Error;
       expect(failureError.message).toBe("city_fixed_deadline");
-      expect(sharedSignals.every(({ aborted }) => aborted)).toBe(true);
-      expect(sharedSignals.every(({ reason }) =>
-        reason instanceof Error && reason.message === "city_fixed_deadline")).toBe(true);
+      expectOpaqueSharedAbort(sharedSignals, failureError);
       expect(privateSignal.aborted).toBe(true);
       expect(privateSignal.reason).toBeInstanceOf(Error);
       expect((privateSignal.reason as Error).message).toBe("city_fixed_deadline");
@@ -12699,6 +12738,7 @@ describe("City Frontier Application public boundary", () => {
         head: 1,
         ranking: 1,
         exactPackage: 1,
+        exactManifest: 1,
         historicalCatalog: 1,
         criteria: 1,
         branch: 1,
@@ -12730,6 +12770,7 @@ describe("City Frontier Application public boundary", () => {
         head: 2,
         ranking: 2,
         exactPackage: 2,
+        exactManifest: 2,
         historicalCatalog: 2,
         criteria: 2,
         branch: 2,
@@ -12874,6 +12915,7 @@ describe("City Frontier Application public boundary", () => {
         head: 2,
         ranking: 2,
         exactPackage: 2,
+        exactManifest: 2,
         historicalCatalog: 2,
         criteria: 2,
         branch: 2,
@@ -12978,6 +13020,7 @@ describe("City Frontier Application public boundary", () => {
         head: 2,
         ranking: 2,
         exactPackage: 2,
+        exactManifest: 2,
         historicalCatalog: 2,
         criteria: 2,
         branch: 2,
@@ -13010,6 +13053,7 @@ describe("City Frontier Application public boundary", () => {
         ...safetyRunnerHarness.promises,
       ]);
     }
+    const settledSignalCount = capturedResearchSignals(harness).length;
     await nextEventLoopTurn();
 
     expect(firstError).toBe(firstReason);
@@ -13019,7 +13063,7 @@ describe("City Frontier Application public boundary", () => {
     expect(originalSignal?.aborted).toBe(true);
     expect(sharedAbortCount).toBe(1);
     const originalSignals = capturedResearchSignals(harness);
-    expect(originalSignals).toHaveLength(7);
+    expect(originalSignals).toHaveLength(settledSignalCount);
     expect(new Set(originalSignals).size).toBe(1);
     expect(originalSignals[0]).toBe(originalSignal);
     expect(originalSignals[0]).not.toBe(firstController.signal);
@@ -13205,14 +13249,13 @@ describe("City Frontier Application public boundary", () => {
         head: 1,
         ranking: 1,
         exactPackage: 1,
+        exactManifest: 1,
         historicalCatalog: 1,
         criteria: 1,
         branch: 1,
         evidence: 1,
       });
       const beforeCollision = {
-        fixed: harness.calls.fixedRouteInputs.length,
-        safety: harness.calls.source.length,
         generic: genericSealHarness.calls,
         evidence: harness.calls.evidenceSeals.length,
         knowledge: harness.calls.knowledgePublishes.length,
@@ -13239,14 +13282,13 @@ describe("City Frontier Application public boundary", () => {
         head: 3,
         ranking: 3,
         exactPackage: 3,
+        exactManifest: 3,
         historicalCatalog: 3,
         criteria: 3,
         branch: 3,
         evidence: 3,
       });
       expect({
-        fixed: harness.calls.fixedRouteInputs.length,
-        safety: harness.calls.source.length,
         generic: genericSealHarness.calls,
         evidence: harness.calls.evidenceSeals.length,
         knowledge: harness.calls.knowledgePublishes.length,
@@ -13272,6 +13314,9 @@ describe("City Frontier Application public boundary", () => {
       DECISION_INTEGRITY.canonical(value));
     expect(canonicalFlightValues).toContain(DECISION_INTEGRITY.canonical(completeIdentities[0]));
     expect(canonicalFlightValues).toContain(DECISION_INTEGRITY.canonical(completeIdentities[1]));
+    expect(harness.calls.fixedRouteInputs).toHaveLength(5);
+    expect(harness.calls.safetySearchInputs).toHaveLength(3);
+    expect(harness.calls.safetyDocumentInputs).toHaveLength(1);
     expect(genericSealHarness.calls).toBe(1);
     expect(harness.calls.evidenceSeals).toHaveLength(1);
     expect(harness.calls.knowledgePublishes).toHaveLength(1);
@@ -13308,6 +13353,9 @@ describe("City Frontier Application public boundary", () => {
     fixedRunnerHarness.inputs.splice(0);
     fixedRunnerHarness.promises.splice(0);
     safetyRunnerHarness.promises.splice(0);
+    genericSealHarness.calls = 0;
+    genericSealHarness.promises.splice(0);
+    genericSealHarness.beforeReturn = undefined;
     resetContinuationPreflightObservations(harness);
     const firstEvents: CityFrontierEvent[] = [];
     const firstController = new AbortController();
@@ -13324,6 +13372,7 @@ describe("City Frontier Application public boundary", () => {
         head: 1,
         ranking: 1,
         exactPackage: 1,
+        exactManifest: 1,
         historicalCatalog: 1,
         criteria: 1,
         branch: 1,
@@ -13517,6 +13566,7 @@ describe("City Frontier Application public boundary", () => {
       ));
     expect(durableEvidenceAfter).toEqual(durableEvidenceBefore);
     expect(durableEvidenceAfter).not.toBe(durableEvidenceBefore);
+    recursivelyNotAliased(durableEvidenceAfter, durableEvidenceBefore);
     recursivelyFrozen(durableEvidenceAfter);
     const durableKnowledge = withInfrastructurePlanGateRead(() =>
       harness.fixture.knowledgeStore.findByEvidenceVerified(
@@ -13607,6 +13657,8 @@ describe("City Frontier Application public boundary", () => {
     expect(evidenceAfter).not.toBe(evidenceBefore);
     expect(knowledgeAfter).toEqual(knowledgeBefore);
     expect(knowledgeAfter).not.toBe(knowledgeBefore);
+    recursivelyNotAliased(evidenceAfter, evidenceBefore);
+    recursivelyNotAliased(knowledgeAfter, knowledgeBefore);
     recursivelyFrozen(evidenceAfter);
     recursivelyFrozen(knowledgeAfter);
     expect(harness.state.root()).toEqual(recovered.revision);
@@ -13790,6 +13842,682 @@ describe("City Frontier Application public boundary", () => {
     expect(hit.revision).toEqual(winner);
     expect(hitEvents).not.toHaveBeenCalled();
     expect(researchAndPublicationCounts(harness)).toEqual(beforeHit);
+  });
+
+  test("rechecks the live waiter immediately after evaluator callbacks and before Frontier append", async () => {
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:evaluator-abort-before-append",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:evaluator-abort-before-append",
+    });
+    const controller = new AbortController();
+    const reason = new Error("private_evaluator_abort_secret");
+    let knowledgeEmitted = false;
+    const evaluators = Object.freeze(Object.fromEntries(CITY_CRITERION_IDS.map((criterionId) => {
+      const original = harness.fixture.installed.evaluatorRegistry[criterionId];
+      return [criterionId, Object.freeze({
+        definition: original.definition,
+        canonicalizeTarget: original.canonicalizeTarget,
+        evaluate(input: CityCriterionEvaluationInput): CityCriterionEvaluation {
+          const result = original.evaluate(input);
+          expect(knowledgeEmitted).toBe(true);
+          controller.abort(reason);
+          return result;
+        },
+      })];
+    }))) as unknown as CityCriterionEvaluatorRegistry;
+    harness.state.overrideEvaluatorRegistry(evaluators);
+    const events: CityFrontierEvent[] = [];
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      (event: CityFrontierEvent) => {
+        events.push(event);
+        if (event.type === "city_progress" && event.stage === "knowledge_published") {
+          knowledgeEmitted = true;
+        }
+      },
+      controller.signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(reason);
+    expect(knowledgeEmitted).toBe(true);
+    expect(harness.calls.evidenceSeals).toHaveLength(1);
+    expect(harness.calls.knowledgePublishes).toHaveLength(1);
+    expect(harness.calls.appends).toEqual([]);
+    expect(harness.state.root()).toEqual(started.revision);
+    const beforeRetry = researchAndPublicationCounts(harness);
+    const recoveryEvents: CityFrontierEvent[] = [];
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      (event: CityFrontierEvent) => { recoveryEvents.push(event); },
+      new AbortController().signal,
+    );
+    expectPrivateRecoveryTrace(recoveryEvents, recovered, started.revision.id);
+    expect(researchAndPublicationCounts(harness)).toEqual({
+      ...beforeRetry,
+      append: beforeRetry.append + 1,
+    });
+  });
+
+  test("rechecks the live waiter immediately after recovery lookup and before Knowledge publish", async () => {
+    const publishFailure = new Error("seed_evidence_only_residue");
+    const abortReason = new Error("private_knowledge_lookup_abort_secret");
+    const controller = new AbortController();
+    let abortDuringLookup = false;
+    const harness = await syntheticApplicationHarness({
+      failKnowledgePublishOnce: publishFailure,
+      beforeKnowledgeFindReturn() {
+        if (abortDuringLookup) controller.abort(abortReason);
+      },
+    });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:knowledge-lookup-abort",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:knowledge-lookup-abort",
+    });
+    expect(await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    ).catch((error: unknown) => error)).toBe(publishFailure);
+    const evidenceId = `${(harness.calls.evidenceSeals[0] as CityEvidenceSealInput).cityCheckRunId}:evidence`;
+    expect(withInfrastructurePlanGateRead(() =>
+      harness.fixture.knowledgeStore.findByEvidenceVerified(evidenceId))).toBeUndefined();
+    const beforeAbort = researchAndPublicationCounts(harness);
+    abortDuringLookup = true;
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      controller.signal,
+    ).catch((error: unknown) => error);
+    abortDuringLookup = false;
+
+    expect(failure).toBe(abortReason);
+    await nextEventLoopTurn();
+    expect(withInfrastructurePlanGateRead(() =>
+      harness.fixture.knowledgeStore.findByEvidenceVerified(evidenceId))).toBeUndefined();
+    expect(harness.calls.appends).toEqual([]);
+    expect(harness.state.root()).toEqual(started.revision);
+    expect(researchAndPublicationCounts(harness)).toEqual(beforeAbort);
+    const recoveryEvents: CityFrontierEvent[] = [];
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      (event: CityFrontierEvent) => { recoveryEvents.push(event); },
+      new AbortController().signal,
+    );
+    expectPrivateRecoveryTrace(recoveryEvents, recovered, started.revision.id);
+    expect(researchAndPublicationCounts(harness)).toEqual({
+      ...beforeAbort,
+      knowledge: beforeAbort.knowledge + 1,
+      append: beforeAbort.append + 1,
+    });
+  });
+
+  test("does not emit a private event after its clock aborts the waiter", async () => {
+    const controller = new AbortController();
+    const reason = new Error("private_event_clock_abort_secret");
+    let abortAtClock = Number.POSITIVE_INFINITY;
+    const harness = await syntheticApplicationHarness({
+      afterClock(callCount) {
+        if (callCount === abortAtClock) controller.abort(reason);
+      },
+    });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:event-clock-abort",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:event-clock-abort",
+    });
+    abortAtClock = harness.calls.clocks.length + 2;
+    const events: CityFrontierEvent[] = [];
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      (event: CityFrontierEvent) => { events.push(event); },
+      controller.signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(reason);
+    expect(events).toEqual([]);
+    expect(harness.calls.evidenceSeals).toEqual([]);
+    expect(harness.calls.knowledgePublishes).toEqual([]);
+    expect(harness.calls.appends).toEqual([]);
+  });
+
+  test("does not search safety after its captured clock aborts the last waiter", async () => {
+    const controller = new AbortController();
+    const reason = new Error("private_safety_clock_abort_secret");
+    let abortOnNextClock = false;
+    const harness = await syntheticApplicationHarness({
+      gateFinalResearchResults: true,
+      afterSafetyDocumentReturn() { abortOnNextClock = true; },
+      afterClock() {
+        if (!abortOnNextClock) return;
+        abortOnNextClock = false;
+        controller.abort(reason);
+      },
+    });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:safety-clock-abort",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:safety-clock-abort",
+    });
+    const continuation = harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      controller.signal,
+    );
+    await awaitBarrierOrEarlySettlement(harness.gates.allFinalResearchResultsEntered, [continuation]);
+    for (const sourceId of [
+      "si-city-long-term-rent",
+      "si-city-urban-transit",
+      "si-city-fixed-broadband",
+    ] as const) {
+      harness.gates.releaseFinalResearchResult(sourceId);
+    }
+    await nextEventLoopTurn();
+    expect(new Set(harness.calls.finalResearchResultsReturned)).toEqual(new Set([
+      "si-city-long-term-rent",
+      "si-city-urban-transit",
+      "si-city-fixed-broadband",
+    ]));
+    harness.gates.releaseFinalResearchResult("si-city-safety");
+    const failure = await continuation.catch((error: unknown) => error);
+
+    expect(failure).toBe(reason);
+    await nextEventLoopTurn();
+    expect(harness.calls.safetyDocumentInputs).toHaveLength(1);
+    expect(harness.calls.safetySearchInputs).toEqual([]);
+    expect(harness.calls.evidenceSeals).toEqual([]);
+    expect(harness.calls.knowledgePublishes).toEqual([]);
+    expect(harness.calls.appends).toEqual([]);
+  });
+
+  test("attaches with native signal lifecycle before starting a lazy flight", async () => {
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:native-signal-lifecycle",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:native-signal-lifecycle",
+    });
+    const controller = new AbortController();
+    const abortReason = new Error("private_native_signal_abort_secret");
+    const patchedMethodFailure = new Error("patched_signal_method_must_not_run");
+    let patchedCalls = 0;
+    Object.defineProperties(controller.signal, {
+      addEventListener: { configurable: true, value() {
+        patchedCalls += 1;
+        throw patchedMethodFailure;
+      } },
+      removeEventListener: { configurable: true, value() {
+        patchedCalls += 1;
+        throw patchedMethodFailure;
+      } },
+    });
+    const beforeAbort = researchAndPublicationCounts(harness);
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      () => { controller.abort(abortReason); },
+      controller.signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(abortReason);
+    expect(patchedCalls).toBe(0);
+    await nextEventLoopTurn();
+    expect(researchAndPublicationCounts(harness)).toEqual(beforeAbort);
+    expect(harness.state.root()).toEqual(started.revision);
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    );
+    expect(recovered.revision.predecessorRevisionId).toBe(started.revision.id);
+  });
+
+  test("never reads a stateful own aborted getter while attaching and cleaning a waiter", async () => {
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:native-aborted-getter",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:native-aborted-getter",
+    });
+    const controller = new AbortController();
+    const getterFailure = new Error("borrowed_aborted_getter_invoked_twice");
+    const emitterFailure = new Error("private_native_aborted_emitter_failure");
+    let getterReads = 0;
+    Object.defineProperty(controller.signal, "aborted", {
+      configurable: true,
+      get() {
+        getterReads += 1;
+        if (getterReads === 1) return false;
+        throw getterFailure;
+      },
+    });
+    const beforeFailure = researchAndPublicationCounts(harness);
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      () => { throw emitterFailure; },
+      controller.signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(emitterFailure);
+    expect(getterReads).toBe(0);
+    await nextEventLoopTurn();
+    expect(researchAndPublicationCounts(harness)).toEqual(beforeFailure);
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    );
+    expect(recovered.revision.predecessorRevisionId).toBe(started.revision.id);
+  });
+
+  test("never reads an own reason getter and returns the exact native abort reason", async () => {
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:native-reason-getter",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:native-reason-getter",
+    });
+    const controller = new AbortController();
+    const nativeReason = new Error("private_native_abort_reason");
+    let reasonReads = 0;
+    Object.defineProperty(controller.signal, "reason", {
+      configurable: true,
+      get() {
+        reasonReads += 1;
+        throw new Error("borrowed_reason_getter_invoked");
+      },
+    });
+    const beforeAbort = researchAndPublicationCounts(harness);
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      () => { controller.abort(nativeReason); },
+      controller.signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(nativeReason);
+    expect(reasonReads).toBe(0);
+    await nextEventLoopTurn();
+    expect(researchAndPublicationCounts(harness)).toEqual(beforeAbort);
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    );
+    expect(recovered.revision.predecessorRevisionId).toBe(started.revision.id);
+  });
+
+  test("rejects a borrowed Proxy follower without cancelling its active survivor", async () => {
+    const harness = await syntheticApplicationHarness({ gateResearch: true });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:proxy-follower-survivor",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:proxy-follower-survivor",
+    });
+    fixedRunnerHarness.inputs.splice(0);
+    fixedRunnerHarness.promises.splice(0);
+    safetyRunnerHarness.promises.splice(0);
+    genericSealHarness.calls = 0;
+    genericSealHarness.promises.splice(0);
+    genericSealHarness.beforeReturn = undefined;
+    const survivor = harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    );
+    let proxyTraps = 0;
+    const target = new AbortController().signal;
+    const followerSignal = new Proxy(target, {
+      get(inner, key) {
+        proxyTraps += 1;
+        if (key === "aborted") return false;
+        if (key === "reason") return undefined;
+        return Reflect.get(inner, key, inner);
+      },
+      getPrototypeOf(inner) {
+        proxyTraps += 1;
+        return Reflect.getPrototypeOf(inner);
+      },
+    });
+    const followerEvents = vi.fn();
+    try {
+      await awaitBarrierOrEarlySettlement(harness.gates.researchEntered, [survivor]);
+      const follower = harness.assembly.application.continueCityFrontier(
+        prepared,
+        followerEvents,
+        followerSignal,
+      );
+      harness.gates.releaseResearch();
+      const [survivorResult, followerOutcome] = await Promise.all([
+        survivor,
+        follower.catch((error: unknown) => error),
+      ]);
+      expect(survivorResult.revision.predecessorRevisionId).toBe(started.revision.id);
+      const followerFailure = requireError(followerOutcome);
+      expect(followerFailure.message).toBe("integrity_mismatch");
+      expect(proxyTraps).toBe(0);
+      expect(followerEvents).not.toHaveBeenCalled();
+    } finally {
+      harness.gates.releaseResearch();
+      await Promise.allSettled([survivor]);
+    }
+    expect(harness.calls.fixedRouteInputs).toHaveLength(5);
+    expect(harness.calls.safetySearchInputs).toHaveLength(3);
+    expect(harness.calls.safetyDocumentInputs).toHaveLength(1);
+    expect(genericSealHarness.calls).toBe(1);
+    expect(harness.calls.evidenceSeals).toHaveLength(1);
+    expect(harness.calls.knowledgePublishes).toHaveLength(1);
+    expect(harness.calls.appends).toHaveLength(1);
+  });
+
+  test("does not start a lazy flight when the first private emitter fails synchronously", async () => {
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:first-emitter-failure",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:first-emitter-failure",
+    });
+    const emitterFailure = new Error("private_first_emitter_failure_secret");
+    const beforeFailure = researchAndPublicationCounts(harness);
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      () => { throw emitterFailure; },
+      new AbortController().signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(emitterFailure);
+    await nextEventLoopTurn();
+    expect(researchAndPublicationCounts(harness)).toEqual(beforeFailure);
+    expect(harness.state.root()).toEqual(started.revision);
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    );
+    expect(recovered.revision.predecessorRevisionId).toBe(started.revision.id);
+  });
+
+  test("does not start lazy recovery replay when its first private emitter fails", async () => {
+    const seedFailure = new Error("seed_lazy_recovery_replay");
+    const harness = await syntheticApplicationHarness({ failKnowledgePublishOnce: seedFailure });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:lazy-recovery-emitter",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:lazy-recovery-emitter",
+    });
+    expect(await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    ).catch((error: unknown) => error)).toBe(seedFailure);
+    const replayPackageReadsBefore = harness.calls.forbiddenPrepareCallbacks.filter((value) =>
+      value === "evidence-replay-package").length;
+    const publicationBefore = researchAndPublicationCounts(harness);
+    const emitterFailure = new Error("private_lazy_recovery_emitter_failure");
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      () => { throw emitterFailure; },
+      new AbortController().signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(emitterFailure);
+    await nextEventLoopTurn();
+    expect(harness.calls.forbiddenPrepareCallbacks.filter((value) =>
+      value === "evidence-replay-package")).toHaveLength(replayPackageReadsBefore);
+    expect(researchAndPublicationCounts(harness)).toEqual(publicationBefore);
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    );
+    expect(recovered.revision.predecessorRevisionId).toBe(started.revision.id);
+  });
+
+  test("keeps a caller abort secret out of the shared source signal", async () => {
+    const harness = await syntheticApplicationHarness({ gateResearch: true });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:opaque-caller-abort",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:opaque-caller-abort",
+    });
+    fixedRunnerHarness.inputs.splice(0);
+    fixedRunnerHarness.promises.splice(0);
+    safetyRunnerHarness.promises.splice(0);
+    const controller = new AbortController();
+    const secret = new Error("private_caller_abort_do_not_share");
+    const continuation = harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      controller.signal,
+    );
+    try {
+      await awaitBarrierOrEarlySettlement(harness.gates.allResearchSignalsEntered, [continuation]);
+      controller.abort(secret);
+      expect(await continuation.catch((error: unknown) => error)).toBe(secret);
+      expectOpaqueSharedAbort(capturedResearchSignals(harness), secret);
+    } finally {
+      harness.gates.releaseResearch();
+      controller.abort();
+      await Promise.allSettled([continuation]);
+    }
+  });
+
+  test("keeps a private emitter failure out of the shared source signal", async () => {
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:opaque-emitter-failure",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:opaque-emitter-failure",
+    });
+    fixedRunnerHarness.inputs.splice(0);
+    fixedRunnerHarness.promises.splice(0);
+    safetyRunnerHarness.promises.splice(0);
+    const secret = new Error("private_emitter_failure_do_not_share");
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      (event: CityFrontierEvent) => {
+        if (event.type === "city_progress" &&
+          event.stage.startsWith("source_completed:")) throw secret;
+      },
+      new AbortController().signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(secret);
+    await nextEventLoopTurn();
+    expectOpaqueSharedAbort(capturedResearchSignals(harness), secret);
+  });
+
+  test("keeps a native source failure out of the shared source signal", async () => {
+    const secret = new Error("private_source_failure_do_not_share");
+    const harness = await syntheticApplicationHarness({
+      fixedBroadbandFault: { kind: "native", error: secret },
+    });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:opaque-source-failure",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:opaque-source-failure",
+    });
+    fixedRunnerHarness.inputs.splice(0);
+    fixedRunnerHarness.promises.splice(0);
+    safetyRunnerHarness.promises.splice(0);
+    const failure = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(secret);
+    await nextEventLoopTurn();
+    expectOpaqueSharedAbort(capturedResearchSignals(harness), secret);
+  });
+
+  test("retains only replayed owned Evidence from a mutable accessor recovery probe", async () => {
+    const seedFailure = new Error("seed_owned_recovery_probe");
+    const harness = await syntheticApplicationHarness({ failKnowledgePublishOnce: seedFailure });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:owned-recovery-probe",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:owned-recovery-probe",
+    });
+    expect(await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    ).catch((error: unknown) => error)).toBe(seedFailure);
+    let accessorReads = 0;
+    const mutableProbe: Record<string, unknown> = {};
+    Object.defineProperty(mutableProbe, "snapshot", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        accessorReads += 1;
+        throw new Error("borrowed_recovery_accessor_invoked");
+      },
+    });
+    harness.state.overrideCompletedEvidenceProbe(mutableProbe);
+    const beforeRecovery = researchAndPublicationCounts(harness);
+    const recoveryEvents: CityFrontierEvent[] = [];
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      prepared,
+      (event: CityFrontierEvent) => { recoveryEvents.push(event); },
+      new AbortController().signal,
+    );
+
+    expect(accessorReads).toBe(0);
+    expectPrivateRecoveryTrace(recoveryEvents, recovered, started.revision.id);
+    expect(researchAndPublicationCounts(harness)).toEqual({
+      ...beforeRecovery,
+      knowledge: beforeRecovery.knowledge + 1,
+      append: beforeRecovery.append + 1,
+    });
+  });
+
+  test("rejects a proxy recovery probe without invoking it or starting effects", async () => {
+    const seedFailure = new Error("seed_proxy_recovery_probe");
+    const harness = await syntheticApplicationHarness({ failKnowledgePublishOnce: seedFailure });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:proxy-recovery-probe",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId,
+      expectedRevisionId: started.revision.id,
+      commandId: "continue:proxy-recovery-probe",
+    });
+    expect(await harness.assembly.application.continueCityFrontier(
+      prepared,
+      vi.fn(),
+      new AbortController().signal,
+    ).catch((error: unknown) => error)).toBe(seedFailure);
+    let proxyTraps = 0;
+    const proxy = new Proxy({}, {
+      get() { proxyTraps += 1; throw new Error("borrowed_recovery_proxy_invoked"); },
+      getOwnPropertyDescriptor() {
+        proxyTraps += 1;
+        throw new Error("borrowed_recovery_proxy_invoked");
+      },
+      ownKeys() { proxyTraps += 1; throw new Error("borrowed_recovery_proxy_invoked"); },
+    });
+    harness.state.overrideCompletedEvidenceProbe(proxy);
+    const beforeRejection = researchAndPublicationCounts(harness);
+    const events = vi.fn();
+    const failure = requireError(await harness.assembly.application.continueCityFrontier(
+      prepared,
+      events,
+      new AbortController().signal,
+    ).catch((error: unknown) => error));
+
+    expect(failure.message).toBe("integrity_mismatch");
+    expect(proxyTraps).toBe(0);
+    expect(events).not.toHaveBeenCalled();
+    expect(researchAndPublicationCounts(harness)).toEqual(beforeRejection);
+    expect(harness.state.root()).toEqual(started.revision);
   });
 
   test("shares research for different commands but lets one same-base append winner advance the head", async () => {
