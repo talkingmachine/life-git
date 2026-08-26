@@ -1064,11 +1064,9 @@ export function reconstructCitySafetyAttemptLedger(
   }
 }
 
-export function projectCitySafetyEvidenceLinks(
-  value: unknown,
-  context: CitySafetyLedgerReconstructionContext,
+export function projectReconstructedCitySafetyEvidenceLinks(
+  ledger: CitySafetyAttemptLedger,
 ): readonly CitySafetyEvidenceLink[] {
-  const ledger = reconstructCitySafetyAttemptLedger(value, context);
   const links: CitySafetyEvidenceLink[] = [];
   if (ledger.result.kind === "verified") {
     const accepted = ledger.candidates[ledger.result.acceptedCandidateIndex];
@@ -1114,4 +1112,48 @@ export function projectCitySafetyEvidenceLinks(
     }
   }
   return immutableCopy(links);
+}
+
+export function projectReconstructedCitySafetyTerminalLink(
+  ledger: CitySafetyAttemptLedger,
+  terminal: Readonly<{
+    readonly navigationUrl: string;
+    readonly resolvedEvidenceUrl: string;
+  }>,
+  expected:
+    | Readonly<{ readonly kind: "claim"; readonly sourcePeriod: string }>
+    | Readonly<{ readonly kind: "blocker"; readonly aggregateReason: CityUnknownReason }>,
+): CitySafetyEvidenceLink {
+  const links = projectReconstructedCitySafetyEvidenceLinks(ledger);
+  const matches = links.filter((link) => link.navigationUrl === terminal.navigationUrl &&
+    (link.resolvedEvidenceUrl ?? link.navigationUrl) === terminal.resolvedEvidenceUrl);
+  if (expected.kind === "claim") {
+    if (ledger.result.kind !== "verified" || matches.length !== 1 ||
+      matches[0]?.disposition !== "accepted" ||
+      String(matches[0].referenceYear) !== expected.sourcePeriod) mismatch();
+    return matches[0];
+  }
+  if (ledger.result.kind !== "unknown" || ledger.result.reason !== expected.aggregateReason) mismatch();
+  const rejectedMatches = matches.filter((link) => link.disposition === "reviewed_rejected");
+  if (rejectedMatches.length === 1) return rejectedMatches[0]!;
+  if (rejectedMatches.length > 1) mismatch();
+  const unreviewed = ledger.candidates.filter((candidate) =>
+    candidate.disposition === "rejected" && candidate.reviewedOfficial === undefined &&
+    candidate.canonicalUrl === terminal.resolvedEvidenceUrl);
+  if (unreviewed.length !== 1 || unreviewed[0]?.disposition !== "rejected") mismatch();
+  return immutableCopy({
+    disposition: "reviewed_rejected" as const,
+    navigationUrl: terminal.navigationUrl,
+    resolvedEvidenceUrl: terminal.resolvedEvidenceUrl,
+    rejectionReason: unreviewed[0].reason,
+  });
+}
+
+export function projectCitySafetyEvidenceLinks(
+  value: unknown,
+  context: CitySafetyLedgerReconstructionContext,
+): readonly CitySafetyEvidenceLink[] {
+  return projectReconstructedCitySafetyEvidenceLinks(
+    reconstructCitySafetyAttemptLedger(value, context),
+  );
 }

@@ -140,6 +140,11 @@ import {
   reconstructCitySafetySourcePlan,
   reconstructOfficialAuthorityDirectory,
 } from "../research/city-safety-source-plan";
+import {
+  projectReconstructedCitySafetyTerminalLink,
+  type CitySafetyEvidenceLink,
+} from
+  "../research/city-safety-evidence";
 
 export interface StartCityFrontierInput {
   readonly resolvedCountryShortlistRevisionId: string;
@@ -722,6 +727,7 @@ function verifyInstalledArtifacts(
         plan.claimContract.sourceId !== plan.sourceId ||
         plan.claimContract.criterionId !== plan.criterionId ||
         plan.claimContract.definitionId !== plan.definitionId ||
+        plan.claimContract.scope !== `municipality:${cityId}` ||
         plan.claimContract.geoScope !== "municipality" ||
         plan.claimContract.unit !== definition.unit ||
         plan.claimContract.denominator !== definition.denominator ||
@@ -2297,6 +2303,46 @@ async function recoverContinuationEvidence(
   return Object.freeze({ context, verified });
 }
 
+function continuationSafetyTerminalLink(
+  evidence: VerifiedCityEvidence,
+): CitySafetyEvidenceLink {
+  const ledger = evidence.snapshot.safetyAttemptLedger;
+  const entries = evidence.genericEvidence.entries.filter(({ sourceId }) =>
+    sourceId === "si-city-safety");
+  if (entries.length !== 1) mismatch();
+  const entry = entries[0]!;
+  const terminal = Object.freeze({
+    navigationUrl: entry.navigationUrl,
+    resolvedEvidenceUrl: entry.resolvedEvidenceUrl,
+  });
+  const snapshot = evidence.genericEvidence.snapshot;
+  const claims = snapshot.claims.filter(({ sourceId }) => sourceId === "si-city-safety");
+  const blockers = snapshot.blockers.filter(({ sourceId }) => sourceId === "si-city-safety");
+  if (ledger.result.kind === "verified") {
+    if (snapshot.coverage["si-city-safety"] !== "verified" || claims.length !== 1 ||
+      blockers.length !== 0 || claims[0]!.sourcePeriod !== String(ledger.result.referenceYear)) mismatch();
+    const link = projectReconstructedCitySafetyTerminalLink(
+      ledger,
+      terminal,
+      Object.freeze({ kind: "claim", sourcePeriod: claims[0]!.sourcePeriod }),
+    );
+    if (link.disposition !== "accepted") mismatch();
+    return link;
+  }
+  if (snapshot.coverage["si-city-safety"] !== "unavailable" || claims.length !== 0 ||
+    blockers.length !== 1) mismatch();
+  const blocker = blockers[0]!;
+  if (blocker.kind !== ledger.result.reason || blocker.navigationUrl !== terminal.navigationUrl ||
+    (blocker.resolvedUrl ?? blocker.navigationUrl) !== terminal.resolvedEvidenceUrl) mismatch();
+  const link = projectReconstructedCitySafetyTerminalLink(
+    ledger,
+    terminal,
+    Object.freeze({ kind: "blocker", aggregateReason: ledger.result.reason }),
+  );
+  if (link.disposition !== "reviewed_rejected") mismatch();
+  return link;
+}
+
 function knowledgeContracts(
   trust: InitialTrust,
   cityId: string,
@@ -2412,31 +2458,57 @@ function recoverContinuationKnowledge(
 function continuationMarkerAuthority(
   knowledge: CityKnowledgeRevision,
   evidence: VerifiedCityEvidence,
+  attachedSafetyTerminalLink: CitySafetyEvidenceLink = continuationSafetyTerminalLink(evidence),
 ): CityMarkerAuthorityProjection {
-  const lastSafetyAttempt = evidence.snapshot.safetyAttemptLedger.candidates.at(-1);
+  const safetyLedger = evidence.snapshot.safetyAttemptLedger;
   const facts = knowledge.facts.map((fact) => {
-    const evidenceLinks = Object.freeze(fact.evidenceRefs.flatMap((reference) => reference.kind === "claim"
-      ? [Object.freeze({
-          sourceId: reference.sourceId,
-          disposition: "accepted" as const,
-          navigationUrl: reference.navigationUrl,
-          resolvedEvidenceUrl: reference.resolvedEvidenceUrl,
-        })]
-      : []));
+    const evidenceLinks = Object.freeze(fact.evidenceRefs.flatMap((reference) => {
+      if (reference.kind !== "claim") return [];
+      if (fact.criterionId === "safety" &&
+        (attachedSafetyTerminalLink.disposition !== "accepted" ||
+          attachedSafetyTerminalLink.navigationUrl !== reference.navigationUrl ||
+          attachedSafetyTerminalLink.resolvedEvidenceUrl !== reference.resolvedEvidenceUrl ||
+          fact.referencePeriod !== String(attachedSafetyTerminalLink.referenceYear))) mismatch();
+      return [Object.freeze({
+        sourceId: reference.sourceId,
+        disposition: "accepted" as const,
+        navigationUrl: reference.navigationUrl,
+        resolvedEvidenceUrl: reference.resolvedEvidenceUrl,
+        ...(fact.criterionId === "safety"
+          ? { referenceYear: (attachedSafetyTerminalLink as Extract<
+              CitySafetyEvidenceLink,
+              { readonly disposition: "accepted" }
+            >).referenceYear }
+          : {}),
+      })];
+    }));
     const manualCheckLinks = Object.freeze(fact.evidenceRefs.flatMap((reference) => {
       if (reference.kind !== "blocker") return [];
       let safetyRejection: CityFactLinkRejectionReason | undefined;
+      let safetyReferenceYear: number | undefined;
+      const navigationUrl = reference.navigationUrl;
+      const resolvedEvidenceUrl = reference.resolvedEvidenceUrl;
       if (fact.criterionId === "safety") {
-        if (lastSafetyAttempt?.disposition !== "rejected") mismatch();
-        safetyRejection = lastSafetyAttempt.reason as CityFactLinkRejectionReason;
+        if (safetyLedger.result.kind !== "unknown" || fact.outcome.kind !== "unknown" ||
+          fact.outcome.reason !== safetyLedger.result.reason) mismatch();
+        const terminalUrl = reference.resolvedEvidenceUrl ?? reference.navigationUrl;
+        if (attachedSafetyTerminalLink.disposition !== "reviewed_rejected" ||
+          attachedSafetyTerminalLink.navigationUrl !== reference.navigationUrl ||
+          (attachedSafetyTerminalLink.resolvedEvidenceUrl ??
+            attachedSafetyTerminalLink.navigationUrl) !== terminalUrl) mismatch();
+        safetyRejection = attachedSafetyTerminalLink.rejectionReason;
+        safetyReferenceYear = attachedSafetyTerminalLink.referenceYear;
       }
       return [Object.freeze({
         sourceId: reference.sourceId,
         disposition: "reviewed_rejected" as const,
-        navigationUrl: reference.navigationUrl,
-        ...(reference.resolvedEvidenceUrl === undefined
+        navigationUrl,
+        ...(resolvedEvidenceUrl === undefined
           ? {}
-          : { resolvedEvidenceUrl: reference.resolvedEvidenceUrl }),
+          : { resolvedEvidenceUrl }),
+        ...(safetyReferenceYear === undefined
+          ? {}
+          : { referenceYear: safetyReferenceYear }),
         ...(safetyRejection === undefined
           ? {}
           : { rejectionReason: safetyRejection }),
@@ -2474,6 +2546,7 @@ interface ContinuationCommit {
 function commitContinuationRevision(
   knowledge: CityKnowledgeRevision,
   evidence: VerifiedCityEvidence,
+  safetyTerminalLink: ContinuationEvidence["safetyTerminalLink"],
   completedAt: string,
   authority: ContinueAuthority,
   beforeAppend: () => void,
@@ -2481,7 +2554,7 @@ function commitContinuationRevision(
 ): ContinuationCommit {
   if (knowledge.lastCheckedAt !== completedAt || knowledge.createdAt !== completedAt ||
     evidence.snapshot.completedAt !== completedAt) mismatch();
-  const markerAuthority = continuationMarkerAuthority(knowledge, evidence);
+  const markerAuthority = continuationMarkerAuthority(knowledge, evidence, safetyTerminalLink);
   const marker = reconstructCityLiveMarker({
     assessmentAt: authority.ranking.assessmentAt,
     criteria: authority.criteria,
@@ -2720,6 +2793,7 @@ function continuePreflight(
 type ContinuationEvidence = Readonly<{
   context: CityEvidenceContext;
   verified: VerifiedCityEvidence;
+  safetyTerminalLink: CitySafetyEvidenceLink;
 }>;
 
 interface ContinuationFlight {
@@ -2792,9 +2866,9 @@ function createContinuationFlight(
     abortContinuationFlight(flight);
     throw error;
   });
-  const evidence = recovery
+  const unvalidatedEvidence = recovery
     ? research.then(() => recoverContinuationEvidence(authority, ports))
-    : research.then(async (completedResearch): Promise<ContinuationEvidence> => {
+    : research.then(async (completedResearch) => {
         if (completedResearch === undefined) mismatch();
         requireContinuationWaiter(flight);
         const completedAt = ownedClockInstant(ports.clock());
@@ -2806,6 +2880,13 @@ function createContinuationFlight(
           ports,
         );
       });
+  const evidence = unvalidatedEvidence.then((value): ContinuationEvidence => {
+    const safetyTerminalLink = continuationSafetyTerminalLink(value.verified);
+    return Object.freeze({
+      ...value,
+      safetyTerminalLink,
+    });
+  });
   const knowledge = evidence.then((verifiedEvidence) => {
     requireContinuationWaiter(flight);
     if (recovery) {
@@ -2940,6 +3021,7 @@ async function runContinuationWaiter(
   const committed = commitContinuationRevision(
     knowledge,
     evidence.verified,
+    evidence.safetyTerminalLink,
     completedAt,
     authority,
     () => {

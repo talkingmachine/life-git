@@ -37,6 +37,7 @@ import { createEvidenceIntegrity } from "./integrity";
 import { createCodexOnboardingModel } from "./codex-cli/onboarding-model";
 import { getCodexCliModelAdapter } from "./codex-cli/runtime";
 import { createColdStartComposition } from "./cold-start-composition";
+import { withSharedProfileCompositionPort } from "./composition-dependencies";
 import {
   createCityFrontierComposition,
   type CityFrontierFixedTiming,
@@ -129,20 +130,20 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     nextId,
     deadlineAt: options.deadlineAt ?? ((now) => new Date(now.getTime() + 45_000)),
   });
-  const coldStart = createColdStartComposition({
+  const coldStart = createColdStartComposition(withSharedProfileCompositionPort({
     database: options.database,
     hmacKey: options.hmacKey,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
-  });
-  const placeFrontier = createPlaceFrontierComposition({
+  }, profileStore));
+  const placeFrontier = createPlaceFrontierComposition(withSharedProfileCompositionPort({
     database: options.database,
     hmacKey: options.hmacKey,
     onboardingConfirmations: onboardingStore,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
-  });
-  const countryResolution = createCountryResolutionComposition({
+  }, profileStore));
+  const countryResolution = createCountryResolutionComposition(withSharedProfileCompositionPort({
     database: options.database,
     hmacKey: options.hmacKey,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
@@ -150,7 +151,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
       requestStep: options.requestStep as unknown as RequestStep<SloveniaSourceId>,
     }),
     nextRunId: () => nextId("run"),
-  });
+  }, profileStore));
   const housingBranch = createHousingBranchApplication({
     profileStore,
     runStore,

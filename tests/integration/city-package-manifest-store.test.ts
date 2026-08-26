@@ -431,7 +431,13 @@ async function preparedUnknownCatalogRulesInput(
   suffix: string,
   installedAt: string,
 ): Promise<InstalledCityPackageManifestAppendInput> {
-  const legacy = await preparedInput(database, suffix, installedAt, "city-catalog@1");
+  const authorityDatabase = memoryDatabase();
+  const legacy = await preparedInput(
+    authorityDatabase,
+    suffix,
+    installedAt,
+    "city-catalog@1",
+  );
   const { id: _catalogId, ...catalogBase } = structuredClone(legacy.catalog.catalog);
   void _catalogId;
   const catalogPayload = { ...catalogBase, rulesVersion: "city-catalog@999" };
@@ -460,21 +466,25 @@ async function preparedUnknownCatalogRulesInput(
     id: `city-safety-source-plan:${INTEGRITY.hash(INTEGRITY.canonical(sourcePlanPayload))}`,
     ...sourcePlanPayload,
   };
-  database.prepare("DELETE FROM city_catalog_revisions WHERE id = ?")
-    .run(legacy.catalog.catalog.id);
   const canonicalBundle = INTEGRITY.canonical(catalogBundle);
-  database.prepare(`
-    INSERT INTO city_catalog_revisions (
-      id, registry_revision_id, country_code, package_id, package_schema_version,
-      registry_evidence_snapshot_id, catalog_evidence_snapshot_id, rules_version,
-      created_at, payload_json, payload_hash, hmac
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    catalog.id, catalog.registryRevisionId, catalog.countryCode, catalog.packageId,
-    catalog.packageSchemaVersion, legacy.catalog.registry.evidenceSnapshotId,
-    catalog.evidenceSnapshotId, catalog.rulesVersion, catalog.createdAt,
-    canonicalBundle, INTEGRITY.hash(canonicalBundle), INTEGRITY.sign(canonicalBundle),
-  );
+  const priorIgnoreChecks = database.pragma("ignore_check_constraints", { simple: true }) as number;
+  database.pragma("ignore_check_constraints = ON");
+  try {
+    database.prepare(`
+      INSERT INTO city_catalog_revisions (
+        id, registry_revision_id, country_code, package_id, package_schema_version,
+        registry_evidence_snapshot_id, catalog_evidence_snapshot_id, rules_version,
+        created_at, payload_json, payload_hash, hmac
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      catalog.id, catalog.registryRevisionId, catalog.countryCode, catalog.packageId,
+      catalog.packageSchemaVersion, legacy.catalog.registry.evidenceSnapshotId,
+      catalog.evidenceSnapshotId, catalog.rulesVersion, catalog.createdAt,
+      canonicalBundle, INTEGRITY.hash(canonicalBundle), INTEGRITY.sign(canonicalBundle),
+    );
+  } finally {
+    database.pragma(`ignore_check_constraints = ${priorIgnoreChecks}`);
+  }
   const administrativeEvidence = await sealCityPackageAdministrativeEvidence({
     key: {
       countryCode: legacy.ready.definition.countryCode,

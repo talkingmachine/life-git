@@ -9,10 +9,11 @@ import type {
   LiveCapturedArtifact,
   ParserEntry,
 } from "./contracts";
-import type {
-  CitySafetyArtifactReference,
-  CitySafetyAttemptLedger,
-  CitySafetyUsableCandidateAttempt,
+import {
+  projectReconstructedCitySafetyEvidenceLinks,
+  type CitySafetyArtifactReference,
+  type CitySafetyAttemptLedger,
+  type CitySafetyUsableCandidateAttempt,
 } from "./city-safety-evidence";
 import type {
   CitySafetySourcePlan,
@@ -1438,6 +1439,33 @@ function safetyTerminalLineage(
           reviewed.resolvedEvidenceUrl,
         );
     return { navigationUrl, resolvedEvidenceUrl };
+  }
+  if (input.ledger.result.reason === "conflict") {
+    const conflictLinks = projectReconstructedCitySafetyEvidenceLinks(input.ledger).filter(
+      (link) => link.disposition === "reviewed_rejected" && link.rejectionReason === "conflict",
+    );
+    const configured = input.ledger.candidates.filter((candidate) =>
+      candidate.disposition === "usable" && candidate.origin.kind === "configured" &&
+      candidate.origin.configuredRouteIndex === 0 && conflictLinks.some((link) =>
+        link.navigationUrl === candidate.publisherNavigationUrl &&
+        link.resolvedEvidenceUrl === candidate.resolvedEvidenceUrl &&
+        link.referenceYear === candidate.referenceYear));
+    if (configured.length !== 1 || configured[0]?.disposition !== "usable") {
+      fail("invalid_city_safety_terminal_entry");
+    }
+    const candidate = configured[0];
+    return {
+      navigationUrl: validatePublisherUrl(
+        input.authorityDirectory,
+        candidate.publisherId,
+        candidate.publisherNavigationUrl,
+      ),
+      resolvedEvidenceUrl: validatePublisherUrl(
+        input.authorityDirectory,
+        candidate.publisherId,
+        candidate.resolvedEvidenceUrl,
+      ),
+    };
   }
   const configured = context.entry.configuredRoutes[0];
   if (configured !== undefined) {
