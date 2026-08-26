@@ -6571,6 +6571,8 @@ describe("City Frontier Application public boundary", () => {
     expect(firstAuthorityOrder).toEqual([
       "catalog.latest:SI",
       "manifest.exact",
+      ...harness.fixture.installed.catalog.members.map(({ cityId }) =>
+        `knowledge.latest:${cityId}`),
       `criteria:${first.criteria.id}`,
       `branch:${first.preCityBranchCommitId}`,
       `ranking:${first.ranking.id}`,

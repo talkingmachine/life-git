@@ -7,7 +7,12 @@ import type {
   InstalledCityPackageLookupPort,
   InstalledCityPackageManifestStorePort,
 } from "./city-data-contracts";
-import { isBorrowedProxy } from "./city-data-contracts";
+import {
+  cityCriteriaPayloadHash,
+  cityFrontierRunId,
+  isBorrowedProxy,
+  type CityCriteriaCommandPayload,
+} from "./city-data-contracts";
 import type {
   CityBranchReadPort,
   CityCriteriaReadPort,
@@ -18,24 +23,42 @@ import type {
   CityFrontierStartWriterPort,
   CityRankingReadPort,
   CityRankingSnapshot,
+  CityFrontierStartPublication,
+  CityFrontierStartPublicationResult,
   CitySelectionHistoryReadPort,
   TerminalCityShortlistSnapshot,
+} from "./city-frontier-contracts";
+import {
+  reconstructCityFrontierRevision,
+  reconstructCityRankingSnapshot,
+  sealCityFrontierRevision,
+  sealCityRankingSnapshot,
+  verifyCityRankingSnapshotSemantics,
 } from "./city-frontier-contracts";
 import type {
   CitySafetyOfficialDocumentPort,
   CitySafetySearchPort,
 } from "./city-safety-contracts";
 import type { ResolvedCountryShortlistSnapshot } from "./country-resolution-contracts";
-import type { PreCityBranchCommit, PreCityBranchSourceProjection } from "../branch/city";
+import {
+  createPreCityBranchCommit,
+  reconstructPreCityBranchCommit,
+  replayPreCityBranchCommit,
+  type PreCityBranchCommit,
+  type PreCityBranchSourceProjection,
+} from "../branch/city";
 import {
   CITY_CATALOG_RULES_VERSION,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
   reconstructVerifiedCityCatalog,
   type CityCatalogRevision,
   type CityCatalogProjection,
 } from "../decision/city-catalog";
 import {
   CITY_CRITERION_IDS,
+  confirmCityCriteria,
   deriveCityCriteriaDraft,
+  reconstructCityCriteriaSnapshot,
   reconstructInstalledCityCriteriaDefaults,
   reconstructInstalledCityCriterionDefinitions,
   type CityCriterionEvaluatorRegistry,
@@ -44,7 +67,15 @@ import {
   type InstalledCityCriterionDefinitionTuple,
 } from "../decision/city-criteria";
 import type { CityDecisionIntegrity } from "../decision/city-integrity";
-import type { ReconstructCityFrontierInput } from "../decision/city-frontier-policy";
+import {
+  reconstructCityFrontier,
+  type CityFrontierVerificationBudget,
+  type ReconstructCityFrontierInput,
+} from "../decision/city-frontier-policy";
+import {
+  rankCities,
+  type CityKnowledgeRankingProjection,
+} from "../decision/city-ranker";
 import type { PreferenceProfileSnapshot, PreferenceProfileV2Snapshot } from
   "../decision/preference-profile";
 import type { RelocationProfileSnapshot, RelocationProfileV2Snapshot } from
@@ -67,6 +98,10 @@ import {
   type SloveniaCityFixedSourceId,
 } from "../research/city-evidence";
 import type { EvidenceIntegrity } from "../research/research-plan";
+import {
+  projectCityKnowledgeForRanking,
+  type CityKnowledgeRevision,
+} from "../research/city-knowledge";
 import { getCityResearchPackageAvailability } from "../research/city-package";
 import {
   reconstructCitySafetySourcePlan,
@@ -691,6 +726,15 @@ interface InitialTrust {
   readonly evaluatorRegistry: InstalledCityResearchPackage["evaluatorRegistry"];
 }
 
+interface SetupAuthority {
+  readonly trust: InitialTrust;
+  readonly resolved: ResolvedCountryShortlistSnapshot;
+  readonly relocation: RelocationProfileSnapshot | RelocationProfileV2Snapshot;
+  readonly preference: PreferenceProfileSnapshot | PreferenceProfileV2Snapshot;
+  readonly resolvedCountryEntry: PreCityBranchSourceProjection["resolvedCountryEntry"];
+  readonly criteriaDraft: StartCityFrontierInput["criteriaDraft"];
+}
+
 function initialTrust(countryCode: string, ports: Readonly<CityFrontierApplicationPorts>): InitialTrust {
   const availability = ports.resolveAvailability(countryCode);
   if (availability === undefined) throw new Error("city_package_not_ready");
@@ -751,10 +795,104 @@ function initialTrust(countryCode: string, ports: Readonly<CityFrontierApplicati
   });
 }
 
-async function setupModel(
+function bindHistoricalInstalledPackage(
+  installed: InstalledCityResearchPackage,
+  context: InstalledCityPackageExactKey,
+  catalog: CityCatalogProjection,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): ReturnType<typeof assertCityPackageReady> {
+  let ready: ReturnType<typeof assertCityPackageReady>;
+  try {
+    ready = assertCityPackageReady(Object.freeze({
+      definition: installed.definition,
+      sourceContractStatus: installed.sourceContractStatus,
+      readiness: installed.readiness,
+    }));
+  } catch {
+    return mismatch();
+  }
+  const shell = exactRecord(installed.installedPackageManifest, ["id", "key"]);
+  const shellContext = exactKey(shell.key);
+  if (!Object.isFrozen(installed.installedPackageManifest) || !Object.isFrozen(shell.key) ||
+    typeof shell.id !== "string" || shell.id.length === 0 ||
+    !sameDecision(shellContext, context, ports.decisionIntegrity) ||
+    context.countryCode !== ready.definition.countryCode ||
+    context.countryCode !== installed.definition.countryCode ||
+    context.packageId !== ready.definition.packageId ||
+    context.packageId !== installed.definition.packageId ||
+    context.packageSchemaVersion !== ready.definition.packageSchemaVersion ||
+    context.packageSchemaVersion !== installed.definition.packageSchemaVersion ||
+    context.evidenceRulesVersion !== ready.definition.evidenceRulesVersion ||
+    context.evidenceRulesVersion !== installed.definition.evidenceRulesVersion ||
+    context.catalogRevisionId !== catalog.catalog.id ||
+    catalog.catalog.countryCode !== context.countryCode ||
+    catalog.registry.countryCode !== context.countryCode ||
+    catalog.catalog.packageId !== context.packageId ||
+    catalog.registry.packageId !== context.packageId ||
+    catalog.catalog.packageSchemaVersion !== context.packageSchemaVersion ||
+    catalog.registry.packageSchemaVersion !== context.packageSchemaVersion ||
+    catalog.registry.id !== catalog.catalog.registryRevisionId) mismatch();
+  return ready;
+}
+
+function historicalTrust(
+  borrowedContext: InstalledCityPackageExactKey,
+  ranking: CityRankingSnapshot,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): InitialTrust {
+  const context = exactKey(borrowedContext);
+  if (!Object.isFrozen(borrowedContext) ||
+    !sameDecision(context, ranking.installedPackageContext, ports.decisionIntegrity) ||
+    ranking.countryCode !== context.countryCode || ranking.packageId !== context.packageId ||
+    ranking.packageSchemaVersion !== context.packageSchemaVersion ||
+    ranking.catalogRevisionId !== context.catalogRevisionId) mismatch();
+  const borrowedInstalled = ports.installedPackages.findExact(borrowedContext);
+  if (borrowedInstalled === undefined) throw new Error("city_package_revision_not_installed");
+  const installed = capturedInstalledPackage(borrowedInstalled);
+  const installedCatalog = reconstructVerifiedCityCatalog({
+    registry: installed.registry,
+    catalog: installed.catalog,
+  }, ports.decisionIntegrity);
+  const ready = bindHistoricalInstalledPackage(installed, context, installedCatalog, ports);
+  const borrowedManifest = ports.installedPackageManifests.loadVerified(borrowedContext);
+  if (borrowedManifest === undefined) mismatch();
+  const manifest = verifyManifest(
+    borrowedManifest,
+    installed,
+    ready,
+    installedCatalog,
+    context,
+    ports.decisionIntegrity,
+    ports.evidenceIntegrity,
+  );
+  const historical = reconstructVerifiedCityCatalog(
+    ownedJson(ports.historicalCatalogs.loadVerified(context.catalogRevisionId)) as CityCatalogProjection,
+    ports.decisionIntegrity,
+  );
+  if (!sameDecision(historical, installedCatalog, ports.decisionIntegrity) ||
+    historical.registry.id !== ranking.registryRevisionId ||
+    historical.catalog.id !== ranking.catalogRevisionId ||
+    (historical.catalog.rulesVersion !== LEGACY_CITY_CATALOG_RULES_VERSION &&
+      historical.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION)) mismatch();
+  const artifacts = verifyInstalledArtifacts(
+    installed,
+    manifest,
+    historical,
+    ports.decisionIntegrity,
+    ports.evidenceIntegrity,
+  );
+  return Object.freeze({
+    catalog: historical,
+    context,
+    ...artifacts,
+    evaluatorRegistry: installed.evaluatorRegistry,
+  });
+}
+
+async function loadSetupAuthority(
   input: Readonly<{ resolvedCountryShortlistRevisionId: string; countryCode: string }>,
   ports: Readonly<CityFrontierApplicationPorts>,
-): Promise<CityFrontierSetupReadModel> {
+): Promise<SetupAuthority> {
   const trust = initialTrust(input.countryCode, ports);
   const resolved = ownedJson(await ports.resolvedCountries.requireResolvedCountryShortlistForCity(
     input.resolvedCountryShortlistRevisionId,
@@ -793,17 +931,633 @@ async function setupModel(
   const memberCount = trust.catalog.catalog.members.length;
   if (!Number.isSafeInteger(memberCount) || memberCount < 0 || memberCount > 100) mismatch();
   return Object.freeze({
-    resolvedCountryShortlistRevisionId: resolved.id,
-    countryCode: input.countryCode,
-    profileSnapshotId: relocation.id,
-    preferenceProfileSnapshotId: preference.id,
+    trust,
+    resolved,
+    relocation,
+    preference,
     resolvedCountryEntry: entries[0]!,
-    installedPackageContext: trust.context,
-    registryRevisionId: trust.catalog.registry.id,
-    catalogMemberCount: memberCount,
-    catalogCoverage: trust.catalog.catalog.coverage,
-    criterionDefinitions: trust.criterionDefinitions,
     criteriaDraft,
+  });
+}
+
+function setupReadModel(
+  input: Readonly<{ resolvedCountryShortlistRevisionId: string; countryCode: string }>,
+  authority: SetupAuthority,
+): CityFrontierSetupReadModel {
+  const memberCount = authority.trust.catalog.catalog.members.length;
+  return Object.freeze({
+    resolvedCountryShortlistRevisionId: authority.resolved.id,
+    countryCode: input.countryCode,
+    profileSnapshotId: authority.relocation.id,
+    preferenceProfileSnapshotId: authority.preference.id,
+    resolvedCountryEntry: authority.resolvedCountryEntry,
+    installedPackageContext: authority.trust.context,
+    registryRevisionId: authority.trust.catalog.registry.id,
+    catalogMemberCount: memberCount,
+    catalogCoverage: authority.trust.catalog.catalog.coverage,
+    criterionDefinitions: authority.trust.criterionDefinitions,
+    criteriaDraft: authority.criteriaDraft,
+  });
+}
+
+async function setupModel(
+  input: Readonly<{ resolvedCountryShortlistRevisionId: string; countryCode: string }>,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<CityFrontierSetupReadModel> {
+  return setupReadModel(input, await loadSetupAuthority(input, ports));
+}
+
+interface HistoricalSourceAuthority {
+  readonly source: PreCityBranchSourceProjection;
+  readonly resolved: ResolvedCountryShortlistSnapshot;
+  readonly relocation: RelocationProfileSnapshot | RelocationProfileV2Snapshot;
+  readonly preference: PreferenceProfileSnapshot | PreferenceProfileV2Snapshot;
+}
+
+async function loadHistoricalSourceAuthority(
+  ranking: CityRankingSnapshot,
+  criteria: ReturnType<typeof reconstructCityCriteriaSnapshot>,
+  trust: InitialTrust,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<HistoricalSourceAuthority> {
+  const resolved = ownedJson(await ports.resolvedCountries.requireResolvedCountryShortlistForCity(
+    ranking.resolvedCountryShortlistRevisionId,
+  )) as ResolvedCountryShortlistSnapshot;
+  if (resolved.id !== ranking.resolvedCountryShortlistRevisionId || resolved.kind !== "resolved" ||
+    !Array.isArray(resolved.resolvedEntries)) mismatch();
+  const entries = resolved.resolvedEntries.filter(({ countryCode }) =>
+    countryCode === ranking.countryCode);
+  if (entries.length !== 1) mismatch();
+  const relocation = ownedJson(await ports.profiles.loadRelocationAnyVerified(
+    resolved.profileSnapshotId,
+  )) as RelocationProfileSnapshot | RelocationProfileV2Snapshot;
+  const preference = ownedJson(await ports.profiles.loadPreferenceForRankingVerified(
+    resolved.preferenceProfileSnapshotId,
+  )) as PreferenceProfileSnapshot | PreferenceProfileV2Snapshot;
+  if (relocation.id !== resolved.profileSnapshotId || preference.id !== resolved.preferenceProfileSnapshotId ||
+    relocation.id !== ranking.profileSnapshotId || preference.id !== ranking.preferenceProfileSnapshotId ||
+    relocation.id !== criteria.profileSnapshotId || preference.id !== criteria.preferenceProfileSnapshotId ||
+    (relocation.schemaVersion === "relocation-profile@1" &&
+      preference.schemaVersion !== "preference-profile@1") ||
+    (relocation.schemaVersion === "relocation-profile@2" &&
+      preference.schemaVersion !== "preference-profile@2") ||
+    (relocation.schemaVersion !== "relocation-profile@1" &&
+      relocation.schemaVersion !== "relocation-profile@2")) mismatch();
+  const draft = relocation.schemaVersion === "relocation-profile@1" &&
+      preference.schemaVersion === "preference-profile@1"
+    ? deriveCityCriteriaDraft(
+        relocation,
+        preference,
+        trust.criteriaDefaults,
+        trust.evaluatorRegistry,
+      )
+    : deriveCityCriteriaDraft(
+        relocation as RelocationProfileV2Snapshot,
+        preference as PreferenceProfileV2Snapshot,
+        trust.criteriaDefaults,
+        trust.evaluatorRegistry,
+      );
+  if (!sameDecision(criteria.criteria, draft, ports.decisionIntegrity)) mismatch();
+  return Object.freeze({
+    source: Object.freeze({
+      profileSnapshotId: relocation.id,
+      preferenceProfileSnapshotId: preference.id,
+      resolvedCountryShortlistRevisionId: resolved.id,
+      resolvedCountryEntry: entries[0]!,
+    }),
+    resolved,
+    relocation,
+    preference,
+  });
+}
+
+function verifiedKnowledgeProjection(
+  revision: CityKnowledgeRevision,
+  cityId: string,
+  trust: InitialTrust,
+): CityKnowledgeRankingProjection {
+  const owned = ownedJson(revision) as CityKnowledgeRevision;
+  const projection = projectCityKnowledgeForRanking(owned);
+  if (owned.id !== projection.knowledgeRevisionId || owned.cityId !== cityId ||
+    projection.cityId !== cityId || owned.countryCode !== trust.context.countryCode ||
+    owned.packageId !== trust.context.packageId ||
+    owned.packageSchemaVersion !== trust.context.packageSchemaVersion ||
+    owned.rulesVersion !== trust.context.evidenceRulesVersion) mismatch();
+  return projection;
+}
+
+function latestKnowledgeForRanking(
+  trust: InitialTrust,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): readonly CityKnowledgeRankingProjection[] {
+  return Object.freeze(trust.catalog.catalog.members.map(({ cityId }) => {
+    const revision = ports.knowledge.latestVerified(cityId);
+    return revision === undefined
+      ? Object.freeze({ cityId, knowledgeRevisionId: null, facts: Object.freeze([] as []) })
+      : verifiedKnowledgeProjection(revision, cityId, trust);
+  }));
+}
+
+function exactKnowledgeForRanking(
+  ranking: CityRankingSnapshot,
+  trust: InitialTrust,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): readonly CityKnowledgeRankingProjection[] {
+  const memberIds = trust.catalog.catalog.members.map(({ cityId }) => cityId);
+  const bindings = exactRecord(ranking.knowledgeRevisionIds, memberIds);
+  return Object.freeze(memberIds.map((cityId) => {
+    const revisionId = bindings[cityId];
+    if (revisionId === null) {
+      return Object.freeze({ cityId, knowledgeRevisionId: null, facts: Object.freeze([] as []) });
+    }
+    const id = identifier(revisionId);
+    const revision = ports.knowledge.loadVerified(id);
+    const projection = verifiedKnowledgeProjection(revision, cityId, trust);
+    if (projection.knowledgeRevisionId !== id) mismatch();
+    return projection;
+  }));
+}
+
+const START_VERIFICATION_BUDGET: CityFrontierVerificationBudget = Object.freeze({
+  liveCityCandidateLimit: 10,
+  targetSelectableCities: 3,
+  rulesVersion: "city-frontier-budget@1",
+});
+
+function ownedClockInstant(value: unknown): string {
+  if (value === null || typeof value !== "object" || isBorrowedProxy(value) ||
+    Object.getPrototypeOf(value) !== Date.prototype ||
+    Reflect.ownKeys(value).length !== 0) mismatch();
+  let millis: number;
+  let instant: string;
+  try {
+    millis = Date.prototype.getTime.call(value);
+    instant = Date.prototype.toISOString.call(value);
+  } catch {
+    return mismatch();
+  }
+  if (!Number.isFinite(millis) || new Date(millis).toISOString() !== instant) mismatch();
+  return instant;
+}
+
+function criteriaCommandPayload(
+  criteria: Readonly<StartCityFrontierInput["criteriaDraft"]>,
+  profileSnapshotId: string,
+  preferenceProfileSnapshotId: string,
+): CityCriteriaCommandPayload {
+  return Object.freeze({
+    schemaVersion: "city-criteria-command@1",
+    profileSnapshotId,
+    preferenceProfileSnapshotId,
+    criteria,
+    rulesVersion: "city-criteria@1",
+  });
+}
+
+function startRunId(
+  input: Readonly<Pick<StartCityFrontierInput, "resolvedCountryShortlistRevisionId" | "countryCode">>,
+  trust: InitialTrust,
+  criteriaPayloadHash: string,
+  integrity: CityDecisionIntegrity,
+): string {
+  return cityFrontierRunId(Object.freeze({
+    schemaVersion: "city-frontier-run@1",
+    resolvedCountryShortlistRevisionId: input.resolvedCountryShortlistRevisionId,
+    countryCode: input.countryCode,
+    registryRevisionId: trust.catalog.registry.id,
+    installedPackageContext: trust.context,
+    criteriaPayloadHash,
+    catalogRulesVersion: trust.catalog.catalog.rulesVersion,
+    rankingRulesVersion: "city-ranker@1",
+    verificationBudget: START_VERIFICATION_BUDGET,
+  }), integrity);
+}
+
+function startSource(authority: SetupAuthority): PreCityBranchSourceProjection {
+  return Object.freeze({
+    profileSnapshotId: authority.relocation.id,
+    preferenceProfileSnapshotId: authority.preference.id,
+    resolvedCountryShortlistRevisionId: authority.resolved.id,
+    resolvedCountryEntry: authority.resolvedCountryEntry,
+  });
+}
+
+function createStartPublication(
+  input: Readonly<StartCityFrontierInput>,
+  authority: SetupAuthority,
+  knowledge: readonly CityKnowledgeRankingProjection[],
+  confirmedAt: string,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Readonly<{
+  publication: CityFrontierStartPublication;
+  knowledge: readonly CityKnowledgeRankingProjection[];
+}> {
+  if (!sameDecision(input.criteriaDraft, authority.criteriaDraft, ports.decisionIntegrity)) mismatch();
+  const criteria = confirmCityCriteria({
+    draft: input.criteriaDraft,
+    profileSnapshotId: authority.relocation.id,
+    preferenceProfileSnapshotId: authority.preference.id,
+    confirmedAt,
+  }, authority.trust.evaluatorRegistry, ports.decisionIntegrity);
+  const payload = criteriaCommandPayload(
+    criteria.criteria,
+    criteria.profileSnapshotId,
+    criteria.preferenceProfileSnapshotId,
+  );
+  const criteriaPayloadHash = cityCriteriaPayloadHash(payload, ports.decisionIntegrity);
+  const runId = startRunId(input, authority.trust, criteriaPayloadHash, ports.decisionIntegrity);
+  const preCitySource = startSource(authority);
+  if (authority.resolved.createdAt > confirmedAt) mismatch();
+  const candidateBranch = createPreCityBranchCommit({
+    source: preCitySource,
+    createdAt: authority.resolved.createdAt,
+  }, ports.decisionIntegrity);
+  const storedBranch = ports.branches.findPreCityBranchBySourceVerified(preCitySource);
+  const preCityBranch = storedBranch === undefined
+    ? candidateBranch
+    : replayPreCityBranchCommit(
+        reconstructPreCityBranchCommit(storedBranch, ports.decisionIntegrity),
+        preCitySource,
+        ports.decisionIntegrity,
+      );
+  if (!sameDecision(preCityBranch, candidateBranch, ports.decisionIntegrity)) mismatch();
+  const ranked = rankCities({
+    assessmentAt: confirmedAt,
+    registry: authority.trust.catalog.registry,
+    catalog: authority.trust.catalog.catalog,
+    criteria,
+    knowledge,
+    evaluators: authority.trust.evaluatorRegistry,
+  });
+  const knowledgeRevisionIds = Object.freeze(Object.fromEntries(
+    knowledge.map(({ cityId, knowledgeRevisionId }) => [cityId, knowledgeRevisionId]),
+  ));
+  const ranking = sealCityRankingSnapshot({
+    schemaVersion: "city-ranking@1",
+    runId,
+    resolvedCountryShortlistRevisionId: authority.resolved.id,
+    countryCode: input.countryCode,
+    packageId: authority.trust.context.packageId,
+    packageSchemaVersion: authority.trust.context.packageSchemaVersion,
+    preCityBranchCommitId: preCityBranch.id,
+    profileSnapshotId: authority.relocation.id,
+    preferenceProfileSnapshotId: authority.preference.id,
+    registryRevisionId: authority.trust.catalog.registry.id,
+    catalogRevisionId: authority.trust.catalog.catalog.id,
+    installedPackageContext: authority.trust.context,
+    criteriaSnapshotId: criteria.id,
+    assessmentAt: confirmedAt,
+    knowledgeRevisionIds,
+    ordered: ranked.ordered,
+    screenedExclusions: ranked.screenedExclusions,
+    rulesVersion: ranked.rulesVersion,
+    verificationBudget: START_VERIFICATION_BUDGET,
+    createdAt: confirmedAt,
+  }, ports.decisionIntegrity);
+  verifyCityRankingSnapshotSemantics(ranking, {
+    registry: authority.trust.catalog.registry,
+    catalog: authority.trust.catalog.catalog,
+    criteria,
+    knowledge,
+    evaluators: authority.trust.evaluatorRegistry,
+  }, ports.decisionIntegrity);
+  const projection = reconstructCityFrontier({
+    ranking: {
+      assessmentAt: ranking.assessmentAt,
+      orderedCityIds: ranking.ordered.map(({ cityId }) => cityId),
+      screenedExclusionCityIds: ranking.screenedExclusions.map(({ cityId }) => cityId),
+    },
+    criteria,
+    evaluators: authority.trust.evaluatorRegistry,
+    predecessorMarkers: null,
+    markerBindings: [],
+    persisted: {
+      kind: "working",
+      nextUncheckedRank: 1,
+      selectableCityIds: [],
+      phase: "verification_required",
+    },
+  });
+  const root = sealCityFrontierRevision({
+    runId,
+    rankingSnapshotId: ranking.id,
+    markers: [],
+    projection,
+    operation: { kind: "start", commandId: input.commandId, criteriaPayloadHash },
+    createdAt: confirmedAt,
+  }, ports.decisionIntegrity);
+  const intent = Object.freeze({
+    schemaVersion: "city-frontier-start-intent@1" as const,
+    runId,
+    resolvedCountryShortlistRevisionId: authority.resolved.id,
+    countryCode: input.countryCode,
+    criteriaPayloadHash,
+  });
+  return Object.freeze({
+    publication: Object.freeze({
+      intent,
+      criteria,
+      preCityBranch,
+      preCitySource,
+      ranking,
+      root,
+    }),
+    knowledge,
+  });
+}
+
+function verifyStartWinner(
+  borrowed: unknown,
+  input: Readonly<StartCityFrontierInput>,
+  authority: SetupAuthority,
+  source: PreCityBranchSourceProjection,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): CityFrontierStartPublicationResult {
+  const value = exactRecord(borrowed, ["criteria", "preCityBranch", "ranking", "root"]);
+  const criteria = reconstructCityCriteriaSnapshot(value.criteria, ports.decisionIntegrity);
+  const preCityBranch = replayPreCityBranchCommit(
+    reconstructPreCityBranchCommit(value.preCityBranch, ports.decisionIntegrity),
+    source,
+    ports.decisionIntegrity,
+  );
+  const ranking = reconstructCityRankingSnapshot(value.ranking, ports.decisionIntegrity);
+  const root = reconstructCityFrontierRevision(value.root, ports.decisionIntegrity);
+  const payload = criteriaCommandPayload(
+    criteria.criteria,
+    criteria.profileSnapshotId,
+    criteria.preferenceProfileSnapshotId,
+  );
+  const criteriaPayloadHash = cityCriteriaPayloadHash(payload, ports.decisionIntegrity);
+  const requestedCriteriaPayloadHash = cityCriteriaPayloadHash(criteriaCommandPayload(
+    authority.criteriaDraft,
+    authority.relocation.id,
+    authority.preference.id,
+  ), ports.decisionIntegrity);
+  const runId = startRunId(input, authority.trust, criteriaPayloadHash, ports.decisionIntegrity);
+  const knowledge = exactKnowledgeForRanking(ranking, authority.trust, ports);
+  verifyCityRankingSnapshotSemantics(ranking, {
+    registry: authority.trust.catalog.registry,
+    catalog: authority.trust.catalog.catalog,
+    criteria,
+    knowledge,
+    evaluators: authority.trust.evaluatorRegistry,
+  }, ports.decisionIntegrity);
+  if (criteria.profileSnapshotId !== authority.relocation.id ||
+    criteria.preferenceProfileSnapshotId !== authority.preference.id ||
+    !sameDecision(criteria.criteria, authority.criteriaDraft, ports.decisionIntegrity) ||
+    criteriaPayloadHash !== requestedCriteriaPayloadHash ||
+    ranking.runId !== runId || ranking.resolvedCountryShortlistRevisionId !== authority.resolved.id ||
+    ranking.countryCode !== input.countryCode || ranking.packageId !== authority.trust.context.packageId ||
+    ranking.packageSchemaVersion !== authority.trust.context.packageSchemaVersion ||
+    ranking.preCityBranchCommitId !== preCityBranch.id ||
+    ranking.profileSnapshotId !== criteria.profileSnapshotId ||
+    ranking.preferenceProfileSnapshotId !== criteria.preferenceProfileSnapshotId ||
+    ranking.registryRevisionId !== authority.trust.catalog.registry.id ||
+    ranking.catalogRevisionId !== authority.trust.catalog.catalog.id ||
+    ranking.criteriaSnapshotId !== criteria.id ||
+    !sameDecision(ranking.installedPackageContext, authority.trust.context, ports.decisionIntegrity) ||
+    !sameDecision(ranking.verificationBudget, START_VERIFICATION_BUDGET, ports.decisionIntegrity) ||
+    ranking.assessmentAt !== criteria.confirmedAt || ranking.createdAt !== criteria.confirmedAt ||
+    preCityBranch.createdAt !== authority.resolved.createdAt ||
+    preCityBranch.createdAt > criteria.confirmedAt ||
+    root.kind !== "working" || root.runId !== runId || root.predecessorRevisionId !== undefined ||
+    root.rankingSnapshotId !== ranking.id || root.markers.length !== 0 ||
+    root.nextUncheckedRank !== 1 || root.phase !== "verification_required" ||
+    root.createdAt !== criteria.confirmedAt || root.operation.kind !== "start" ||
+    root.operation.commandId !== input.commandId ||
+    root.operation.criteriaPayloadHash !== criteriaPayloadHash) mismatch();
+  reconstructCityFrontier({
+    ranking: {
+      assessmentAt: ranking.assessmentAt,
+      orderedCityIds: ranking.ordered.map(({ cityId }) => cityId),
+      screenedExclusionCityIds: ranking.screenedExclusions.map(({ cityId }) => cityId),
+    },
+    criteria,
+    evaluators: authority.trust.evaluatorRegistry,
+    predecessorMarkers: null,
+    markerBindings: [],
+    persisted: {
+      kind: "working",
+      nextUncheckedRank: root.nextUncheckedRank,
+      selectableCityIds: [],
+      phase: root.phase,
+    },
+  });
+  return Object.freeze({ criteria, preCityBranch, ranking, root });
+}
+
+async function reloadStartReadModel(
+  winner: CityFrontierStartPublicationResult,
+  input: Readonly<StartCityFrontierInput>,
+  authority: SetupAuthority,
+  source: PreCityBranchSourceProjection,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<CityFrontierReadModel> {
+  const criteria = reconstructCityCriteriaSnapshot(
+    ports.criteria.loadCriteriaVerified(winner.criteria.id),
+    ports.decisionIntegrity,
+  );
+  if (!sameDecision(criteria, winner.criteria, ports.decisionIntegrity)) mismatch();
+  const preCityBranch = replayPreCityBranchCommit(
+    reconstructPreCityBranchCommit(
+      ports.branches.loadPreCityBranchVerified(winner.preCityBranch.id),
+      ports.decisionIntegrity,
+    ),
+    source,
+    ports.decisionIntegrity,
+  );
+  if (!sameDecision(preCityBranch, winner.preCityBranch, ports.decisionIntegrity)) mismatch();
+  const ranking = reconstructCityRankingSnapshot(
+    ports.rankings.loadRankingVerified(winner.ranking.id),
+    ports.decisionIntegrity,
+  );
+  if (!sameDecision(ranking, winner.ranking, ports.decisionIntegrity)) mismatch();
+  const knowledge = exactKnowledgeForRanking(ranking, authority.trust, ports);
+  verifyCityRankingSnapshotSemantics(ranking, {
+    registry: authority.trust.catalog.registry,
+    catalog: authority.trust.catalog.catalog,
+    criteria,
+    knowledge,
+    evaluators: authority.trust.evaluatorRegistry,
+  }, ports.decisionIntegrity);
+  const borrowedCatalog = ports.historicalCatalogs.loadVerified(ranking.catalogRevisionId);
+  const catalog = reconstructVerifiedCityCatalog(
+    ownedJson(borrowedCatalog) as CityCatalogProjection,
+    ports.decisionIntegrity,
+  );
+  if (!sameDecision(catalog, authority.trust.catalog, ports.decisionIntegrity)) mismatch();
+  const borrowedChain = ports.frontierRead.loadChainVerified(ranking.runId);
+  const chain = ownedJson(borrowedChain) as readonly unknown[];
+  if (!Array.isArray(chain) || chain.length === 0) mismatch();
+  const revisions = chain.map((revision) =>
+    reconstructCityFrontierRevision(revision, ports.decisionIntegrity));
+  const root = revisions[0];
+  const head = revisions.at(-1);
+  if (root === undefined || !sameDecision(root, winner.root, ports.decisionIntegrity) ||
+    head === undefined || revisions.length !== 1 || root.predecessorRevisionId !== undefined ||
+    revisions.some((revision, index) => revision.runId !== ranking.runId ||
+      revision.rankingSnapshotId !== ranking.id ||
+      (index > 0 && revision.predecessorRevisionId !== revisions[index - 1]!.id))) mismatch();
+  const command = exactRecord(
+    ports.frontierRead.findCommandVerified(ranking.runId, input.commandId),
+    ["operation", "revision"],
+  );
+  const commandRevision = reconstructCityFrontierRevision(
+    command.revision,
+    ports.decisionIntegrity,
+  );
+  if (!sameDecision(command.operation, root.operation, ports.decisionIntegrity) ||
+    !sameDecision(commandRevision, root, ports.decisionIntegrity)) mismatch();
+  const selections = ownedJson(
+    await ports.selectionHistory.listSelectionsWithBranchesVerified(ranking.runId),
+  ) as CityFrontierReadModel["selections"];
+  if (!Array.isArray(selections) || selections.length !== 0) mismatch();
+  return Object.freeze({
+    runId: ranking.runId,
+    assessmentAt: ranking.assessmentAt,
+    resolvedCountryShortlistRevisionId: ranking.resolvedCountryShortlistRevisionId,
+    countryCode: ranking.countryCode,
+    preCityBranchCommitId: preCityBranch.id,
+    registry: catalog.registry,
+    catalog: catalog.catalog,
+    criteria,
+    ranking,
+    revision: head,
+    selections,
+  });
+}
+
+async function startModel(
+  input: Readonly<StartCityFrontierInput>,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<CityFrontierReadModel> {
+  const authority = await loadSetupAuthority(input, ports);
+  if (!sameDecision(input.criteriaDraft, authority.criteriaDraft, ports.decisionIntegrity)) mismatch();
+  const knowledge = latestKnowledgeForRanking(authority.trust, ports);
+  const confirmedAt = ownedClockInstant(ports.clock());
+  const created = createStartPublication(input, authority, knowledge, confirmedAt, ports);
+  const winner = verifyStartWinner(
+    ports.startWriter.publishStart(created.publication),
+    input,
+    authority,
+    created.publication.preCitySource,
+    ports,
+  );
+  return reloadStartReadModel(
+    winner,
+    input,
+    authority,
+    created.publication.preCitySource,
+    ports,
+  );
+}
+
+async function presentModel(
+  runId: string,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<CityFrontierReadModel> {
+  const borrowedChain = ports.frontierRead.loadChainVerified(runId);
+  const chain = ownedJson(borrowedChain) as readonly unknown[];
+  if (!Array.isArray(chain) || chain.length !== 1) mismatch();
+  const root = reconstructCityFrontierRevision(chain[0], ports.decisionIntegrity);
+  if (root.runId !== runId || root.predecessorRevisionId !== undefined ||
+    root.kind !== "working" || root.markers.length !== 0 || root.nextUncheckedRank !== 1 ||
+    root.phase !== "verification_required" || root.operation.kind !== "start") mismatch();
+
+  const borrowedRanking = ports.rankings.loadRankingVerified(root.rankingSnapshotId);
+  if (borrowedRanking === null || typeof borrowedRanking !== "object" ||
+    isBorrowedProxy(borrowedRanking) || !Object.isFrozen(borrowedRanking)) mismatch();
+  const contextDescriptor = Object.getOwnPropertyDescriptor(
+    borrowedRanking,
+    "installedPackageContext",
+  );
+  if (contextDescriptor === undefined || !("value" in contextDescriptor) ||
+    !contextDescriptor.enumerable) mismatch();
+  const borrowedContext = contextDescriptor.value as InstalledCityPackageExactKey;
+  const ranking = reconstructCityRankingSnapshot(borrowedRanking, ports.decisionIntegrity);
+  if (ranking.id !== root.rankingSnapshotId || ranking.runId !== runId) mismatch();
+  const trust = historicalTrust(borrowedContext, ranking, ports);
+
+  const criteria = reconstructCityCriteriaSnapshot(
+    ports.criteria.loadCriteriaVerified(ranking.criteriaSnapshotId),
+    ports.decisionIntegrity,
+  );
+  const criteriaPayloadHash = cityCriteriaPayloadHash(criteriaCommandPayload(
+    criteria.criteria,
+    criteria.profileSnapshotId,
+    criteria.preferenceProfileSnapshotId,
+  ), ports.decisionIntegrity);
+  const derivedRunId = startRunId({
+    resolvedCountryShortlistRevisionId: ranking.resolvedCountryShortlistRevisionId,
+    countryCode: ranking.countryCode,
+  }, trust, criteriaPayloadHash, ports.decisionIntegrity);
+  if (criteria.id !== ranking.criteriaSnapshotId ||
+    criteria.profileSnapshotId !== ranking.profileSnapshotId ||
+    criteria.preferenceProfileSnapshotId !== ranking.preferenceProfileSnapshotId ||
+    derivedRunId !== runId || ranking.registryRevisionId !== trust.catalog.registry.id ||
+    ranking.catalogRevisionId !== trust.catalog.catalog.id ||
+    !sameDecision(ranking.verificationBudget, START_VERIFICATION_BUDGET, ports.decisionIntegrity) ||
+    ranking.assessmentAt !== criteria.confirmedAt || ranking.createdAt !== criteria.confirmedAt ||
+    root.createdAt !== criteria.confirmedAt || root.operation.criteriaPayloadHash !== criteriaPayloadHash) {
+    mismatch();
+  }
+
+  const branch = reconstructPreCityBranchCommit(
+    ports.branches.loadPreCityBranchVerified(ranking.preCityBranchCommitId),
+    ports.decisionIntegrity,
+  );
+  const sourceAuthority = await loadHistoricalSourceAuthority(ranking, criteria, trust, ports);
+  const replayedBranch = replayPreCityBranchCommit(
+    branch,
+    sourceAuthority.source,
+    ports.decisionIntegrity,
+  );
+  if (replayedBranch.id !== ranking.preCityBranchCommitId ||
+    replayedBranch.createdAt !== sourceAuthority.resolved.createdAt ||
+    replayedBranch.createdAt > criteria.confirmedAt) mismatch();
+
+  const knowledge = exactKnowledgeForRanking(ranking, trust, ports);
+  verifyCityRankingSnapshotSemantics(ranking, {
+    registry: trust.catalog.registry,
+    catalog: trust.catalog.catalog,
+    criteria,
+    knowledge,
+    evaluators: trust.evaluatorRegistry,
+  }, ports.decisionIntegrity);
+  reconstructCityFrontier({
+    ranking: {
+      assessmentAt: ranking.assessmentAt,
+      orderedCityIds: ranking.ordered.map(({ cityId }) => cityId),
+      screenedExclusionCityIds: ranking.screenedExclusions.map(({ cityId }) => cityId),
+    },
+    criteria,
+    evaluators: trust.evaluatorRegistry,
+    predecessorMarkers: null,
+    markerBindings: [],
+    persisted: {
+      kind: "working",
+      nextUncheckedRank: root.nextUncheckedRank,
+      selectableCityIds: [],
+      phase: root.phase,
+    },
+  });
+
+  const selections = ownedJson(
+    await ports.selectionHistory.listSelectionsWithBranchesVerified(runId),
+  ) as CityFrontierReadModel["selections"];
+  if (!Array.isArray(selections) || selections.length !== 0) mismatch();
+  return Object.freeze({
+    runId,
+    assessmentAt: ranking.assessmentAt,
+    resolvedCountryShortlistRevisionId: ranking.resolvedCountryShortlistRevisionId,
+    countryCode: ranking.countryCode,
+    preCityBranchCommitId: replayedBranch.id,
+    registry: trust.catalog.registry,
+    catalog: trust.catalog.catalog,
+    criteria,
+    ranking,
+    revision: root,
+    selections,
   });
 }
 
@@ -818,17 +1572,10 @@ export function createCityFrontierApplication(
   const application: Readonly<CityFrontierApplication> = Object.freeze({
     presentCityFrontierSetup: (input: Parameters<CityFrontierApplication["presentCityFrontierSetup"]>[0]) =>
       setupModel(inputSetup(input), captured),
-    startCityFrontier: async (input: StartCityFrontierInput) => {
-      const owned = inputStart(input);
-      await setupModel({
-        resolvedCountryShortlistRevisionId: owned.resolvedCountryShortlistRevisionId,
-        countryCode: owned.countryCode,
-      }, captured);
-      return notImplemented();
-    },
+    startCityFrontier: (input: StartCityFrontierInput) => startModel(inputStart(input), captured),
     prepareCityFrontierContinuation: () => { void captured; return notImplemented(); },
     continueCityFrontier: () => { void captured; return notImplemented(); },
-    presentCityFrontier: () => { void captured; return notImplemented(); },
+    presentCityFrontier: (runId: string) => presentModel(identifier(runId), captured),
   });
   const selectionAuthority: Readonly<CityFrontierSelectionAuthorityPort> = Object.freeze({
     loadCurrentTerminalSelectionAuthority: () => { void captured; return notImplemented(); },
