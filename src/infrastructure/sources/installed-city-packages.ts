@@ -432,6 +432,27 @@ function lookupKey(value: unknown): InstalledCityPackageExactKey {
   });
 }
 
+function sameLookupKey(
+  left: InstalledCityPackageExactKey,
+  right: InstalledCityPackageExactKey,
+): boolean {
+  return left.countryCode === right.countryCode &&
+    left.packageId === right.packageId &&
+    left.packageSchemaVersion === right.packageSchemaVersion &&
+    left.catalogRevisionId === right.catalogRevisionId &&
+    left.evidenceRulesVersion === right.evidenceRulesVersion;
+}
+
+function lookupKeyCacheId(key: InstalledCityPackageExactKey): string {
+  return JSON.stringify([
+    key.countryCode,
+    key.packageId,
+    key.packageSchemaVersion,
+    key.catalogRevisionId,
+    key.evidenceRulesVersion,
+  ]);
+}
+
 function ownedEvaluatorRegistry(value: unknown): CityCriterionEvaluatorRegistry {
   const registry = exact(value, CITY_CRITERION_IDS);
   return freeze(Object.fromEntries(CITY_CRITERION_IDS.map((criterionId) => {
@@ -514,6 +535,11 @@ export class InstalledCityPackages implements
   InstalledCityCatalogReadPort {
   private readonly exact: VerifiedInstalledCityPackageReadPort["loadExactVerified"];
   private readonly current: VerifiedInstalledCityPackageReadPort["loadCurrentVerified"];
+  private readonly replayValidators = new Map<string, Readonly<{
+    validateValue: CityFixedValueValidator;
+    validateSourcePeriod: CityFixedSourcePeriodValidator;
+  }>>();
+  private readonly initializingReplayValidators = new Set<string>();
 
   constructor(verifiedPackages: VerifiedInstalledCityPackageReadPort) {
     const exact = method<VerifiedInstalledCityPackageReadPort["loadExactVerified"]>(
@@ -522,7 +548,7 @@ export class InstalledCityPackages implements
     const current = method<VerifiedInstalledCityPackageReadPort["loadCurrentVerified"]>(
       verifiedPackages, "loadCurrentVerified",
     );
-    this.exact = (key) => Reflect.apply(exact, verifiedPackages, [lookupKey(key)]);
+    this.exact = (key) => Reflect.apply(exact, verifiedPackages, [key]);
     this.current = (countryCode) => Reflect.apply(
       current, verifiedPackages, [lookupCountry(countryCode)],
     );
@@ -534,27 +560,44 @@ export class InstalledCityPackages implements
   }
 
   findExact(key: InstalledCityPackageExactKey): InstalledCityResearchPackage | undefined {
-    const record = this.exact(key);
+    const record = this.exact(lookupKey(key));
     return record === undefined ? undefined : packageFrom(record);
   }
 
   loadExactReplayContract(
     key: InstalledCityPackageExactKey,
   ): CityPackageEvidenceReplayContract | undefined {
-    const borrowed = this.exact(key);
-    if (borrowed === undefined) return undefined;
-    const record = ownRecord(borrowed);
-    return freeze({
-      installedPackageManifest: data({ id: record.manifest.id, key: record.manifest.key }),
-      definition: data(record.ready.definition),
-      catalogProjection: data(record.catalog),
-      fixedPlansByCityId: data(record.fixedPlansByCityId),
-      safetySourcePlan: data(record.safetySourcePlan),
-      officialAuthorityDirectory: data(record.officialAuthorityDirectory),
-      validateValue: ((input) => record.validateValue(data(input))) as CityFixedValueValidator,
-      validateSourcePeriod: ((input) => record.validateSourcePeriod(data(input))) as
-        CityFixedSourcePeriodValidator,
-    });
+    const requested = lookupKey(key);
+    const cacheId = lookupKeyCacheId(requested);
+    if (this.initializingReplayValidators.has(cacheId)) mismatch();
+    this.initializingReplayValidators.add(cacheId);
+    try {
+      const borrowed = this.exact(requested);
+      if (borrowed === undefined) return undefined;
+      const record = ownRecord(borrowed);
+      const returnedKey = lookupKey(record.manifest.key);
+      if (!sameLookupKey(returnedKey, requested)) mismatch();
+      let validators = this.replayValidators.get(cacheId);
+      if (validators === undefined) {
+        validators = freeze({
+          validateValue: record.validateValue,
+          validateSourcePeriod: record.validateSourcePeriod,
+        });
+        this.replayValidators.set(cacheId, validators);
+      }
+      return freeze({
+        installedPackageManifest: data({ id: record.manifest.id, key: returnedKey }),
+        definition: data(record.ready.definition),
+        catalogProjection: data(record.catalog),
+        fixedPlansByCityId: data(record.fixedPlansByCityId),
+        safetySourcePlan: data(record.safetySourcePlan),
+        officialAuthorityDirectory: data(record.officialAuthorityDirectory),
+        validateValue: validators.validateValue,
+        validateSourcePeriod: validators.validateSourcePeriod,
+      });
+    } finally {
+      this.initializingReplayValidators.delete(cacheId);
+    }
   }
 
   latestInstalledVerified(countryCode: string): VerifiedCityCatalogBundle | undefined {

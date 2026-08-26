@@ -1697,17 +1697,17 @@ function legacyUnknownFixedLedger<S extends SloveniaCityFixedSourceId>(
     parserVersion: plan.parserVersion,
     rulesVersion: plan.rulesVersion,
     assessmentAt: context.assessmentAt,
-    attempts: [{
+    attempts: plan.routes.map((route, index) => ({
       cityCheckRunId: context.cityCheckRunId,
       sourceId: plan.sourceId,
-      index: 0,
-      routeId: plan.routes[0]!.routeId,
-      navigationUrl: plan.routes[0]!.navigationUrl,
-      attemptedAt: context.assessmentAt,
-      disposition: "rejected",
-      reason: "http_not_found",
+      index,
+      routeId: route.routeId,
+      navigationUrl: route.navigationUrl,
+      attemptedAt: new Date(Date.parse(context.assessmentAt) + index).toISOString(),
+      disposition: "rejected" as const,
+      reason: "http_not_found" as const,
       artifactIds: [],
-    }],
+    })),
     result: { kind: "unknown", reason: "not_found" },
     completedAt: new Date(Date.parse(context.assessmentAt) + completedOffset).toISOString(),
   };
@@ -1719,15 +1719,17 @@ async function legacyEvidenceInput(
   criteria: CityCriteriaSnapshot,
   cityId: string,
   rank: number,
+  cityCheckRunIdOverride?: string,
 ): Promise<CityEvidenceSealInput> {
   const plans = installed.fixedPlansByCityId[cityId]!;
   const safetyEntry = installed.safetySourcePlan.entries.find((entry) => entry.cityId === cityId)!;
-  const cityCheckRunId = `city-check:${DECISION_INTEGRITY.hash(DECISION_INTEGRITY.canonical({
-    schemaVersion: "city-check-run@1",
-    runId: ranking.runId,
-    cityId,
-    rankingSnapshotId: ranking.id,
-  }))}`;
+  const cityCheckRunId = cityCheckRunIdOverride ??
+    `city-check:${DECISION_INTEGRITY.hash(DECISION_INTEGRITY.canonical({
+      schemaVersion: "city-check-run@1",
+      runId: ranking.runId,
+      cityId,
+      rankingSnapshotId: ranking.id,
+    }))}`;
   const completedAt = new Date(Date.parse(ranking.assessmentAt) + rank * 10_000).toISOString();
   const context: CityEvidenceContext = {
     schemaVersion: "city-evidence-context@1",
@@ -1757,9 +1759,21 @@ async function legacyEvidenceInput(
       safetyUrl,
       SLOVENIA_CITY_FACT_VERSIONS["si-city-safety"].parserVersion,
     ),
-    legacyUnavailableEntry(plans[0].sourceId, plans[0].routes[0]!.navigationUrl, plans[0].parserVersion),
-    legacyUnavailableEntry(plans[1].sourceId, plans[1].routes[0]!.navigationUrl, plans[1].parserVersion),
-    legacyUnavailableEntry(plans[2].sourceId, plans[2].routes[0]!.navigationUrl, plans[2].parserVersion),
+    legacyUnavailableEntry(
+      plans[0].sourceId,
+      plans[0].routes.at(-1)!.navigationUrl,
+      plans[0].parserVersion,
+    ),
+    legacyUnavailableEntry(
+      plans[1].sourceId,
+      plans[1].routes.at(-1)!.navigationUrl,
+      plans[1].parserVersion,
+    ),
+    legacyUnavailableEntry(
+      plans[2].sourceId,
+      plans[2].routes.at(-1)!.navigationUrl,
+      plans[2].parserVersion,
+    ),
   ];
   const genericEvidence = await sealEvidencePlan({
     id: `${cityCheckRunId}:evidence`,
@@ -2273,6 +2287,7 @@ function fixedRoutePort<S extends SloveniaCityFixedSourceId>(
             index: input.routeIndex,
             routeId: input.route.routeId,
             navigationUrl: input.route.navigationUrl,
+            resolvedEvidenceUrl: `${input.route.navigationUrl}/resolved`,
             attemptedAt: input.attemptedAt,
             disposition: "rejected",
             reason: "http_not_found",
@@ -3370,7 +3385,7 @@ async function syntheticApplicationHarness(
     },
   };
   ports.frontierAppend = {
-    appendRevision: (input: CityFrontierRevision) => {
+    appendRevision: (input: Parameters<CityFrontierAppendPort["appendRevision"]>[0]) => {
       calls.appendAuthorityOffsets.push(calls.authorityOrder.length);
       calls.appendEntryAuthorityCounts.push({
         ranking: calls.rankingReads.length,
@@ -3382,7 +3397,7 @@ async function syntheticApplicationHarness(
         knowledge: calls.authorityOrder.filter((value) => value.startsWith("knowledge.")).length,
         evaluation: fixture.policyCalls.evaluations.length,
       });
-      const candidate = reconstructCityFrontierRevision(input, applicationIntegrity);
+      const candidate = reconstructCityFrontierRevision(input.revision, applicationIntegrity);
       calls.appends.push(structuredClone(candidate));
       const rawChain = options.preserveRuns === true
         ? chainsByRun.get(candidate.runId) ?? []
@@ -10154,6 +10169,7 @@ describe("City Frontier Application public boundary", () => {
     harness.calls.safetySearchOutputs.splice(0);
     harness.calls.safetyDocumentOutputs.splice(0);
     fixedRunnerHarness.inputs.splice(0);
+    genericSealHarness.calls = 0;
     harness.fixture.policyCalls.canonicalTargets.splice(0);
     harness.fixture.policyCalls.evaluations.splice(0);
     harness.fixture.policyCalls.values.splice(0);
@@ -10361,9 +10377,10 @@ describe("City Frontier Application public boundary", () => {
     const commonDeadline = new Date(
       harness.calls.deadlinePolicyDates[0]!.valueOf() + 45_000,
     ).toISOString();
-    expect(harness.calls.fixedRouteInputs.map((value) => {
+    const fixedRouteAttempts = harness.calls.fixedRouteInputs.map((value) => {
       const input = value as {
         readonly cityCheckRunId: string;
+        readonly sourceId: SloveniaCityFixedSourceId;
         readonly assessmentAt: string;
         readonly deadlineAt: string;
         readonly routeIndex: number;
@@ -10371,19 +10388,27 @@ describe("City Frontier Application public boundary", () => {
       };
       return {
         cityCheckRunId: input.cityCheckRunId,
+        sourceId: input.sourceId,
         assessmentAt: input.assessmentAt,
         deadlineAt: input.deadlineAt,
         routeIndex: input.routeIndex,
         navigationUrl: input.route.navigationUrl,
       };
-    })).toEqual(harness.fixture.installed.fixedPlansByCityId.ljubljana!.flatMap((plan, index) =>
-      plan.routes.slice(0, index === 2 ? 1 : 2).map((route, routeIndex) => ({
-        cityCheckRunId: checkId,
-        assessmentAt: START_AT,
-        deadlineAt: commonDeadline,
-        routeIndex,
-        navigationUrl: route.navigationUrl,
-      }))));
+    });
+    expect(fixedRouteAttempts).toHaveLength(5);
+    for (const [index, plan] of
+      harness.fixture.installed.fixedPlansByCityId.ljubljana!.entries()) {
+      expect(fixedRouteAttempts.filter(({ sourceId }) => sourceId === plan.sourceId)).toEqual(
+        plan.routes.slice(0, index === 2 ? 1 : 2).map((route, routeIndex) => ({
+          cityCheckRunId: checkId,
+          sourceId: plan.sourceId,
+          assessmentAt: START_AT,
+          deadlineAt: commonDeadline,
+          routeIndex,
+          navigationUrl: route.navigationUrl,
+        })),
+      );
+    }
     expect(harness.calls.deadlinePolicyDates).toHaveLength(3);
     expect(new Set(harness.calls.deadlinePolicyDates.map((value) => value.toISOString())).size)
       .toBe(1);
@@ -10403,10 +10428,12 @@ describe("City Frontier Application public boundary", () => {
       "si-city-fixed-broadband",
     ]);
     const runnerPackage = harness.calls.installedPackageResults.at(-1)!;
-    expect(fixedRunnerInputs.every(({ validateValue, validateSourcePeriod, deadlineScheduler }) =>
+    expect(fixedRunnerInputs.every(({ validateValue, validateSourcePeriod }) =>
       validateValue === runnerPackage.validateValue &&
-      validateSourcePeriod === runnerPackage.validateSourcePeriod &&
-      deadlineScheduler === harness.capabilities.fixedDeadlineScheduler)).toBe(true);
+      validateSourcePeriod === runnerPackage.validateSourcePeriod)).toBe(true);
+    expect(new Set(fixedRunnerInputs.map(({ deadlineScheduler }) => deadlineScheduler)).size).toBe(1);
+    expect(fixedRunnerInputs.every(({ deadlineScheduler }) =>
+      deadlineScheduler !== harness.capabilities.fixedDeadlineScheduler)).toBe(true);
     expect(new Set(fixedRunnerInputs.map(({ now }) => now)).size).toBe(3);
     expect(fixedRunnerInputs.every(({ now }) =>
       (now as unknown) !== (harness.capabilities.clock as unknown))).toBe(true);
@@ -10414,28 +10441,35 @@ describe("City Frontier Application public boundary", () => {
       harness.fixture.installed.fixedPlansByCityId.ljubljana![0]!,
       harness.fixture.installed.fixedPlansByCityId.ljubljana![2]!,
     ];
-    const bySourceId = (left: unknown, right: unknown): number =>
-      String((left as { readonly sourceId: string }).sourceId)
-        .localeCompare(String((right as { readonly sourceId: string }).sourceId));
-    expect([...harness.fixture.policyCalls.values].sort(bySourceId)).toEqual(
-      validatedPlans.map((plan) => ({
-        sourceId: plan.sourceId,
-        criterionId: plan.criterionId,
-        definitionId: plan.definitionId,
-        policyVersion: plan.claimContract.valuePolicyVersion,
-        value: "1",
-        unit: plan.claimContract.unit,
-        denominator: plan.claimContract.denominator,
-      })).sort(bySourceId),
-    );
-    expect([...harness.fixture.policyCalls.sourcePeriods].sort(bySourceId)).toEqual(
-      validatedPlans.map((plan) => ({
-        sourceId: plan.sourceId,
-        policyVersion: plan.claimContract.sourcePeriodPolicyVersion,
-        sourcePeriod: "2025",
-        assessmentAt: START_AT,
-      })).sort(bySourceId),
-    );
+    const expectedValueValidations = validatedPlans.map((plan) => ({
+      sourceId: plan.sourceId,
+      criterionId: plan.criterionId,
+      definitionId: plan.definitionId,
+      policyVersion: plan.claimContract.valuePolicyVersion,
+      value: "1",
+      unit: plan.claimContract.unit,
+      denominator: plan.claimContract.denominator,
+    }));
+    const expectedValueKeys = new Set(expectedValueValidations.map((value) =>
+      DECISION_INTEGRITY.canonical(value)));
+    const valueKeys = harness.fixture.policyCalls.values.map((value) =>
+      DECISION_INTEGRITY.canonical(value));
+    expect(valueKeys.every((value) => expectedValueKeys.has(value))).toBe(true);
+    expect([...expectedValueKeys].every((value) => valueKeys.includes(value))).toBe(true);
+    expect(new Set(valueKeys)).toEqual(expectedValueKeys);
+    const expectedPeriodValidations = validatedPlans.map((plan) => ({
+      sourceId: plan.sourceId,
+      policyVersion: plan.claimContract.sourcePeriodPolicyVersion,
+      sourcePeriod: "2025",
+      assessmentAt: START_AT,
+    }));
+    const expectedPeriodKeys = new Set(expectedPeriodValidations.map((value) =>
+      DECISION_INTEGRITY.canonical(value)));
+    const periodKeys = harness.fixture.policyCalls.sourcePeriods.map((value) =>
+      DECISION_INTEGRITY.canonical(value));
+    expect(periodKeys.every((value) => expectedPeriodKeys.has(value))).toBe(true);
+    expect([...expectedPeriodKeys].every((value) => periodKeys.includes(value))).toBe(true);
+    expect(new Set(periodKeys)).toEqual(expectedPeriodKeys);
     expect(harness.calls.fixedRouteInputs.every((value) => {
       const input = value as { readonly attemptedAt: string; readonly signal: AbortSignal };
       return input.signal instanceof AbortSignal &&
@@ -10737,7 +10771,11 @@ describe("City Frontier Application public boundary", () => {
       harness.fixture.evidenceStore.loadVerified(`${checkId}:evidence`));
     expect(loadedEvidence.snapshot.fixedAttemptLedgers).toEqual(evidenceInput.fixedAttemptLedgers);
     expect(loadedEvidence.snapshot.safetyAttemptLedger).toEqual(evidenceInput.safetyAttemptLedger);
-    expect(loadedEvidence.genericEvidence).toEqual(evidenceInput.genericEvidence);
+    expect(loadedEvidence.genericEvidence.snapshot).toEqual(evidenceInput.genericEvidence.snapshot);
+    expect(loadedEvidence.genericEvidence.manifest).toEqual(evidenceInput.genericEvidence.manifest);
+    expect(evidenceInput.genericEvidence.canonicalManifest).toBe(
+      EVIDENCE_INTEGRITY.canonical(loadedEvidence.genericEvidence.manifest),
+    );
     const loadedKnowledge = withInfrastructurePlanGateRead(() =>
       harness.fixture.knowledgeStore.findByEvidenceVerified(
         loadedEvidence.snapshot.id,
@@ -10868,6 +10906,7 @@ describe("City Frontier Application public boundary", () => {
       sourceId: "si-city-safety",
       disposition: "reviewed_rejected",
       navigationUrl: safetyEntry.configuredRoutes[0]!.navigationUrl,
+      resolvedEvidenceUrl: safetyEntry.configuredRoutes[0]!.navigationUrl,
       rejectionReason: "http_not_found",
     }]);
     expect(result.revision.markers[0]).toMatchObject({
@@ -10887,6 +10926,85 @@ describe("City Frontier Application public boundary", () => {
     expect(presented).toEqual(result);
     expect(harness.calls.fixedRouteInputs).toHaveLength(fixedCalls);
     expect(harness.calls.source).toEqual(safetyCalls);
+  });
+
+  test("rejects a coherently sealed cold Present graph with a noncanonical city-check identity", async () => {
+    // Break caught: trusting agreement between Frontier and Evidence instead of deriving check identity.
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:cold-present-check-identity",
+    });
+    const cityId = started.ranking.ordered[0]!.cityId;
+    const forgedCityCheckRunId = `city-check:${"f".repeat(64)}`;
+    const evidenceInput = await legacyEvidenceInput(
+      harness.fixture.installed,
+      started.ranking,
+      started.criteria,
+      cityId,
+      1,
+      forgedCityCheckRunId,
+    );
+    const insertedEvidence = insertLegacyEvidence(harness.fixture.database, evidenceInput);
+    const evidence = withInfrastructurePlanGateRead(() =>
+      harness.fixture.evidenceStore.loadVerified(insertedEvidence.id));
+    const knowledge = buildCityKnowledgeRevision({
+      packageKey: harness.fixture.installed.installedPackageManifest.key,
+      evidence,
+      factContracts: legacyKnowledgeContracts(harness.fixture.installed, cityId),
+      createdAt: evidenceInput.completedAt,
+    }, DECISION_INTEGRITY);
+    insertLegacyKnowledge(harness.fixture.database, knowledge);
+    const markerAuthority = durableMarkerAuthority(harness, {
+      cityId,
+      knowledgeRevisionId: knowledge.id,
+      evidenceSnapshotId: evidence.snapshot.id,
+    });
+    const marker = reconstructCityLiveMarker({
+      assessmentAt: started.ranking.assessmentAt,
+      criteria: started.criteria,
+      evaluators: harness.fixture.installed.evaluatorRegistry,
+      rank: 1,
+      authority: markerAuthority,
+    });
+    const markerDigest = DECISION_INTEGRITY.hash(DECISION_INTEGRITY.canonical(marker));
+    const projection = reconstructCityFrontier({
+      ranking: {
+        assessmentAt: started.ranking.assessmentAt,
+        orderedCityIds: started.ranking.ordered.map(({ cityId: rankedCityId }) => rankedCityId),
+        screenedExclusionCityIds: started.ranking.screenedExclusions.map(
+          ({ cityId: excludedCityId }) => excludedCityId,
+        ),
+      },
+      criteria: started.criteria,
+      evaluators: harness.fixture.installed.evaluatorRegistry,
+      predecessorMarkers: started.revision.markers,
+      markerBindings: [{ marker, markerDigest, authority: markerAuthority }],
+    });
+    const forged = sealCityFrontierRevision({
+      runId: started.runId,
+      predecessorRevisionId: started.revision.id,
+      rankingSnapshotId: started.ranking.id,
+      markers: [marker],
+      projection,
+      operation: {
+        kind: "city_completed",
+        commandId: "continue:cold-present-check-identity",
+        expectedHeadRevisionId: started.revision.id,
+        cityId,
+        cityCheckRunId: forgedCityCheckRunId,
+      },
+      createdAt: evidenceInput.completedAt,
+    }, DECISION_INTEGRITY);
+    harness.state.replaceChain([started.revision, forged]);
+    harness.calls.authorityOrder.splice(0);
+
+    await expect(harness.assembly.application.presentCityFrontier(started.runId))
+      .rejects.toThrow("integrity_mismatch");
+    expect(harness.calls.authorityOrder).not.toContain(`knowledge.load:${knowledge.id}`);
+    expect(harness.calls.authorityOrder).not.toContain(`evidence.load:${evidence.snapshot.id}`);
   });
 
   test("returns fresh current terminal selection authority after complete semantic replay", async () => {
