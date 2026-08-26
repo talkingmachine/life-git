@@ -2261,6 +2261,12 @@ describe("replayCityEvidence historical fail-closed behavior", () => {
         ledger.catalogRevisionId = contract.catalogProjection.catalog.id;
         ledger.authorityDirectoryId = contract.officialAuthorityDirectory.id;
         ledger.sourcePlanId = contract.safetySourcePlan.id;
+        for (const candidate of ledger.candidates as MutableRecord[]) {
+          const origin = candidate.origin as MutableRecord;
+          if (origin.kind === "previous") {
+            origin.priorSourcePlanId = contract.safetySourcePlan.id;
+          }
+        }
         resealContext(value);
         values.set(id, value);
       }

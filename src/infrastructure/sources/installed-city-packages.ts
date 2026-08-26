@@ -472,6 +472,20 @@ function ownedEvaluatorRegistry(value: unknown): CityCriterionEvaluatorRegistry 
   })) as unknown as CityCriterionEvaluatorRegistry);
 }
 
+function copyEvaluatorRegistry(
+  value: CityCriterionEvaluatorRegistry,
+): CityCriterionEvaluatorRegistry {
+  const registry = exact(value, CITY_CRITERION_IDS);
+  return freeze(Object.fromEntries(CITY_CRITERION_IDS.map((criterionId) => {
+    const evaluator = exact(registry[criterionId], ["definition", "canonicalizeTarget", "evaluate"]);
+    return [criterionId, freeze({
+      definition: data(evaluator.definition),
+      canonicalizeTarget: functionValue(evaluator, "canonicalizeTarget"),
+      evaluate: functionValue(evaluator, "evaluate"),
+    })];
+  })) as unknown as CityCriterionEvaluatorRegistry);
+}
+
 function ownRecord(borrowed: VerifiedInstalledCityPackageRecord):
 VerifiedInstalledCityPackageRecord {
   const record = exact(borrowed, [
@@ -535,6 +549,7 @@ export class InstalledCityPackages implements
   InstalledCityCatalogReadPort {
   private readonly exact: VerifiedInstalledCityPackageReadPort["loadExactVerified"];
   private readonly current: VerifiedInstalledCityPackageReadPort["loadCurrentVerified"];
+  private readonly evaluatorCapabilities = new Map<string, CityCriterionEvaluatorRegistry>();
   private readonly replayValidators = new Map<string, Readonly<{
     validateValue: CityFixedValueValidator;
     validateSourcePeriod: CityFixedSourcePeriodValidator;
@@ -555,13 +570,43 @@ export class InstalledCityPackages implements
   }
 
   findReady(countryCode: string): InstalledCityResearchPackage | undefined {
-    const record = this.current(countryCode);
-    return record === undefined ? undefined : packageFrom(record);
+    const requested = lookupCountry(countryCode);
+    const record = this.current(requested);
+    return record === undefined ? undefined : this.researchPackage(record, { countryCode: requested });
   }
 
   findExact(key: InstalledCityPackageExactKey): InstalledCityResearchPackage | undefined {
-    const record = this.exact(lookupKey(key));
-    return record === undefined ? undefined : packageFrom(record);
+    const requested = lookupKey(key);
+    const record = this.exact(requested);
+    return record === undefined ? undefined : this.researchPackage(record, { key: requested });
+  }
+
+  private researchPackage(
+    record: VerifiedInstalledCityPackageRecord,
+    requested: Readonly<{
+      readonly countryCode?: string;
+      readonly key?: InstalledCityPackageExactKey;
+    }>,
+  ): InstalledCityResearchPackage {
+    const researchPackage = packageFrom(record);
+    const key = lookupKey(researchPackage.installedPackageManifest.key);
+    if ((requested.countryCode !== undefined && key.countryCode !== requested.countryCode) ||
+      (requested.key !== undefined && !sameLookupKey(key, requested.key))) mismatch();
+    const cacheId = lookupKeyCacheId(key);
+    let evaluators = this.evaluatorCapabilities.get(cacheId);
+    if (evaluators === undefined) {
+      evaluators = researchPackage.evaluatorRegistry;
+      this.evaluatorCapabilities.set(cacheId, evaluators);
+    } else {
+      for (const criterionId of CITY_CRITERION_IDS) {
+        if (JSON.stringify(evaluators[criterionId].definition) !==
+          JSON.stringify(researchPackage.evaluatorRegistry[criterionId].definition)) mismatch();
+      }
+    }
+    return freeze({
+      ...researchPackage,
+      evaluatorRegistry: copyEvaluatorRegistry(evaluators),
+    });
   }
 
   loadExactReplayContract(

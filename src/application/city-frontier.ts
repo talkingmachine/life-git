@@ -38,6 +38,7 @@ import type {
 import {
   reconstructCityFrontierRevision,
   reconstructCityRankingSnapshot,
+  reconstructCitySelectionWithBranch,
   sealCityFrontierRevision,
   sealCityRankingSnapshot,
   verifyCityRankingSnapshotSemantics,
@@ -70,6 +71,7 @@ import {
   reconstructCityCriteriaSnapshot,
   reconstructInstalledCityCriteriaDefaults,
   reconstructInstalledCityCriterionDefinitions,
+  type CityCriteriaSnapshot,
   type CityCriterionEvaluatorRegistry,
   type CityCriterionDraft,
   type CityCriterionId,
@@ -85,9 +87,11 @@ import {
   type CityFrontierProjection,
   type CityFrontierVerificationBudget,
   type CityLiveMarker,
+  type CityMarkerBinding,
   type CityMarkerAuthorityProjection,
   type ReconstructCityFrontierInput,
 } from "../decision/city-frontier-policy";
+import { reconstructCitySelection } from "../decision/city-selection";
 import {
   rankCities,
   type CityKnowledgeRankingProjection,
@@ -665,18 +669,18 @@ function verifyManifest(
   const manifest = ownedJson(borrowed, true) as Record<string, unknown>;
   exactRecord(manifest, MANIFEST_FIELDS);
   const payload = manifestPayload(manifest);
+  if (installed.installedPackageManifest.id !== manifest.id ||
+    !sameDecision(exactKey(manifest.key), context, decisionIntegrity) ||
+    payload.schemaVersion !== "installed-city-package-manifest@1") mismatch();
   const payloadHash = evidenceDigest(payload, evidenceIntegrity);
   if (manifest.payloadHash !== payloadHash || manifest.id !== `installed-city-package-manifest:${payloadHash}` ||
     typeof manifest.hmac !== "string" || !SHA256.test(manifest.hmac) ||
-    installed.installedPackageManifest.id !== manifest.id ||
-    !sameDecision(manifest.key, context, decisionIntegrity) ||
     !sameDecision(payload.definition, ready.definition, decisionIntegrity) ||
     !sameDecision(payload.definition, installed.definition, decisionIntegrity) ||
     payload.sourceContractStatus !== ready.sourceContractStatus ||
     payload.sourceContractStatus !== installed.sourceContractStatus ||
     !sameDecision(payload.readiness, ready.readiness, decisionIntegrity) ||
-    !sameDecision(payload.readiness, installed.readiness, decisionIntegrity) ||
-    payload.schemaVersion !== "installed-city-package-manifest@1") mismatch();
+    !sameDecision(payload.readiness, installed.readiness, decisionIntegrity)) mismatch();
   const root = exactRecord(payload.catalogRoot, ["registryRevisionId", "catalogRevisionId"]);
   if (root.registryRevisionId !== catalog.registry.id || root.catalogRevisionId !== catalog.catalog.id) mismatch();
   return manifest as unknown as InstalledCityPackageManifest;
@@ -1173,6 +1177,23 @@ function ownedClockInstant(value: unknown): string {
   return instant;
 }
 
+function fixedRunnerClockSample(value: unknown): string {
+  if (value === null || typeof value !== "object" || isBorrowedProxy(value) ||
+    Object.getPrototypeOf(value) !== Date.prototype || Reflect.ownKeys(value).length !== 0) {
+    return "invalid_city_fixed_clock";
+  }
+  try {
+    const millis = Date.prototype.getTime.call(value);
+    const instant = Date.prototype.toISOString.call(value);
+    if (!Number.isFinite(millis) || new Date(millis).toISOString() !== instant) {
+      return "invalid_city_fixed_clock";
+    }
+    return instant;
+  } catch {
+    return "invalid_city_fixed_clock";
+  }
+}
+
 function criteriaCommandPayload(
   criteria: Readonly<StartCityFrontierInput["criteriaDraft"]>,
   profileSnapshotId: string,
@@ -1621,6 +1642,7 @@ interface ContinueAuthority extends ContinuePreflight {
   readonly cityCheckRunId: string;
   readonly flightIdentity: ContinuationFlightIdentity;
   readonly recoveredEvidencePresent: boolean;
+  readonly baseMarkerBindings: readonly CityMarkerBinding[];
 }
 
 function loadHistoricalRanking(
@@ -1647,15 +1669,104 @@ function loadHistoricalRanking(
   });
 }
 
+function loadMarkerKnowledgeCopies(
+  markers: readonly CityLiveMarker[],
+  ports: Readonly<CityFrontierApplicationPorts>,
+): readonly CityKnowledgeRevision[] {
+  return Object.freeze(markers.map(({ knowledgeRevisionId }) =>
+    ownedJson(ports.knowledge.loadVerified(knowledgeRevisionId)) as CityKnowledgeRevision));
+}
+
+async function replayMarkerBindings(
+  runId: string,
+  markers: readonly CityLiveMarker[],
+  markerKnowledgeCopies: readonly CityKnowledgeRevision[],
+  ranking: CityRankingSnapshot,
+  criteria: CityCriteriaSnapshot,
+  trust: InitialTrust,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<readonly CityMarkerBinding[]> {
+  if (markerKnowledgeCopies.length !== markers.length) mismatch();
+  const bindings: CityMarkerBinding[] = [];
+  for (let index = 0; index < markers.length; index += 1) {
+    const persistedMarker = markers[index]!;
+    const ranked = ranking.ordered[index];
+    const rank = index + 1;
+    if (ranked === undefined || ranked.rank !== rank || persistedMarker.rank !== rank ||
+      persistedMarker.cityId !== ranked.cityId) mismatch();
+    const derivedCityCheckRunId = cityCheckRunId(Object.freeze({
+      schemaVersion: "city-check-run@1",
+      runId,
+      cityId: ranked.cityId,
+      rankingSnapshotId: ranking.id,
+    }), ports.decisionIntegrity);
+    if (persistedMarker.evidenceSnapshotId !== `${derivedCityCheckRunId}:evidence`) mismatch();
+    const evidence = await replayCityEvidence({
+      evidenceSnapshotId: persistedMarker.evidenceSnapshotId,
+      cityId: persistedMarker.cityId,
+      packageId: trust.context.packageId,
+    }, ports.evidenceReplay);
+    const snapshot = evidence.snapshot;
+    const evidenceContext: CityEvidenceContext = Object.freeze({
+      schemaVersion: snapshot.schemaVersion === "city-evidence@1"
+        ? "city-evidence-context@1"
+        : mismatch(),
+      cityCheckRunId: snapshot.cityCheckRunId,
+      frontierRunId: snapshot.frontierRunId,
+      cityId: snapshot.cityId,
+      countryCode: snapshot.countryCode,
+      packageId: snapshot.packageId,
+      packageSchemaVersion: snapshot.packageSchemaVersion,
+      catalogRevisionId: snapshot.catalogRevisionId,
+      criteriaSnapshotId: snapshot.criteriaSnapshotId,
+      rankingSnapshotId: snapshot.rankingSnapshotId,
+      definitionIds: snapshot.definitionIds,
+      evidenceRulesVersion: snapshot.evidenceRulesVersion,
+      assessmentAt: snapshot.assessmentAt,
+      completedAt: snapshot.completedAt,
+    });
+    bindVerifiedEvidence(evidence, evidenceContext, persistedMarker.evidenceSnapshotId, ports);
+    if (evidenceContext.frontierRunId !== runId ||
+      evidenceContext.rankingSnapshotId !== ranking.id ||
+      evidenceContext.criteriaSnapshotId !== criteria.id ||
+      evidenceContext.cityCheckRunId !== derivedCityCheckRunId ||
+      snapshot.id !== `${derivedCityCheckRunId}:evidence`) mismatch();
+    const markerKnowledge = reconstructCityKnowledgeRevision({
+      revision: markerKnowledgeCopies[index],
+      packageKey: trust.context,
+      evidence: evidence as unknown as CityKnowledgeEvidenceView,
+      factContracts: knowledgeContracts(trust, persistedMarker.cityId),
+    }, ports.decisionIntegrity);
+    if (markerKnowledge.id !== persistedMarker.knowledgeRevisionId ||
+      markerKnowledge.cityId !== persistedMarker.cityId ||
+      markerKnowledge.evidenceSnapshotId !== persistedMarker.evidenceSnapshotId ||
+      markerKnowledge.predecessorRevisionId !== undefined ||
+      markerKnowledge.lastCheckedAt !== snapshot.completedAt ||
+      markerKnowledge.createdAt !== snapshot.completedAt) mismatch();
+    const markerAuthority = continuationMarkerAuthority(markerKnowledge, evidence);
+    const marker = reconstructCityLiveMarker({
+      assessmentAt: ranking.assessmentAt,
+      criteria,
+      evaluators: trust.evaluatorRegistry,
+      rank,
+      authority: markerAuthority,
+      persisted: persistedMarker,
+    });
+    const markerDigest = ports.decisionIntegrity.hash(ports.decisionIntegrity.canonical(marker));
+    if (typeof markerDigest !== "string" || !SHA256.test(markerDigest)) mismatch();
+    bindings.push(Object.freeze({ marker, markerDigest, authority: markerAuthority }));
+  }
+  return Object.freeze(bindings);
+}
+
 async function loadContinueAuthority(
   preflight: ContinuePreflight,
   ports: Readonly<CityFrontierApplicationPorts>,
+  gated?: Readonly<{ ranking: CityRankingSnapshot; trust: InitialTrust }>,
 ): Promise<ContinueAuthority> {
   const { prepared, base } = preflight;
-  const loaded = loadHistoricalRanking(prepared.rankingSnapshotId, ports);
-  const ranking = loaded.ranking;
-  if (ranking.runId !== prepared.runId || base.rankingSnapshotId !== ranking.id) mismatch();
-  const trust = historicalTrust(loaded.borrowedContext, ranking, ports, true);
+  const { ranking, trust } = gated ?? loadContinueTrust(preflight, ports);
+  authenticateContinueChain(preflight, ranking, ports);
 
   const criteria = reconstructCityCriteriaSnapshot(
     ports.criteria.loadCriteriaVerified(ranking.criteriaSnapshotId),
@@ -1694,6 +1805,7 @@ async function loadContinueAuthority(
     replayedBranch.createdAt !== sourceAuthority.resolved.createdAt ||
     replayedBranch.createdAt > criteria.confirmedAt) mismatch();
 
+  const baseMarkerKnowledge = loadMarkerKnowledgeCopies(base.markers, ports);
   const knowledge = exactKnowledgeForRanking(ranking, trust, ports);
   verifyCityRankingSnapshotSemantics(ranking, {
     registry: trust.catalog.registry,
@@ -1702,11 +1814,36 @@ async function loadContinueAuthority(
     knowledge,
     evaluators: trust.evaluatorRegistry,
   }, ports.decisionIntegrity);
-  if (base.kind !== "working" || base.predecessorRevisionId !== undefined ||
-    base.markers.length !== 0 || base.nextUncheckedRank !== 1 ||
-    base.phase !== "verification_required" || base.operation.kind !== "start" ||
-    base.createdAt !== criteria.confirmedAt ||
-    base.operation.criteriaPayloadHash !== criteriaPayloadHash) mismatch();
+  const baseBindings = await replayMarkerBindings(
+    prepared.runId,
+    base.markers,
+    baseMarkerKnowledge,
+    ranking,
+    criteria,
+    trust,
+    ports,
+  );
+  if (base.kind !== "working" || base.phase !== "verification_required" ||
+    base.nextUncheckedRank !== base.markers.length + 1 ||
+    base.nextUncheckedRank !== prepared.nextUncheckedRank) mismatch();
+  if (base.markers.length === 0) {
+    if (base.predecessorRevisionId !== undefined || base.nextUncheckedRank !== 1 ||
+      base.operation.kind !== "start" || base.createdAt !== criteria.confirmedAt ||
+      base.operation.criteriaPayloadHash !== criteriaPayloadHash) mismatch();
+  } else {
+    const lastMarker = base.markers.at(-1)!;
+    const lastRanked = ranking.ordered[base.markers.length - 1];
+    if (base.predecessorRevisionId === undefined || base.operation.kind !== "city_completed" ||
+      base.operation.expectedHeadRevisionId !== base.predecessorRevisionId ||
+      lastRanked === undefined || lastMarker.rank !== lastRanked.rank ||
+      lastMarker.cityId !== lastRanked.cityId || base.operation.cityId !== lastMarker.cityId ||
+      base.operation.cityCheckRunId !== cityCheckRunId(Object.freeze({
+        schemaVersion: "city-check-run@1",
+        runId: prepared.runId,
+        cityId: lastMarker.cityId,
+        rankingSnapshotId: ranking.id,
+      }), ports.decisionIntegrity) || base.createdAt !== lastMarker.lastCheckedAt) mismatch();
+  }
   reconstructCityFrontier({
     ranking: {
       assessmentAt: ranking.assessmentAt,
@@ -1715,14 +1852,11 @@ async function loadContinueAuthority(
     },
     criteria,
     evaluators: trust.evaluatorRegistry,
-    predecessorMarkers: null,
-    markerBindings: [],
-    persisted: {
-      kind: "working",
-      nextUncheckedRank: base.nextUncheckedRank,
-      selectableCityIds: [],
-      phase: base.phase,
-    },
+    predecessorMarkers: baseBindings.length === 0
+      ? null
+      : Object.freeze(base.markers.slice(0, -1)),
+    markerBindings: baseBindings,
+    persisted: persistedFrontierProjection(base),
   });
 
   const ranked = ranking.ordered[prepared.nextUncheckedRank - 1];
@@ -1760,7 +1894,20 @@ async function loadContinueAuthority(
     cityCheckRunId: checkRunId,
     flightIdentity,
     recoveredEvidencePresent,
+    baseMarkerBindings: baseBindings,
   });
+}
+
+function loadContinueTrust(
+  preflight: ContinuePreflight,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Readonly<{ ranking: CityRankingSnapshot; trust: InitialTrust }> {
+  const loaded = loadHistoricalRanking(preflight.prepared.rankingSnapshotId, ports);
+  const ranking = loaded.ranking;
+  if (ranking.runId !== preflight.prepared.runId ||
+    preflight.base.rankingSnapshotId !== ranking.id) mismatch();
+  const trust = historicalTrust(loaded.borrowedContext, ranking, ports, true);
+  return Object.freeze({ ranking, trust });
 }
 
 const abortSignalAbortedGetter = Object.getOwnPropertyDescriptor(
@@ -1892,71 +2039,87 @@ async function runContinuationResearch(
   ports: Readonly<CityFrontierApplicationPorts>,
 ): Promise<ContinuationResearch> {
   const plans = selectedFixedPlans(authority);
-  const fixedNow = () => (): string => ownedClockInstant(ports.clock());
-  const safetyPromise = runCitySafetyDiscovery({
-    runId: authority.cityCheckRunId,
-    catalog: authority.trust.catalog.catalog,
-    integrity: ports.decisionIntegrity,
-    sourcePlan: authority.trust.installed.safetySourcePlan,
-    authorityDirectory: authority.trust.installed.officialAuthorityDirectory,
-    cityId: authority.cityId,
-    assessmentAt: authority.ranking.assessmentAt,
-    signal,
-  }, {
-    search: ports.safetySearch,
-    officialDocuments: ports.safetyDocuments,
-    clock: () => new Date(ownedClockInstant(ports.clock())),
+  const fixedNow = () => (): string => fixedRunnerClockSample(ports.clock());
+  const safetyPromise = Promise.resolve().then(() => runCitySafetyDiscovery({
+      runId: authority.cityCheckRunId,
+      catalog: authority.trust.catalog.catalog,
+      integrity: ports.decisionIntegrity,
+      sourcePlan: authority.trust.installed.safetySourcePlan,
+      authorityDirectory: authority.trust.installed.officialAuthorityDirectory,
+      cityId: authority.cityId,
+      assessmentAt: authority.ranking.assessmentAt,
+      signal,
+    }, {
+      search: ports.safetySearch,
+      officialDocuments: ports.safetyDocuments,
+      clock: () => new Date(ownedClockInstant(ports.clock())),
+    }));
+  const fixedPromise = Promise.resolve().then(() => {
+    const starts = [
+      () => runCityFixedSourcePlan({
+        cityCheckRunId: authority.cityCheckRunId,
+        cityId: authority.cityId,
+        sourceId: plans[0].sourceId,
+        criterionId: plans[0].criterionId,
+        planId: plans[0].planId,
+        definitionId: plans[0].definitionId,
+        assessmentAt: authority.ranking.assessmentAt,
+        deadlineAt: deadlines[0],
+        signal,
+        now: fixedNow(),
+        deadlineScheduler: ports.fixedDeadlineScheduler,
+        validateValue: authority.trust.installed.validateValue,
+        validateSourcePeriod: authority.trust.installed.validateSourcePeriod,
+      }, plans[0], ports.fixedRoutes["si-city-long-term-rent"]),
+      () => runCityFixedSourcePlan({
+        cityCheckRunId: authority.cityCheckRunId,
+        cityId: authority.cityId,
+        sourceId: plans[1].sourceId,
+        criterionId: plans[1].criterionId,
+        planId: plans[1].planId,
+        definitionId: plans[1].definitionId,
+        assessmentAt: authority.ranking.assessmentAt,
+        deadlineAt: deadlines[1],
+        signal,
+        now: fixedNow(),
+        deadlineScheduler: ports.fixedDeadlineScheduler,
+        validateValue: authority.trust.installed.validateValue,
+        validateSourcePeriod: authority.trust.installed.validateSourcePeriod,
+      }, plans[1], ports.fixedRoutes["si-city-urban-transit"]),
+      () => runCityFixedSourcePlan({
+        cityCheckRunId: authority.cityCheckRunId,
+        cityId: authority.cityId,
+        sourceId: plans[2].sourceId,
+        criterionId: plans[2].criterionId,
+        planId: plans[2].planId,
+        definitionId: plans[2].definitionId,
+        assessmentAt: authority.ranking.assessmentAt,
+        deadlineAt: deadlines[2],
+        signal,
+        now: fixedNow(),
+        deadlineScheduler: ports.fixedDeadlineScheduler,
+        validateValue: authority.trust.installed.validateValue,
+        validateSourcePeriod: authority.trust.installed.validateSourcePeriod,
+      }, plans[2], ports.fixedRoutes["si-city-fixed-broadband"]),
+    ] as const;
+    const observed: Promise<CityFixedSourceRunResult<
+      SloveniaCityFixedSourceId,
+      CityFixedEvidenceClaim<SloveniaCityFixedSourceId>
+    >>[] = [];
+    for (const start of starts) {
+      const promise = Promise.resolve(start()) as
+        Promise<CityFixedSourceRunResult<
+          SloveniaCityFixedSourceId,
+          CityFixedEvidenceClaim<SloveniaCityFixedSourceId>
+        >>;
+      void promise.catch(() => undefined);
+      observed.push(promise);
+    }
+    return Promise.all(observed) as unknown as Promise<FixedRunResults>;
   });
-  const rentPromise = runCityFixedSourcePlan({
-    cityCheckRunId: authority.cityCheckRunId,
-    cityId: authority.cityId,
-    sourceId: plans[0].sourceId,
-    criterionId: plans[0].criterionId,
-    planId: plans[0].planId,
-    definitionId: plans[0].definitionId,
-    assessmentAt: authority.ranking.assessmentAt,
-    deadlineAt: deadlines[0],
-    signal,
-    now: fixedNow(),
-    deadlineScheduler: ports.fixedDeadlineScheduler,
-    validateValue: authority.trust.installed.validateValue,
-    validateSourcePeriod: authority.trust.installed.validateSourcePeriod,
-  }, plans[0], ports.fixedRoutes["si-city-long-term-rent"]);
-  const transitPromise = runCityFixedSourcePlan({
-    cityCheckRunId: authority.cityCheckRunId,
-    cityId: authority.cityId,
-    sourceId: plans[1].sourceId,
-    criterionId: plans[1].criterionId,
-    planId: plans[1].planId,
-    definitionId: plans[1].definitionId,
-    assessmentAt: authority.ranking.assessmentAt,
-    deadlineAt: deadlines[1],
-    signal,
-    now: fixedNow(),
-    deadlineScheduler: ports.fixedDeadlineScheduler,
-    validateValue: authority.trust.installed.validateValue,
-    validateSourcePeriod: authority.trust.installed.validateSourcePeriod,
-  }, plans[1], ports.fixedRoutes["si-city-urban-transit"]);
-  const broadbandPromise = runCityFixedSourcePlan({
-    cityCheckRunId: authority.cityCheckRunId,
-    cityId: authority.cityId,
-    sourceId: plans[2].sourceId,
-    criterionId: plans[2].criterionId,
-    planId: plans[2].planId,
-    definitionId: plans[2].definitionId,
-    assessmentAt: authority.ranking.assessmentAt,
-    deadlineAt: deadlines[2],
-    signal,
-    now: fixedNow(),
-    deadlineScheduler: ports.fixedDeadlineScheduler,
-    validateValue: authority.trust.installed.validateValue,
-    validateSourcePeriod: authority.trust.installed.validateSourcePeriod,
-  }, plans[2], ports.fixedRoutes["si-city-fixed-broadband"]);
-  const [safety, rent, transit, broadband] = await Promise.all([
+  const [safety, [rent, transit, broadband]] = await Promise.all([
     safetyPromise,
-    rentPromise,
-    transitPromise,
-    broadbandPromise,
+    fixedPromise,
   ]);
   const safetyEntry = citySafetyTerminalEntry({
     cityCheckRunId: authority.cityCheckRunId,
@@ -2252,22 +2415,22 @@ function continuationMarkerAuthority(
 ): CityMarkerAuthorityProjection {
   const lastSafetyAttempt = evidence.snapshot.safetyAttemptLedger.candidates.at(-1);
   const facts = knowledge.facts.map((fact) => {
-    const evidenceLinks = fact.evidenceRefs.flatMap((reference) => reference.kind === "claim"
-      ? [{
+    const evidenceLinks = Object.freeze(fact.evidenceRefs.flatMap((reference) => reference.kind === "claim"
+      ? [Object.freeze({
           sourceId: reference.sourceId,
           disposition: "accepted" as const,
           navigationUrl: reference.navigationUrl,
           resolvedEvidenceUrl: reference.resolvedEvidenceUrl,
-        }]
-      : []);
-    const manualCheckLinks = fact.evidenceRefs.flatMap((reference) => {
+        })]
+      : []));
+    const manualCheckLinks = Object.freeze(fact.evidenceRefs.flatMap((reference) => {
       if (reference.kind !== "blocker") return [];
       let safetyRejection: CityFactLinkRejectionReason | undefined;
       if (fact.criterionId === "safety") {
         if (lastSafetyAttempt?.disposition !== "rejected") mismatch();
         safetyRejection = lastSafetyAttempt.reason as CityFactLinkRejectionReason;
       }
-      return [{
+      return [Object.freeze({
         sourceId: reference.sourceId,
         disposition: "reviewed_rejected" as const,
         navigationUrl: reference.navigationUrl,
@@ -2277,8 +2440,8 @@ function continuationMarkerAuthority(
         ...(safetyRejection === undefined
           ? {}
           : { rejectionReason: safetyRejection }),
-      }];
-    });
+      })];
+    }));
     return Object.freeze({
       criterionId: fact.criterionId,
       definitionId: fact.definitionId,
@@ -2330,11 +2493,10 @@ function commitContinuationRevision(
     ports.decisionIntegrity.canonical(marker),
   );
   if (typeof markerDigest !== "string" || !SHA256.test(markerDigest)) mismatch();
-  const markerBindings = Object.freeze([Object.freeze({
-    marker,
-    markerDigest,
-    authority: markerAuthority,
-  })]);
+  const markerBindings = Object.freeze([
+    ...authority.baseMarkerBindings,
+    Object.freeze({ marker, markerDigest, authority: markerAuthority }),
+  ]);
   const projection = reconstructCityFrontier({
     ranking: {
       assessmentAt: authority.ranking.assessmentAt,
@@ -2397,25 +2559,30 @@ async function reloadContinuationReadModel(
   expectedKnowledge: CityKnowledgeRevision,
   ports: Readonly<CityFrontierApplicationPorts>,
 ): Promise<CityFrontierReadModel> {
-  const borrowedChain = ports.frontierRead.loadChainVerified(authority.prepared.runId);
-  const chainValues = ownedJson(borrowedChain) as readonly unknown[];
-  if (!Array.isArray(chainValues) || chainValues.length !== 2) mismatch();
-  const chain = chainValues.map((value) =>
-    reconstructCityFrontierRevision(value, ports.decisionIntegrity));
-  const root = chain[0];
-  const revision = chain[1];
-  if (root === undefined || revision === undefined ||
-    !sameDecision(root, authority.base, ports.decisionIntegrity) ||
+  const chain = reconstructFrontierChain(
+    authority.prepared.runId,
+    ports.frontierRead.loadChainVerified(authority.prepared.runId),
+    ports,
+  );
+  if (chain.length !== authority.base.markers.length + 2) mismatch();
+  const predecessor = chain.at(-2);
+  const revision = chain.at(-1);
+  if (predecessor === undefined || revision === undefined ||
+    !sameDecision(predecessor, authority.base, ports.decisionIntegrity) ||
     !sameDecision(revision, committed.revision, ports.decisionIntegrity) ||
     revision.runId !== authority.prepared.runId ||
     revision.rankingSnapshotId !== authority.prepared.rankingSnapshotId ||
-    revision.predecessorRevisionId !== root.id) mismatch();
+    revision.predecessorRevisionId !== predecessor.id) mismatch();
 
   const loadedRanking = loadHistoricalRanking(revision.rankingSnapshotId, ports);
   const ranking = loadedRanking.ranking;
   if (!sameDecision(ranking, authority.ranking, ports.decisionIntegrity) ||
     !sameDecision(exactKey(loadedRanking.borrowedContext), authority.trust.context,
       ports.decisionIntegrity)) mismatch();
+  authenticateRevisionCommand(chain[0]!, ports);
+  for (let index = 1; index < chain.length; index += 1) {
+    authenticateCompletedRevision(authority.prepared.runId, chain[index]!, index, ranking, ports);
+  }
   const catalog = reconstructVerifiedCityCatalog(
     ownedJson(ports.historicalCatalogs.loadVerified(ranking.catalogRevisionId)) as
       CityCatalogProjection,
@@ -2437,8 +2604,8 @@ async function reloadContinuationReadModel(
   );
   if (!sameDecision(branch, authority.branch, ports.decisionIntegrity)) mismatch();
 
-  const persistedMarker = revision.markers[0];
-  if (persistedMarker === undefined || revision.markers.length !== 1) mismatch();
+  const persistedMarker = revision.markers[authority.rank - 1];
+  if (persistedMarker === undefined || revision.markers.length !== authority.rank) mismatch();
   const borrowedKnowledge = ports.knowledge.loadVerified(persistedMarker.knowledgeRevisionId);
   const verifiedEvidence = await replayCityEvidence({
     evidenceSnapshotId: persistedMarker.evidenceSnapshotId,
@@ -2479,24 +2646,14 @@ async function reloadContinuationReadModel(
     },
     criteria,
     evaluators: authority.trust.evaluatorRegistry,
-    predecessorMarkers: root.markers,
-    markerBindings: Object.freeze([Object.freeze({ marker, markerDigest, authority: markerAuthority })]),
+    predecessorMarkers: authority.base.markers,
+    markerBindings: Object.freeze([
+      ...authority.baseMarkerBindings,
+      Object.freeze({ marker, markerDigest, authority: markerAuthority }),
+    ]),
     persisted: persistedFrontierProjection(revision),
   });
 
-  const command = exactRecord(
-    ports.frontierRead.findCommandVerified(
-      authority.prepared.runId,
-      authority.prepared.commandId,
-    ),
-    ["operation", "revision"],
-  );
-  const commandRevision = reconstructCityFrontierRevision(
-    command.revision,
-    ports.decisionIntegrity,
-  );
-  if (!sameDecision(command.operation, revision.operation, ports.decisionIntegrity) ||
-    !sameDecision(commandRevision, revision, ports.decisionIntegrity)) mismatch();
   const selections = ownedJson(
     await ports.selectionHistory.listSelectionsWithBranchesVerified(authority.prepared.runId),
   ) as CityFrontierReadModel["selections"];
@@ -2886,41 +3043,158 @@ async function continueModel(
   ports: Readonly<CityFrontierApplicationPorts>,
 ): Promise<CityFrontierReadModel> {
   const preflight = continuePreflight(prepared, ports);
-  if (preflight.completed !== undefined) return presentModel(prepared.runId, ports);
+  if (preflight.completed !== undefined) {
+    const gated = loadContinueTrust(preflight, ports);
+    authenticateContinueChain(preflight, gated.ranking, ports);
+    return presentModel(prepared.runId, ports, preflight.completed.id);
+  }
   const authority = await loadContinueAuthority(preflight, ports);
   if (nativeSignalAborted(callerSignal)) abortReason(callerSignal);
   const flight = continuationFlight(authority, flights, ports);
   return attachContinuationWaiter(authority, flight, emit, callerSignal, flights, ports);
 }
 
-async function presentModel(
+function reconstructFrontierChain(
   runId: string,
+  borrowedChain: readonly CityFrontierRevision[],
   ports: Readonly<CityFrontierApplicationPorts>,
-): Promise<CityFrontierReadModel> {
-  const borrowedChain = ports.frontierRead.loadChainVerified(runId);
+): readonly CityFrontierRevision[] {
   const chainValues = ownedJson(borrowedChain) as readonly unknown[];
-  if (!Array.isArray(chainValues) || chainValues.length < 1 || chainValues.length > 2) mismatch();
+  if (!Array.isArray(chainValues) || chainValues.length < 1 ||
+    chainValues.length > START_VERIFICATION_BUDGET.liveCityCandidateLimit + 1) mismatch();
   const chain = chainValues.map((value) =>
     reconstructCityFrontierRevision(value, ports.decisionIntegrity));
   const root = chain[0];
-  const head = chain.at(-1);
-  if (root === undefined || head === undefined) mismatch();
+  if (root === undefined) mismatch();
   if (root.runId !== runId || root.predecessorRevisionId !== undefined ||
     root.kind !== "working" || root.markers.length !== 0 || root.nextUncheckedRank !== 1 ||
     root.phase !== "verification_required" || root.operation.kind !== "start") mismatch();
-  if (chain.length === 2 && (head === root || head.runId !== runId ||
-    head.predecessorRevisionId !== root.id || head.rankingSnapshotId !== root.rankingSnapshotId ||
-    head.operation.kind !== "city_completed" ||
-    head.operation.expectedHeadRevisionId !== root.id || head.markers.length !== 1 ||
-    head.nextUncheckedRank !== 2 || head.createdAt < root.createdAt)) mismatch();
+
+  for (let index = 1; index < chain.length; index += 1) {
+    const previous = chain[index - 1]!;
+    const revision = chain[index]!;
+    const marker = revision.markers[index - 1];
+    if (previous.kind !== "working" || revision.runId !== runId ||
+      revision.predecessorRevisionId !== previous.id ||
+      revision.rankingSnapshotId !== root.rankingSnapshotId ||
+      revision.operation.kind !== "city_completed" ||
+      revision.operation.expectedHeadRevisionId !== previous.id ||
+      revision.markers.length !== index || revision.nextUncheckedRank !== index + 1 ||
+      revision.createdAt < previous.createdAt || marker === undefined || marker.rank !== index ||
+      marker.cityId !== revision.operation.cityId || marker.lastCheckedAt !== revision.createdAt ||
+      !sameDecision(revision.markers.slice(0, -1), previous.markers,
+        ports.decisionIntegrity)) mismatch();
+  }
+  return Object.freeze(chain);
+}
+
+interface ReplayedPresentationGraph {
+  readonly readModel: CityFrontierReadModel;
+  readonly target: CityFrontierRevision;
+  readonly ranking: CityRankingSnapshot;
+  readonly preCityBranch: PreCityBranchCommit;
+  readonly preCitySource: PreCityBranchSourceProjection;
+  readonly frontier: ReconstructCityFrontierInput;
+}
+
+function authenticateRevisionCommand(
+  revision: CityFrontierRevision,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): void {
+  const borrowedCommand = ports.frontierRead.findCommandVerified(
+    revision.runId,
+    revision.operation.commandId,
+  );
+  if (borrowedCommand === undefined) mismatch();
+  const envelope = exactRecord(borrowedCommand, ["operation", "revision"]);
+  const commandRevision = reconstructCityFrontierRevision(
+    envelope.revision,
+    ports.decisionIntegrity,
+  );
+  if (!sameDecision(envelope.operation, revision.operation, ports.decisionIntegrity) ||
+    !sameDecision(commandRevision, revision, ports.decisionIntegrity)) mismatch();
+}
+
+function authenticateCompletedRevision(
+  runId: string,
+  revision: CityFrontierRevision,
+  index: number,
+  ranking: CityRankingSnapshot,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): void {
+  const marker = revision.markers[index - 1];
+  const ranked = ranking.ordered[index - 1];
+  if (marker === undefined || ranked === undefined || marker.rank !== index ||
+    ranked.rank !== index || marker.cityId !== ranked.cityId ||
+    revision.operation.kind !== "city_completed" ||
+    revision.operation.cityId !== marker.cityId) mismatch();
+  const derivedCityCheckRunId = cityCheckRunId(Object.freeze({
+    schemaVersion: "city-check-run@1",
+    runId,
+    cityId: marker.cityId,
+    rankingSnapshotId: ranking.id,
+  }), ports.decisionIntegrity);
+  if (revision.operation.cityCheckRunId !== derivedCityCheckRunId) mismatch();
+  authenticateRevisionCommand(revision, ports);
+}
+
+function authenticateContinueChain(
+  preflight: ContinuePreflight,
+  ranking: CityRankingSnapshot,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): void {
+  const chain = reconstructFrontierChain(
+    preflight.prepared.runId,
+    ports.frontierRead.loadChainVerified(preflight.prepared.runId),
+    ports,
+  );
+  const baseIndex = chain.findIndex(({ id }) => id === preflight.base.id);
+  if (baseIndex < 0 ||
+    !sameDecision(chain[baseIndex], preflight.base, ports.decisionIntegrity) ||
+    (preflight.completed === undefined && baseIndex !== chain.length - 1)) mismatch();
+  if (preflight.completed !== undefined) {
+    const completed = chain[baseIndex + 1];
+    if (completed === undefined ||
+      !sameDecision(completed, preflight.completed, ports.decisionIntegrity)) mismatch();
+  }
+  if (chain[0]!.rankingSnapshotId !== ranking.id) mismatch();
+  authenticateRevisionCommand(chain[0]!, ports);
+  for (let index = 1; index < chain.length; index += 1) {
+    authenticateCompletedRevision(preflight.prepared.runId, chain[index]!, index, ranking, ports);
+  }
+}
+
+function presentationReadModel(
+  graph: ReplayedPresentationGraph,
+  selections: CityFrontierReadModel["selections"],
+): CityFrontierReadModel {
+  return Object.freeze({
+    ...graph.readModel,
+    selections,
+  });
+}
+
+async function replayPresentationGraph(
+  runId: string,
+  chain: readonly CityFrontierRevision[],
+  target: CityFrontierRevision,
+  requireCurrentCatalog: boolean,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<ReplayedPresentationGraph> {
+  const root = chain[0];
+  const targetIndex = chain.findIndex(({ id }) => id === target.id);
+  if (root === undefined || targetIndex < 0 ||
+    !sameDecision(chain[targetIndex], target, ports.decisionIntegrity)) mismatch();
 
   const loadedRanking = loadHistoricalRanking(root.rankingSnapshotId, ports);
   const ranking = loadedRanking.ranking;
   if (ranking.id !== root.rankingSnapshotId || ranking.runId !== runId) mismatch();
-  const trust = historicalTrust(loadedRanking.borrowedContext, ranking, ports);
-  if (chain.length === 2 && trust.catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) {
-    mismatch();
-  }
+  const trust = historicalTrust(
+    loadedRanking.borrowedContext,
+    ranking,
+    ports,
+    requireCurrentCatalog,
+  );
 
   const criteria = reconstructCityCriteriaSnapshot(
     ports.criteria.loadCriteriaVerified(ranking.criteriaSnapshotId),
@@ -2942,7 +3216,8 @@ async function presentModel(
     ranking.catalogRevisionId !== trust.catalog.catalog.id ||
     !sameDecision(ranking.verificationBudget, START_VERIFICATION_BUDGET, ports.decisionIntegrity) ||
     ranking.assessmentAt !== criteria.confirmedAt || ranking.createdAt !== criteria.confirmedAt ||
-    root.createdAt !== criteria.confirmedAt || root.operation.criteriaPayloadHash !== criteriaPayloadHash) {
+    root.createdAt !== criteria.confirmedAt || root.operation.kind !== "start" ||
+    root.operation.criteriaPayloadHash !== criteriaPayloadHash) {
     mismatch();
   }
 
@@ -2960,6 +3235,12 @@ async function presentModel(
     replayedBranch.createdAt !== sourceAuthority.resolved.createdAt ||
     replayedBranch.createdAt > criteria.confirmedAt) mismatch();
 
+  for (let index = 1; index <= targetIndex; index += 1) {
+    const revision = chain[index]!;
+    authenticateCompletedRevision(runId, revision, index, ranking, ports);
+  }
+
+  const markerKnowledge = loadMarkerKnowledgeCopies(target.markers, ports);
   const knowledge = exactKnowledgeForRanking(ranking, trust, ports);
   verifyCityRankingSnapshotSemantics(ranking, {
     registry: trust.catalog.registry,
@@ -2968,108 +3249,34 @@ async function presentModel(
     knowledge,
     evaluators: trust.evaluatorRegistry,
   }, ports.decisionIntegrity);
-  let predecessorMarkers: null | readonly CityLiveMarker[] = null;
-  let markerBindings: ReconstructCityFrontierInput["markerBindings"] = Object.freeze([]);
-  if (chain.length === 2) {
-    const persistedMarker = head.markers[0];
-    const ranked = ranking.ordered[0];
-    if (persistedMarker === undefined || ranked === undefined || ranked.rank !== 1 ||
-      persistedMarker.rank !== 1 || persistedMarker.cityId !== ranked.cityId ||
-      head.operation.kind !== "city_completed" || head.operation.cityId !== ranked.cityId ||
-      head.createdAt !== persistedMarker.lastCheckedAt) mismatch();
-    const derivedCityCheckRunId = cityCheckRunId(Object.freeze({
-      schemaVersion: "city-check-run@1",
-      runId,
-      cityId: ranked.cityId,
-      rankingSnapshotId: ranking.id,
-    }), ports.decisionIntegrity);
-    if (head.operation.cityCheckRunId !== derivedCityCheckRunId ||
-      persistedMarker.evidenceSnapshotId !== `${derivedCityCheckRunId}:evidence`) mismatch();
-    const borrowedKnowledge = ports.knowledge.loadVerified(persistedMarker.knowledgeRevisionId);
-    const evidence = await replayCityEvidence({
-      evidenceSnapshotId: persistedMarker.evidenceSnapshotId,
-      cityId: persistedMarker.cityId,
-      packageId: trust.context.packageId,
-    }, ports.evidenceReplay);
-    const snapshot = evidence.snapshot;
-    const evidenceContext: CityEvidenceContext = Object.freeze({
-      schemaVersion: snapshot.schemaVersion === "city-evidence@1"
-        ? "city-evidence-context@1"
-        : mismatch(),
-      cityCheckRunId: snapshot.cityCheckRunId,
-      frontierRunId: snapshot.frontierRunId,
-      cityId: snapshot.cityId,
-      countryCode: snapshot.countryCode,
-      packageId: snapshot.packageId,
-      packageSchemaVersion: snapshot.packageSchemaVersion,
-      catalogRevisionId: snapshot.catalogRevisionId,
-      criteriaSnapshotId: snapshot.criteriaSnapshotId,
-      rankingSnapshotId: snapshot.rankingSnapshotId,
-      definitionIds: snapshot.definitionIds,
-      evidenceRulesVersion: snapshot.evidenceRulesVersion,
-      assessmentAt: snapshot.assessmentAt,
-      completedAt: snapshot.completedAt,
-    });
-    bindVerifiedEvidence(evidence, evidenceContext, persistedMarker.evidenceSnapshotId, ports);
-    if (evidenceContext.frontierRunId !== runId ||
-      evidenceContext.rankingSnapshotId !== ranking.id ||
-      evidenceContext.criteriaSnapshotId !== criteria.id ||
-      evidenceContext.cityCheckRunId !== derivedCityCheckRunId ||
-      snapshot.id !== `${derivedCityCheckRunId}:evidence`) mismatch();
-    const markerKnowledge = reconstructCityKnowledgeRevision({
-      revision: borrowedKnowledge,
-      packageKey: trust.context,
-      evidence: evidence as unknown as CityKnowledgeEvidenceView,
-      factContracts: knowledgeContracts(trust, persistedMarker.cityId),
-    }, ports.decisionIntegrity);
-    if (markerKnowledge.id !== persistedMarker.knowledgeRevisionId ||
-      markerKnowledge.cityId !== persistedMarker.cityId ||
-      markerKnowledge.evidenceSnapshotId !== persistedMarker.evidenceSnapshotId ||
-      markerKnowledge.predecessorRevisionId !== undefined ||
-      markerKnowledge.lastCheckedAt !== snapshot.completedAt ||
-      markerKnowledge.createdAt !== snapshot.completedAt) mismatch();
-    const markerAuthority = continuationMarkerAuthority(markerKnowledge, evidence);
-    const marker = reconstructCityLiveMarker({
+  const markerBindings = await replayMarkerBindings(
+    runId,
+    target.markers,
+    markerKnowledge,
+    ranking,
+    criteria,
+    trust,
+    ports,
+  );
+  const frontier: ReconstructCityFrontierInput = Object.freeze({
+    ranking: Object.freeze({
       assessmentAt: ranking.assessmentAt,
-      criteria,
-      evaluators: trust.evaluatorRegistry,
-      rank: 1,
-      authority: markerAuthority,
-      persisted: persistedMarker,
-    });
-    const markerDigest = ports.decisionIntegrity.hash(ports.decisionIntegrity.canonical(marker));
-    if (typeof markerDigest !== "string" || !SHA256.test(markerDigest)) mismatch();
-    predecessorMarkers = root.markers;
-    markerBindings = Object.freeze([Object.freeze({ marker, markerDigest, authority: markerAuthority })]);
-    const command = exactRecord(
-      ports.frontierRead.findCommandVerified(runId, head.operation.commandId),
-      ["operation", "revision"],
-    );
-    const commandRevision = reconstructCityFrontierRevision(
-      command.revision,
-      ports.decisionIntegrity,
-    );
-    if (!sameDecision(command.operation, head.operation, ports.decisionIntegrity) ||
-      !sameDecision(commandRevision, head, ports.decisionIntegrity)) mismatch();
-  }
-  reconstructCityFrontier({
-    ranking: {
-      assessmentAt: ranking.assessmentAt,
-      orderedCityIds: ranking.ordered.map(({ cityId }) => cityId),
-      screenedExclusionCityIds: ranking.screenedExclusions.map(({ cityId }) => cityId),
-    },
+      orderedCityIds: Object.freeze(ranking.ordered.map(({ cityId }) => cityId)),
+      screenedExclusionCityIds: Object.freeze(
+        ranking.screenedExclusions.map(({ cityId }) => cityId),
+      ),
+    }),
     criteria,
     evaluators: trust.evaluatorRegistry,
-    predecessorMarkers,
+    predecessorMarkers: target.markers.length === 0
+      ? null
+      : Object.freeze(target.markers.slice(0, -1)),
     markerBindings,
-    persisted: persistedFrontierProjection(head),
+    persisted: persistedFrontierProjection(target),
   });
+  reconstructCityFrontier(frontier);
 
-  const selections = ownedJson(
-    await ports.selectionHistory.listSelectionsWithBranchesVerified(runId),
-  ) as CityFrontierReadModel["selections"];
-  if (!Array.isArray(selections) || selections.length !== 0) mismatch();
-  return Object.freeze({
+  const readModel: CityFrontierReadModel = Object.freeze({
     runId,
     assessmentAt: ranking.assessmentAt,
     resolvedCountryShortlistRevisionId: ranking.resolvedCountryShortlistRevisionId,
@@ -3079,13 +3286,114 @@ async function presentModel(
     catalog: trust.catalog.catalog,
     criteria,
     ranking,
-    revision: head,
-    selections,
+    revision: target,
+    selections: Object.freeze([]),
+  });
+  return Object.freeze({
+    readModel,
+    target,
+    ranking,
+    preCityBranch: replayedBranch,
+    preCitySource: sourceAuthority.source,
+    frontier,
   });
 }
 
-function notImplemented(): Promise<never> {
-  return Promise.reject(new Error("city_frontier_not_implemented"));
+async function loadCurrentTerminalGraph(
+  terminalRevisionId: string,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<ReplayedPresentationGraph> {
+  const claimed = loadClaimedBase(terminalRevisionId, ports);
+  const chain = reconstructFrontierChain(
+    claimed.runId,
+    ports.frontierRead.loadChainVerified(claimed.runId),
+    ports,
+  );
+  const current = chain.at(-1);
+  if (claimed.kind !== "terminal" || current === undefined ||
+    !sameDecision(claimed, current, ports.decisionIntegrity)) mismatch();
+  return replayPresentationGraph(claimed.runId, chain, claimed, true, ports);
+}
+
+async function replaySelectionHistory(
+  base: ReplayedPresentationGraph,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<CityFrontierReadModel["selections"]> {
+  const borrowed = await ports.selectionHistory.listSelectionsWithBranchesVerified(
+    base.target.runId,
+  );
+  const values = ownedJson(borrowed) as readonly unknown[];
+  if (!Array.isArray(values)) mismatch();
+  const selections = [];
+  for (const value of values) {
+    const pair = exactRecord(value, ["selection", "commit"]);
+    const selection = exactRecord(pair.selection, [
+      "schemaVersion", "id", "commandId", "runId", "terminalRevisionId", "cityId",
+      "countryCode", "profileSnapshotId", "preferenceProfileSnapshotId",
+      "resolvedCountryShortlistRevisionId", "criteriaSnapshotId", "rankingSnapshotId",
+      "preCityBranchCommitId", "selectedMarkerDigest", "knowledgeRevisionId",
+      "evidenceSnapshotId", "unknownBasis",
+      ...(Object.prototype.hasOwnProperty.call(pair.selection, "warningCopyVersion")
+        ? ["warningCopyVersion"]
+        : []),
+      "createdAt",
+    ]);
+    if (selection.runId !== base.target.runId ||
+      selection.terminalRevisionId !== base.target.id ||
+      selection.rankingSnapshotId !== base.ranking.id) mismatch();
+    const authority = await loadCurrentTerminalGraph(identifier(selection.terminalRevisionId), ports);
+    const request = selection.warningCopyVersion === undefined
+      ? Object.freeze({ cityId: identifier(selection.cityId) })
+      : Object.freeze({
+          cityId: identifier(selection.cityId),
+          warningCopyVersion: selection.warningCopyVersion,
+        });
+    reconstructCitySelection({ frontier: authority.frontier, request });
+    selections.push(reconstructCitySelectionWithBranch(value, {
+      terminal: authority.target as TerminalCityShortlistSnapshot,
+      ranking: authority.ranking,
+      preCityBranch: authority.preCityBranch,
+    }, ports.decisionIntegrity));
+  }
+  return Object.freeze(selections);
+}
+
+async function presentModel(
+  runId: string,
+  ports: Readonly<CityFrontierApplicationPorts>,
+  targetRevisionId?: string,
+): Promise<CityFrontierReadModel> {
+  const chain = reconstructFrontierChain(
+    runId,
+    ports.frontierRead.loadChainVerified(runId),
+    ports,
+  );
+  const target = targetRevisionId === undefined
+    ? chain.at(-1)
+    : chain.find(({ id }) => id === targetRevisionId);
+  if (target === undefined) mismatch();
+  const graph = await replayPresentationGraph(runId, chain, target, false, ports);
+  const selections = target.kind === "terminal"
+    ? await replaySelectionHistory(graph, ports)
+    : Object.freeze([]);
+  return presentationReadModel(graph, selections);
+}
+
+async function loadCurrentTerminalSelectionAuthority(
+  terminalRevisionId: string,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<VerifiedCityTerminalSelectionAuthority> {
+  const graph = await loadCurrentTerminalGraph(terminalRevisionId, ports);
+  if (graph.target.kind !== "terminal") mismatch();
+  const selections = await replaySelectionHistory(graph, ports);
+  return Object.freeze({
+    readModel: presentationReadModel(graph, selections),
+    terminal: graph.target,
+    ranking: graph.ranking,
+    preCityBranch: graph.preCityBranch,
+    preCitySource: graph.preCitySource,
+    frontier: graph.frontier,
+  });
 }
 
 export function createCityFrontierApplication(
@@ -3115,7 +3423,8 @@ export function createCityFrontierApplication(
     presentCityFrontier: async (runId: string) => presentModel(identifier(runId), captured),
   });
   const selectionAuthority: Readonly<CityFrontierSelectionAuthorityPort> = Object.freeze({
-    loadCurrentTerminalSelectionAuthority: () => { void captured; return notImplemented(); },
+    loadCurrentTerminalSelectionAuthority: async (terminalRevisionId: string) =>
+      loadCurrentTerminalSelectionAuthority(identifier(terminalRevisionId), captured),
   });
   return Object.freeze({ application, selectionAuthority });
 }

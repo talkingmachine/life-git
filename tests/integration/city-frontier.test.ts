@@ -201,7 +201,7 @@ import type { CitySafetyAttemptLedger } from "../../src/research/city-safety-evi
 const fixedRunnerHarness = vi.hoisted(() => ({
   inputs: [] as unknown[],
   promises: [] as Promise<unknown>[],
-  beforeDelegate: undefined as ((input: unknown) => void) | undefined,
+  aroundDelegate: undefined as ((delegate: () => unknown) => unknown) | undefined,
   onInput: undefined as (() => void) | undefined,
 }));
 const safetyRunnerHarness = vi.hoisted(() => ({ promises: [] as Promise<unknown>[] }));
@@ -446,8 +446,9 @@ vi.mock("../../src/research/city-evidence", async (importOriginal) => {
     runCityFixedSourcePlan: (...args: Parameters<typeof actual.runCityFixedSourcePlan>) => {
       fixedRunnerHarness.inputs.push(args[0]);
       fixedRunnerHarness.onInput?.();
-      fixedRunnerHarness.beforeDelegate?.(args[0]);
-      const promise = actual.runCityFixedSourcePlan(...args);
+      const delegate = () => actual.runCityFixedSourcePlan(...args);
+      const promise = (fixedRunnerHarness.aroundDelegate?.(delegate) ?? delegate()) as
+        ReturnType<typeof actual.runCityFixedSourcePlan>;
       fixedRunnerHarness.promises.push(promise);
       return promise;
     },
@@ -653,7 +654,7 @@ afterEach(() => {
   infrastructurePlanGateRead.depth = 0;
   fixedRunnerHarness.inputs.splice(0);
   fixedRunnerHarness.promises.splice(0);
-  fixedRunnerHarness.beforeDelegate = undefined;
+  fixedRunnerHarness.aroundDelegate = undefined;
   fixedRunnerHarness.onInput = undefined;
   safetyRunnerHarness.promises.splice(0);
   genericSealHarness.calls = 0;
@@ -2556,6 +2557,7 @@ interface SyntheticApplicationHarness {
   };
   readonly state: {
     root(): CityFrontierRevision;
+    chain(): readonly CityFrontierRevision[];
     artifacts(): {
       readonly criteria: CityCriteriaSnapshot;
       readonly branch: PreCityBranchCommit;
@@ -2565,6 +2567,7 @@ interface SyntheticApplicationHarness {
     replaceChain(revisions: readonly CityFrontierRevision[]): void;
     addRevision(revision: CityFrontierRevision): void;
     failRevisionLoad(id: string, error: Error): void;
+    overrideCommandResult(commandId: string, value: unknown): void;
     overrideExactPackageResult(
       mode: "missing" | "visible-key-drift" | "hidden-key-drift",
       alternate: InstalledCityResearchPackage,
@@ -2955,6 +2958,7 @@ async function syntheticApplicationHarness(
   const rankingsById = new Map<string, CityRankingSnapshot>();
   const chainsByRun = new Map<string, readonly CityFrontierRevision[]>();
   const revisionLoadFailures = new Map<string, Error>();
+  const commandResultOverrides = new Map<string, unknown>();
   const required = <T>(value: T | undefined, message: string): T => {
     if (value === undefined) throw new Error(message);
     return value;
@@ -3354,6 +3358,11 @@ async function syntheticApplicationHarness(
     findCommandVerified: (_runId: string, commandId: string) => {
       calls.reloads.push(`frontier.command:${_runId}:${commandId}`);
       calls.authorityOrder.push(`frontier.command:${_runId}:${commandId}`);
+      if (commandResultOverrides.has(commandId)) {
+        return structuredClone(commandResultOverrides.get(commandId)) as ReturnType<
+          CityFrontierReadPort["findCommandVerified"]
+        >;
+      }
       const selectedChain = options.preserveRuns === true ? chainsByRun.get(_runId) ?? [] : chain;
       const matches = selectedChain.filter((revision) => revision.runId === _runId &&
         revision.operation.commandId === commandId);
@@ -3739,6 +3748,10 @@ async function syntheticApplicationHarness(
       const bytes = new TextEncoder().encode(`safety-navigation:${input.candidateUrl}`);
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const missingDocumentUrl = `${input.candidateUrl}/missing.pdf`;
+      const publisherContext = required(
+        input.publisherContext,
+        "missing_synthetic_safety_publisher_context",
+      );
       const artifact: LiveCapturedArtifact<"si-city-safety"> = {
         artifactId: `${input.runId}:si-city-safety:artifact`,
         runId: input.runId,
@@ -3781,12 +3794,12 @@ async function syntheticApplicationHarness(
             locator: artifact.url,
           }],
           reviewedOfficial: {
-            publisherId: "municipality-ljubljana",
+            publisherId: publisherContext.publisherId,
             dataAuthorityId: "police",
-            publisherNavigationUrl: input.candidateUrl,
+            publisherNavigationUrl: publisherContext.publisherNavigationUrl,
           },
           mediaType: "application/pdf",
-          retentionPolicyId: "municipality-ljubljana-retention@1",
+          retentionPolicyId: `${publisherContext.publisherId}-retention@1`,
           transientRawDeleted: false,
           disposition: "rejected",
           reason: "http_not_found",
@@ -3850,12 +3863,12 @@ async function syntheticApplicationHarness(
     options.afterClock?.(calls.clocks.length);
     return rawValue as Date;
   };
-  fixedRunnerHarness.beforeDelegate = options.runnerNow === undefined
+  fixedRunnerHarness.aroundDelegate = options.runnerNow === undefined
     ? undefined
-    : (input: unknown) => {
+    : (delegate: () => unknown) => {
         runnerNowProbeActive = true;
         try {
-          (input as CityFixedSourceRunInput<SloveniaCityFixedSourceId>).now();
+          return delegate();
         } finally {
           runnerNowProbeActive = false;
         }
@@ -3953,6 +3966,7 @@ async function syntheticApplicationHarness(
     },
     state: {
       root: () => required(root, "city_frontier_not_found"),
+      chain: () => chain.map((revision) => structuredClone(revision)),
       artifacts: () => ({
         criteria: required(criteria, "city_criteria_not_found"),
         branch: required(branch, "city_branch_not_found"),
@@ -3972,6 +3986,7 @@ async function syntheticApplicationHarness(
       },
       addRevision(revision) { knownRevisions.push(revision); },
       failRevisionLoad(id, error) { revisionLoadFailures.set(id, error); },
+      overrideCommandResult(commandId, value) { commandResultOverrides.set(commandId, value); },
       overrideExactPackageResult(mode, alternate, visibleField) {
         adversarialExactPackageResult = { mode, alternate, ...(visibleField === undefined
           ? {}
@@ -8619,10 +8634,14 @@ describe("City Frontier Application public boundary", () => {
 
     for (const row of rows) {
       let runnerClockCalls = 0;
+      let deadlineCancelCalls = 0;
       const harness = await syntheticApplicationHarness({
         runnerNow: () => {
           runnerClockCalls += 1;
           return row.result();
+        },
+        fixedDeadlineScheduler: {
+          schedule: () => ({ cancel: () => { deadlineCancelCalls += 1; } }),
         },
       });
       const started = await harness.assembly.application.startCityFrontier({
@@ -8653,6 +8672,7 @@ describe("City Frontier Application public boundary", () => {
         const genericOffset = genericSealHarness.calls;
         const fixedRouteOffset = harness.calls.fixedRouteInputs.length;
         const scheduledOffset = harness.calls.scheduledDeadlines.length;
+        const cancelOffset = deadlineCancelCalls;
         const events: CityFrontierEvent[] = [];
         const caught = await harness.assembly.application.continueCityFrontier(
           prepared,
@@ -8669,15 +8689,17 @@ describe("City Frontier Application public boundary", () => {
           const error = caught as Error;
           errors.push(error);
           expect(error.message).toBe("invalid_city_fixed_clock");
+          expect(error.stack).toContain("runCityFixedSourcePlan");
+          expect(error.stack).not.toContain("fixedRunnerClockSample");
         }
-        expect(fixedRunnerHarness.inputs.slice(inputOffset)).toHaveLength(1);
+        expect(fixedRunnerHarness.inputs.slice(inputOffset)).toHaveLength(3);
         const runnerInput = fixedRunnerHarness.inputs[inputOffset] as
           CityFixedSourceRunInput<SloveniaCityFixedSourceId>;
         capturedNow.push(runnerInput.now);
         expect(typeof runnerInput.now).toBe("function");
         expect(runnerInput.now).not.toBe(harness.capabilities.clock);
         expect(Object.values(runnerInput).some((value) => value instanceof Date)).toBe(false);
-        expect(fixedRunnerHarness.promises).toHaveLength(promiseOffset);
+        expect(fixedRunnerHarness.promises).toHaveLength(promiseOffset + 3);
         await Promise.allSettled([
           ...fixedRunnerHarness.promises.slice(promiseOffset),
           ...safetyRunnerHarness.promises.slice(safetyPromiseOffset),
@@ -8703,7 +8725,8 @@ describe("City Frontier Application public boundary", () => {
         expect(harness.calls.publications).toHaveLength(publicationOffset);
         expect(genericSealHarness.calls).toBe(genericOffset);
         expect(harness.calls.fixedRouteInputs).toHaveLength(fixedRouteOffset);
-        expect(harness.calls.scheduledDeadlines).toHaveLength(scheduledOffset);
+        expect(harness.calls.scheduledDeadlines).toHaveLength(scheduledOffset + 3);
+        expect(deadlineCancelCalls).toBe(cancelOffset + 3);
         expect(harness.state.root()).toEqual(started.revision);
         expect(harness.fixture.database.prepare("SELECT total_changes() AS count").get())
           .toEqual(databaseChanges);
@@ -8711,7 +8734,7 @@ describe("City Frontier Application public boundary", () => {
         await nextEventLoopTurn();
         expect(events).toHaveLength(eventCount);
       }
-      expect(runnerClockCalls).toBe(2);
+      expect(runnerClockCalls).toBe(6);
       expect(capturedNow).toHaveLength(2);
       expect(capturedNow[0]).not.toBe(capturedNow[1]);
       if (row.name !== "native-throw") expect(errors[0]).not.toBe(errors[1]);
@@ -10786,12 +10809,13 @@ describe("City Frontier Application public boundary", () => {
     expect(harness.calls.authorityOrder.slice(appendOffset)).toEqual([
       `frontier.chain:${started.runId}`,
       `ranking:${started.ranking.id}`,
+      `frontier.command:${started.runId}:${started.revision.operation.commandId}`,
+      `frontier.command:${started.runId}:continue:ljubljana`,
       `catalog.historical:${started.catalog.id}`,
       `criteria:${started.criteria.id}`,
       `branch:${started.preCityBranchCommitId}`,
       `knowledge.load:${persistedMarker.knowledgeRevisionId}`,
       `evidence.load:${persistedMarker.evidenceSnapshotId}`,
-      `frontier.command:${started.runId}:continue:ljubljana`,
       `selection:${started.runId}`,
     ]);
     expect(events.at(-2)).toMatchObject({
@@ -11046,6 +11070,200 @@ describe("City Frontier Application public boundary", () => {
     expect(harness.calls.authorityOrder).not.toContain(`evidence.load:${evidence.snapshot.id}`);
   });
 
+  test("authenticates every completed command envelope before Present or selection callbacks", async () => {
+    // Break caught: chain HMACs were accepted while a target-prefix command index was absent/drifted.
+    for (const index of [1, 2] as const) {
+      for (const mode of ["missing", "substituted"] as const) {
+        const harness = await syntheticApplicationHarness();
+        const seeded = await seedCurrentSemanticKnowledge(harness, `command-index:${index}:${mode}`);
+        const chain = harness.state.chain();
+        expect(chain).toHaveLength(3);
+        const target = chain[index]!;
+        const alternate = chain[index === 1 ? 2 : 1]!;
+        expect(target.operation.kind).toBe("city_completed");
+        harness.state.overrideCommandResult(
+          target.operation.commandId,
+          mode === "missing"
+            ? undefined
+            : { operation: alternate.operation, revision: alternate },
+        );
+
+        for (const invoke of [
+          () => harness.assembly.application.presentCityFrontier(seeded.head.runId),
+          () => harness.assembly.selectionAuthority.loadCurrentTerminalSelectionAuthority(
+            seeded.head.revision.id,
+          ),
+        ]) {
+          harness.calls.authorityOrder.splice(0);
+          await expect(invoke()).rejects.toThrow("integrity_mismatch");
+          expect(harness.calls.authorityOrder).toContain(
+            `frontier.command:${seeded.head.runId}:${target.operation.commandId}`,
+          );
+          expect(harness.calls.authorityOrder.some((entry) =>
+            entry.startsWith("knowledge.load:") || entry.startsWith("evidence.load:"))).toBe(false);
+        }
+      }
+    }
+  });
+
+  test("authenticates the complete Continue chain before marker callbacks or effects", async () => {
+    // Break caught: a valid head hid a missing or authentically re-signed corrupt intermediate.
+    for (const mode of ["missing", "resigned-intermediate"] as const) {
+      const harness = await syntheticApplicationHarness();
+      const seeded = await seedCurrentSemanticKnowledge(harness, `continue-chain:${mode}`);
+      const authentic = harness.state.chain();
+      const root = authentic[0]!;
+      const intermediate = authentic[1]!;
+      const terminal = authentic[2]!;
+      if (intermediate.operation.kind !== "city_completed" ||
+        terminal.operation.kind !== "city_completed") {
+        throw new Error("invalid_continue_chain_fixture");
+      }
+      const driftedIntermediate = mode === "resigned-intermediate"
+        ? sealCityFrontierRevision({
+            runId: intermediate.runId,
+            predecessorRevisionId: intermediate.predecessorRevisionId,
+            rankingSnapshotId: intermediate.rankingSnapshotId,
+            markers: intermediate.markers,
+            projection: {
+              kind: "working",
+              nextUncheckedRank: intermediate.nextUncheckedRank,
+              selectableCityIds: intermediate.markers.filter(({ status }) =>
+                status === "selectable").map(({ cityId }) => cityId),
+              phase: "verification_required",
+            },
+            operation: {
+              ...intermediate.operation,
+              cityCheckRunId: `city-check:${"f".repeat(64)}`,
+            },
+            createdAt: intermediate.createdAt,
+          }, DECISION_INTEGRITY)
+        : intermediate;
+      const head = sealCityFrontierRevision({
+        runId: terminal.runId,
+        predecessorRevisionId: driftedIntermediate.id,
+        rankingSnapshotId: terminal.rankingSnapshotId,
+        markers: terminal.markers,
+        projection: {
+          kind: "working",
+          nextUncheckedRank: terminal.nextUncheckedRank,
+          selectableCityIds: terminal.markers.filter(({ status }) =>
+            status === "selectable").map(({ cityId }) => cityId),
+          phase: "verification_required",
+        },
+        operation: {
+          ...terminal.operation,
+          expectedHeadRevisionId: driftedIntermediate.id,
+        },
+        createdAt: terminal.createdAt,
+      }, DECISION_INTEGRITY);
+      harness.state.replaceChain(mode === "missing"
+        ? [root, head]
+        : [root, driftedIntermediate, head]);
+      const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+        runId: seeded.head.runId,
+        expectedRevisionId: head.id,
+        commandId: `continue:after-corrupt-chain:${mode}`,
+      });
+      const before = {
+        knowledge: harness.calls.authorityOrder.filter((entry) =>
+          entry.startsWith("knowledge.")).length,
+        evidence: harness.calls.authorityOrder.filter((entry) =>
+          entry.startsWith("evidence.")).length,
+        clocks: harness.calls.clocks.length,
+        fixed: harness.calls.fixedRouteInputs.length,
+        safety: harness.calls.source.length,
+        seals: harness.calls.evidenceSeals.length,
+        publishes: harness.calls.knowledgePublishes.length,
+        appends: harness.calls.appends.length,
+      };
+      await expect(harness.assembly.application.continueCityFrontier(
+        prepared,
+        vi.fn(),
+        new AbortController().signal,
+      )).rejects.toThrow("integrity_mismatch");
+      expect({
+        knowledge: harness.calls.authorityOrder.filter((entry) =>
+          entry.startsWith("knowledge.")).length,
+        evidence: harness.calls.authorityOrder.filter((entry) =>
+          entry.startsWith("evidence.")).length,
+        clocks: harness.calls.clocks.length,
+        fixed: harness.calls.fixedRouteInputs.length,
+        safety: harness.calls.source.length,
+        seals: harness.calls.evidenceSeals.length,
+        publishes: harness.calls.knowledgePublishes.length,
+        appends: harness.calls.appends.length,
+      }).toEqual(before);
+    }
+  });
+
+  test("authenticates the root command index on a committed Continue hit before presentation", async () => {
+    // Break caught: the hit path authenticated completed commands but skipped the chain root index.
+    for (const mode of ["missing", "substituted"] as const) {
+      const harness = await syntheticApplicationHarness();
+      const started = await harness.assembly.application.startCityFrontier({
+        resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+        countryCode: "SI",
+        criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+        commandId: `start:hit-root-command:${mode}`,
+      });
+      const commandId = `continue:hit-root-command:${mode}`;
+      const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+        runId: started.runId,
+        expectedRevisionId: started.revision.id,
+        commandId,
+      });
+      const committed = await harness.assembly.application.continueCityFrontier(
+        prepared,
+        vi.fn(),
+        new AbortController().signal,
+      );
+      const hitPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+        runId: started.runId,
+        expectedRevisionId: started.revision.id,
+        commandId,
+      });
+      expect(hitPrepared).toEqual(prepared);
+      harness.state.overrideCommandResult(
+        started.revision.operation.commandId,
+        mode === "missing"
+          ? undefined
+          : { operation: committed.revision.operation, revision: committed.revision },
+      );
+      const presentationEffects = () => ({
+        criteria: harness.calls.reloads.filter((entry) => entry.startsWith("criteria:")).length,
+        branch: harness.calls.reloads.filter((entry) => entry.startsWith("branch:")).length,
+        knowledge: harness.calls.authorityOrder.filter((entry) =>
+          entry.startsWith("knowledge.")).length,
+        evidence: harness.calls.authorityOrder.filter((entry) =>
+          entry.startsWith("evidence.")).length,
+        history: harness.calls.selectionHistory.length,
+        clocks: harness.calls.clocks.length,
+        fixed: harness.calls.fixedRouteInputs.length,
+        safety: harness.calls.source.length,
+        seals: harness.calls.evidenceSeals.length,
+        publishes: harness.calls.knowledgePublishes.length,
+        appends: harness.calls.appends.length,
+        flights: harness.calls.flightIdentityCanonicals.length,
+      });
+      const before = presentationEffects();
+      const errors: Error[] = [];
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const caught = await harness.assembly.application.continueCityFrontier(
+          hitPrepared,
+          vi.fn(),
+          new AbortController().signal,
+        ).catch((error: unknown) => error);
+        expect(caught).toBeInstanceOf(Error);
+        const error = caught as Error;
+        errors.push(error);
+        expect(error.message).toBe("integrity_mismatch");
+        expect(presentationEffects()).toEqual(before);
+      }
+      expect(errors[0]).not.toBe(errors[1]);
+    }
+  });
+
   test("returns fresh current terminal selection authority after complete semantic replay", async () => {
     // Break caught: exposing a structural terminal or a borrowed public read model as Task 15 authority.
     const harness = await syntheticApplicationHarness();
@@ -11226,13 +11444,6 @@ describe("City Frontier Application public boundary", () => {
         harness.fixture.installed.catalog.members.length * 3 + 5,
       );
       expect(harness.calls.evidenceSigns.slice(signOffset)).toEqual([]);
-      expect(planGateHarness.fixed.slice(fixedOffset)).toHaveLength(
-        harness.fixture.installed.catalog.members.length * 3,
-      );
-      expect(planGateHarness.directories.slice(directoryOffset)).toHaveLength(1);
-      expect(planGateHarness.safetyPlans.slice(safetyOffset)).toHaveLength(1);
-      expect(planGateHarness.defaults.slice(defaultsOffset)).toHaveLength(1);
-      expect(planGateHarness.definitions.slice(definitionsOffset)).toHaveLength(1);
       expect(planGateHarness.semanticEntries.slice(semanticOffset)).toHaveLength(1);
       const semanticEntry = planGateHarness.semanticEntries[semanticOffset]!;
       expectSemanticGateEntry(harness, {
@@ -11300,7 +11511,38 @@ describe("City Frontier Application public boundary", () => {
     expect(first.ranking).toEqual(expectedRanking);
     expect(first.preCityBranch).toEqual(expectedBranch);
     expect(first.preCitySource).toEqual(expectedPreCitySource);
-    expect(first.frontier).toEqual(expectedFrontier);
+    expect({ ...first.frontier, evaluators: undefined })
+      .toEqual({ ...expectedFrontier, evaluators: undefined });
+    expect(Reflect.ownKeys(first.frontier.evaluators)).toEqual(CITY_CRITERION_IDS);
+    expect(first.frontier.evaluators).not.toBe(expectedFrontier.evaluators);
+    for (const criterionId of CITY_CRITERION_IDS) {
+      const actualEvaluator = first.frontier.evaluators[criterionId];
+      const fixtureEvaluator = expectedFrontier.evaluators[criterionId];
+      const criterion = seeded.head.criteria.criteria.find((candidate) =>
+        candidate.criterionId === criterionId)!;
+      const representativeInput = {
+        criterion,
+        fact: {
+          criterionId,
+          definitionId: actualEvaluator.definition.definitionId,
+          geoScope: "municipality",
+          referencePeriod: null,
+          freshnessBasis: actualEvaluator.definition.freshnessPolicyVersion,
+          unit: actualEvaluator.definition.unit,
+          denominator: actualEvaluator.definition.denominator,
+          outcome: { kind: "unknown" as const, reason: "source_unavailable" as const },
+        },
+        assessmentAt: seeded.head.ranking.assessmentAt,
+      };
+      expect(actualEvaluator.definition).toEqual(fixtureEvaluator.definition);
+      expect(actualEvaluator.canonicalizeTarget(criterion.target))
+        .toBe(fixtureEvaluator.canonicalizeTarget(criterion.target));
+      expect(actualEvaluator.evaluate(structuredClone(representativeInput)))
+        .toEqual(fixtureEvaluator.evaluate(structuredClone(representativeInput)));
+      expect(actualEvaluator.canonicalizeTarget)
+        .not.toBe(fixtureEvaluator.canonicalizeTarget);
+      expect(actualEvaluator.evaluate).not.toBe(fixtureEvaluator.evaluate);
+    }
     expect(replayPreCityBranchCommit(
       first.preCityBranch,
       first.preCitySource,
@@ -11739,6 +11981,8 @@ describe("City Frontier Application public boundary", () => {
         `ranking:${artifacts.ranking.id}`,
         `criteria:${artifacts.criteria.id}`,
         `branch:${artifacts.branch.id}`,
+        ...fixture.chain.slice(1).map(({ operation }) =>
+          `frontier.command:${fixture.terminal.runId}:${operation.commandId}`),
       ]);
       const order = harness.calls.authorityOrder.slice(orderOffset);
       expect(order.slice(0, 5)).toEqual([
@@ -12014,13 +12258,7 @@ describe("City Frontier Application public boundary", () => {
       const preferenceOffset = harness.calls.preferenceProfileIds.length;
       const forbiddenOffset = harness.calls.forbiddenPrepareCallbacks.length;
       const evaluationOffset = harness.fixture.policyCalls.evaluations.length;
-      const fixedOffset = planGateHarness.fixed.length;
-      const directoryOffset = planGateHarness.directories.length;
-      const safetyOffset = planGateHarness.safetyPlans.length;
-      const defaultsOffset = planGateHarness.defaults.length;
-      const definitionsOffset = planGateHarness.definitions.length;
       const semanticOffset = planGateHarness.semanticEntries.length;
-      const planOrderOffset = planGateHarness.order.length;
       let canonicalCursor = harness.calls.evidenceCanonicals.length;
       let hashCursor = harness.calls.evidenceHashes.length;
       let signCursor = harness.calls.evidenceSigns.length;
@@ -12111,13 +12349,15 @@ describe("City Frontier Application public boundary", () => {
       );
       const semanticEntries = planGateHarness.semanticEntries.slice(semanticOffset);
       expect(semanticEntries).toHaveLength(2);
-      let fixedCursor = fixedOffset;
-      let directoryCursor = directoryOffset;
-      let safetyCursor = safetyOffset;
-      let defaultsCursor = defaultsOffset;
-      let definitionsCursor = definitionsOffset;
-      let orderCursor = planOrderOffset;
       for (const entry of semanticEntries) {
+        const fixedCursor = entry.fixedCount -
+          (harness.fixture.installed.catalog.members.length * 3);
+        const directoryCursor = entry.directoryCount - 1;
+        const safetyCursor = entry.safetyPlanCount - 1;
+        const defaultsCursor = entry.defaultsCount - 1;
+        const definitionsCursor = entry.definitionsCount - 1;
+        const orderCursor = entry.gateSnapshot.order.length -
+          (harness.fixture.installed.catalog.members.length * 3 + 5);
         expectSemanticGateEntry(harness, {
           ...entry,
           fixedCount: entry.fixedCount - fixedCursor,
@@ -12134,12 +12374,6 @@ describe("City Frontier Application public boundary", () => {
             order: entry.gateSnapshot.order.slice(orderCursor),
           },
         }, semanticExpected, authority.ranking);
-        fixedCursor = entry.fixedCount;
-        directoryCursor = entry.directoryCount;
-        safetyCursor = entry.safetyPlanCount;
-        defaultsCursor = entry.defaultsCount;
-        definitionsCursor = entry.definitionsCount;
-        orderCursor = entry.gateSnapshot.order.length;
       }
       expect(selectionReplayHarness.order).toEqual([
         "semantic-verifier",
@@ -12528,7 +12762,17 @@ describe("City Frontier Application public boundary", () => {
 
   test("replays committed working and terminal commands from their original prepared base", async () => {
     // Break caught: checking the current head before the command or rerunning sources on a committed hit.
-    const harness = await syntheticApplicationHarness();
+    let forbidHistoricalWorkingHistory = false;
+    const harness = await syntheticApplicationHarness({
+      selectionHistory: {
+        listSelectionsWithBranchesVerified: async () => {
+          if (forbidHistoricalWorkingHistory) {
+            throw new Error("historical_working_history_read");
+          }
+          return Object.freeze([]);
+        },
+      },
+    });
     const started = await harness.assembly.application.startCityFrontier({
       resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
       countryCode: "SI",
@@ -12628,6 +12872,7 @@ describe("City Frontier Application public boundary", () => {
       `frontier.command:${started.runId}:continue:working-winner`,
       `frontier.revision:${started.revision.id}`,
     ]);
+    forbidHistoricalWorkingHistory = true;
     const earlierHit = await harness.assembly.application.continueCityFrontier(
       recoveredEarlierAfterTerminal,
       earlierHitEvents,
@@ -12635,6 +12880,7 @@ describe("City Frontier Application public boundary", () => {
     );
     expect(earlierHit).toEqual(firstWinner);
     expect(earlierHit.revision.kind).toBe("working");
+    expect(earlierHit.selections).toEqual([]);
     expect(earlierHitEvents).not.toHaveBeenCalled();
     expect(snapshotEffects()).toEqual(beforeEarlierHit);
   });
@@ -12734,7 +12980,7 @@ describe("City Frontier Application public boundary", () => {
     try {
       await awaitBarrierOrEarlySettlement(harness.gates.researchEntered, [first]);
       expect(continuationPreflightCounts(harness)).toEqual({
-        command: 1,
+        command: 2,
         head: 1,
         ranking: 1,
         exactPackage: 1,
@@ -12766,7 +13012,7 @@ describe("City Frontier Application public boundary", () => {
       );
       await awaitBarrierOrEarlySettlement(followerActivated.promise, [first, second]);
       expect(continuationPreflightCounts(harness)).toEqual({
-        command: 2,
+        command: 4,
         head: 2,
         ranking: 2,
         exactPackage: 2,
@@ -12911,7 +13157,7 @@ describe("City Frontier Application public boundary", () => {
         [aborted, survivor],
       );
       expect(continuationPreflightCounts(harness)).toEqual({
-        command: 2,
+        command: 4,
         head: 2,
         ranking: 2,
         exactPackage: 2,
@@ -13016,7 +13262,7 @@ describe("City Frontier Application public boundary", () => {
         [first, second],
       );
       expect(continuationPreflightCounts(harness)).toEqual({
-        command: 2,
+        command: 4,
         head: 2,
         ranking: 2,
         exactPackage: 2,
@@ -13245,7 +13491,7 @@ describe("City Frontier Application public boundary", () => {
     try {
       await awaitBarrierOrEarlySettlement(harness.gates.researchEntered, [first]);
       expect(continuationPreflightCounts(harness)).toEqual({
-        command: 1,
+        command: 2,
         head: 1,
         ranking: 1,
         exactPackage: 1,
@@ -13278,7 +13524,7 @@ describe("City Frontier Application public boundary", () => {
       expect(firstCollision).not.toBe(secondCollision);
       expect(secondEvents).not.toHaveBeenCalled();
       expect(continuationPreflightCounts(harness)).toEqual({
-        command: 3,
+        command: 6,
         head: 3,
         ranking: 3,
         exactPackage: 3,
@@ -13368,7 +13614,7 @@ describe("City Frontier Application public boundary", () => {
     try {
       await awaitBarrierOrEarlySettlement(harness.gates.researchEntered, [first]);
       expect(continuationPreflightCounts(harness)).toEqual({
-        command: 1,
+        command: 2,
         head: 1,
         ranking: 1,
         exactPackage: 1,
@@ -13454,7 +13700,10 @@ describe("City Frontier Application public boundary", () => {
       expect(firstCollision).not.toBe(secondCollision);
       expect(collisionEvents).not.toHaveBeenCalled();
       expect(continuationPreflightCounts(harness)).toEqual(Object.fromEntries(
-        Object.entries(beforeCollisions.preflight).map(([key, value]) => [key, value + 2]),
+        Object.entries(beforeCollisions.preflight).map(([key, value]) => [
+          key,
+          value + (key === "command" ? 4 : 2),
+        ]),
       ));
       expect({
         fixed: harness.calls.fixedRouteInputs.length,
@@ -14693,12 +14942,54 @@ describe("City Frontier Application public boundary", () => {
       ))!;
     expect(loadedManifestA).toEqual(legacy.manifest);
     expect(loadedManifestA).not.toBe(loadedManifestAgain);
-    expect(loadedPackageA).toEqual(legacy.installed);
+    const packageData = (value: InstalledCityResearchPackage) => ({
+      ...value,
+      evaluatorRegistry: undefined,
+      validateValue: undefined,
+      validateSourcePeriod: undefined,
+    });
+    expect(packageData(loadedPackageA)).toEqual(packageData(legacy.installed));
+    expect(packageData(loadedPackageAgain)).toEqual(packageData(legacy.installed));
     expect(loadedPackageA).not.toBe(loadedPackageAgain);
     recursivelyFrozen(loadedManifestA);
     recursivelyFrozen(loadedManifestAgain);
     recursivelyFrozen(loadedPackageA);
     recursivelyFrozen(loadedPackageAgain);
+    expect(loadedPackageA.evaluatorRegistry).not.toBe(loadedPackageAgain.evaluatorRegistry);
+    expect(loadedPackageA.evaluatorRegistry).not.toBe(legacy.installed.evaluatorRegistry);
+    expect(loadedPackageA.validateValue).not.toBe(loadedPackageAgain.validateValue);
+    expect(loadedPackageA.validateSourcePeriod).not.toBe(loadedPackageAgain.validateSourcePeriod);
+    for (const criterionId of CITY_CRITERION_IDS) {
+      const firstEvaluator = loadedPackageA.evaluatorRegistry[criterionId];
+      const secondEvaluator = loadedPackageAgain.evaluatorRegistry[criterionId];
+      const fixtureEvaluator = legacy.installed.evaluatorRegistry[criterionId];
+      const criterion = harness.state.artifacts().criteria.criteria.find((candidate) =>
+        candidate.criterionId === criterionId)!;
+      const representativeInput = {
+        criterion,
+        fact: {
+          criterionId,
+          definitionId: firstEvaluator.definition.definitionId,
+          geoScope: "municipality" as const,
+          referencePeriod: null,
+          freshnessBasis: firstEvaluator.definition.freshnessPolicyVersion,
+          unit: firstEvaluator.definition.unit,
+          denominator: firstEvaluator.definition.denominator,
+          outcome: { kind: "unknown" as const, reason: "source_unavailable" as const },
+        },
+        assessmentAt: legacy.ranking.assessmentAt,
+      };
+      expect(firstEvaluator.definition).toEqual(fixtureEvaluator.definition);
+      expect(secondEvaluator.definition).toEqual(fixtureEvaluator.definition);
+      expect(firstEvaluator.canonicalizeTarget(criterion.target))
+        .toBe(fixtureEvaluator.canonicalizeTarget(criterion.target));
+      expect(firstEvaluator.evaluate(structuredClone(representativeInput)))
+        .toEqual(fixtureEvaluator.evaluate(structuredClone(representativeInput)));
+      expect(secondEvaluator.evaluate(structuredClone(representativeInput)))
+        .toEqual(fixtureEvaluator.evaluate(structuredClone(representativeInput)));
+      expect(firstEvaluator.canonicalizeTarget).toBe(secondEvaluator.canonicalizeTarget);
+      expect(firstEvaluator.evaluate).toBe(secondEvaluator.evaluate);
+    }
     expectManifestAuthority(
       loadedManifestA,
       legacy.installed.installedPackageManifest.key,
@@ -14728,8 +15019,8 @@ describe("City Frontier Application public boundary", () => {
     const legacyArtifacts = harness.state.artifacts();
     const policyBeforePresent = {
       canonicalTargets: harness.fixture.policyCalls.canonicalTargets.length,
-      evaluations: harness.fixture.policyCalls.evaluations.length,
     };
+    const semanticBeforePresent = planGateHarness.semanticEntries.length;
     const catalogBeforePresent = harness.calls.catalogReads.length;
     const reloadBeforePresent = harness.calls.reloads.length;
     const authorityBeforePresent = harness.calls.authorityOrder.length;
@@ -14774,8 +15065,7 @@ describe("City Frontier Application public boundary", () => {
     recursivelyNotAliased(presentedLegacy.revision, legacy.root);
     expect(harness.fixture.policyCalls.canonicalTargets.length)
       .toBeGreaterThan(policyBeforePresent.canonicalTargets);
-    expect(harness.fixture.policyCalls.evaluations.length)
-      .toBeGreaterThan(policyBeforePresent.evaluations);
+    expect(planGateHarness.semanticEntries).toHaveLength(semanticBeforePresent + 1);
     expect(harness.calls.catalogReads.slice(catalogBeforePresent)).toEqual([
       `catalog.historical:${legacy.installed.catalog.id}`,
     ]);
@@ -14793,7 +15083,6 @@ describe("City Frontier Application public boundary", () => {
       `catalog.historical:${legacy.installed.catalog.id}`,
       `criteria:${legacyArtifacts.criteria.id}`,
       `branch:${legacyArtifacts.branch.id}`,
-      `selection:${legacy.root.runId}`,
     ]);
     expect(harness.calls.rankingResults.slice(rankingBeforePresent)).toHaveLength(1);
     expect(harness.calls.exactPackageKeys.slice(exactKeysBeforePresent)).toHaveLength(1);
@@ -14804,13 +15093,13 @@ describe("City Frontier Application public boundary", () => {
     const presentedManifestKey = harness.calls.manifestKeys[manifestKeysBeforePresent]!;
     expect(presentedExactKey).toBe(presentedRanking.installedPackageContext);
     expect(presentedManifestKey).toBe(presentedRanking.installedPackageContext);
-    expect(Reflect.ownKeys(presentedExactKey)).toEqual([
+    expect(Reflect.ownKeys(presentedExactKey).sort()).toEqual([
       "countryCode",
       "packageId",
       "packageSchemaVersion",
       "catalogRevisionId",
       "evidenceRulesVersion",
-    ]);
+    ].sort());
     recursivelyFrozen(presentedExactKey);
     expect(presentedExactKey).toEqual(legacy.installed.installedPackageManifest.key);
     expectManifestAuthority(
@@ -14886,7 +15175,6 @@ describe("City Frontier Application public boundary", () => {
       `frontier.head:${legacy.root.runId}`,
     ]);
     const gateEffects = () => ({
-      canonicalTargets: harness.fixture.policyCalls.canonicalTargets.length,
       evaluations: harness.fixture.policyCalls.evaluations.length,
       values: harness.fixture.policyCalls.values.length,
       sourcePeriods: harness.fixture.policyCalls.sourcePeriods.length,

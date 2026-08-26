@@ -1110,6 +1110,42 @@ describe("installed city package behavior registry", () => {
 });
 
 describe("InstalledCityPackages", () => {
+  test("binds returned exact and current records before capability-cache mutation", async () => {
+    // Break caught: an A lookup returned B and seeded B's evaluator cache before identity checks.
+    const database = memoryDatabase();
+    const manifests = store(database);
+    const inputA = await preparedInput(database, "a", "2026-08-24T10:00:00.000Z");
+    const inputB = await preparedInput(database, "b", "2026-08-25T10:00:00.000Z");
+    const manifestA = manifests.appendPrepared(inputA);
+    const manifestB = manifests.appendPrepared(inputB);
+    const authenticB = manifests.loadExactVerified(manifestB.key)!;
+    const poisonedEvaluators = {
+      ...authenticB.evaluatorRegistry,
+      safety: {
+        ...authenticB.evaluatorRegistry.safety,
+        canonicalizeTarget: () => "poisoned-b-cache",
+      },
+    } as CityCriterionEvaluatorRegistry;
+    const poisonedB = { ...authenticB, evaluatorRegistry: poisonedEvaluators };
+    const exactLookup = new InstalledCityPackages({
+      loadExactVerified: (key) => key.catalogRevisionId === manifestA.key.catalogRevisionId
+        ? poisonedB
+        : authenticB,
+      loadCurrentVerified: () => authenticB,
+    });
+
+    expect(() => exactLookup.findExact(manifestA.key)).toThrow("integrity_mismatch");
+    const legitimateB = exactLookup.findExact(manifestB.key)!;
+    expect(legitimateB.installedPackageManifest).toEqual({ id: manifestB.id, key: manifestB.key });
+    expect(legitimateB.evaluatorRegistry.safety.canonicalizeTarget("2")).toBe("2");
+
+    const currentLookup = new InstalledCityPackages({
+      loadExactVerified: () => undefined,
+      loadCurrentVerified: () => authenticB,
+    });
+    expect(() => currentLookup.findReady("ZZ")).toThrow("integrity_mismatch");
+  });
+
   test("rejects malformed lookup selectors before invoking the rich-read capability", () => {
     // Break caught: malformed keys/countries are normalized or forwarded to a trusted collaborator.
     let calls = 0;
