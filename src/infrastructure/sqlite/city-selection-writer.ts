@@ -2,13 +2,18 @@ import { types } from "node:util";
 
 import type Database from "better-sqlite3";
 
-import type { CityCatalogStorePort } from "../../application/city-data-contracts";
+import type {
+  CityCatalogStorePort,
+  CityHistoricalPackageAuthorityPort,
+  VerifiedCityCatalogBundle,
+} from "../../application/city-data-contracts";
 import {
   reconstructCityRankingSnapshot,
   reconstructCitySelectionSnapshot,
   reconstructCitySelectionWithBranch,
   type CityBranchReadPort,
   type CityFrontierReadPort,
+  type CityRankingSnapshot,
   type CityRankingReadPort,
   type CitySelectionCommandIntent,
   type CitySelectionPublication,
@@ -19,6 +24,7 @@ import {
 import type { CityBranchCommit, PreCityBranchCommit } from "../../branch/city";
 import { CITY_CATALOG_RULES_VERSION } from "../../decision/city-catalog";
 import type { EvidenceIntegrity } from "../../research/research-plan";
+import { SLOVENIA_CITY_FACT_SOURCE_IDS } from "../../research/city-evidence";
 import {
   createCityDecisionIntegrityView,
   secureHexEqual,
@@ -26,6 +32,7 @@ import {
 
 interface CitySelectionWriterDependencies {
   readonly catalogs: Pick<CityCatalogStorePort, "loadVerified">;
+  readonly historicalPackages: CityHistoricalPackageAuthorityPort;
   readonly branches: Pick<CityBranchReadPort, "loadPreCityBranchVerified">;
   readonly rankings: Pick<CityRankingReadPort, "loadRankingVerified">;
   readonly frontier: Pick<CityFrontierReadPort, "loadRevisionVerified">;
@@ -108,6 +115,11 @@ interface CapturedPublication {
   readonly intent: CitySelectionCommandIntent;
   readonly pair: CitySelectionWithBranch;
   readonly runId: string;
+}
+
+interface VerifiedStoredSelection {
+  readonly selection: CitySelectionSnapshot;
+  readonly intent: CitySelectionCommandIntent;
 }
 
 type PlainRecord = Record<string, unknown>;
@@ -295,8 +307,9 @@ export class SqliteCitySelectionWriter implements CitySelectionWriterPort {
         const rows = this.selectionRowsById(id);
         if (rows.length === 0) throw new Error("city_selection_not_found");
         if (rows.length !== 1) mismatch();
-        this.requireCurrentCatalog(rows[0]!.ranking_snapshot_id);
-        return this.reconstructPair(rows[0]!);
+        const stored = this.verifySelection(rows[0]!);
+        this.requireCurrentCatalog(stored.selection.rankingSnapshotId);
+        return this.reconstructPair(rows[0]!, stored);
       });
       return operation.deferred();
     } catch (error) {
@@ -317,8 +330,9 @@ export class SqliteCitySelectionWriter implements CitySelectionWriterPort {
           ORDER BY created_at ASC, id ASC
         `).all(ownedRunId) as SelectionRow[];
         return freeze(rows.map((row) => {
-          this.requireCurrentCatalog(row.ranking_snapshot_id);
-          return this.reconstructPair(row);
+          const stored = this.verifySelection(row);
+          this.requireCurrentCatalog(stored.selection.rankingSnapshotId);
+          return this.reconstructPair(row, stored);
         }));
       });
       return operation.deferred();
@@ -330,17 +344,15 @@ export class SqliteCitySelectionWriter implements CitySelectionWriterPort {
   private publishInTransaction(publication: CapturedPublication): CitySelectionWithBranch {
     const existing = this.selectionRowByCommand(publication.runId, publication.commandId);
     if (existing !== undefined) {
-      const storedIntent = this.verifyCommand(existing);
-      if (!sameCanonical(storedIntent, publication.intent, this.integrity)) mismatch();
-      this.requireCurrentCatalog(existing.ranking_snapshot_id);
-      return this.reconstructPair(existing);
+      const stored = this.verifySelection(existing);
+      if (!sameCanonical(stored.intent, publication.intent, this.integrity)) mismatch();
+      this.requireCurrentCatalog(stored.selection.rankingSnapshotId);
+      return this.reconstructPair(existing, stored);
     }
 
     const candidate = ownData(publication.pair);
-    const candidateSelection = dataProperty(candidate, "selection");
-    const rankingSnapshotId = identifier(dataProperty(candidateSelection, "rankingSnapshotId"));
-    this.requireCurrentCatalog(rankingSnapshotId);
     const pair = this.reconstructCandidate(candidate, publication);
+    this.requireCurrentCatalog(pair.selection.rankingSnapshotId);
     this.insertSelection(pair.selection, publication.intent);
     this.insertBranch(pair.commit, pair.selection);
     const rows = this.selectionRowsById(pair.selection.id);
@@ -388,8 +400,11 @@ export class SqliteCitySelectionWriter implements CitySelectionWriterPort {
     }, createCityDecisionIntegrityView(this.integrity));
   }
 
-  private reconstructPair(row: SelectionRow): CitySelectionWithBranch {
-    const { selection, intent } = this.verifySelection(row);
+  private reconstructPair(
+    row: SelectionRow,
+    stored: VerifiedStoredSelection = this.verifySelection(row),
+  ): CitySelectionWithBranch {
+    const { selection, intent } = stored;
     const terminal = this.dependencies.frontier.loadRevisionVerified(
       selection.terminalRevisionId,
     );
@@ -412,10 +427,7 @@ export class SqliteCitySelectionWriter implements CitySelectionWriterPort {
     return pair;
   }
 
-  private verifySelection(row: SelectionRow): {
-    readonly selection: CitySelectionSnapshot;
-    readonly intent: CitySelectionCommandIntent;
-  } {
+  private verifySelection(row: SelectionRow): VerifiedStoredSelection {
     const intent = this.verifyCommand(row);
     let value: unknown;
     try {
@@ -564,12 +576,56 @@ export class SqliteCitySelectionWriter implements CitySelectionWriterPort {
       ranking.installedPackageContext.packageId !== ranking.packageId ||
       ranking.installedPackageContext.packageSchemaVersion !== ranking.packageSchemaVersion ||
       ranking.installedPackageContext.catalogRevisionId !== ranking.catalogRevisionId) mismatch();
+    this.requireHistoricalPackage(ranking, catalog);
     if (catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) {
       if (catalog.catalog.rulesVersion === "city-catalog@1") {
         throw new Error("city_catalog_upgrade_required");
       }
       mismatch();
     }
+  }
+
+  private requireHistoricalPackage(
+    ranking: CityRankingSnapshot,
+    catalog: VerifiedCityCatalogBundle,
+  ): void {
+    const borrowed = this.dependencies.historicalPackages.loadExactVerified(
+      ranking.installedPackageContext,
+    );
+    if (borrowed === undefined) mismatch();
+    const manifest = dataProperty(borrowed, "manifest");
+    const ready = dataProperty(borrowed, "ready");
+    const installedCatalog = dataProperty(borrowed, "catalog");
+    const expectedDefinition = Object.freeze({
+      countryCode: ranking.countryCode,
+      packageId: ranking.packageId,
+      packageSchemaVersion: ranking.packageSchemaVersion,
+      evidenceRulesVersion: ranking.installedPackageContext.evidenceRulesVersion,
+      sourceIds: SLOVENIA_CITY_FACT_SOURCE_IDS,
+    });
+    const expectedReadiness = Object.freeze({
+      status: "ready",
+      issues: Object.freeze([]),
+    });
+    const catalogRoot = exactRecord(dataProperty(manifest, "catalogRoot"), [
+      "registryRevisionId", "catalogRevisionId",
+    ]);
+    if (dataProperty(manifest, "schemaVersion") !==
+        "installed-city-package-manifest@1" ||
+      !sameCanonical(
+        dataProperty(manifest, "key"),
+        ranking.installedPackageContext,
+        this.integrity,
+      ) ||
+      !sameCanonical(dataProperty(manifest, "definition"), expectedDefinition, this.integrity) ||
+      !sameCanonical(dataProperty(ready, "definition"), expectedDefinition, this.integrity) ||
+      dataProperty(manifest, "sourceContractStatus") !== "bounded_verified_or_unknown" ||
+      dataProperty(ready, "sourceContractStatus") !== "bounded_verified_or_unknown" ||
+      !sameCanonical(dataProperty(manifest, "readiness"), expectedReadiness, this.integrity) ||
+      !sameCanonical(dataProperty(ready, "readiness"), expectedReadiness, this.integrity) ||
+      catalogRoot.registryRevisionId !== ranking.registryRevisionId ||
+      catalogRoot.catalogRevisionId !== ranking.catalogRevisionId ||
+      !sameCanonical(installedCatalog, catalog, this.integrity)) mismatch();
   }
 
   private insertSelection(

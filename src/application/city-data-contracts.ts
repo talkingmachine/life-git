@@ -177,6 +177,29 @@ export interface InstalledCityPackageLookupPort {
   findExact(key: InstalledCityPackageExactKey): InstalledCityResearchPackage | undefined;
 }
 
+export interface VerifiedHistoricalCityPackageAuthority {
+  readonly manifest: Pick<
+    InstalledCityPackageManifest,
+    | "schemaVersion"
+    | "key"
+    | "definition"
+    | "sourceContractStatus"
+    | "readiness"
+    | "catalogRoot"
+  >;
+  readonly ready: Pick<
+    CityResearchPackageReadyCandidate,
+    "definition" | "sourceContractStatus" | "readiness"
+  >;
+  readonly catalog: VerifiedCityCatalogBundle;
+}
+
+export interface CityHistoricalPackageAuthorityPort {
+  loadExactVerified(
+    key: InstalledCityPackageExactKey,
+  ): VerifiedHistoricalCityPackageAuthority | undefined;
+}
+
 export interface InstalledCityCatalogReadPort {
   latestInstalledVerified(countryCode: string): VerifiedCityCatalogBundle | undefined;
 }

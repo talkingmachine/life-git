@@ -14,6 +14,7 @@ export function citySelectionPublicationWorker<T>(input: {
   readonly gate: SharedArrayBuffer;
   readonly publication: unknown;
   readonly catalogBundle: unknown;
+  readonly historicalPackage: unknown;
   readonly terminal: unknown;
   readonly ranking: unknown;
   readonly preCityBranch: unknown;
@@ -41,6 +42,11 @@ export function citySelectionPublicationWorker<T>(input: {
             return structuredClone(workerData.catalogBundle);
           },
         };
+        const historicalPackages = {
+          loadExactVerified() {
+            return structuredClone(workerData.historicalPackage);
+          },
+        };
         const branches = {
           loadPreCityBranchVerified(id) {
             if (id !== workerData.preCityBranch.id) {
@@ -63,6 +69,7 @@ export function citySelectionPublicationWorker<T>(input: {
         };
         const writer = new writerModule.SqliteCitySelectionWriter(database, integrity, {
           catalogs,
+          historicalPackages,
           branches,
           rankings,
           frontier,

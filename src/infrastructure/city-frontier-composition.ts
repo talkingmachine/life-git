@@ -280,6 +280,7 @@ export function createCityFrontierComposition(
   const knowledgeStore = new SqliteCityKnowledgeStore(database, integrity, installedPackages);
   const selectionWriter = new SqliteCitySelectionWriter(database, integrity, {
     catalogs: catalogStore,
+    historicalPackages: manifestStore,
     branches: branchStore,
     rankings: frontierStore,
     frontier: frontierStore,

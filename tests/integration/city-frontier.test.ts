@@ -131,7 +131,7 @@ import {
 } from "../../src/infrastructure/city-frontier-composition";
 import { createCitySafetySearchPort } from
   "../../src/infrastructure/sources/city-safety-search-adapter";
-import type { SqliteCitySelectionWriter } from
+import { SqliteCitySelectionWriter } from
   "../../src/infrastructure/sqlite/city-selection-writer";
 import {
   createHttpCitySafetySearchStep,
@@ -250,6 +250,7 @@ const compositionHarness = vi.hoisted(() => ({
   applicationFactoryPorts: [] as unknown[],
   selectionApplicationFactoryPorts: [] as unknown[],
   selectionWriters: [] as unknown[],
+  selectionWriterDependencies: [] as unknown[],
   manifestStores: [] as unknown[],
   installedPackageReceivers: [] as unknown[],
   manifestLoadReceivers: [] as unknown[],
@@ -312,7 +313,10 @@ vi.mock("../../src/infrastructure/sqlite/city-selection-writer", async (importOr
   class ObservedSelectionWriter extends actual.SqliteCitySelectionWriter {
     constructor(...args: ConstructorParameters<typeof actual.SqliteCitySelectionWriter>) {
       super(...args);
-      if (compositionHarness.enabled) compositionHarness.selectionWriters.push(this);
+      if (compositionHarness.enabled) {
+        compositionHarness.selectionWriters.push(this);
+        compositionHarness.selectionWriterDependencies.push(args[2]);
+      }
     }
   }
   return { ...actual, SqliteCitySelectionWriter: ObservedSelectionWriter };
@@ -710,6 +714,7 @@ afterEach(() => {
   compositionHarness.applicationFactoryPorts.splice(0);
   compositionHarness.selectionApplicationFactoryPorts.splice(0);
   compositionHarness.selectionWriters.splice(0);
+  compositionHarness.selectionWriterDependencies.splice(0);
   compositionHarness.manifestStores.splice(0);
   compositionHarness.installedPackageReceivers.splice(0);
   compositionHarness.manifestLoadReceivers.splice(0);
@@ -5809,17 +5814,22 @@ describe("City Frontier Application public boundary", () => {
       CitySelectionApplicationPorts[];
     const selectionWriters = compositionHarness.selectionWriters as
       SqliteCitySelectionWriter[];
+    const selectionWriterDependencies = compositionHarness.selectionWriterDependencies as
+      Array<{ readonly historicalPackages: unknown }>;
     const manifestReaders = factoryPorts.map(({ installedPackageManifests }) =>
       installedPackageManifests);
     const selectionHistoryReaders = factoryPorts.map(({ selectionHistory }) => selectionHistory);
     expect(selectionFactoryPorts).toHaveLength(2);
     expect(selectionWriters).toHaveLength(2);
+    expect(selectionWriterDependencies).toHaveLength(2);
     expect(rawManifestStores[0]).not.toBe(rawManifestStores[1]);
     expect(manifestReaders[0]).not.toBe(manifestReaders[1]);
     expect(selectionHistoryReaders[0]).not.toBe(selectionHistoryReaders[1]);
     for (const index of [0, 1] as const) {
       expect(selectionHistoryReaders[index]).toBe(selectionWriters[index]);
       expect(selectionFactoryPorts[index]!.writer).toBe(selectionWriters[index]);
+      expect(selectionWriterDependencies[index]!.historicalPackages)
+        .toBe(rawManifestStores[index]);
       expect(selectionFactoryPorts[index]!.frontier).toBeDefined();
       expect(Reflect.ownKeys(assemblies[index]!)).not.toContain("selectionAuthority");
       expect(Reflect.ownKeys(assemblies[index]!)).not.toContain("writer");
@@ -12782,6 +12792,85 @@ describe("City Frontier Application public boundary", () => {
     expect(restored[0].message).toBe("city_catalog_upgrade_required");
     expect(harness.fixture.database.prepare("SELECT total_changes() AS count").get())
       .toEqual(databaseChanges);
+  });
+
+  test("publishes and reads through the genuine verified historical package adapter", async () => {
+    // Break caught: a writer definition projection omitting real package fields such as sourceIds.
+    const { harness, authority, pair } =
+      await currentYellowSelectionHistoryFixture("real-package-adapter");
+    const database = harness.fixture.database;
+    const ranking = authority.ranking;
+    const payload = EVIDENCE_INTEGRITY.canonical(ranking);
+    database.pragma("foreign_keys = OFF");
+    database.prepare(`
+      INSERT INTO city_ranking_snapshots (
+        id, run_id, resolved_country_shortlist_revision_id, country_code, package_id,
+        package_schema_version, registry_revision_id, catalog_revision_id,
+        criteria_snapshot_id, pre_city_branch_commit_id, profile_snapshot_id,
+        preference_profile_snapshot_id, evidence_rules_version,
+        installed_package_context_json, live_city_candidate_limit,
+        target_selectable_cities, budget_rules_version, schema_version, rules_version,
+        assessment_at, payload_json, payload_hash, hmac, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      ranking.id,
+      ranking.runId,
+      ranking.resolvedCountryShortlistRevisionId,
+      ranking.countryCode,
+      ranking.packageId,
+      ranking.packageSchemaVersion,
+      ranking.registryRevisionId,
+      ranking.catalogRevisionId,
+      ranking.criteriaSnapshotId,
+      ranking.preCityBranchCommitId,
+      ranking.profileSnapshotId,
+      ranking.preferenceProfileSnapshotId,
+      ranking.installedPackageContext.evidenceRulesVersion,
+      EVIDENCE_INTEGRITY.canonical(ranking.installedPackageContext),
+      ranking.verificationBudget.liveCityCandidateLimit,
+      ranking.verificationBudget.targetSelectableCities,
+      ranking.verificationBudget.rulesVersion,
+      ranking.schemaVersion,
+      ranking.rulesVersion,
+      ranking.assessmentAt,
+      payload,
+      EVIDENCE_INTEGRITY.hash(payload),
+      EVIDENCE_INTEGRITY.sign(payload),
+      ranking.createdAt,
+    );
+    const writer = new SqliteCitySelectionWriter(database, EVIDENCE_INTEGRITY, {
+      catalogs: harness.fixture.catalogStore,
+      historicalPackages: harness.fixture.writerManifestStore,
+      branches: {
+        loadPreCityBranchVerified: () => structuredClone(authority.preCityBranch),
+      },
+      rankings: {
+        loadRankingVerified: () => structuredClone(authority.ranking),
+      },
+      frontier: {
+        loadRevisionVerified: () => structuredClone(authority.terminal),
+      },
+    });
+    const publication = {
+      commandId: pair.selection.commandId,
+      intent: {
+        terminalCityShortlistSnapshotId: pair.selection.terminalRevisionId,
+        cityId: pair.selection.cityId,
+        warningCopyVersion: "city-unknown-risk@1" as const,
+      },
+      pair,
+    };
+
+    const published = await writer.publishSelection(publication);
+    const loaded = await writer.loadSelectionWithBranchVerified(published.selection.id);
+
+    expect(published).toEqual(pair);
+    expect(loaded).toEqual(pair);
+    expect(harness.fixture.writerManifestStore.loadExactVerified(
+      ranking.installedPackageContext,
+    )!.ready.definition.sourceIds).toEqual(SLOVENIA_CITY_FACT_SOURCE_IDS);
+    recursivelyFrozen(published);
+    recursivelyFrozen(loaded);
   });
 
   test("replays one authentic yellow selection history pair as fresh owned public state", async () => {

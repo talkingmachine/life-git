@@ -42,6 +42,7 @@ import type {
   CityCriterionEvaluatorRegistry,
   CityCriterionId,
 } from "../../src/decision/city-criteria";
+import { SLOVENIA_CITY_FACT_SOURCE_IDS } from "../../src/research/city-evidence";
 import { citySelectionPublicationWorker } from
   "../support/city-selection-publication-worker";
 import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
@@ -73,6 +74,7 @@ function emptyWriter(): SqliteCitySelectionWriter {
     createEvidenceIntegrity("task-15-city-selection-writer-key"),
     {
       catalogs: Object.freeze({ loadVerified: unused }),
+      historicalPackages: Object.freeze({ loadExactVerified: unused }),
       branches: Object.freeze({ loadPreCityBranchVerified: unused }),
       rankings: Object.freeze({ loadRankingVerified: unused }),
       frontier: Object.freeze({ loadRevisionVerified: unused }),
@@ -196,6 +198,37 @@ interface PairFixture {
       readonly packageSchemaVersion: string;
       readonly rulesVersion: "city-catalog@1" | "city-catalog@2";
     };
+  };
+  readonly historicalPackage: {
+    readonly manifest: {
+      readonly schemaVersion: "installed-city-package-manifest@1";
+      readonly key: CityRankingSnapshot["installedPackageContext"];
+      readonly definition: {
+        readonly countryCode: string;
+        readonly packageId: string;
+        readonly packageSchemaVersion: string;
+        readonly evidenceRulesVersion: string;
+        readonly sourceIds: readonly string[];
+      };
+      readonly sourceContractStatus: "bounded_verified_or_unknown";
+      readonly readiness: { readonly status: "ready"; readonly issues: readonly [] };
+      readonly catalogRoot: {
+        readonly registryRevisionId: string;
+        readonly catalogRevisionId: string;
+      };
+    };
+    readonly ready: {
+      readonly definition: {
+        readonly countryCode: string;
+        readonly packageId: string;
+        readonly packageSchemaVersion: string;
+        readonly evidenceRulesVersion: string;
+        readonly sourceIds: readonly string[];
+      };
+      readonly sourceContractStatus: "bounded_verified_or_unknown";
+      readonly readiness: { readonly status: "ready"; readonly issues: readonly [] };
+    };
+    readonly catalog: PairFixture["catalogBundle"];
   };
 }
 
@@ -395,6 +428,29 @@ function pairFixture(
     revision: terminal,
     selections: [],
   } as unknown as CityFrontierReadModel;
+  const catalogBundle = {
+    registry: {
+      id: ranking.registryRevisionId,
+      countryCode: ranking.countryCode,
+      packageId: ranking.packageId,
+      packageSchemaVersion: ranking.packageSchemaVersion,
+    },
+    catalog: {
+      id: ranking.catalogRevisionId,
+      registryRevisionId: ranking.registryRevisionId,
+      countryCode: ranking.countryCode,
+      packageId: ranking.packageId,
+      packageSchemaVersion: ranking.packageSchemaVersion,
+      rulesVersion,
+    },
+  };
+  const packageDefinition = {
+    countryCode: ranking.installedPackageContext.countryCode,
+    packageId: ranking.installedPackageContext.packageId,
+    packageSchemaVersion: ranking.installedPackageContext.packageSchemaVersion,
+    evidenceRulesVersion: ranking.installedPackageContext.evidenceRulesVersion,
+    sourceIds: SLOVENIA_CITY_FACT_SOURCE_IDS,
+  };
   return {
     integrity,
     preCityBranch,
@@ -420,21 +476,25 @@ function pairFixture(
         createdAt,
       }, integrity);
     },
-    catalogBundle: {
-      registry: {
-        id: ranking.registryRevisionId,
-        countryCode: ranking.countryCode,
-        packageId: ranking.packageId,
-        packageSchemaVersion: ranking.packageSchemaVersion,
+    catalogBundle,
+    historicalPackage: {
+      manifest: {
+        schemaVersion: "installed-city-package-manifest@1",
+        key: ranking.installedPackageContext,
+        definition: packageDefinition,
+        sourceContractStatus: "bounded_verified_or_unknown",
+        readiness: { status: "ready", issues: [] },
+        catalogRoot: {
+          registryRevisionId: ranking.registryRevisionId,
+          catalogRevisionId: ranking.catalogRevisionId,
+        },
       },
-      catalog: {
-        id: ranking.catalogRevisionId,
-        registryRevisionId: ranking.registryRevisionId,
-        countryCode: ranking.countryCode,
-        packageId: ranking.packageId,
-        packageSchemaVersion: ranking.packageSchemaVersion,
-        rulesVersion,
+      ready: {
+        definition: packageDefinition,
+        sourceContractStatus: "bounded_verified_or_unknown",
+        readiness: { status: "ready", issues: [] },
       },
+      catalog: catalogBundle,
     },
   };
 }
@@ -442,9 +502,10 @@ function pairFixture(
 function seedRankingLocator(
   database: Database.Database,
   fixture: PairFixture,
+  ranking: CityRankingSnapshot = fixture.ranking,
 ): void {
   database.pragma("foreign_keys = OFF");
-  const value = fixture.ranking;
+  const value = ranking;
   const payload = fixture.integrity.canonical(value);
   database.prepare(`
     INSERT INTO city_ranking_snapshots (
@@ -502,6 +563,46 @@ function publication(
   };
 }
 
+function rankingWithCatalog(
+  fixture: PairFixture,
+  catalogRevisionId: string,
+): CityRankingSnapshot {
+  const payload = Object.fromEntries(
+    Object.entries(fixture.ranking).filter(([key]) => key !== "id"),
+  ) as Parameters<typeof sealCityRankingSnapshot>[0];
+  return sealCityRankingSnapshot({
+    ...payload,
+    runId: "city-frontier:selection-run-legacy",
+    catalogRevisionId,
+    installedPackageContext: {
+      ...payload.installedPackageContext,
+      catalogRevisionId,
+    },
+  }, fixture.integrity);
+}
+
+function catalogBundleFor(
+  ranking: CityRankingSnapshot,
+  rulesVersion: "city-catalog@1" | "city-catalog@2",
+): PairFixture["catalogBundle"] {
+  return {
+    registry: {
+      id: ranking.registryRevisionId,
+      countryCode: ranking.countryCode,
+      packageId: ranking.packageId,
+      packageSchemaVersion: ranking.packageSchemaVersion,
+    },
+    catalog: {
+      id: ranking.catalogRevisionId,
+      registryRevisionId: ranking.registryRevisionId,
+      countryCode: ranking.countryCode,
+      packageId: ranking.packageId,
+      packageSchemaVersion: ranking.packageSchemaVersion,
+      rulesVersion,
+    },
+  };
+}
+
 function writerFixture(
   rulesVersion: "city-catalog@1" | "city-catalog@2" = "city-catalog@2",
   database = openEvidenceDatabase(":memory:"),
@@ -509,13 +610,25 @@ function writerFixture(
   readonly database: Database.Database;
   readonly fixture: PairFixture;
   readonly writer: SqliteCitySelectionWriter;
+  readonly catalogs: Map<string, PairFixture["catalogBundle"]>;
+  readonly historicalPackage: { result: unknown };
 } {
   databases.push(database);
   const fixture = pairFixture(rulesVersion);
   seedRankingLocator(database, fixture);
-  const writer = new SqliteCitySelectionWriter(database, fixture.integrity, {
+  const catalogs = new Map<string, PairFixture["catalogBundle"]>();
+  const historicalPackage = {
+    result: structuredClone(fixture.historicalPackage) as unknown,
+  };
+  const dependencies = {
     catalogs: {
-      loadVerified: () => structuredClone(fixture.catalogBundle) as never,
+      loadVerified: (id: string) => {
+        const bundle = fixture.catalogBundle.catalog.id === id
+          ? fixture.catalogBundle
+          : catalogs.get(id);
+        if (bundle === undefined) throw new Error("city_catalog_not_found");
+        return structuredClone(bundle) as never;
+      },
     },
     branches: {
       loadPreCityBranchVerified: () => structuredClone(fixture.preCityBranch),
@@ -526,8 +639,12 @@ function writerFixture(
     frontier: {
       loadRevisionVerified: () => structuredClone(fixture.terminal),
     },
-  });
-  return { database, fixture, writer };
+    historicalPackages: {
+      loadExactVerified: () => structuredClone(historicalPackage.result) as never,
+    },
+  };
+  const writer = new SqliteCitySelectionWriter(database, fixture.integrity, dependencies);
+  return { database, fixture, writer, catalogs, historicalPackage };
 }
 
 function rowCounts(database: Database.Database): { readonly selections: number; readonly branches: number } {
@@ -868,9 +985,28 @@ describe("SQLite City Selection writer boundary", () => {
     await current.writer.publishSelection(currentInput);
     (current.fixture.catalogBundle.catalog as { rulesVersion: string }).rulesVersion =
       "city-catalog@1";
+    ((current.historicalPackage.result as PairFixture["historicalPackage"])
+      .catalog.catalog as { rulesVersion: string }).rulesVersion = "city-catalog@1";
     await expect(current.writer.publishSelection(structuredClone(currentInput)))
       .rejects.toThrowError("city_catalog_upgrade_required");
     expect(rowCounts(current.database)).toEqual({ selections: 1, branches: 1 });
+  });
+
+  test("rejects an unknown Catalog policy only after exact package authority agrees", async () => {
+    // Break caught: unknown policy bypass or package drift being hidden by version classification.
+    const unknown = writerFixture();
+    (unknown.fixture.catalogBundle.catalog as { rulesVersion: string }).rulesVersion =
+      "city-catalog@999";
+    ((unknown.historicalPackage.result as PairFixture["historicalPackage"])
+      .catalog.catalog as { rulesVersion: string }).rulesVersion = "city-catalog@999";
+
+    await expect(unknown.writer.publishSelection(publication(
+      unknown.fixture,
+      "alpha",
+      "command:unknown-catalog-policy",
+      "2026-01-07T00:00:00.000Z",
+    ))).rejects.toThrowError("integrity_mismatch");
+    expect(rowCounts(unknown.database)).toEqual({ selections: 0, branches: 0 });
   });
 
   test.each([
@@ -909,6 +1045,76 @@ describe("SQLite City Selection writer boundary", () => {
       mutableCatalog.packageId = "other-city-package";
       (fixture.catalogBundle.registry as { packageId: string }).packageId =
         "other-city-package";
+    }
+
+    await expect(writer.publishSelection(structuredClone(input)))
+      .rejects.toThrowError("integrity_mismatch");
+    expect(rowCounts(database)).toEqual(path === "exact stored hit"
+      ? { selections: 1, branches: 1 }
+      : { selections: 0, branches: 0 });
+  });
+
+  test.each(["command miss", "exact stored hit"] as const)(
+    "authenticates the %s Selection locator before Catalog policy",
+    async (path) => {
+      // Break caught: raw candidate/stored Ranking mirrors selecting an unrelated authentic @1.
+      const { database, fixture, writer, catalogs } = writerFixture();
+      const legacyRanking = rankingWithCatalog(fixture, "catalog:selection-legacy@1");
+      seedRankingLocator(database, fixture, legacyRanking);
+      catalogs.set(
+        legacyRanking.catalogRevisionId,
+        catalogBundleFor(legacyRanking, "city-catalog@1"),
+      );
+      const input = publication(
+        fixture,
+        "alpha",
+        `command:selection-locator:${path === "command miss" ? "miss" : "hit"}`,
+        "2026-01-07T00:00:00.000Z",
+      );
+      const submitted = structuredClone(input);
+      if (path === "command miss") {
+        (submitted.pair.selection as { rankingSnapshotId: string }).rankingSnapshotId =
+          legacyRanking.id;
+      } else {
+        const stored = await writer.publishSelection(input);
+        database.exec("DROP TRIGGER city_selection_snapshots_no_update");
+        database.prepare(`
+          UPDATE city_selection_snapshots SET ranking_snapshot_id = ? WHERE id = ?
+        `).run(legacyRanking.id, stored.selection.id);
+      }
+
+      await expect(writer.publishSelection(submitted))
+        .rejects.toThrowError("integrity_mismatch");
+      expect(rowCounts(database)).toEqual(path === "exact stored hit"
+        ? { selections: 1, branches: 1 }
+        : { selections: 0, branches: 0 });
+    },
+  );
+
+  test.each([
+    ["command miss", "missing"],
+    ["exact stored hit", "missing"],
+    ["command miss", "mismatched manifest"],
+    ["exact stored hit", "mismatched manifest"],
+  ] as const)("rejects %s with %s exact package authority", async (path, defect) => {
+    // Break caught: direct writer entry points bypassing historical package/manifest authority.
+    const { database, fixture, writer, historicalPackage } = writerFixture();
+    const input = publication(
+      fixture,
+      "alpha",
+      `command:manifest-auth:${path === "command miss" ? "miss" : "hit"}:${
+        defect === "missing" ? "missing" : "mismatch"
+      }`,
+      "2026-01-07T00:00:00.000Z",
+    );
+    if (path === "exact stored hit") await writer.publishSelection(input);
+    if (defect === "missing") {
+      historicalPackage.result = undefined;
+    } else {
+      const mismatched = structuredClone(fixture.historicalPackage);
+      (mismatched.manifest.key as { packageId: string }).packageId =
+        "other-city-package";
+      historicalPackage.result = mismatched;
     }
 
     await expect(writer.publishSelection(structuredClone(input)))
@@ -962,6 +1168,9 @@ describe("SQLite City Selection writer boundary", () => {
     const writer = new SqliteCitySelectionWriter(database, fixture.integrity, {
       catalogs: {
         loadVerified: () => structuredClone(fixture.catalogBundle) as never,
+      },
+      historicalPackages: {
+        loadExactVerified: () => structuredClone(fixture.historicalPackage) as never,
       },
       branches: {
         loadPreCityBranchVerified: () => structuredClone(fixture.preCityBranch),
@@ -1067,6 +1276,7 @@ describe("SQLite City Selection writer boundary", () => {
         integrityKey: WRITER_KEY,
         gate,
         catalogBundle: fixture.catalogBundle,
+        historicalPackage: fixture.historicalPackage,
         terminal: fixture.terminal,
         ranking: fixture.ranking,
         preCityBranch: fixture.preCityBranch,
