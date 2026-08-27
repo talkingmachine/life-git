@@ -1,9 +1,13 @@
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
 import { createEvidenceIntegrity, secureHexEqual } from "../../src/infrastructure/integrity";
+import type { ReplayEvidenceStore } from "../../src/application/replay-evidence";
 import type {
   Claim,
   EvidenceBlocker,
@@ -16,6 +20,10 @@ import {
   sealEvidence,
   type TerminalEvidenceEntry,
 } from "../../src/research/run";
+import type {
+  VerifiedEvidenceBundle,
+  VerifiedLoadExpectations,
+} from "../../src/research/research-plan";
 
 const KEY = "integration-test-key-at-least-32-bytes";
 const INTEGRITY = createEvidenceIntegrity(KEY);
@@ -253,7 +261,94 @@ describe("append-only evidence persistence", () => {
   });
 });
 
+describe("verified Evidence dependency boundary", () => {
+  test("keeps every Application import pointed away from Infrastructure", () => {
+    // Break caught: moving a SQLite/crypto helper into an Application use case instead of injecting an inward port.
+    const applicationRoot = join(process.cwd(), "src/application");
+    const files = readdirSync(applicationRoot)
+      .map((name) => join(applicationRoot, name))
+      .filter((path) => statSync(path).isFile() && /\.(?:ts|tsx)$/.test(path));
+    const violations = files.flatMap((path) => {
+      const source = readFileSync(path, "utf8");
+      const imports = [...source.matchAll(
+        /(?:import(?:\s+type)?[\s\S]*?from\s*|import\s*\()(["'])([^"']+)\1/g,
+      )].map((match) => match[2]!);
+      return imports
+        .filter((specifier) => specifier.includes("/infrastructure/"))
+        .map((specifier) => ({ path, specifier }));
+    });
+    expect(violations).toEqual([]);
+  });
+
+  test("SQLite structurally implements the inward replay store and returns fresh bundle bytes", async () => {
+    // Break caught: exporting Infrastructure row types or leaking one mutable Buffer across verified reads.
+    const db = database();
+    const concrete = new SqliteEvidenceStore(db);
+    const replayStore: ReplayEvidenceStore = concrete;
+    const expectations: VerifiedLoadExpectations = {
+      assessmentDate: ASSESSMENT_DATE,
+      parserVersions: EVIDENCE_PARSER_VERSIONS,
+      rulesVersion: EVIDENCE_RULES_VERSION,
+    };
+    const entries = completeEntries();
+    for (const entry of entries) {
+      await concrete.appendArtifact(entry.parserEntry.artifacts[0]! as LiveCapturedArtifact);
+    }
+    const sealed = await sealEvidence({
+      id: "snapshot-inward-bundle",
+      assessmentDate: ASSESSMENT_DATE,
+      entries,
+      parserVersions: EVIDENCE_PARSER_VERSIONS,
+      rulesVersion: EVIDENCE_RULES_VERSION,
+    }, INTEGRITY);
+    await concrete.seal(sealed);
+
+    const first: VerifiedEvidenceBundle = await replayStore.loadVerifiedBundle(
+      sealed.snapshot.id,
+      KEY,
+      expectations,
+    );
+    const second = await replayStore.loadVerifiedBundle(sealed.snapshot.id, KEY, expectations);
+    const original = second.entries[0]!.artifacts[0]!.bytes[0];
+    first.entries[0]!.artifacts[0]!.bytes[0] = 255;
+
+    expect(second.entries[0]!.artifacts[0]!.bytes[0]).toBe(original);
+    expect(first.snapshot).toEqual(sealed.snapshot);
+  });
+});
+
 describe("verified evidence load", () => {
+  test("rejects unsigned extra own fields in stored snapshot JSON", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    const entries = completeEntries();
+    for (const entry of entries) {
+      await store.appendArtifact(entry.parserEntry.artifacts[0]! as LiveCapturedArtifact);
+    }
+    await store.seal(await sealEvidence({
+      id: "snapshot-extra-field",
+      assessmentDate: ASSESSMENT_DATE,
+      entries,
+      parserVersions: EVIDENCE_PARSER_VERSIONS,
+      rulesVersion: EVIDENCE_RULES_VERSION,
+    }, INTEGRITY));
+
+    db.exec("DROP TRIGGER evidence_snapshots_no_update");
+    const row = db.prepare(
+      "SELECT snapshot_json FROM evidence_snapshots WHERE id = ?",
+    ).get("snapshot-extra-field") as { readonly snapshot_json: string };
+    const snapshot = JSON.parse(row.snapshot_json) as Record<string, unknown>;
+    snapshot.unsignedExtension = { accepted: true };
+    db.prepare("UPDATE evidence_snapshots SET snapshot_json = ? WHERE id = ?").run(
+      INTEGRITY.canonical(snapshot),
+      "snapshot-extra-field",
+    );
+
+    await expect(store.loadVerified("snapshot-extra-field", KEY)).rejects.toThrow(
+      "integrity_mismatch",
+    );
+  });
+
   test("round-trips an optional signed context binding and rejects snapshot-only tampering", async () => {
     const db = database();
     const store = new SqliteEvidenceStore(db);

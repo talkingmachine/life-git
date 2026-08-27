@@ -97,16 +97,18 @@ Knowledge revision, использованную для ranking, от verified u
 кандидатов доступно здесь, а не в popover карты.
 
 Пользователь выбирает effective green страну только из non-empty Resolved Country Shortlist
-Snapshot. Только после этого отдельный City Frontier показывает полный installed `City Catalog
-Revision`: comparable official population `>= 20 000`, national/explicitly typed regional capitals
-и largest comparable top-ten fill. Он показывает frozen `rank/score на момент старта`, а explicit
-Continue проверяет следующий city и закрывает fresh four facts: безопасность, долгосрочную аренду,
-городской транспорт и fixed broadband.
+Snapshot. Только после этого отдельный City Frontier показывает полный installed
+`City Catalog Revision` из максимум 100 городов: national capital, все explicitly typed first-level regional
+capitals, затем largest comparable official urban centers до лимита с ordinal `cityId` tie-break.
+Он показывает frozen `rank/score на момент старта`, а explicit Continue проверяет следующий city и
+закрывает fresh four facts: безопасность, долгосрочную аренду, городской транспорт и fixed broadband.
 
 Только fresh comparable verified required mismatch даёт red `Исключён` и replacement. Unknown не
 закрывает слот: такой город остаётся green `Доступен для выбора` с amber warning ring, explicit
-warning list и fresh `coverage после проверки`. После `three_selectable` городов либо честного
-`catalog_exhausted` интерфейс seal-ит terminal City Shortlist Snapshot. При `1..3` entries выбор
+warning list и fresh `coverage после проверки`. После `three_selectable`, честного
+`catalog_exhausted` либо десятого completed city check с `live_candidate_limit_reached` интерфейс
+seal-ит terminal City Shortlist Snapshot. Последний случай явно показывает, что непроверенные catalog
+candidates остались. При `1..3` entries выбор
 города атомарно публикует City Selection Snapshot и City Branch Commit; выбор другого города того
 же terminal образует sibling branch от одного `PreCityBranchCommit`. При terminal `0` CTA нет.
 

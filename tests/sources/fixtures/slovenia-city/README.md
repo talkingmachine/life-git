@@ -1,8 +1,9 @@
 # Slovenia city source feasibility fixtures
 
 These fixtures support the fail-closed source audit in
-`docs/changes/active/vs-4a-city-frontier/source-field-map.md`. They do not install a production
-city package and do not turn an unavailable criterion into a verified fact.
+`docs/changes/active/vs-4a-city-frontier/source-field-map.md`. A complete source contract closes a
+city fact as `verified | unknown`; these fixtures do not seal the artifact package or publish a
+production city package.
 
 Every source directory distinguishes six classes explicitly:
 
@@ -20,13 +21,17 @@ Large archives, geometries, addresses, free-text notes, case descriptions, perso
 credentials are intentionally excluded. Source URLs, capture dates, raw artifact hashes and
 transformations are recorded beside each fixture.
 
-The package remains `unavailable`. Safety now has a closed contract for an official
-municipality/Police/SURS source plan and therefore reaches
-`candidate_available_with_partial_official_coverage`, but no installed plan, fresh exact
-catalog-member numerator or same-year municipality denominator result is hash-bound here. The new
-broad-scope and SURS files are explicitly unavailable projections or generated validator contracts,
-not verified facts. AKOS still lacks a proven source reference period/reuse license, and nationwide
-DUJPP alone cannot prove complete coverage of the municipal urban-transit definition.
+`sourceContractStatus = bounded_verified_or_unknown`; `artifactInstallability =
+not_installable_artifacts_unsealed`; `publicationStatus = not_published`; and `decision =
+PROCEED_WITH_TASK_6; PUBLICATION_PENDING_ARTIFACTS`. The fresh `city-catalog@2` 100-member summary,
+all 104 Registry point-on-surface projections and selected-member per-fact source-plan artifacts
+remain unsealed. The legacy ten-member catalog and candidate-only safety fixtures are not those
+artifacts. Safety is a candidate-only municipality/Police/SURS contract here: no installed plan,
+fresh exact catalog-member numerator or same-year municipality denominator result is hash-bound. The
+broad-scope and SURS files are unavailable projections or generated validator contracts, not verified
+facts. AKOS reference-period/reuse limitations and DUJPP municipal-universe limitations are reasons
+their facts close to unknown; additional AKOS or NAP evidence may improve a yellow fact to verified,
+not unblock Task 6.
 
 `SHA256SUMS` binds every committed fixture byte except itself. Each manifest separately records raw
 transport or source-artifact hashes and transformations, so normalized/derived bytes are never

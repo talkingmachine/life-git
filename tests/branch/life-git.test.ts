@@ -353,7 +353,7 @@ describe("Life Git housing branch", () => {
     expect(() => diffCommits(initial.commit, forged)).toThrow("invalid_housing_fork");
   });
 
-  test("schema contains exactly the five VS-1 append-only tables", () => {
+  test("schema contains the exact append-only table inventory", () => {
     const db = database();
     const tables = db.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
@@ -362,6 +362,7 @@ describe("Life Git housing branch", () => {
     expect(tables).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "city_evidence_snapshots" },
       { name: "country_knowledge_revisions" },
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },

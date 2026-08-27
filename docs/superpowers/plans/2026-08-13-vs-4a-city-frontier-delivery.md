@@ -21,8 +21,10 @@
 - Browser modules may runtime-import only Decision and Experience. Application imports are type-only; Infrastructure and `node:*` are forbidden in the web bundle.
 - Active unchecked city is gray `Проверяется`, never green or selectable.
 - Fully verified selectable is green. Selectable with any unknown is yellow with warning text and the same selection affordance; yellow occupies a terminal slot and needs no separate modal.
+- For every unknown fact, browser read models verify and expose its terminal reason plus saved checked official URLs, attempt dispositions and rejection reasons. Search queries, provider snippets and credentials never enter browser read models; safety may retain its additional detailed ledger only in Evidence.
 - Cards show frozen rank/score and separately fresh verification coverage/facts. React never computes a second score.
-- No Select control before terminal. Terminal 0 renders honest exhaustion and no City CTA.
+- No Select control before terminal. Terminal 0 renders its exact `catalog_exhausted` or
+  `live_candidate_limit_reached` reason and no City CTA; budget copy never claims the catalog ended.
 - Preserve existing country, cold-start, housing and globe focus/reduced-motion behavior.
 
 ---
@@ -101,7 +103,12 @@ git commit -m "feat: expose city frontier transport"
 
 - [ ] **Step 1: Write closed-protocol RED tests**
 
-Reject unknown/extra keys, wrong run/base/sequence, progress without activation, country/city/rank mismatch, second activation, commit with altered historical prefix/source/cursor/phase, uncommitted marker, illegal terminal and event after continuation completion. Accept a working one-city continuation, immediate exhaustion and multi-command red/selectable chains.
+Reject unknown/extra keys, wrong run/base/sequence, progress without activation,
+country/city/rank mismatch, second activation, commit with altered historical
+prefix/source/cursor/phase/budget, uncommitted marker, working state after ten markers, limit terminal
+below ten markers, an eleventh activation, illegal terminal and event after continuation completion.
+Accept a working one-city continuation, immediate exhaustion, exact tenth-marker partial terminal and
+multi-command red/selectable chains.
 
 - [ ] **Step 2: Add EOF/cancellation RED tests**
 
@@ -167,11 +174,28 @@ git commit -m "feat: decode city frontier"
 
 - [ ] **Step 1: Write setup and URL/page RED tests**
 
-Assert each resolved country CTA carries exact source/country; setup Page verifies it server-side; four fixed editable criteria use returned installed definitions/defaults; edit invalidates confirmation; exact complete/incomplete catalog coverage and installed-country scope copy (including fewer-than-ten/missing-population); exact Start body; ambiguous Start retry reuses the same command ID/payload; unavailable package message; URL installs before state adoption; stored Page presents by run only; missing snapshot recoverable; integrity/unexpected generic; zero client fetch on reload.
+Assert each resolved country CTA carries exact source/country; setup Page verifies it server-side;
+four fixed editable criteria use returned installed definitions/defaults; edit invalidates confirmation;
+exact at-most-100 catalog coverage and installed-country scope copy, including a smaller official
+universe, missing population and mandatory-capital-overflow `NEEDS_CONTEXT`; exact Start body;
+ambiguous Start retry reuses the same command ID/payload; unavailable package message; URL installs
+before state adoption; stored Page presents by run only; missing snapshot recoverable;
+integrity/unexpected generic; zero client fetch on reload.
+Assert a legacy-only @1 package renders an upgrade-required unavailable message and makes no Start or
+source request, while a historical stored @1 run remains presentable by exact run ID.
 
 - [ ] **Step 2: Write marker/card/selection RED tests**
 
-Assert gray active marker; red excluded stays visible/clickable; green all-verified selectable; yellow unknown selectable with the same interaction and terminal-slot behavior; exact frozen `rank/score at start`; separate fresh four facts/coverage; explicit installed-catalog limitation and incomplete-coverage warning; no second score or global-best claim; no Select before terminal; terminal 0 no CTA; terminal 1–3 green/yellow selection; yellow CTA states inline risk acceptance without a modal; exact Select payload; committed selection/branch confirmation; selecting a second terminal city creates and displays a sibling alternative.
+Assert gray active marker; red excluded stays visible/clickable; green all-verified selectable; yellow
+unknown selectable with the same interaction and terminal-slot behavior; exact frozen
+`rank/score at start`; separate fresh four facts/coverage; explicit installed-catalog limitation and
+incomplete-coverage warning; no second score or global-best claim; no Select before terminal;
+terminal 0 no CTA; terminal 1–3 green/yellow selection; yellow CTA states inline risk acceptance
+without a modal; exact Select payload; committed selection/branch confirmation; selecting a second
+terminal city creates and displays a sibling alternative. For `live_candidate_limit_reached`, render
+`Проверено 10 городов; в установленном каталоге остались непроверенные кандидаты` plus the exact
+`N из 3` result; for `catalog_exhausted`, say the frozen queue is exhausted. Never conflate either
+with per-city safety-source exhaustion.
 
 For a verified safety fact, assert accepted official link, reference year, offence numerator, SURS denominator and `lastCheckedAt`. For unknown safety, assert terminal reason, reviewed official links and per-link rejection reasons. Exhaustion copy says the bounded search ended; transport copy says the provider/official path was unavailable. Neither says that no source exists anywhere.
 
@@ -261,11 +285,16 @@ With `PRAGMA query_only=ON`, prove the selected city belongs to the exact termin
 
 - [ ] **Step 4: Execute one isolated official-source walkthrough**
 
-Follow the then-current local `AGENTS.md`: an explicit chat-wide read-only permission may cover browser navigation in that chat, while downloads/forms/uploads/sign-in require separate immediate confirmation. Then use a `mktemp -d` database and a process-only HMAC key. Install the official catalog with the administrative installer, start from a verified resolved country, confirm four criteria, explicitly Continue candidates until terminal/exhaustion, inspect actual previous/configured/search fallback, query/candidate/hop bounds, rejection ledger, source/fact progress and gray/green/yellow/red states. Select one green or yellow city, reload the exact URL and verify the same links/reasons with no new official/search request. Do not click arbitrary external links, reuse a developer DB or replace live outcomes with fixtures.
+Follow the then-current local `AGENTS.md`: an explicit chat-wide read-only permission may cover browser navigation in that chat, while downloads/forms/uploads/sign-in require separate immediate confirmation. Then use a `mktemp -d` database and a process-only HMAC key. Install the official catalog with the administrative installer, start from a verified resolved country, confirm four criteria, explicitly Continue candidates until any terminal, never beyond ten completed cities. Inspect actual previous/configured/search fallback, per-city safety query/document-URL/hop bounds, frontier-wide city count, rejection ledger, source/fact progress and gray/green/yellow/red states. Select one green or yellow city, reload the exact URL and verify the same links/reasons with no new official/search request. Do not click arbitrary external links, reuse a developer DB or replace live outcomes with fixtures.
 
 - [ ] **Step 5: Write exact evidence and stop for approval**
 
-Evidence includes HEAD/time, commands/counts, source/capture outcomes, query/provider/template IDs, `3/10/2` counters, candidate rejection ledger, accepted/reviewed URLs, retention/transient cleanup, catalog membership/coverage, ranking formula inputs, marker/four-fact lineage, terminal stop, selection/branch IDs, zero-network replay, SQL integrity, limitations and cleanup (server stopped, temp DB/sidecars removed, HMAC/search credentials unset). Run:
+Evidence includes HEAD/time, commands/counts, source/capture outcomes, query/provider/template IDs,
+per-city safety `3 queries / 10 document URLs / 2 hops`, separate frontier `completed city checks <= 10`,
+candidate rejection ledger, accepted/reviewed URLs, retention/transient cleanup, catalog
+membership/coverage/cap/rules version, ranking formula inputs, marker/four-fact lineage, exact terminal
+stop, selection/branch IDs, zero-network replay, SQL integrity, limitations and cleanup (server stopped,
+temp DB/sidecars removed, HMAC/search credentials unset). Run:
 
 ```bash
 evidence_diff_check="$(git diff --no-index --check /dev/null \

@@ -29,6 +29,7 @@ import {
 
 const KEY = "integration-test-key-at-least-32-bytes";
 const INTEGRITY = createEvidenceIntegrity(KEY);
+const REPLAY_INTEGRITY_FACTORY = Object.freeze({ create: createEvidenceIntegrity });
 const ASSESSMENT_DATE = "2026-08-08";
 const DEADLINE_AT = "2026-08-08T10:00:45.000Z";
 
@@ -618,7 +619,7 @@ describe("runCurrentEvidence", () => {
     expect(cbrEntry.artifacts.map((item) => item.artifactId)).toEqual([firstArtifact.artifactId]);
     await expect(replayEvidence(
       { snapshotId: snapshot.id, hmacKey: KEY },
-      { store, parsers: evidenceParsers },
+      { store, integrityFactory: REPLAY_INTEGRITY_FACTORY, parsers: evidenceParsers },
     )).resolves.toEqual(snapshot);
   });
 });
@@ -649,7 +650,7 @@ describe("replayEvidence", () => {
 
     const replayed = await replayEvidence(
       { snapshotId: "s", hmacKey: KEY },
-      { store, parsers: fixedParsers },
+      { store, integrityFactory: REPLAY_INTEGRITY_FACTORY, parsers: fixedParsers },
     );
 
     expect(canonicalJson(replayed)).toBe(FIXED_VS1_CANONICAL_SNAPSHOT);
@@ -699,7 +700,7 @@ describe("replayEvidence", () => {
 
     const replayed = await replayEvidence(
       { snapshotId: current.id, hmacKey: KEY },
-      { store, parsers: evidenceParsers },
+      { store, integrityFactory: REPLAY_INTEGRITY_FACTORY, parsers: evidenceParsers },
     );
 
     expect(networkCapture).not.toHaveBeenCalled();
@@ -735,8 +736,72 @@ describe("replayEvidence", () => {
     };
     await expect(replayEvidence(
       { snapshotId: current.id, hmacKey: KEY },
-      { store: changedRulesStore, parsers: parsers(() => { projections += 1; }) },
+      {
+        store: changedRulesStore,
+        integrityFactory: REPLAY_INTEGRITY_FACTORY,
+        parsers: parsers(() => { projections += 1; }),
+      },
     )).rejects.toThrow("integrity_mismatch");
     expect(projections).toBe(0);
+  });
+});
+
+describe("replay Evidence integrity injection", () => {
+  test("creates one injected integrity and performs one signing recomputation per replay", async () => {
+    // Break caught: constructing a second canonicalizer in Application or losing the factory in a nested delegation.
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    for (const artifact of FIXED_VS1_ARTIFACTS) await store.appendArtifact(artifact);
+    await store.seal({
+      snapshot: JSON.parse(FIXED_VS1_CANONICAL_SNAPSHOT) as EvidenceSnapshot,
+      manifest: JSON.parse(FIXED_VS1_CANONICAL_MANIFEST) as EvidenceManifest,
+      canonicalManifest: FIXED_VS1_CANONICAL_MANIFEST,
+    });
+    const calls = { create: 0, sign: 0 };
+    const canonicalReceivers: string[][] = [];
+    const integrityFactory = {
+      create(key: string) {
+        calls.create += 1;
+        const integrity = createEvidenceIntegrity(key);
+        return {
+          canonical(this: Record<string, unknown>, value: unknown) {
+            canonicalReceivers.push(Object.keys(this).sort());
+            return integrity.canonical(value);
+          },
+          hash: integrity.hash,
+          sign(value: string) {
+            calls.sign += 1;
+            return integrity.sign(value);
+          },
+        };
+      },
+    };
+    const fixedParsers = Object.fromEntries(FIXED_VS1_SOURCE_IDS.map((sourceId, index) => [
+      sourceId,
+      async () => ({
+        ok: true as const,
+        facts: { accepted: true },
+        sourcePeriod: ASSESSMENT_DATE,
+        anchors: [{
+          artifactId: `a${index + 1}`,
+          locator: "x",
+          excerptSha256: "b".repeat(64),
+        }],
+      }),
+    ])) as unknown as EvidenceParsers;
+
+    await replayEvidence(
+      { snapshotId: "s", hmacKey: KEY },
+      { store, integrityFactory, parsers: fixedParsers },
+    );
+
+    expect(calls).toEqual({ create: 1, sign: 1 });
+    expect(canonicalReceivers).toEqual([
+      ["canonical"],
+      ["canonical"],
+      ["canonical", "hash", "sign"],
+      ["canonical"],
+      ["canonical"],
+    ]);
   });
 });

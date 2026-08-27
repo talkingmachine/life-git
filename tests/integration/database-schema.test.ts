@@ -163,6 +163,7 @@ describe("database schema preflight", () => {
     ).all()).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "city_evidence_snapshots" },
       { name: "country_knowledge_revisions" },
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
@@ -170,6 +171,26 @@ describe("database schema preflight", () => {
       { name: "place_frontier_snapshots" },
       { name: "profile_snapshots" },
       { name: "run_revisions" },
+    ]);
+
+    const cityEvidenceColumns = reopened.prepare(
+      "PRAGMA table_info(city_evidence_snapshots)",
+    ).all() as { readonly name: string }[];
+    expect(cityEvidenceColumns.map(({ name }) => name)).toEqual([
+      "id", "city_check_run_id", "frontier_run_id", "city_id", "country_code",
+      "package_id", "package_schema_version", "catalog_revision_id", "criteria_snapshot_id",
+      "ranking_snapshot_id", "evidence_rules_version", "context_hash", "assessment_at",
+      "completed_at", "canonical_payload", "payload_hash", "hmac",
+    ]);
+    expect(cityEvidenceColumns.map(({ name }) => name)).not.toContain("rules_version");
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE name LIKE 'city_evidence_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "table", name: "city_evidence_snapshots" },
+      { type: "trigger", name: "city_evidence_snapshots_no_delete" },
+      { type: "trigger", name: "city_evidence_snapshots_no_update" },
     ]);
 
     expect(reopened.prepare(`
@@ -254,5 +275,22 @@ describe("database schema preflight", () => {
     expect(verification.prepare(
       "SELECT sql FROM sqlite_master WHERE name = 'country_resolution_revisions'",
     ).get()).toEqual({ sql: "CREATE TABLE country_resolution_revisions (id TEXT PRIMARY KEY)" });
+  });
+
+  test("rejects an incompatible existing City Evidence overlay table before schema execution", () => {
+    // Break caught: silently reusing a pre-context City overlay schema with ambiguous rules columns.
+    const path = temporaryDatabasePath();
+    const incompatible = track(new Database(path));
+    incompatible.exec("CREATE TABLE city_evidence_snapshots (id TEXT PRIMARY KEY, rules_version TEXT)");
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(verification.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_evidence_snapshots'",
+    ).get()).toEqual({
+      sql: "CREATE TABLE city_evidence_snapshots (id TEXT PRIMARY KEY, rules_version TEXT)",
+    });
   });
 });

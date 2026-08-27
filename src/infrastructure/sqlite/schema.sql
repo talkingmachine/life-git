@@ -28,6 +28,26 @@ CREATE TABLE IF NOT EXISTS evidence_snapshots (
   rules_version TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS city_evidence_snapshots (
+  id TEXT PRIMARY KEY REFERENCES evidence_snapshots(id),
+  city_check_run_id TEXT NOT NULL UNIQUE,
+  frontier_run_id TEXT NOT NULL,
+  city_id TEXT NOT NULL,
+  country_code TEXT NOT NULL,
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  catalog_revision_id TEXT NOT NULL,
+  criteria_snapshot_id TEXT NOT NULL,
+  ranking_snapshot_id TEXT NOT NULL,
+  evidence_rules_version TEXT NOT NULL,
+  context_hash TEXT NOT NULL CHECK (length(context_hash) = 64),
+  assessment_at TEXT NOT NULL,
+  completed_at TEXT NOT NULL,
+  canonical_payload TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64)
+);
+
 CREATE TABLE IF NOT EXISTS country_knowledge_revisions (
   id TEXT PRIMARY KEY,
   country_code TEXT NOT NULL CHECK (
@@ -218,6 +238,18 @@ CREATE TRIGGER IF NOT EXISTS evidence_snapshots_no_delete
 BEFORE DELETE ON evidence_snapshots
 BEGIN
   SELECT RAISE(ABORT, 'sealed_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_evidence_snapshots_no_update
+BEFORE UPDATE ON city_evidence_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'city_evidence_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_evidence_snapshots_no_delete
+BEFORE DELETE ON city_evidence_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'city_evidence_snapshot_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS country_knowledge_revisions_no_update

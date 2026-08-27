@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn one verified effective-green country into a frozen, official-data city search that checks cities in rank order, returns up to three selectable cities, and atomically records the selected city as the first alternative Life Git branch.
+**Goal:** Turn one verified effective-green country into a frozen, official-data city search that ranks an at-most-100-member catalog, checks at most ten cities per run, returns up to three selectable cities, and atomically records the selected city as the first alternative Life Git branch.
 
 **Architecture:** VS-4A is a new vertical slice, not an extension of the country ranker. Pure `city-*` Decision modules own catalog membership, criteria, exact Decimal ranking, frontier state and warning/selectability policy. Research owns one installed official country package and full four-fact City Evidence/Knowledge publication. Application orchestrates zero-network Start/Present, one-city-per-command Continue, and atomic Select. SQLite stores only canonical append-only artifacts; Experience consumes strict JSON/finite-NDJSON read models and reuses the existing globe presentation without putting city policy in React.
 
@@ -30,21 +30,34 @@ Each numbered task ends in a local commit and a fresh focused gate. Do not begin
 
 - Entry is only `requireResolvedCountryShortlistForCity(revisionId)` plus exact membership of the selected effective-green country. Automatic, working, empty, tampered and effective-red country states fail closed.
 - City fit never changes a country's formal or effective status. Accepted formal-yellow remains formal yellow and effective green internally.
-- The automatic universe is the installed official city/municipal-center catalog: population `>= 20000`, national and explicitly typed regional capitals regardless of population, then largest comparable official centers until at least ten when available. More than ten are never truncated.
-- The first production slice installs exactly one country package. A package is unavailable unless an official field map proves catalog coverage and complete deterministic source plans for safety, long-term rent, urban transit and fixed broadband. A complete safety plan may close individual cities as evidence-backed unknown; it does not require a verified value for every city.
+- The installed City Catalog contains at most 100 cities per country: national capital first, every
+  explicitly and officially typed first-level regional capital next, then the largest remaining
+  official urban centers by latest comparable population until the total reaches 100; equal
+  population uses ordinal `cityId`. More than 100 mandatory capitals is `NEEDS_CONTEXT`, never silent
+  truncation. New append/install/Start paths require `city-catalog@2`; historical `city-catalog@1`
+  remains loadable for audit and historical presentation only.
+- The first production slice installs exactly one country package. Artifact installability requires a sealed `city-catalog@2` Registry/catalog projection and complete deterministic source plans for safety, long-term rent, urban transit and fixed broadband. Each complete plan deterministically closes each city fact as `verified | unknown` after bounded official attempts; no fresh positive value for every city is an installation prerequisite. Missing or malformed catalog/plan policy blocks installability, while an honest evidence-backed `unknown` lowers coverage but leaves the city selectable.
 - City Criteria and City Ranker are separate modules. Do not edit or reuse `preference-profile.ts`, `place-ranker.ts`, `place-package.ts` or their country snapshots for city semantics.
 - Unknown contributes factor `0`, retains its importance in the denominator, lowers coverage and warns. Only a fresh comparable verified required mismatch excludes a city.
 - Ranking is frozen across the full catalog. Live Knowledge changes fresh facts and verification coverage only; it never changes current-run rank/score/order.
-- Continue checks exactly one frozen candidate and all four facts. Only Continue may call official HTTPS and the narrow safety-search port. Start, Present, reload and Select are zero-network.
+- Continue checks exactly one frozen candidate and all four facts. A run commits at most ten completed
+  city candidates; a failed/uncommitted retry consumes no city slot. Only Continue may call official
+  HTTPS and the narrow safety-search port. Start, Present, reload and Select are zero-network.
 - A completed check publishes sealed Evidence, then a full four-fact City Knowledge revision, then a frontier successor. No old fact value is carried into a new city revision.
 - Crash, cancel, storage, integrity, protocol or unexpected errors do not become domain unknown and do not advance the cursor. A completed Evidence/Knowledge result survives a later frontier append failure and is reused without network.
 - Marker visual states are gray `pending`, `green`, `yellow` and `red`. Green and yellow are semantically selectable; yellow occupies a terminal slot and never triggers replacement, while only a verified required mismatch is red/excluded.
-- Stop is exactly three selectable cities or catalog exhaustion. Terminal `0..2` is valid; Select requires terminal `1..3` and an exact terminal entry.
+- Stop is exactly `three_selectable`, `catalog_exhausted` or `live_candidate_limit_reached`. The last
+  reason applies after ten completed city checks only when the frozen queue still has candidates and
+  fewer than three are selectable. Terminal `0..2` is valid; Select requires terminal `1..3` and an
+  exact terminal entry.
 - Selection warning basis is server-derived. The client supplies only terminal ID, city ID, command ID and `city-unknown-risk@1` iff warnings were displayed.
 - Selection and City Branch Commit are one SQLite transaction. Alternative selections from the same terminal are sibling commits with `parentId = forkedFrom = preCityBranchCommitId`.
 - Raw official bytes stay only in existing Evidence artifact storage when the source-specific retention policy permits it; otherwise a transient copy is deleted after the minimal hash/locator projection is sealed. City Knowledge never stores user criteria, score, suitability, search text or raw bytes.
 - Runtime LLM/model calls remain exactly zero. The only external provider boundary added by VS-4A is the narrow safety URL-discovery port; provider SDK types, snippets, credentials and ranking never enter Decision, Research facts, Knowledge or the browser bundle.
-- Do not add a universal crawler, background search worker, event store, queue, polling, ORM, mutable head table, jobs/housing/budget flow or universal city ontology. The approved sequential `3 queries / 10 candidates / 2 official hops` safety search is the sole exception.
+- Do not add a universal crawler, background search worker, event store, queue, polling, ORM, mutable
+  head table, jobs/housing/budget flow or universal city ontology. The approved sequential safety
+  search budget is `3 queries / 10 document URL candidates / 2 official hops` per one city check; it
+  is independent from the frontier-wide ten-city limit.
 - Do not expand `PlaceFrontierJourney.tsx`; the city slice gets focused city components and one city journey owner.
 - Preserve the three unrelated untracked `.superpowers/brainstorm/**` directories.
 
@@ -72,10 +85,20 @@ export type CityRankingUnknownReason = CityUnknownReason | "no_knowledge_revisio
 export type CityMarkerDisposition = "selectable" | "excluded";
 export type CityCommittedMarkerVisualStatus = "green" | "yellow" | "red";
 export type CityCandidateViewStatus = "pending" | CityCommittedMarkerVisualStatus;
-export type CityFrontierStopCondition = "three_selectable" | "catalog_exhausted";
+export type CityFrontierStopCondition =
+  | "three_selectable"
+  | "catalog_exhausted"
+  | "live_candidate_limit_reached";
+
+export interface CityFrontierVerificationBudget {
+  readonly liveCityCandidateLimit: 10;
+  readonly targetSelectableCities: 3;
+  readonly rulesVersion: "city-frontier-budget@1";
+}
 
 export interface CitySafetyDiscoveryBudget {
   readonly queryLimit: 3;
+  // Document URLs inspected for one city's safety fact; not City Frontier cities.
   readonly candidateLimit: 10;
   readonly officialHopLimit: 2;
   readonly rulesVersion: "city-safety-discovery@1";
@@ -160,10 +183,14 @@ Decision imports neither Research revisions nor Application/SQLite/React. Resear
 
 ## Common command and recovery rules
 
-- Start derives deterministic run/artifact IDs from resolved-country revision + country + Registry/catalog + criteria payload + rules versions and persists the client command ID in the root. Identical retry converges; the same command ID with altered payload is `integrity_mismatch`.
+- Start derives deterministic run/artifact IDs from resolved-country revision + country + Registry/catalog + criteria payload + catalog/frontier-budget rules versions and persists the client command ID in the root. Identical retry converges; the same command ID with altered payload is `integrity_mismatch`.
 - Continue uses `(runId, expectedRevisionId, commandId)`. A moved head is `stale_city_frontier_head`; a committed identical command replays its result.
 - A continuation's deterministic `cityCheckRunId` is derived from `runId + cityId + rankingSnapshotId`. Present-first recovery checks sealed City Evidence and published Knowledge before any source call.
-- A committed marker event is emitted only after the frontier append. Every Continue then emits exactly one `city_continuation_completed` carrying the verified working-or-terminal read model; the route withholds that frame until clean EOF, and its model must canonically equal the callback return.
+- A committed marker event is emitted only after the frontier append. Reconstruction requires
+  `completed markers <= 10`; every tenth marker must produce terminal under the documented stop
+  precedence, and no eleventh activation is valid. Every Continue then emits exactly one
+  `city_continuation_completed` carrying the verified working-or-terminal read model; the route
+  withholds that frame until clean EOF, and its model must canonically equal the callback return.
 - Select is idempotent per `(runId, commandId, canonical payload)`. The atomic writer inserts or exact-replays both selection and branch; partial success is impossible.
 - Presentation verifies the complete source graph and calls no official source, request-step or safety-search port. Two presentations must be canonically equal and leave all relevant rows byte-for-byte unchanged.
 
@@ -189,7 +216,7 @@ Then execute the deterministic replay proof from the delivery plan and one isola
 VS-4A is complete only when:
 
 - all five linked plans are implemented and locally reviewed;
-- the official installed package passed the source feasibility gate; safety separately reached `available_with_partial_official_coverage`, while the whole package is not installable until transit and broadband gates pass;
+- the official installed package has a sealed `city-catalog@2` projection and complete deterministic four-fact plans; each city fact may close as `verified | unknown`, while missing catalog artifacts or incomplete plan policy still block installation and publication;
 - terminal selection and sibling branch publication are demonstrated on persisted data;
 - replay is canonical and zero official/search network;
 - canonical docs and the active change package are updated;

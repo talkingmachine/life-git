@@ -95,6 +95,28 @@ export interface EvidenceIntegrity {
   sign(value: string): string;
 }
 
+export interface VerifiedLoadExpectations<S extends string = SourceId> {
+  readonly assessmentDate?: string;
+  readonly parserVersions?: Readonly<Record<S, string>>;
+  readonly rulesVersion?: string;
+}
+
+export interface VerifiedEvidenceBundle<
+  S extends string = SourceId,
+  C extends Claim<unknown, S> = Claim<unknown, S>,
+> {
+  readonly snapshot: EvidenceSnapshot<S, C>;
+  readonly entries: readonly ParserEntry<S>[];
+}
+
+export function evidenceCanonicalEqual(
+  left: unknown,
+  right: unknown,
+  integrity: Pick<EvidenceIntegrity, "canonical">,
+): boolean {
+  return integrity.canonical(left) === integrity.canonical(right);
+}
+
 export interface EvidenceWriteStore<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
@@ -163,6 +185,8 @@ function validateTerminalEntries<S extends string, C extends Claim<unknown, S>>(
   entries: readonly TerminalEvidenceEntry<S, C>[],
 ): void {
   if (
+    !denseArray(sourceIds) || !denseArray(entries) ||
+    entries.some((entry) => !containsOnlyDenseArrays(entry)) ||
     entries.length !== sourceIds.length ||
     sourceIds.some((sourceId) => entries.filter((entry) => entry.sourceId === sourceId).length !== 1)
   ) {
@@ -202,6 +226,74 @@ function validateTerminalEntries<S extends string, C extends Claim<unknown, S>>(
   }
 }
 
+function denseArray(value: unknown): value is readonly unknown[] {
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(value, index)) return false;
+  }
+  return true;
+}
+
+function containsOnlyDenseArrays(value: unknown, ancestors = new Set<object>()): boolean {
+  if (value instanceof Uint8Array || value === null || typeof value !== "object") return true;
+  if (ancestors.has(value)) return false;
+  ancestors.add(value);
+  const valid = Array.isArray(value)
+    ? denseArray(value) && value.every((item) => containsOnlyDenseArrays(item, ancestors))
+    : Object.values(value).every((item) => containsOnlyDenseArrays(item, ancestors));
+  ancestors.delete(value);
+  return valid;
+}
+
+function cloneFrozenTerminalValue<T>(value: T): T {
+  if (value instanceof Uint8Array) return new Uint8Array(value) as T;
+  if (Array.isArray(value)) {
+    const clone = value.map((item) => cloneFrozenTerminalValue(item));
+    return Object.freeze(clone) as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error("invalid_terminal_evidence");
+    }
+    const clone = Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneFrozenTerminalValue(item)]),
+    );
+    return Object.freeze(clone) as T;
+  }
+  return value;
+}
+
+export function composeTerminalEvidenceEntries<
+  S extends string,
+  C extends Claim<unknown, S>,
+>(
+  sourceIds: readonly S[],
+  batches: readonly (readonly TerminalEvidenceEntry<S, C>[])[],
+): readonly TerminalEvidenceEntry<S, C>[] {
+  const ownedSourceIds = cloneFrozenTerminalValue(sourceIds);
+  const ownedBatches = cloneFrozenTerminalValue(batches);
+  if (
+    !denseArray(ownedSourceIds) || ownedSourceIds.length === 0 ||
+    ownedSourceIds.some((sourceId) => typeof sourceId !== "string" || sourceId.length === 0) ||
+    new Set(ownedSourceIds).size !== ownedSourceIds.length ||
+    !denseArray(ownedBatches) || !ownedBatches.every(denseArray)
+  ) {
+    throw new Error("non_terminal_evidence");
+  }
+  const entries = ownedBatches.flat();
+  validateTerminalEntries(ownedSourceIds, entries);
+  const artifactIds = entries.flatMap((entry) =>
+    entry.parserEntry.artifacts.map((artifact) => artifact.artifactId));
+  if (new Set(artifactIds).size !== artifactIds.length) {
+    throw new Error("invalid_terminal_evidence");
+  }
+  const ordered = ownedSourceIds.map(
+    (sourceId) => entries.find((entry) => entry.sourceId === sourceId)!,
+  );
+  return cloneFrozenTerminalValue(ordered);
+}
+
 function sameOrderedStrings(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -214,6 +306,29 @@ function exactRecordKeys(value: object, sourceIds: readonly string[]): boolean {
   const keys = Object.keys(value).sort();
   const expected = [...sourceIds].sort();
   return sameOrderedStrings(keys, expected);
+}
+
+const EVIDENCE_SNAPSHOT_PAYLOAD_KEYS = [
+  "id",
+  "assessmentDate",
+  "artifactIds",
+  "claims",
+  "blockers",
+  "coverage",
+  "parserVersions",
+  "rulesVersion",
+] as const;
+
+function hasExactEvidenceSnapshotKeys(value: object, includeSignatureFields: boolean): boolean {
+  const expected = [
+    ...EVIDENCE_SNAPSHOT_PAYLOAD_KEYS,
+    ...(Object.prototype.hasOwnProperty.call(value, "contextHash") ? ["contextHash"] : []),
+    ...(Object.prototype.hasOwnProperty.call(value, "knowledgeBaselineRevisionId")
+      ? ["knowledgeBaselineRevisionId"]
+      : []),
+    ...(includeSignatureFields ? ["manifestHash", "hmac"] : []),
+  ].sort();
+  return sameOrderedStrings(Object.keys(value).sort(), expected);
 }
 
 export function assertSealedEvidenceStructure<
@@ -240,6 +355,11 @@ export function assertSealedEvidenceStructure<
     !Array.isArray(manifest.artifacts) || !manifest.artifacts.every(isRecord) ||
     !snapshot.claims.every((claim) => isRecord(claim) && isRecord(claim.anchor)) ||
     !snapshot.blockers.every((blocker) => isRecord(blocker) && Array.isArray(blocker.artifactIds)) ||
+    !hasExactEvidenceSnapshotKeys(snapshot, true) ||
+    !hasExactEvidenceSnapshotKeys(manifest.snapshot, false) ||
+    (snapshot.contextHash !== undefined && typeof snapshot.contextHash !== "string") ||
+    (manifest.snapshot.contextHash !== undefined &&
+      typeof manifest.snapshot.contextHash !== "string") ||
     (snapshot.knowledgeBaselineRevisionId !== undefined &&
       typeof snapshot.knowledgeBaselineRevisionId !== "string") ||
     (manifest.snapshot.knowledgeBaselineRevisionId !== undefined &&
