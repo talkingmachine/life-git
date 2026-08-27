@@ -1,13 +1,18 @@
+import { types } from "node:util";
+
 import type {
+  CityCatalogRevision,
   CityCatalogProjection,
 } from "../decision/city-catalog";
 import {
   CITY_CRITERION_IDS,
+  type CityCriterionDraft,
   type CityCriterionId,
   type InstalledCityCriteriaDefaults,
   type InstalledCityCriterionDefinitionTuple,
 } from "../decision/city-criteria";
 import type { CityDecisionIntegrity } from "../decision/city-integrity";
+import type { CityFrontierVerificationBudget } from "../decision/city-frontier-policy";
 import type {
   CapturedEntry,
   EvidenceSnapshot,
@@ -193,6 +198,283 @@ export interface CityKnowledgeStorePort {
   latestVerified(cityId: string): CityKnowledgeRevision | undefined;
   loadVerified(id: string): CityKnowledgeRevision;
   findByEvidenceVerified(evidenceSnapshotId: string): CityKnowledgeRevision | undefined;
+}
+
+export interface CityCriteriaCommandPayload {
+  readonly schemaVersion: "city-criteria-command@1";
+  readonly profileSnapshotId: string;
+  readonly preferenceProfileSnapshotId: string;
+  readonly criteria: readonly [
+    CityCriterionDraft,
+    CityCriterionDraft,
+    CityCriterionDraft,
+    CityCriterionDraft,
+  ];
+  readonly rulesVersion: "city-criteria@1";
+}
+
+export interface CityFrontierRunIdentity {
+  readonly schemaVersion: "city-frontier-run@1";
+  readonly resolvedCountryShortlistRevisionId: string;
+  readonly countryCode: string;
+  readonly registryRevisionId: string;
+  readonly installedPackageContext: InstalledCityPackageExactKey;
+  readonly criteriaPayloadHash: string;
+  readonly catalogRulesVersion: CityCatalogRevision["rulesVersion"];
+  readonly rankingRulesVersion: "city-ranker@1";
+  readonly verificationBudget: CityFrontierVerificationBudget;
+}
+
+type IdentityRecord = Record<string, unknown>;
+
+interface CapturedIdentityIntegrity {
+  readonly canonical: (value: unknown) => string;
+  readonly hash: (canonicalText: string) => string;
+}
+
+const IDENTITY_DIGEST = /^[0-9a-f]{64}$/;
+const CRITERIA_PAYLOAD_KEYS = [
+  "schemaVersion",
+  "profileSnapshotId",
+  "preferenceProfileSnapshotId",
+  "criteria",
+  "rulesVersion",
+] as const;
+const RUN_IDENTITY_KEYS = [
+  "schemaVersion",
+  "resolvedCountryShortlistRevisionId",
+  "countryCode",
+  "registryRevisionId",
+  "installedPackageContext",
+  "criteriaPayloadHash",
+  "catalogRulesVersion",
+  "rankingRulesVersion",
+  "verificationBudget",
+] as const;
+
+function identityMismatch(): never {
+  throw new Error("integrity_mismatch");
+}
+
+function atIdentityBoundary<T>(operation: () => T): T {
+  try {
+    return operation();
+  } catch {
+    throw new Error("integrity_mismatch");
+  }
+}
+
+function ownIdentityGraph<T>(borrowed: T): T {
+  const seen = new Set<object>();
+  const visit = (value: unknown): unknown => {
+    if (value === null || value === undefined || typeof value === "string" ||
+      typeof value === "number" || typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value !== "object" || types.isProxy(value) || seen.has(value) ||
+      Object.getOwnPropertySymbols(value).length !== 0) {
+      identityMismatch();
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) identityMismatch();
+      const length = Object.getOwnPropertyDescriptor(value, "length");
+      if (length === undefined || !("value" in length) ||
+        !Number.isSafeInteger(length.value) || length.value < 0 ||
+        Object.getOwnPropertyNames(value).length !== length.value + 1) {
+        identityMismatch();
+      }
+      const copy: unknown[] = [];
+      for (let index = 0; index < length.value; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+          identityMismatch();
+        }
+        copy.push(visit(descriptor.value));
+      }
+      return copy;
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype) identityMismatch();
+    const copy: IdentityRecord = {};
+    for (const key of Object.getOwnPropertyNames(value)) {
+      if (key === "__proto__") identityMismatch();
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+        identityMismatch();
+      }
+      copy[key] = visit(descriptor.value);
+    }
+    return copy;
+  };
+  return visit(borrowed) as T;
+}
+
+function freezeIdentityGraph<T>(value: T, seen = new Set<object>()): T {
+  if (value === null || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) identityMismatch();
+    freezeIdentityGraph(descriptor.value, seen);
+  }
+  return Object.freeze(value);
+}
+
+function exactIdentityRecord(value: unknown, keys: readonly string[]): IdentityRecord {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0) {
+    identityMismatch();
+  }
+  const actual = Object.getOwnPropertyNames(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length ||
+    actual.some((key, index) => key !== expected[index])) {
+    identityMismatch();
+  }
+  return value as IdentityRecord;
+}
+
+function identityText(value: unknown): asserts value is string {
+  if (typeof value !== "string" || value.length === 0) identityMismatch();
+}
+
+function validateCriteriaTuple(value: unknown): void {
+  if (!Array.isArray(value) || value.length !== CITY_CRITERION_IDS.length ||
+    Object.getPrototypeOf(value) !== Array.prototype) {
+    identityMismatch();
+  }
+  for (let index = 0; index < CITY_CRITERION_IDS.length; index += 1) {
+    const criterion = exactIdentityRecord(value[index], [
+      "criterionId", "definitionId", "mode", "importance", "target",
+    ]);
+    if (criterion.criterionId !== CITY_CRITERION_IDS[index]) identityMismatch();
+    identityText(criterion.definitionId);
+    if (criterion.mode !== "required" && criterion.mode !== "weighted") identityMismatch();
+    if (![1, 2, 3, 4, 5].includes(criterion.importance as number)) identityMismatch();
+    identityText(criterion.target);
+  }
+}
+
+function validateCriteriaPayload(value: unknown): CityCriteriaCommandPayload {
+  const payload = exactIdentityRecord(value, CRITERIA_PAYLOAD_KEYS);
+  if (payload.schemaVersion !== "city-criteria-command@1" ||
+    payload.rulesVersion !== "city-criteria@1") {
+    identityMismatch();
+  }
+  identityText(payload.profileSnapshotId);
+  identityText(payload.preferenceProfileSnapshotId);
+  if (payload.profileSnapshotId === payload.preferenceProfileSnapshotId) identityMismatch();
+  validateCriteriaTuple(payload.criteria);
+  return payload as unknown as CityCriteriaCommandPayload;
+}
+
+function validateInstalledPackageContext(value: unknown): void {
+  const context = exactIdentityRecord(value, [
+    "countryCode",
+    "packageId",
+    "packageSchemaVersion",
+    "catalogRevisionId",
+    "evidenceRulesVersion",
+  ]);
+  if (typeof context.countryCode !== "string" || !/^[A-Z]{2}$/.test(context.countryCode)) {
+    identityMismatch();
+  }
+  identityText(context.packageId);
+  identityText(context.packageSchemaVersion);
+  identityText(context.catalogRevisionId);
+  identityText(context.evidenceRulesVersion);
+}
+
+function validateVerificationBudget(value: unknown): void {
+  const budget = exactIdentityRecord(value, [
+    "liveCityCandidateLimit", "targetSelectableCities", "rulesVersion",
+  ]);
+  if (budget.liveCityCandidateLimit !== 10 || budget.targetSelectableCities !== 3 ||
+    budget.rulesVersion !== "city-frontier-budget@1") {
+    identityMismatch();
+  }
+}
+
+function validateRunIdentity(value: unknown): CityFrontierRunIdentity {
+  const identity = exactIdentityRecord(value, RUN_IDENTITY_KEYS);
+  if (identity.schemaVersion !== "city-frontier-run@1" ||
+    identity.rankingRulesVersion !== "city-ranker@1" ||
+    (identity.catalogRulesVersion !== "city-catalog@1" &&
+      identity.catalogRulesVersion !== "city-catalog@2")) {
+    identityMismatch();
+  }
+  identityText(identity.resolvedCountryShortlistRevisionId);
+  if (typeof identity.countryCode !== "string" || !/^[A-Z]{2}$/.test(identity.countryCode)) {
+    identityMismatch();
+  }
+  identityText(identity.registryRevisionId);
+  validateInstalledPackageContext(identity.installedPackageContext);
+  if (typeof identity.criteriaPayloadHash !== "string" ||
+    !IDENTITY_DIGEST.test(identity.criteriaPayloadHash)) {
+    identityMismatch();
+  }
+  validateVerificationBudget(identity.verificationBudget);
+  return identity as unknown as CityFrontierRunIdentity;
+}
+
+function captureIdentityIntegrity(value: CityDecisionIntegrity): CapturedIdentityIntegrity {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+    types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0 ||
+    Object.getOwnPropertyNames(value).length !== 2) {
+    identityMismatch();
+  }
+  const canonical = Object.getOwnPropertyDescriptor(value, "canonical");
+  const hash = Object.getOwnPropertyDescriptor(value, "hash");
+  if (canonical === undefined || !("value" in canonical) || !canonical.enumerable ||
+    typeof canonical.value !== "function" || types.isProxy(canonical.value) ||
+    hash === undefined || !("value" in hash) || !hash.enumerable ||
+    typeof hash.value !== "function" || types.isProxy(hash.value)) {
+    identityMismatch();
+  }
+  return Object.freeze({
+    canonical: canonical.value as (value: unknown) => string,
+    hash: hash.value as (canonicalText: string) => string,
+  });
+}
+
+function hashIdentity(value: unknown, integrity: CapturedIdentityIntegrity): string {
+  const canonical = Reflect.apply(
+    integrity.canonical,
+    Object.freeze({ capability: "canonical" }),
+    [freezeIdentityGraph(value)],
+  ) as unknown;
+  if (typeof canonical !== "string") identityMismatch();
+  const digest = Reflect.apply(
+    integrity.hash,
+    Object.freeze({ capability: "hash" }),
+    [canonical],
+  ) as unknown;
+  if (typeof digest !== "string" || !IDENTITY_DIGEST.test(digest)) identityMismatch();
+  return digest;
+}
+
+export function cityCriteriaPayloadHash(
+  input: CityCriteriaCommandPayload,
+  integrity: CityDecisionIntegrity,
+): string {
+  return atIdentityBoundary(() => {
+    const capturedIntegrity = captureIdentityIntegrity(integrity);
+    const owned = validateCriteriaPayload(ownIdentityGraph(input));
+    return hashIdentity(owned, capturedIntegrity);
+  });
+}
+
+export function cityFrontierRunId(
+  input: CityFrontierRunIdentity,
+  integrity: CityDecisionIntegrity,
+): string {
+  return atIdentityBoundary(() => {
+    const capturedIntegrity = captureIdentityIntegrity(integrity);
+    const owned = validateRunIdentity(ownIdentityGraph(input));
+    return `city-frontier:${hashIdentity(owned, capturedIntegrity)}`;
+  });
 }
 
 const CONTEXT_KEYS = [

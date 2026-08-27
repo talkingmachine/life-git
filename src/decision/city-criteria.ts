@@ -69,6 +69,199 @@ export function confirmCityCriteria(input: { readonly draft: unknown; readonly p
   const payload = { schemaVersion: RULES_VERSION, profileSnapshotId: input.profileSnapshotId, preferenceProfileSnapshotId: input.preferenceProfileSnapshotId, criteria, rulesVersion: RULES_VERSION, confirmedAt: input.confirmedAt };
   return freeze({ id: `city-criteria:${integrity.hash(integrity.canonical(payload))}`, ...payload });
 }
+
+type StructuralRecord = Record<string, unknown>;
+
+interface StructuralIntegrity {
+  readonly canonical: (value: unknown) => string;
+  readonly hash: (canonicalText: string) => string;
+}
+
+const STRUCTURAL_DIGEST = /^[0-9a-f]{64}$/;
+const STRUCTURAL_SNAPSHOT_KEYS = [
+  "schemaVersion",
+  "id",
+  "profileSnapshotId",
+  "preferenceProfileSnapshotId",
+  "criteria",
+  "rulesVersion",
+  "confirmedAt",
+] as const;
+
+function structuralMismatch(): never {
+  throw new Error("integrity_mismatch");
+}
+
+function structuralBoundary<T>(operation: () => T): T {
+  try {
+    return operation();
+  } catch {
+    throw new Error("integrity_mismatch");
+  }
+}
+
+function ownStructuralGraph<T>(borrowed: T): T {
+  const seen = new Set<object>();
+  const visit = (value: unknown): unknown => {
+    if (value === null || value === undefined || typeof value === "string" ||
+      typeof value === "number" || typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value !== "object" || types.isProxy(value) || seen.has(value) ||
+      Object.getOwnPropertySymbols(value).length !== 0) {
+      structuralMismatch();
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) structuralMismatch();
+      const length = Object.getOwnPropertyDescriptor(value, "length");
+      if (length === undefined || !("value" in length) ||
+        !Number.isSafeInteger(length.value) || length.value < 0 ||
+        Object.getOwnPropertyNames(value).length !== length.value + 1) {
+        structuralMismatch();
+      }
+      const copy: unknown[] = [];
+      for (let index = 0; index < length.value; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+          structuralMismatch();
+        }
+        copy.push(visit(descriptor.value));
+      }
+      return copy;
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype) structuralMismatch();
+    const copy: StructuralRecord = {};
+    for (const key of Object.getOwnPropertyNames(value)) {
+      if (key === "__proto__") structuralMismatch();
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+        structuralMismatch();
+      }
+      copy[key] = visit(descriptor.value);
+    }
+    return copy;
+  };
+  return visit(borrowed) as T;
+}
+
+function exactStructuralRecord(value: unknown, keys: readonly string[]): StructuralRecord {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0) {
+    structuralMismatch();
+  }
+  const actual = Object.getOwnPropertyNames(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length ||
+    actual.some((key, index) => key !== expected[index])) {
+    structuralMismatch();
+  }
+  return value as StructuralRecord;
+}
+
+function structuralText(value: unknown): asserts value is string {
+  if (typeof value !== "string" || value.length === 0) structuralMismatch();
+}
+
+function structuralInstant(value: unknown): asserts value is string {
+  if (typeof value !== "string") structuralMismatch();
+  try {
+    if (new Date(value).toISOString() !== value) structuralMismatch();
+  } catch {
+    structuralMismatch();
+  }
+}
+
+function parseStructuralSnapshot(value: unknown): CityCriteriaSnapshot {
+  const snapshot = exactStructuralRecord(value, STRUCTURAL_SNAPSHOT_KEYS);
+  if (snapshot.schemaVersion !== "city-criteria@1" ||
+    snapshot.rulesVersion !== "city-criteria@1" ||
+    typeof snapshot.id !== "string" ||
+    !/^city-criteria:[0-9a-f]{64}$/.test(snapshot.id)) {
+    structuralMismatch();
+  }
+  structuralText(snapshot.profileSnapshotId);
+  structuralText(snapshot.preferenceProfileSnapshotId);
+  if (snapshot.profileSnapshotId === snapshot.preferenceProfileSnapshotId) structuralMismatch();
+  structuralInstant(snapshot.confirmedAt);
+  if (!Array.isArray(snapshot.criteria) ||
+    snapshot.criteria.length !== CITY_CRITERION_IDS.length ||
+    Object.getPrototypeOf(snapshot.criteria) !== Array.prototype) {
+    structuralMismatch();
+  }
+  for (let index = 0; index < CITY_CRITERION_IDS.length; index += 1) {
+    const criterion = exactStructuralRecord(snapshot.criteria[index], [
+      "criterionId", "definitionId", "mode", "importance", "target",
+    ]);
+    if (criterion.criterionId !== CITY_CRITERION_IDS[index]) structuralMismatch();
+    structuralText(criterion.definitionId);
+    if (criterion.mode !== "required" && criterion.mode !== "weighted") structuralMismatch();
+    if (![1, 2, 3, 4, 5].includes(criterion.importance as number)) structuralMismatch();
+    structuralText(criterion.target);
+  }
+  return snapshot as unknown as CityCriteriaSnapshot;
+}
+
+function captureStructuralIntegrity(value: CityDecisionIntegrity): StructuralIntegrity {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+    types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0 ||
+    Object.getOwnPropertyNames(value).length !== 2) {
+    structuralMismatch();
+  }
+  const canonical = Object.getOwnPropertyDescriptor(value, "canonical");
+  const hash = Object.getOwnPropertyDescriptor(value, "hash");
+  if (canonical === undefined || !("value" in canonical) || !canonical.enumerable ||
+    typeof canonical.value !== "function" || types.isProxy(canonical.value) ||
+    hash === undefined || !("value" in hash) || !hash.enumerable ||
+    typeof hash.value !== "function" || types.isProxy(hash.value)) {
+    structuralMismatch();
+  }
+  return Object.freeze({
+    canonical: canonical.value as (value: unknown) => string,
+    hash: hash.value as (canonicalText: string) => string,
+  });
+}
+
+function freezeStructural<T>(value: T, seen = new Set<object>()): T {
+  if (value === null || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) structuralMismatch();
+    freezeStructural(descriptor.value, seen);
+  }
+  return Object.freeze(value);
+}
+
+export function reconstructCityCriteriaSnapshot(
+  snapshot: unknown,
+  integrity: CityDecisionIntegrity,
+): CityCriteriaSnapshot {
+  return structuralBoundary(() => {
+    const capturedIntegrity = captureStructuralIntegrity(integrity);
+    const owned = parseStructuralSnapshot(ownStructuralGraph(snapshot));
+    const { id: _id, ...payload } = owned;
+    void _id;
+    const canonical = Reflect.apply(
+      capturedIntegrity.canonical,
+      Object.freeze({ capability: "canonical" }),
+      [freezeStructural(payload)],
+    ) as unknown;
+    if (typeof canonical !== "string") structuralMismatch();
+    const digest = Reflect.apply(
+      capturedIntegrity.hash,
+      Object.freeze({ capability: "hash" }),
+      [canonical],
+    ) as unknown;
+    if (typeof digest !== "string" || !STRUCTURAL_DIGEST.test(digest) ||
+      owned.id !== `city-criteria:${digest}`) {
+      structuralMismatch();
+    }
+    return freezeStructural(owned);
+  });
+}
 export function reconstructCityCriteria(snapshot: CityCriteriaSnapshot, evaluators: CityCriterionEvaluatorRegistry): CityCriteriaProjection {
   if (!record(snapshot) || !exact(snapshot, ["schemaVersion", "id", "profileSnapshotId", "preferenceProfileSnapshotId", "criteria", "rulesVersion", "confirmedAt"]) || snapshot.schemaVersion !== RULES_VERSION || snapshot.rulesVersion !== RULES_VERSION || typeof snapshot.id !== "string" || snapshot.id.length === 0 || typeof snapshot.profileSnapshotId !== "string" || snapshot.profileSnapshotId.length === 0 || typeof snapshot.preferenceProfileSnapshotId !== "string" || snapshot.preferenceProfileSnapshotId.length === 0 || !instant(snapshot.confirmedAt)) throw new Error("integrity_mismatch");
   try { const criteria = normalizeCriteria(snapshot.criteria, evaluators); if (JSON.stringify(criteria) !== JSON.stringify(snapshot.criteria)) throw new Error(); return freeze({ profileSnapshotId: snapshot.profileSnapshotId, preferenceProfileSnapshotId: snapshot.preferenceProfileSnapshotId, criteria, rulesVersion: RULES_VERSION, confirmedAt: snapshot.confirmedAt }); } catch { throw new Error("integrity_mismatch"); }
