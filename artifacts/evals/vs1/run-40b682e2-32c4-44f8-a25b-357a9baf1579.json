@@ -533,7 +533,6 @@
   },
   "observed": {
     "totalNetworkRequests": 14,
-    "llmCalls": 0,
     "sourceFees": "not_metered",
     "demoVerified": false
   }

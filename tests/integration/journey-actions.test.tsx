@@ -99,7 +99,6 @@ function details(marker: "green" | "yellow" | "red", suffix: string, branch = fa
     narrative: {
       headline: "Проверка маршрута",
       bullets: ["Только официальный контур"],
-      origin: "fallback",
     },
   };
 }

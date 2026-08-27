@@ -1,0 +1,20 @@
+{
+  "data": {
+    "evidencniPodatki": {
+      "semafor": {
+        "id": 153,
+        "naziv": "Objavljen akt brez datuma začetka veljavnosti"
+      },
+      "naslov": "Sklep o objavi gibanja plač za maj 2026",
+      "zunanjiID": "SKLE14464",
+      "sop": "2026-01-1950",
+      "objavljeno": "2026-07-28"
+    },
+    "besedilo": {
+      "npbVerzije": [
+        { "id": 613486752, "naziv": "Osnovni" }
+      ]
+    }
+  },
+  "error": null
+}

@@ -1,6 +1,4 @@
 import type {
-  CaptureFailureKind,
-  CaptureResult,
   Claim,
   EvidenceBlocker,
   EvidenceSnapshot,
@@ -16,7 +14,34 @@ import { parseCbrEur, fxPeriodsAreCurrent } from "./parsers/cbr-eur";
 import { parseDecision858 } from "./parsers/decision-858";
 import { parseLaw79 } from "./parsers/law-79";
 import { parseTiranaUrbanLines } from "./parsers/tirana-urban-lines";
+import {
+  evidenceArtifactProvenance as genericEvidenceArtifactProvenance,
+  runEvidencePlan,
+  sealEvidencePlan,
+  type EvidenceArtifactProvenance,
+  type EvidenceIntegrity,
+  type EvidenceWriteStore,
+  type ResearchPlan,
+  type SealEvidenceInput as PlanSealEvidenceInput,
+  type SealedEvidence,
+  type TerminalEvidenceEntry,
+} from "./research-plan";
 import { SOURCE_POLICIES } from "./source-policy";
+
+export type {
+  EvidenceArtifactProvenance,
+  EvidenceIntegrity,
+  EvidenceManifest,
+  EvidenceWriteStore,
+  ResearchPlan,
+  SealedEvidence,
+  TerminalEvidenceEntry,
+} from "./research-plan";
+
+export type SealEvidenceInput<
+  S extends string = SourceId,
+  C extends Claim<unknown, S> = Claim<unknown, S>,
+> = Omit<PlanSealEvidenceInput<S, C>, "sourceIds">;
 
 export const EVIDENCE_PARSER_VERSIONS = Object.freeze({
   // This is the first source-verified baseline. A future bump requires an explicit legacy dispatcher.
@@ -37,71 +62,6 @@ export const EVIDENCE_SOURCE_IDS = [
   "tirana-urban-lines",
 ] as const satisfies readonly SourceId[];
 
-interface VerifiedEvidenceEntry {
-  readonly sourceId: SourceId;
-  readonly parserEntry: ParserEntry;
-  readonly coverage: "verified";
-  readonly claims: readonly Claim<unknown>[];
-}
-
-interface UnavailableEvidenceEntry {
-  readonly sourceId: SourceId;
-  readonly parserEntry: ParserEntry;
-  readonly coverage: "unavailable";
-  readonly blocker: EvidenceBlocker;
-}
-
-export type TerminalEvidenceEntry = VerifiedEvidenceEntry | UnavailableEvidenceEntry;
-
-export interface EvidenceManifest {
-  readonly snapshot: Omit<EvidenceSnapshot, "manifestHash" | "hmac">;
-  readonly entries: readonly {
-    readonly sourceId: SourceId;
-    readonly navigationUrl: string;
-    readonly indexedSourceUrl?: string;
-    readonly resolvedEvidenceUrl: string;
-    readonly artifactIds: readonly string[];
-    readonly versionHint?: string;
-  }[];
-  readonly artifacts: readonly {
-    readonly artifactId: string;
-    readonly runId: string;
-    readonly sourceId: SourceId;
-    readonly role: string;
-    readonly request: LiveCapturedArtifact["request"];
-    readonly url: string;
-    readonly responseUrl: string;
-    readonly capturedAt: string;
-    readonly responseStatus: number;
-    readonly mediaType: string;
-    readonly origin: "live";
-    readonly byteLength: number;
-    readonly sha256: string;
-  }[];
-}
-
-export type EvidenceArtifactProvenance = EvidenceManifest["artifacts"][number];
-
-export interface SealedEvidence {
-  readonly snapshot: EvidenceSnapshot;
-  readonly manifest: EvidenceManifest;
-  readonly canonicalManifest: string;
-}
-
-export interface SealEvidenceInput {
-  readonly id: string;
-  readonly assessmentDate: string;
-  readonly entries: readonly TerminalEvidenceEntry[];
-  readonly parserVersions: Readonly<Record<SourceId, string>>;
-  readonly rulesVersion: string;
-}
-
-export interface EvidenceIntegrity {
-  canonical(value: unknown): string;
-  hash(value: string): string;
-  sign(value: string): string;
-}
-
 type EvidenceParser = (entry: ParserEntry) => ParseResult<unknown> | Promise<ParseResult<unknown>>;
 
 export type EvidenceParsers = Record<SourceId, EvidenceParser>;
@@ -113,11 +73,6 @@ export const STANDARD_EVIDENCE_PARSERS: EvidenceParsers = {
   "boa-eur": parseBoaEur,
   "tirana-urban-lines": parseTiranaUrbanLines,
 };
-
-export interface EvidenceWriteStore {
-  appendArtifact(artifact: LiveCapturedArtifact): Promise<void>;
-  seal(sealed: SealedEvidence): Promise<void>;
-}
 
 export interface RunCurrentEvidenceInput {
   readonly runId: string;
@@ -131,136 +86,6 @@ export interface RunCurrentEvidencePorts {
   readonly store: EvidenceWriteStore;
   readonly integrity: EvidenceIntegrity;
   readonly parsers?: EvidenceParsers;
-}
-
-function validateEntries(entries: readonly TerminalEvidenceEntry[]): void {
-  if (
-    entries.length !== EVIDENCE_SOURCE_IDS.length ||
-    EVIDENCE_SOURCE_IDS.some(
-      (sourceId) => entries.filter((entry) => entry.sourceId === sourceId).length !== 1,
-    )
-  ) {
-    throw new Error("non_terminal_evidence");
-  }
-
-  for (const entry of entries) {
-    const artifactIds = new Set(entry.parserEntry.artifacts.map((artifact) => artifact.artifactId));
-    if (entry.parserEntry.sourceId !== entry.sourceId) throw new Error("invalid_terminal_evidence");
-    if (entry.parserEntry.artifacts.some((artifact) => {
-      const captured = artifact as Partial<LiveCapturedArtifact>;
-      return captured.origin !== "live" ||
-        typeof captured.runId !== "string" ||
-        captured.runId.length === 0 ||
-        captured.sourceId !== entry.sourceId;
-    })) {
-      throw new Error("invalid_terminal_evidence");
-    }
-    if (entry.coverage === "verified") {
-      if (
-        entry.claims.length === 0 ||
-        entry.claims.some(
-          (claim) =>
-            claim.sourceId !== entry.sourceId ||
-            claim.status !== "verified" ||
-            !artifactIds.has(claim.anchor.artifactId),
-        )
-      ) {
-        throw new Error("invalid_terminal_evidence");
-      }
-    } else if (
-      "claims" in entry ||
-      entry.blocker.sourceId !== entry.sourceId ||
-      entry.blocker.artifactIds.some((artifactId) => !artifactIds.has(artifactId))
-    ) {
-      throw new Error("invalid_terminal_evidence");
-    }
-  }
-}
-
-export async function sealEvidence(
-  input: SealEvidenceInput,
-  integrity: EvidenceIntegrity,
-): Promise<SealedEvidence> {
-  validateEntries(input.entries);
-  const orderedEntries = EVIDENCE_SOURCE_IDS.map(
-    (sourceId) => input.entries.find((entry) => entry.sourceId === sourceId)!,
-  );
-  const artifactIds = orderedEntries.flatMap((entry) =>
-    entry.parserEntry.artifacts.map((artifact) => artifact.artifactId),
-  );
-  if (new Set(artifactIds).size !== artifactIds.length) throw new Error("invalid_terminal_evidence");
-  const artifactRunIds = new Set(orderedEntries.flatMap((entry) =>
-    entry.parserEntry.artifacts.map((artifact) =>
-      (artifact as LiveCapturedArtifact).runId,
-    ),
-  ));
-  if (artifactRunIds.size > 1) throw new Error("invalid_terminal_evidence");
-
-  const coverage = Object.fromEntries(
-    orderedEntries.map((entry) => [entry.sourceId, entry.coverage]),
-  ) as Record<SourceId, "verified" | "unavailable">;
-  const snapshotPayload: Omit<EvidenceSnapshot, "manifestHash" | "hmac"> = {
-    id: input.id,
-    assessmentDate: input.assessmentDate,
-    artifactIds,
-    claims: orderedEntries.flatMap((entry) =>
-      entry.coverage === "verified" ? entry.claims : [],
-    ),
-    blockers: orderedEntries.flatMap((entry) =>
-      entry.coverage === "unavailable" ? [entry.blocker] : [],
-    ),
-    coverage,
-    parserVersions: input.parserVersions,
-    rulesVersion: input.rulesVersion,
-  };
-  const manifest: EvidenceManifest = {
-    snapshot: snapshotPayload,
-    entries: orderedEntries.map((entry) => ({
-      sourceId: entry.sourceId,
-      navigationUrl: entry.parserEntry.navigationUrl,
-      ...(entry.parserEntry.indexedSourceUrl === undefined
-        ? {}
-        : { indexedSourceUrl: entry.parserEntry.indexedSourceUrl }),
-      resolvedEvidenceUrl: entry.parserEntry.resolvedEvidenceUrl,
-      artifactIds: entry.parserEntry.artifacts.map((artifact) => artifact.artifactId),
-      ...(entry.parserEntry.versionHint === undefined
-        ? {}
-        : { versionHint: entry.parserEntry.versionHint }),
-    })),
-    artifacts: orderedEntries.flatMap((entry) =>
-      entry.parserEntry.artifacts.map((artifact) =>
-        evidenceArtifactProvenance(artifact as LiveCapturedArtifact),
-      ),
-    ),
-  };
-  const canonicalManifest = integrity.canonical(manifest);
-  const manifestHash = integrity.hash(canonicalManifest);
-  const hmac = integrity.sign(canonicalManifest);
-  return {
-    snapshot: Object.freeze({ ...snapshotPayload, manifestHash, hmac }),
-    manifest,
-    canonicalManifest,
-  };
-}
-
-export function evidenceArtifactProvenance(
-  artifact: LiveCapturedArtifact,
-): EvidenceArtifactProvenance {
-  return {
-    artifactId: artifact.artifactId,
-    runId: artifact.runId,
-    sourceId: artifact.sourceId,
-    role: artifact.role,
-    request: artifact.request,
-    url: artifact.url,
-    responseUrl: artifact.responseUrl,
-    capturedAt: artifact.capturedAt,
-    responseStatus: artifact.responseStatus,
-    mediaType: artifact.mediaType,
-    origin: artifact.origin,
-    byteLength: artifact.bytes.byteLength,
-    sha256: artifact.sha256,
-  };
 }
 
 function navigationUrl(sourceId: SourceId): string {
@@ -295,31 +120,21 @@ function unavailableEntry(
   };
 }
 
-export async function parseEvidenceEntry(
+async function validateEvidenceEntry(
   entry: ParserEntry,
   parsers: EvidenceParsers,
-): Promise<TerminalEvidenceEntry> {
+): Promise<
+  | { readonly ok: true; readonly claims: readonly Claim<unknown>[] }
+  | {
+      readonly ok: false;
+      readonly kind: "integrity_mismatch" | "semantic_mismatch";
+    }
+> {
   const parsed = await parsers[entry.sourceId](entry);
-  if (!parsed.ok) {
-    return unavailableEntry(
-      entry.sourceId,
-      parsed.kind,
-      entry.artifacts as readonly LiveCapturedArtifact[],
-      entry,
-    );
-  }
-  if (parsed.anchors.length === 0) {
-    return unavailableEntry(
-      entry.sourceId,
-      "semantic_mismatch",
-      entry.artifacts as readonly LiveCapturedArtifact[],
-      entry,
-    );
-  }
+  if (!parsed.ok) return parsed;
+  if (parsed.anchors.length === 0) return { ok: false, kind: "semantic_mismatch" };
   return {
-    sourceId: entry.sourceId,
-    parserEntry: entry,
-    coverage: "verified",
+    ok: true,
     claims: parsed.anchors.map((anchor, index) => ({
       claimId: `${entry.sourceId}-facts-${index + 1}`,
       sourceId: entry.sourceId,
@@ -332,58 +147,25 @@ export async function parseEvidenceEntry(
   };
 }
 
-function retryableKind(error: unknown): CaptureFailureKind | undefined {
-  if (typeof error !== "object" || error === null || !("kind" in error)) return undefined;
-  const kind = (error as { readonly kind?: unknown }).kind;
-  return kind === "timeout" || kind === "rate_limited" || kind === "server_error"
-    ? kind
-    : undefined;
-}
-
-function captureFailure(error: unknown): {
-  readonly kind: CaptureFailureKind;
-  readonly partialArtifacts: readonly LiveCapturedArtifact[];
-} | undefined {
-  if (typeof error !== "object" || error === null || !("kind" in error)) return undefined;
-  const kind = (error as { readonly kind?: unknown }).kind;
-  const captureKinds: readonly CaptureFailureKind[] = [
-    "timeout",
-    "rate_limited",
-    "server_error",
-    "http_error",
-    "wrong_media_type",
-    "too_large",
-    "navigation_mismatch",
-  ];
-  if (!captureKinds.includes(kind as CaptureFailureKind)) return undefined;
-  const partial = "partialArtifacts" in error
-    ? (error as { readonly partialArtifacts?: unknown }).partialArtifacts
-    : undefined;
-  return {
-    kind: kind as CaptureFailureKind,
-    partialArtifacts: Array.isArray(partial)
-      ? partial as readonly LiveCapturedArtifact[]
-      : [],
-  };
-}
-
-class CurrentArtifactOwnershipError extends Error {
-  readonly kind = "navigation_mismatch" as const;
-
-  constructor(
-    message: string,
-    readonly partialArtifacts: readonly LiveCapturedArtifact[],
-  ) {
-    super(message);
+export async function parseEvidenceEntry(
+  entry: ParserEntry,
+  parsers: EvidenceParsers,
+): Promise<TerminalEvidenceEntry> {
+  const validated = await validateEvidenceEntry(entry, parsers);
+  if (!validated.ok) {
+    return unavailableEntry(
+      entry.sourceId,
+      validated.kind,
+      entry.artifacts as readonly LiveCapturedArtifact[],
+      entry,
+    );
   }
-}
-
-function isCurrentArtifact(
-  artifact: LiveCapturedArtifact,
-  runId: string,
-  sourceId: SourceId,
-): boolean {
-  return artifact.origin === "live" && artifact.runId === runId && artifact.sourceId === sourceId;
+  return {
+    sourceId: entry.sourceId,
+    parserEntry: entry,
+    coverage: "verified",
+    claims: validated.claims,
+  };
 }
 
 export function applyEvidenceRules(
@@ -415,139 +197,54 @@ export function applyEvidenceRules(
   );
 }
 
+export function createVs1ResearchPlan(
+  parsers: EvidenceParsers,
+): ResearchPlan<SourceId, Claim<unknown>> {
+  return {
+    id: "vs1-confirmed-life@1",
+    scope: "VS-1 confirmed-life",
+    sourceIds: EVIDENCE_SOURCE_IDS,
+    sourceLineage: Object.freeze(Object.fromEntries(
+      EVIDENCE_SOURCE_IDS.map((sourceId) => [sourceId, Object.freeze({
+        navigationUrl: navigationUrl(sourceId),
+      })]),
+    ) as Record<SourceId, { readonly navigationUrl: string }>),
+    parserVersions: EVIDENCE_PARSER_VERSIONS,
+    rulesVersion: EVIDENCE_RULES_VERSION,
+    limits: Object.freeze({ concurrency: 5, maxCaptures: 20, deadlineMs: 45_000 }),
+    validate: (entry) => validateEvidenceEntry(entry, parsers),
+    applyRules: applyEvidenceRules,
+  };
+}
+
+export const VS1_RESEARCH_PLAN = Object.freeze(
+  createVs1ResearchPlan(STANDARD_EVIDENCE_PARSERS),
+);
+
+export async function sealEvidence(
+  input: SealEvidenceInput,
+  integrity: EvidenceIntegrity,
+): Promise<SealedEvidence> {
+  return sealEvidencePlan({ ...input, sourceIds: EVIDENCE_SOURCE_IDS }, integrity);
+}
+
+export function evidenceArtifactProvenance(
+  artifact: LiveCapturedArtifact,
+): EvidenceArtifactProvenance {
+  return genericEvidenceArtifactProvenance(artifact);
+}
+
 export async function runCurrentEvidence(
   input: RunCurrentEvidenceInput,
   ports: RunCurrentEvidencePorts,
 ): Promise<EvidenceSnapshot> {
-  const deadline = Date.parse(input.deadlineAt);
-  if (!Number.isFinite(deadline)) throw new Error("invalid_deadline");
-  const controller = new AbortController();
-  let announceDeadline!: () => void;
-  const deadlineReached = new Promise<void>((resolve) => {
-    announceDeadline = resolve;
+  const plan = ports.parsers === undefined
+    ? VS1_RESEARCH_PLAN
+    : createVs1ResearchPlan(ports.parsers);
+  return runEvidencePlan(input, plan, {
+    source: ports.source,
+    requestStep: ports.requestStep,
+    store: ports.store,
+    integrity: ports.integrity,
   });
-  const expireDeadline = (): void => {
-    if (!controller.signal.aborted) controller.abort("deadline");
-    announceDeadline();
-  };
-  const remaining = deadline - Date.now();
-  const deadlineTimer = remaining > 0
-    ? setTimeout(expireDeadline, remaining)
-    : undefined;
-  if (remaining <= 0) expireDeadline();
-  const parsers = ports.parsers ?? STANDARD_EVIDENCE_PARSERS;
-
-  try {
-    const captured = await Promise.all(EVIDENCE_SOURCE_IDS.map(async (sourceId) => {
-      if (controller.signal.aborted) return unavailableEntry(sourceId, "deadline", []);
-      let retryAvailable = true;
-      const persistedCurrentArtifacts: LiveCapturedArtifact[] = [];
-      const requestStep: RequestStep = async (request, signal) => {
-        if (
-          signal !== controller.signal ||
-          request.runId !== input.runId ||
-          request.sourceId !== sourceId
-        ) {
-          throw new CurrentArtifactOwnershipError(
-            "request ownership mismatch",
-            [...persistedCurrentArtifacts],
-          );
-        }
-        try {
-          const capturedArtifact = await ports.requestStep(request, signal);
-          if (!isCurrentArtifact(capturedArtifact, input.runId, sourceId)) {
-            throw new CurrentArtifactOwnershipError(
-              "artifact ownership mismatch",
-              [...persistedCurrentArtifacts],
-            );
-          }
-          await ports.store.appendArtifact(capturedArtifact);
-          persistedCurrentArtifacts.push(capturedArtifact);
-          return capturedArtifact;
-        } catch (error) {
-          if (
-            retryAvailable &&
-            retryableKind(error) !== undefined &&
-            !controller.signal.aborted &&
-            Date.now() < deadline
-          ) {
-            retryAvailable = false;
-            const capturedArtifact = await ports.requestStep(request, signal);
-            if (!isCurrentArtifact(capturedArtifact, input.runId, sourceId)) {
-              throw new CurrentArtifactOwnershipError(
-                "artifact ownership mismatch",
-                [...persistedCurrentArtifacts],
-              );
-            }
-            await ports.store.appendArtifact(capturedArtifact);
-            persistedCurrentArtifacts.push(capturedArtifact);
-            return capturedArtifact;
-          }
-          throw error;
-        }
-      };
-      let result: CaptureResult;
-      try {
-        result = await ports.source.capture({
-          runId: input.runId,
-          sourceId,
-          assessmentDate: input.assessmentDate,
-          deadlineAt: input.deadlineAt,
-          signal: controller.signal,
-        }, requestStep);
-      } catch (error) {
-        const failure = captureFailure(error);
-        if (failure === undefined) throw error;
-        result = {
-          ok: false,
-          sourceId,
-          kind: failure.kind,
-          attempts: 1,
-          partialArtifacts: failure.partialArtifacts,
-        };
-      }
-      if (!result.ok) {
-        if (
-          result.sourceId !== sourceId ||
-          result.partialArtifacts.some((artifact) =>
-            !isCurrentArtifact(artifact, input.runId, sourceId),
-          )
-        ) {
-          return unavailableEntry(sourceId, "integrity_mismatch", []);
-        }
-        for (const artifact of result.partialArtifacts) await ports.store.appendArtifact(artifact);
-        return unavailableEntry(sourceId, result.kind, result.partialArtifacts);
-      }
-      if (
-        result.entry.sourceId !== sourceId ||
-        result.entry.artifacts.some((artifact) =>
-          !isCurrentArtifact(artifact, input.runId, sourceId),
-        )
-      ) {
-        return unavailableEntry(sourceId, "integrity_mismatch", []);
-      }
-      for (const artifact of result.entry.artifacts) await ports.store.appendArtifact(artifact);
-      if (controller.signal.aborted) {
-        return unavailableEntry(sourceId, "deadline", result.entry.artifacts, result.entry);
-      }
-      return Promise.race([
-        parseEvidenceEntry(result.entry, parsers),
-        deadlineReached.then(() =>
-          unavailableEntry(sourceId, "deadline", result.entry.artifacts, result.entry),
-        ),
-      ]);
-    }));
-    const terminalEntries = applyEvidenceRules(captured, input.assessmentDate);
-    const sealed = await sealEvidence({
-      id: `${input.runId}:evidence`,
-      assessmentDate: input.assessmentDate,
-      entries: terminalEntries,
-      parserVersions: EVIDENCE_PARSER_VERSIONS,
-      rulesVersion: EVIDENCE_RULES_VERSION,
-    }, ports.integrity);
-    await ports.store.seal(sealed);
-    return sealed.snapshot;
-  } finally {
-    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
-  }
 }

@@ -1,0 +1,25 @@
+{
+  "data": {
+    "evidencniPodatki": {
+      "semafor": { "id": 156, "naziv": "Veljaven predpis" },
+      "naslov": "Zakon o zaposlovanju, samozaposlovanju in delu tujcev (ZZSDT)",
+      "zunanjiID": "ZAKO6655",
+      "sop": "2015-01-1930",
+      "objavljeno": "2015-06-30"
+    },
+    "besedilo": {
+      "npbVerzije": [
+        { "id": 11515968, "naziv": "Osnovni" },
+        { "id": 10574819, "naziv": "NPB 1" },
+        { "id": 10211931, "naziv": "NPB 2" },
+        { "id": 9676675, "naziv": "NPB 3" },
+        { "id": 9677376, "naziv": "NPB 4" },
+        { "id": 9758033, "naziv": "NPB 5" },
+        { "id": 9713094, "naziv": "NPB 6" },
+        { "id": 10461768, "naziv": "NPB 7" },
+        { "id": 270729002, "naziv": "NPB 8" }
+      ]
+    }
+  },
+  "error": null
+}

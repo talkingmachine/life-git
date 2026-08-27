@@ -1,0 +1,23 @@
+{
+  "title": "Average monthly earnings by MONTH and EARNINGS",
+  "variables": [
+    {
+      "code": "MESEC",
+      "text": "MONTH",
+      "time": true,
+      "values": ["2026M05"],
+      "valueTexts": ["2026M05"]
+    },
+    {
+      "code": "PLAČE",
+      "text": "EARNINGS",
+      "values": ["1", "2", "3", "4"],
+      "valueTexts": [
+        "Gross earnings",
+        "Net earnings",
+        "Average gross earnings for the last three months",
+        "Average net earnings for the last three months"
+      ]
+    }
+  ]
+}

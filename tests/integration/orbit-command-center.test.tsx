@@ -1,13 +1,85 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentType, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("next/dynamic", () => ({
-  default: () => function RejectedGlobeModule() {
-    throw new Error("ResearchGlobeCanvas module failed to load");
-  },
+const dynamicHarness = vi.hoisted(() => ({
+  dynamicCalls: vi.fn(),
+  load: vi.fn(),
 }));
+
+vi.mock("next/dynamic", async () => {
+  const React = await import("react");
+  interface LoadingProps {
+    readonly error: Error | null;
+    readonly isLoading: boolean;
+    readonly pastDelay: boolean;
+    readonly retry: () => void;
+    readonly timedOut: boolean;
+  }
+  interface DynamicOptions {
+    readonly loading?: (props: LoadingProps) => ReactNode;
+  }
+  return {
+    default: (_loader: () => Promise<unknown>, options: DynamicOptions) => {
+      dynamicHarness.dynamicCalls();
+      const listeners = new Set<() => void>();
+      let started = false;
+      let version = 0;
+      let state: {
+        error?: Error;
+        loaded?: ComponentType<Record<string, unknown>>;
+      } = {};
+      const notify = () => {
+        version += 1;
+        listeners.forEach((listener) => listener());
+      };
+      const start = () => {
+        if (started) return;
+        started = true;
+        void dynamicHarness.load().then(
+          (loaded: ComponentType<Record<string, unknown>>) => {
+            state = { loaded };
+            notify();
+          },
+          (error: Error) => {
+            state = { error };
+            notify();
+          },
+        );
+      };
+      return function ControlledDynamic(props: Record<string, unknown>) {
+        start();
+        React.useSyncExternalStore(
+          (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+          () => version,
+          () => version,
+        );
+        if (state.error !== undefined) {
+          return options.loading?.({
+            error: state.error,
+            isLoading: false,
+            pastDelay: true,
+            retry: () => undefined,
+            timedOut: false,
+          }) ?? null;
+        }
+        if (state.loaded !== undefined) return React.createElement(state.loaded, props);
+        return options.loading?.({
+          error: null,
+          isLoading: true,
+          pastDelay: false,
+          retry: () => undefined,
+          timedOut: false,
+        }) ?? null;
+      };
+    },
+  };
+});
 
 import { WorkspaceGlobe } from "../../src/experience/components/WorkspaceGlobe";
 import type { ResearchGlobeCanvasProps } from "../../src/experience/research-map/ResearchGlobeCanvas";
@@ -18,7 +90,11 @@ import {
 } from "../../src/experience/components/OrbitPanels";
 
 afterEach(cleanup);
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  dynamicHarness.dynamicCalls.mockClear();
+  dynamicHarness.load.mockReset();
+  vi.unstubAllGlobals();
+});
 
 describe("Orbit command center", () => {
   it("passes the fixed route and bundled dark background to the shared globe", () => {
@@ -48,20 +124,27 @@ describe("Orbit command center", () => {
     expect(nextProps?.routes).toBe(firstProps?.routes);
   });
 
-  it("reloads after the dynamic globe module rejects", async () => {
+  it("retries the globe locally after the dynamic module rejects", async () => {
     vi.stubGlobal("WebGLRenderingContext", class WebGLRenderingContext {});
     const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
       .mockReturnValue({} as never);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const reloadPage = vi.fn();
+    dynamicHarness.load
+      .mockRejectedValueOnce(new Error("ResearchGlobeCanvas chunk failed"))
+      .mockResolvedValueOnce(() => <div data-testid="retried-globe" />);
 
-    render(<WorkspaceGlobe reloadPage={reloadPage} status="green" />);
+    render(<WorkspaceGlobe status="green" />);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /повторить загрузку 3D Земли/i })).toBeTruthy();
     });
+    expect(dynamicHarness.load).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: /повторить загрузку 3D Земли/i }));
-    expect(reloadPage).toHaveBeenCalledOnce();
+    await waitFor(() => {
+      expect(screen.getByTestId("retried-globe")).toBeTruthy();
+    });
+    expect(dynamicHarness.load).toHaveBeenCalledTimes(2);
+    expect(dynamicHarness.dynamicCalls.mock.calls.length).toBeGreaterThanOrEqual(2);
 
     getContext.mockRestore();
     consoleError.mockRestore();

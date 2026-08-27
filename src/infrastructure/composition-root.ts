@@ -11,7 +11,6 @@ import {
   projectDecisionEvidence,
   projectVerifiedBudgetFacts,
 } from "../application/verified-evidence";
-import type { NarrativePort } from "../application/contracts";
 import { assessRoute } from "../decision/assessment";
 import type {
   OfficialSourcePort,
@@ -22,7 +21,7 @@ import {
   type EvidenceParsers,
 } from "../research/run";
 import { createEvidenceIntegrity } from "./integrity";
-import { createOpenAiNarrative } from "./narrative";
+import { createColdStartComposition } from "./cold-start-composition";
 import { captureHttpOnce } from "./sources/gateway";
 import { OfficialSourceAdapter } from "./sources/official-source-adapter";
 import { openEvidenceDatabase } from "./sqlite/db";
@@ -41,8 +40,6 @@ export interface ConfirmedLifeCompositionOptions {
   readonly clock?: () => Date;
   readonly nextId?: (kind: "run" | "revision" | "assessment") => string;
   readonly deadlineAt?: (now: Date) => Date;
-  readonly narrative?: NarrativePort;
-  readonly openAiApiKey?: string;
 }
 
 export function createConfirmedLifeComposition(options: ConfirmedLifeCompositionOptions) {
@@ -54,6 +51,9 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
   const source = options.source ?? new OfficialSourceAdapter();
   const requestStep = options.requestStep ?? captureHttpOnce;
   const integrity = createEvidenceIntegrity(options.hmacKey);
+  const nextId = options.nextId ?? (
+    (kind: "run" | "revision" | "assessment") => `${kind}-${randomUUID()}`
+  );
 
   const confirmedLife = createConfirmedLife({
     profileStore,
@@ -83,10 +83,15 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     },
     assess: assessRoute,
     clock: options.clock ?? (() => new Date()),
-    nextId: options.nextId ?? ((kind) => `${kind}-${randomUUID()}`),
+    nextId,
     deadlineAt: options.deadlineAt ?? ((now) => new Date(now.getTime() + 45_000)),
   });
-  const nextId = options.nextId ?? ((kind: "run" | "revision" | "assessment") => `${kind}-${randomUUID()}`);
+  const coldStart = createColdStartComposition({
+    database: options.database,
+    hmacKey: options.hmacKey,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    nextRunId: () => nextId("run"),
+  });
   const housingBranch = createHousingBranchApplication({
     profileStore,
     runStore,
@@ -113,7 +118,6 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     projectDecisionEvidence,
     projectBudgetFacts: projectVerifiedBudgetFacts,
   });
-  const narrative = options.narrative ?? createOpenAiNarrative({ apiKey: options.openAiApiKey });
   const journey = createJourneyPresentation({
     loadRunDetailsCore: confirmedLife.loadRunDetailsCore,
     loadInitialBranchByRunId: (runId, assessmentRevisionId) =>
@@ -121,10 +125,10 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     loadBranchCommit: (commitId) => branchStore.loadVerified(commitId),
     saveInitialHousingBranch: housingBranch.saveInitialHousingBranch,
     forkHousingBranch: housingBranch.forkHousingBranch,
-    narrative,
   });
   return Object.freeze({
     ...confirmedLife,
+    ...coldStart,
     ...housingBranch,
     ...replay,
     ...journey,
@@ -142,7 +146,6 @@ export function getConfirmedLifeApplication(): ReturnType<typeof createConfirmed
   application = createConfirmedLifeComposition({
     database: openEvidenceDatabase(databasePath),
     hmacKey,
-    openAiApiKey: process.env.OPENAI_API_KEY,
   });
   return application;
 }

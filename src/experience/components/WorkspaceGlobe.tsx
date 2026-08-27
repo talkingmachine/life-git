@@ -4,19 +4,28 @@ import dynamic from "next/dynamic";
 import { Component, useCallback, useEffect, useMemo, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 
+import type { ResearchGlobeCanvasProps } from "../research-map/ResearchGlobeCanvas";
 import type {
-  GlobeRoute,
-  ResearchGlobeCanvasProps,
-} from "../research-map/ResearchGlobeCanvas";
+  ResearchCandidate,
+  WorkspaceGlobePresentation,
+} from "../research-map/contracts";
+import {
+  MOSCOW_ORIGIN,
+  TIRANA_PRESENTATION,
+} from "../research-map/product-route";
 import type { CommandCenterStatus } from "./ProductShell";
+
+export type WorkspaceGlobeMode = "full" | "background" | "collapsed";
+export type { WorkspaceGlobePresentation } from "../research-map/contracts";
 
 interface ResearchGlobeModule {
   readonly ResearchGlobeCanvas: ComponentType<ResearchGlobeCanvasProps>;
 }
 
 interface WorkspaceGlobeProps {
+  readonly mode?: WorkspaceGlobeMode;
+  readonly presentation?: WorkspaceGlobePresentation;
   readonly renderGlobe?: (props: ResearchGlobeCanvasProps) => ReactNode;
-  readonly reloadPage?: () => void;
   readonly status: CommandCenterStatus;
 }
 
@@ -29,25 +38,19 @@ interface GlobeLoadBoundaryState {
   readonly failed: boolean;
 }
 
-const MOSCOW = {
-  city: "Москва",
-  country: "Россия",
-  flag: "🇷🇺",
-  coordinate: { lat: 55.7558, lng: 37.6173 },
-} as const;
-
-const TIRANA = {
-  city: "Тирана",
-  country: "Албания",
-  flag: "🇦🇱",
-  coordinate: { lat: 41.3275, lng: 19.8187 },
-} as const;
-
-const DynamicResearchGlobe = dynamic<ResearchGlobeCanvasProps>(
-  () => import("../research-map/ResearchGlobeCanvas")
-    .then((module: ResearchGlobeModule) => module.ResearchGlobeCanvas),
-  { ssr: false },
-);
+function createDynamicResearchGlobe(): ComponentType<ResearchGlobeCanvasProps> {
+  return dynamic<ResearchGlobeCanvasProps>(
+    () => import("../research-map/ResearchGlobeCanvas")
+      .then((module: ResearchGlobeModule) => module.ResearchGlobeCanvas),
+    {
+      loading: ({ error }) => {
+        if (error !== null) throw error;
+        return null;
+      },
+      ssr: false,
+    },
+  );
+}
 
 class GlobeLoadBoundary extends Component<GlobeLoadBoundaryProps, GlobeLoadBoundaryState> {
   state: GlobeLoadBoundaryState = { failed: false };
@@ -79,49 +82,70 @@ function supportsWebGL(): boolean {
   }
 }
 
-function reloadDocument(): void {
-  window.location.reload();
-}
-
 const ignoreGlobeEvent = () => undefined;
 
+function defaultPresentation(status: CommandCenterStatus): WorkspaceGlobePresentation {
+  const candidate: ResearchCandidate = {
+    id: "tirana",
+    ...TIRANA_PRESENTATION,
+    status,
+  };
+  const route = {
+    label: candidate.label,
+    kind: candidate.kind,
+    city: candidate.city,
+    country: candidate.country,
+    description: "Подтверждённый маршрут текущего сценария.",
+    flag: candidate.flag,
+    from: MOSCOW_ORIGIN.coordinate,
+    key: "overview-moscow-tirana",
+    routeLabel: `${MOSCOW_ORIGIN.label} → ${candidate.label}`,
+    status,
+    to: candidate.coordinate,
+  } as const;
+  return {
+    activeFlight: route,
+    ariaLabel: "3D Земля маршрута Россия → Тирана",
+    origin: MOSCOW_ORIGIN,
+    overview: {
+      coordinates: [MOSCOW_ORIGIN.coordinate, candidate.coordinate],
+      key: 1,
+    },
+    routes: [route],
+  };
+}
+
 export function WorkspaceGlobe({
+  mode = "background",
+  presentation,
   renderGlobe,
-  reloadPage = reloadDocument,
   status,
 }: WorkspaceGlobeProps) {
   const [webglSupported, setWebglSupported] = useState<boolean>();
   const [unavailable, setUnavailable] = useState(false);
   const [importFailed, setImportFailed] = useState(false);
-  const globeRoute = useMemo<GlobeRoute>(() => ({
-    city: TIRANA.city,
-    country: TIRANA.country,
-    description: "Подтверждённый маршрут текущего сценария.",
-    flag: TIRANA.flag,
-    from: MOSCOW.coordinate,
-    key: "overview-moscow-tirana",
-    label: `${MOSCOW.city} → ${TIRANA.city}`,
-    status,
-    to: TIRANA.coordinate,
-  }), [status]);
-  const routes = useMemo(() => [globeRoute], [globeRoute]);
-  const overview = useMemo(() => ({
-    coordinates: [MOSCOW.coordinate, TIRANA.coordinate],
-    key: 1,
-  }), []);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [DynamicResearchGlobe, setDynamicResearchGlobe] = useState(
+    () => createDynamicResearchGlobe(),
+  );
+  const fallbackPresentation = useMemo(() => defaultPresentation(status), [status]);
+  const activePresentation = presentation ?? fallbackPresentation;
   const handleUnavailable = useCallback(() => setUnavailable(true), []);
   const globeProps = useMemo<ResearchGlobeCanvasProps>(() => ({
-    activeFlight: globeRoute,
-    backgroundColor: "#061014",
+    activeFlight: activePresentation.activeFlight,
+    backgroundColor: activePresentation.backgroundColor ?? "#061014",
     onFlightComplete: ignoreGlobeEvent,
     onReady: ignoreGlobeEvent,
     onUnavailable: handleUnavailable,
-    origin: MOSCOW,
-    overview,
-    routes,
-  }), [globeRoute, handleUnavailable, overview, routes]);
+    origin: activePresentation.origin,
+    overview: activePresentation.overview,
+    routes: activePresentation.routes,
+  }), [activePresentation, handleUnavailable]);
   const retry = useCallback(() => {
     setUnavailable(false);
+    setImportFailed(false);
+    setDynamicResearchGlobe(() => createDynamicResearchGlobe());
+    setLoadAttempt((attempt) => attempt + 1);
     setWebglSupported(supportsWebGL());
   }, []);
 
@@ -129,14 +153,7 @@ export function WorkspaceGlobe({
 
   const globe = (() => {
     if (renderGlobe !== undefined) return renderGlobe(globeProps);
-    if (importFailed) {
-      return (
-        <button className="workspace-globe__fallback" onClick={reloadPage} type="button">
-          Повторить загрузку 3D Земли
-        </button>
-      );
-    }
-    if (unavailable || webglSupported === false) {
+    if (importFailed || unavailable || webglSupported === false) {
       return (
         <button className="workspace-globe__fallback" onClick={retry} type="button">
           Повторить загрузку 3D Земли
@@ -147,14 +164,21 @@ export function WorkspaceGlobe({
       return <span className="workspace-globe__loading">Загрузка 3D Земли…</span>;
     }
     return (
-      <GlobeLoadBoundary onError={() => setImportFailed(true)}>
+      <GlobeLoadBoundary
+        key={loadAttempt}
+        onError={() => setImportFailed(true)}
+      >
         <DynamicResearchGlobe {...globeProps} />
       </GlobeLoadBoundary>
     );
   })();
 
   return (
-    <section aria-label="3D Земля маршрута Россия → Тирана" className="workspace-globe">
+    <section
+      aria-label={activePresentation.ariaLabel}
+      className={`workspace-globe workspace-globe--${mode}`}
+      data-mode={mode}
+    >
       <div className="workspace-globe__engine">{globe}</div>
     </section>
   );

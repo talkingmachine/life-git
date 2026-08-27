@@ -386,7 +386,6 @@ async function main(): Promise<void> {
       ...(outage === undefined ? {} : { outage }),
       observed: {
         totalNetworkRequests: Object.values(attempts).reduce((sum, count) => sum + count, 0),
-        llmCalls: 0,
         sourceFees: "not_metered",
         demoVerified: false,
       },

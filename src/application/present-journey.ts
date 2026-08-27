@@ -2,7 +2,6 @@ import type { BranchCommit, BranchCursor, HousingBranchDiff } from "../branch/li
 import type {
   BranchRunRevision,
   EvidenceReadItem,
-  NarrativePort,
   RunDetailsCore,
 } from "./contracts";
 import type { HousingBranchForkResult, HousingBranchResult } from "./fork-housing";
@@ -20,7 +19,6 @@ export interface JourneyPresentationPorts {
     cursor: BranchCursor,
     housingAll: string,
   ) => Promise<HousingBranchForkResult>;
-  readonly narrative: NarrativePort;
 }
 
 function withBranch(
@@ -98,21 +96,20 @@ export function createJourneyPresentation(ports: JourneyPresentationPorts) {
 
   const presentRun = createPresentRun({
     loadRunDetailsCore: loadPresentableCore,
-    narrative: ports.narrative,
   });
 
   const saveInitialHousingJourney = async (runId: string) => {
     const branch = await ports.saveInitialHousingBranch(runId);
     assertBranchBinding(branch.revision, branch.commit, runId);
     const core = await ports.loadRunDetailsCore(runId);
-    return renderRunDetails(withBranch(core, branch.commit), ports.narrative);
+    return renderRunDetails(withBranch(core, branch.commit));
   };
 
   const forkHousingJourney = async (cursor: BranchCursor, housingAll: string) => {
     const branch = await ports.forkHousingBranch(cursor, housingAll);
     assertBranchBinding(branch.revision, branch.commit, branch.revision.runId);
     const core = await ports.loadRunDetailsCore(branch.revision.runId);
-    return renderRunDetails(withBranch(core, branch.commit, branch.diff), ports.narrative);
+    return renderRunDetails(withBranch(core, branch.commit, branch.diff));
   };
 
   return Object.freeze({ presentRun, saveInitialHousingJourney, forkHousingJourney });

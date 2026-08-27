@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync(resolve(process.cwd(), "src/app/globals.css"), "utf8");
+const researchGlobeCss = readFileSync(
+  resolve(process.cwd(), "src/experience/research-map/ResearchGlobe.module.css"),
+  "utf8",
+);
 
 function escaped(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -120,6 +124,21 @@ describe("calm command center visual contracts", () => {
     expect(declaration(overview, "background")).toBe("transparent");
   });
 
+  it("lets collapsed globe markers pass through empty product content while preserving controls", () => {
+    const content = rule(
+      css,
+      '.product-shell__workspace[data-globe-mode="collapsed"] .product-shell__content',
+    );
+    const controls = rule(
+      css,
+      '.product-shell__workspace[data-globe-mode="collapsed"] :is(.cold-start-comparator, .cold-start-journey__transport, .research-workspace__candidate, .research-workspace__progress, .research-workspace__retry)',
+    );
+
+    expect(declaration(content, "pointer-events")).toBe("none");
+    expect(declaration(controls, "pointer-events")).toBe("auto");
+    expect(css).not.toMatch(/\.cold-start-journey--collapsed\s*>\s*\.research-workspace\s*\{/);
+  });
+
   it("does not retain obsolete globe or route-art selectors", () => {
     expect(css).not.toMatch(/\.orbit-globe|globe-arrival|\.research-map__art|\.research-map__airplane|route-arrival/);
   });
@@ -225,5 +244,16 @@ describe("calm command center visual contracts", () => {
   it("does not synthesize Unicode disclosure controls in CSS", () => {
     const evidenceRules = rules(css, ".evidence-passport__technical > summary::after");
     expect(evidenceRules.join("\n")).not.toMatch(/content\s*:\s*["'][+−]["']/u);
+  });
+
+  it("keeps direct destination CSS2D markers hit-testable without making origins interactive", () => {
+    const marker = rule(researchGlobeCss, ".cityBalloon");
+    const origin = rule(researchGlobeCss, ".cityBalloonOrigin");
+
+    expect(researchGlobeCss).not.toContain(".cityBalloonAnchor");
+    expect(declaration(marker, "pointer-events")).toBe("auto");
+    expect(declaration(marker, "translate")).toBe("0 calc(-50% - 0.34rem)");
+    expect(marker).not.toMatch(/(?:^|;)\s*(?:bottom|left|transform)\s*:/);
+    expect(declaration(origin, "pointer-events")).toBe("none");
   });
 });

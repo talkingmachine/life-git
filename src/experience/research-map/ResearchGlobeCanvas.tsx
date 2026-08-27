@@ -37,16 +37,22 @@ import {
   createGlobeLighting,
   startSynchronizedSunCycle,
 } from "./research-globe-lifecycle";
-import type { GlobeOrigin, GlobeRoute, GlobeUnavailableReason } from "./contracts";
+import type {
+  GlobeOrigin,
+  GlobeOverview,
+  GlobeRoute,
+  GlobeUnavailableReason,
+  PlaceKind,
+} from "./contracts";
 import { UiIcon } from "../components/UiIcon";
 import styles from "./ResearchGlobe.module.css";
 
-export type { GlobeOrigin, GlobeRoute, GlobeUnavailableReason } from "./contracts";
-
-export interface GlobeOverview {
-  readonly key: number;
-  readonly coordinates: readonly GeoCoordinate[];
-}
+export type {
+  GlobeOrigin,
+  GlobeOverview,
+  GlobeRoute,
+  GlobeUnavailableReason,
+} from "./contracts";
 
 export interface ResearchGlobeCanvasProps {
   readonly activeFlight?: GlobeRoute;
@@ -68,12 +74,13 @@ interface CustomLayerDatum {
 
 interface CityLabelDatum {
   readonly altitude: number;
-  readonly city: string;
   readonly flag: string;
   readonly key: string;
   readonly kind: "destination" | "origin";
+  readonly label: string;
   readonly lat: number;
   readonly lng: number;
+  readonly placeKind: PlaceKind;
   readonly selected: boolean;
   readonly status: GlobeRoute["status"];
 }
@@ -106,6 +113,33 @@ const cityBalloonStatusClasses: Record<GlobeRoute["status"], string> = {
   yellow: styles.cityBalloonYellow,
   red: styles.cityBalloonRed,
 };
+
+function markerDetailId(routeKey: string): string {
+  return `research-marker-detail-${routeKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
+function markerButtonFromEventTarget(target: EventTarget | null): HTMLButtonElement | null {
+  if (!(target instanceof Element)) return null;
+  return target.closest<HTMLButtonElement>("button[data-route-key]");
+}
+
+function markerRouteKey(container: HTMLElement | null, target: EventTarget | null): string | undefined {
+  const marker = markerButtonFromEventTarget(target);
+  if (marker === null || container === null || !container.contains(marker)) return undefined;
+  return marker.dataset.routeKey;
+}
+
+function visibleMarkerButton(
+  container: HTMLElement | null,
+  routeKey: string,
+): HTMLButtonElement | undefined {
+  const markers = container?.querySelectorAll<HTMLButtonElement>("button[data-route-key]");
+  return Array.from(markers ?? []).find((marker) => marker.dataset.routeKey === routeKey);
+}
+
+function firstVisibleMarkerButton(container: HTMLElement | null): HTMLButtonElement | undefined {
+  return container?.querySelector<HTMLButtonElement>("button[data-route-key]") ?? undefined;
+}
 
 function normalizeAirliner(scene: Object3D): Object3D {
   const bounds = new Box3().setFromObject(scene);
@@ -280,6 +314,8 @@ export function ResearchGlobeCanvas({
   const onUnavailableRef = useRef(onUnavailable);
   const flightLayerRef = useRef<FlightLayer | undefined>(undefined);
   const destinationRevealCompleted = useRef(new Set<string>());
+  const detailHeading = useRef<HTMLHeadingElement>(null);
+  const returnFocusKey = useRef<string | undefined>(undefined);
   const viewport = useRef({ width: 1, height: 1 });
   const [globeReady, setGlobeReady] = useState(false);
   const [planeTemplate, setPlaneTemplate] = useState<Object3D>();
@@ -299,6 +335,8 @@ export function ResearchGlobeCanvas({
   const lighting = useMemo(createGlobeLighting, []);
   const activeFlightKey = activeFlight?.key;
   const readActiveFlight = useEffectEvent(() => activeFlight);
+  const readRoutes = useEffectEvent(() => routes);
+  const readSelectedRouteKey = useEffectEvent(() => selectedRouteKey);
 
   const customLayerData = useMemo<CustomLayerDatum[]>(
     () => flightLayer === undefined ? routeLayerData : [...routeLayerData, flightLayer.datum],
@@ -309,12 +347,13 @@ export function ResearchGlobeCanvas({
       route.status !== "pending" || destinationRevealCompleted.current.has(route.key)
         ? [{
           altitude: CITY_LABEL_ALTITUDE,
-          city: route.city ?? route.label,
           flag: route.flag ?? "🌐",
           key: route.key,
           kind: "destination" as const,
+          label: route.label,
           lat: route.to.lat,
           lng: route.to.lng,
+          placeKind: route.kind,
           selected: route.key === selectedRouteKey,
           status: route.status,
         }]
@@ -322,12 +361,13 @@ export function ResearchGlobeCanvas({
     ));
     return [{
       altitude: CITY_LABEL_ALTITUDE,
-      city: origin.city,
       flag: origin.flag,
       key: "research-origin",
       kind: "origin" as const,
+      label: origin.label,
       lat: origin.coordinate.lat,
       lng: origin.coordinate.lng,
+      placeKind: origin.kind,
       selected: false,
       status: "green" as const,
     }, ...destinations];
@@ -337,8 +377,6 @@ export function ResearchGlobeCanvas({
   const selectedLongitude = selectedRoute?.to.lng;
   const createCityBalloon = useCallback((datum: object): HTMLElement => {
     const label = datum as CityLabelDatum;
-    const anchor = document.createElement("div");
-    anchor.className = styles.cityBalloonAnchor;
     const element = document.createElement(label.kind === "origin" ? "div" : "button");
     element.className = [
       styles.cityBalloon,
@@ -349,29 +387,102 @@ export function ResearchGlobeCanvas({
     element.dataset.status = label.status;
     if (element instanceof HTMLButtonElement) {
       element.type = "button";
-      element.setAttribute("aria-label", `Открыть ${label.city}`);
-      element.setAttribute("aria-pressed", String(label.selected));
+      element.setAttribute(
+        "aria-label",
+        `Открыть ${label.placeKind === "country" ? "страну" : "город"} ${label.label}`,
+      );
+      element.setAttribute("aria-controls", markerDetailId(label.key));
+      element.setAttribute("aria-expanded", String(label.selected));
+      element.dataset.routeKey = label.key;
     } else {
       element.setAttribute("role", "note");
-      element.setAttribute("aria-label", `Город отправления: ${label.city}`);
+      element.setAttribute(
+        "aria-label",
+        `${label.placeKind === "country" ? "Страна" : "Город"} отправления: ${label.label}`,
+      );
     }
     const flag = document.createElement("span");
     flag.ariaHidden = "true";
     flag.className = styles.cityBalloonFlag;
     flag.textContent = label.flag;
-    const city = document.createElement("span");
-    city.textContent = label.city;
-    element.append(flag, city);
-    if (label.kind === "destination") {
-      element.addEventListener("pointerdown", (event) => event.stopPropagation());
-      element.addEventListener("click", (event) => {
-        event.stopPropagation();
-        setSelectedRouteKey(label.key);
-      });
-    }
-    anchor.append(element);
-    return anchor;
+    const place = document.createElement("span");
+    place.textContent = label.label;
+    element.append(flag, place);
+    return element;
   }, []);
+
+  const activateMarker = useEffectEvent((target: EventTarget | null): boolean => {
+    const routeKey = markerRouteKey(size.container.current, target);
+    if (routeKey === undefined || !readRoutes().some((route) => route.key === routeKey)) {
+      return false;
+    }
+    setSelectedRouteKey(routeKey);
+    return true;
+  });
+
+  const openMarkerDetails = useEffectEvent((event: MouseEvent) => {
+    if (!activateMarker(event.target)) return;
+    event.stopPropagation();
+  });
+
+  const openMarkerDetailsFromKeyboard = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (!activateMarker(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
+  const stopGlobeMarkerPointer = useEffectEvent((event: PointerEvent) => {
+    const container = size.container.current;
+    const marker = markerButtonFromEventTarget(event.target);
+    if (marker !== null && container?.contains(marker)) event.stopPropagation();
+  });
+
+  useLayoutEffect(() => {
+    const container = size.container.current;
+    if (container === null) return;
+    container.addEventListener("click", openMarkerDetails, true);
+    container.addEventListener("keydown", openMarkerDetailsFromKeyboard, true);
+    container.addEventListener("pointerdown", stopGlobeMarkerPointer, true);
+    return () => {
+      container.removeEventListener("click", openMarkerDetails, true);
+      container.removeEventListener("keydown", openMarkerDetailsFromKeyboard, true);
+      container.removeEventListener("pointerdown", stopGlobeMarkerPointer, true);
+    };
+  }, []);
+
+  const closeSelectedRoute = useCallback(() => {
+    if (selectedRouteKey === undefined) return;
+    returnFocusKey.current = selectedRouteKey;
+    setSelectedRouteKey(undefined);
+  }, [selectedRouteKey]);
+
+  useLayoutEffect(() => {
+    if (selectedRouteKey !== undefined) {
+      detailHeading.current?.focus();
+    }
+  }, [selectedRouteKey]);
+
+  useEffect(() => {
+    if (selectedRouteKey !== undefined) return;
+    const routeKey = returnFocusKey.current;
+    if (routeKey === undefined) return;
+    let focusFrame: number | undefined;
+    const settleRendererFrame = window.requestAnimationFrame(() => {
+      focusFrame = window.requestAnimationFrame(() => {
+        const container = size.container.current;
+        const marker = visibleMarkerButton(container, routeKey)
+          ?? firstVisibleMarkerButton(container);
+        if (marker !== undefined) marker.focus();
+        else container?.focus();
+        returnFocusKey.current = undefined;
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(settleRendererFrame);
+      if (focusFrame !== undefined) window.cancelAnimationFrame(focusFrame);
+    };
+  }, [cityLabelData, selectedRouteKey]);
 
   useEffect(() => {
     let active = true;
@@ -547,11 +658,16 @@ export function ResearchGlobeCanvas({
   useEffect(() => {
     destinationRevealCompleted.current.clear();
     setDestinationEpoch((epoch) => epoch + 1);
+    const selectedRouteKeyAtOverviewChange = readSelectedRouteKey();
+    if (selectedRouteKeyAtOverviewChange !== undefined) {
+      returnFocusKey.current = selectedRouteKeyAtOverviewChange;
+    }
     setSelectedRouteKey(undefined);
   }, [overview.key]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (selectedRouteKey !== undefined && !routes.some((route) => route.key === selectedRouteKey)) {
+      returnFocusKey.current = selectedRouteKey;
       setSelectedRouteKey(undefined);
     }
   }, [routes, selectedRouteKey]);
@@ -714,7 +830,14 @@ export function ResearchGlobeCanvas({
   }, [flightLayer, globeReady, planeTemplate, readyForFlights, realisticEarth, reducedMotion, routeScene]);
 
   return (
-    <div className={styles.globe} ref={size.container} style={{ background: backgroundColor }}>
+    <div
+      aria-label="Глобус маршрутов"
+      className={styles.globe}
+      ref={size.container}
+      role="region"
+      style={{ background: backgroundColor }}
+      tabIndex={-1}
+    >
       <Globe
         // react-globe.gl narrows refs to mutable objects, although its forwardRef accepts callback refs.
         ref={setGlobeRef as unknown as React.MutableRefObject<GlobeMethods | undefined>}
@@ -740,14 +863,18 @@ export function ResearchGlobeCanvas({
       />
       {selectedRoute === undefined ? null : (
         <aside
-          aria-label={selectedRoute.city ?? selectedRoute.label}
+          aria-labelledby={`${markerDetailId(selectedRoute.key)}-heading`}
           className={styles.markerDetails}
+          id={markerDetailId(selectedRoute.key)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") closeSelectedRoute();
+          }}
           role="dialog"
         >
           <button
             aria-label="Закрыть карточку"
             className={styles.markerDetailsClose}
-            onClick={() => setSelectedRouteKey(undefined)}
+            onClick={closeSelectedRoute}
             type="button"
           >
             <UiIcon name="close" />
@@ -758,11 +885,17 @@ export function ResearchGlobeCanvas({
             </span>
             <span>{selectedRoute.country ?? "Страна кандидата"}</span>
           </p>
-          <h2>{selectedRoute.city ?? selectedRoute.label}</h2>
+          <h2
+            id={`${markerDetailId(selectedRoute.key)}-heading`}
+            ref={detailHeading}
+            tabIndex={-1}
+          >
+            {selectedRoute.label}
+          </h2>
           <p className={styles.markerDetailsStatus}>{statusLabels[selectedRoute.status]}</p>
           {selectedRoute.status === "green" && selectedRoute.photoUrl !== undefined ? (
             <img
-              alt={selectedRoute.city ?? selectedRoute.label}
+              alt={selectedRoute.label}
               className={styles.markerDetailsPhoto}
               src={selectedRoute.photoUrl}
             />
@@ -780,7 +913,9 @@ export function ResearchGlobeCanvas({
             </>
           )}
           {selectedRoute.officialUrl === undefined ? null : (
-            <a href={selectedRoute.officialUrl}>Официальный источник</a>
+            <a href={selectedRoute.officialUrl}>
+              Официальный источник: {selectedRoute.label}
+            </a>
           )}
         </aside>
       )}

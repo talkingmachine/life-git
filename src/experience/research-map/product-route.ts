@@ -1,6 +1,8 @@
 import type { GlobeOrigin, GlobeRoute, ResearchCandidate } from "./contracts";
 
 export const MOSCOW_ORIGIN: GlobeOrigin = {
+  label: "Москва",
+  kind: "city",
   city: "Москва",
   country: "Россия",
   flag: "🇷🇺",
@@ -8,6 +10,8 @@ export const MOSCOW_ORIGIN: GlobeOrigin = {
 };
 
 export const TIRANA_PRESENTATION: Omit<ResearchCandidate, "id" | "status" | "reason"> = {
+  label: "Тирана",
+  kind: "city",
   city: "Тирана",
   country: "Албания",
   flag: "🇦🇱",
@@ -16,15 +20,21 @@ export const TIRANA_PRESENTATION: Omit<ResearchCandidate, "id" | "status" | "rea
   photoUrl: "/cities/tirana.jpg",
 };
 
-export function createProductGlobeRoute(candidate: ResearchCandidate): GlobeRoute {
+export function createProductGlobeRoute(
+  origin: GlobeOrigin,
+  candidate: ResearchCandidate,
+  runKey: string,
+): GlobeRoute {
   return {
+    label: candidate.label,
+    kind: candidate.kind,
     city: candidate.city,
     country: candidate.country,
     description: candidate.description,
     flag: candidate.flag,
-    key: `moscow-${candidate.id}`,
-    label: `Москва → ${candidate.city}`,
-    from: MOSCOW_ORIGIN.coordinate,
+    key: `${runKey}:${candidate.id}`,
+    routeLabel: `${origin.label} → ${candidate.label}`,
+    from: origin.coordinate,
     photoUrl: candidate.photoUrl,
     rejectionReason: candidate.reason?.summary,
     officialUrl: candidate.reason?.officialUrl,
