@@ -326,6 +326,53 @@ function methodRecord(value: unknown, keys: readonly string[]): Readonly<PlainRe
   }))) as Readonly<PlainRecord>;
 }
 
+function selectionHistoryRecord(value: unknown): Readonly<PlainRecord> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+    isBorrowedProxy(value) || Object.getOwnPropertySymbols(value).length !== 0) mismatch();
+  if (Object.getPrototypeOf(value) !== Object.prototype) {
+    const method = inheritedDataMethod(value, "listSelectionsWithBranchesVerified");
+    inheritedDataMethod(value, "loadSelectionWithBranchVerified");
+    inheritedDataMethod(value, "publishSelection");
+    return Object.freeze({
+      listSelectionsWithBranchesVerified: (...args: never[]) =>
+        Reflect.apply(method, value, args),
+    });
+  }
+  const actual = Object.getOwnPropertyNames(value).sort();
+  const historyOnly = ["listSelectionsWithBranchesVerified"];
+  const atomicWriter = [
+    "listSelectionsWithBranchesVerified",
+    "loadSelectionWithBranchVerified",
+    "publishSelection",
+  ];
+  if (!sameStringKeys(actual, historyOnly) && !sameStringKeys(actual, atomicWriter)) mismatch();
+  const record = value as PlainRecord;
+  const method = callable(record.listSelectionsWithBranchesVerified);
+  return Object.freeze({
+    listSelectionsWithBranchesVerified: (...args: never[]) =>
+      Reflect.apply(method, record, args),
+  });
+}
+
+function inheritedDataMethod(value: object, key: string): (...args: never[]) => unknown {
+  let prototype = Object.getPrototypeOf(value) as object | null;
+  for (let depth = 0; depth < 3 && prototype !== null &&
+    prototype !== Object.prototype; depth += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, key);
+    if (descriptor !== undefined) {
+      if (!("value" in descriptor) || typeof descriptor.value !== "function" ||
+        isBorrowedProxy(descriptor.value)) mismatch();
+      return descriptor.value as (...args: never[]) => unknown;
+    }
+    prototype = Object.getPrototypeOf(prototype) as object | null;
+  }
+  mismatch();
+}
+
+function sameStringKeys(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((key, index) => key === right[index]);
+}
+
 function directFunction(record: PlainRecord, key: string): (...args: never[]) => unknown {
   const capability = callable(record[key]);
   const receiver = Object.freeze({ capability: key });
@@ -362,10 +409,7 @@ function capturePorts(value: CityFrontierApplicationPorts): Readonly<CityFrontie
   ]);
   const frontierAppend = methodRecord(root.frontierAppend, ["appendRevision"]);
   const startWriter = methodRecord(root.startWriter, ["publishStart"]);
-  const selectionHistory = methodRecord(
-    root.selectionHistory,
-    ["listSelectionsWithBranchesVerified"],
-  );
+  const selectionHistory = selectionHistoryRecord(root.selectionHistory);
   const evidence = methodRecord(root.evidence, [
     "loadVerified", "findVerifiedByCheckRunId", "seal",
   ]);

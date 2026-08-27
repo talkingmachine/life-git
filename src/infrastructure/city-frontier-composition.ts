@@ -4,13 +4,15 @@ import type Database from "better-sqlite3";
 
 import {
   createCityFrontierApplication,
-  type CityFrontierApplicationAssembly,
+  type CityFrontierApplication,
   type CityFrontierFixedRoutePorts,
   type CityFrontierProfileReadPort,
   type CityFrontierResolvedCountryReadPort,
 } from "../application/city-frontier";
-import type { CitySelectionHistoryReadPort } from
-  "../application/city-frontier-contracts";
+import {
+  createCitySelectionApplication,
+  type CitySelectionApplication,
+} from "../application/city-selection";
 import type { CitySafetyOfficialDocumentPort } from
   "../application/city-safety-contracts";
 import { APPROVED_CITY_CRITERIA_DEFAULTS_REGISTRY } from
@@ -41,6 +43,7 @@ import { SqliteCityCriteriaStore } from "./sqlite/city-criteria-store";
 import { SqliteCityEvidenceStore } from "./sqlite/city-evidence-store";
 import { SqliteCityFrontierStore } from "./sqlite/city-frontier-store";
 import { SqliteCityKnowledgeStore } from "./sqlite/city-knowledge-store";
+import { SqliteCitySelectionWriter } from "./sqlite/city-selection-writer";
 import { SqliteCityPackageManifestStore } from "./sqlite/city-package-manifest-store";
 import { SqliteCountryResolutionStore } from "./sqlite/country-resolution-store";
 
@@ -67,7 +70,6 @@ export interface CityFrontierCompositionOptions {
   readonly resolvedCountries: CityFrontierResolvedCountryReadPort;
   readonly profiles: CityFrontierProfileReadPort;
   readonly liveSources: CityFrontierLiveSourceConfiguration;
-  readonly selectionHistory?: CitySelectionHistoryReadPort;
   readonly resolveAvailability?: typeof getCityResearchPackageAvailability;
   readonly clock?: () => Date;
   readonly fixedTiming?: CityFrontierFixedTiming;
@@ -79,7 +81,7 @@ const REQUIRED_OPTIONS = [
   "database", "hmacKey", "resolvedCountries", "profiles", "liveSources",
 ] as const;
 const OPTIONAL_OPTIONS = [
-  "selectionHistory", "resolveAvailability", "clock", "fixedTiming",
+  "resolveAvailability", "clock", "fixedTiming",
 ] as const;
 
 function mismatch(): never {
@@ -230,7 +232,7 @@ function unavailableDocuments(): CitySafetyOfficialDocumentPort {
 
 export function createCityFrontierComposition(
   borrowedOptions: CityFrontierCompositionOptions,
-): Readonly<CityFrontierApplicationAssembly> {
+): Readonly<CityFrontierApplication & CitySelectionApplication> {
   const options = exactRecord(borrowedOptions, REQUIRED_OPTIONS, OPTIONAL_OPTIONS);
   if (options.database === null || typeof options.database !== "object" ||
     typeof options.hmacKey !== "string" || options.hmacKey.length === 0) mismatch();
@@ -240,9 +242,6 @@ export function createCityFrontierComposition(
   ]);
   if (options.resolveAvailability !== undefined) functionValue(options.resolveAvailability);
   if (options.clock !== undefined) functionValue(options.clock);
-  if (options.selectionHistory !== undefined) {
-    exactMethodObject(options.selectionHistory, ["listSelectionsWithBranchesVerified"]);
-  }
   if (options.fixedTiming !== undefined) {
     const timing = exactRecord(options.fixedTiming, [
       "fixedSourceDeadlineAt", "fixedDeadlineScheduler",
@@ -279,16 +278,16 @@ export function createCityFrontierComposition(
   });
   const evidenceStore = new SqliteCityEvidenceStore(database, integrity, installedPackages);
   const knowledgeStore = new SqliteCityKnowledgeStore(database, integrity, installedPackages);
+  const selectionWriter = new SqliteCitySelectionWriter(database, integrity, {
+    catalogs: catalogStore,
+    branches: branchStore,
+    rankings: frontierStore,
+    frontier: frontierStore,
+  });
   const manifestLoad = manifestStore.loadVerified.bind(manifestStore);
   const installedFindReady = installedPackages.findReady.bind(installedPackages);
   const installedFindExact = installedPackages.findExact.bind(installedPackages);
   const installedLatest = installedPackages.latestInstalledVerified.bind(installedPackages);
-  const selectionHistory = options.selectionHistory as CitySelectionHistoryReadPort | undefined ??
-    Object.freeze({
-      async listSelectionsWithBranchesVerified() {
-        return Object.freeze([]);
-      },
-    });
   const fixedRoutes = liveSources.kind === "configured"
     ? liveSources.fixedRoutes
     : unavailableFixedRoutes();
@@ -305,8 +304,9 @@ export function createCityFrontierComposition(
       })
     : createUnconfiguredCitySafetySearchPort();
   const fixedTiming = options.fixedTiming as CityFrontierFixedTiming | undefined;
+  const clock = options.clock as (() => Date) | undefined ?? defaultClock;
 
-  return createCityFrontierApplication({
+  const assembly = createCityFrontierApplication({
     resolveAvailability: options.resolveAvailability as
       typeof getCityResearchPackageAvailability | undefined ?? getCityResearchPackageAvailability,
     resolvedCountries: options.resolvedCountries as CityFrontierResolvedCountryReadPort,
@@ -341,7 +341,7 @@ export function createCityFrontierComposition(
       appendRevision: frontierStore.appendRevision.bind(frontierStore),
     }),
     startWriter: Object.freeze({ publishStart: frontierStore.publishStart.bind(frontierStore) }),
-    selectionHistory,
+    selectionHistory: selectionWriter,
     evidence: Object.freeze({
       loadVerified: evidenceStore.loadVerified.bind(evidenceStore),
       findVerifiedByCheckRunId: evidenceStore.findVerifiedByCheckRunId.bind(evidenceStore),
@@ -369,7 +369,14 @@ export function createCityFrontierComposition(
     safetyDocuments,
     decisionIntegrity,
     evidenceIntegrity: integrity,
-    clock: options.clock as (() => Date) | undefined ?? defaultClock,
+    clock,
     fixedSourceDeadlineAt: fixedTiming?.fixedSourceDeadlineAt ?? defaultDeadlineAt,
   });
+  const selection = createCitySelectionApplication({
+    frontier: assembly.selectionAuthority,
+    writer: selectionWriter,
+    integrity: decisionIntegrity,
+    clock,
+  });
+  return Object.freeze({ ...assembly.application, ...selection });
 }

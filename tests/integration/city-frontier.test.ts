@@ -19,6 +19,10 @@ import {
   type StartCityFrontierInput,
   type VerifiedCityTerminalSelectionAuthority,
 } from "../../src/application/city-frontier";
+import {
+  type CitySelectionApplication,
+  type CitySelectionApplicationPorts,
+} from "../../src/application/city-selection";
 import type {
   CityCatalogStorePort,
   CityEvidenceReplayPorts,
@@ -127,6 +131,8 @@ import {
 } from "../../src/infrastructure/city-frontier-composition";
 import { createCitySafetySearchPort } from
   "../../src/infrastructure/sources/city-safety-search-adapter";
+import type { SqliteCitySelectionWriter } from
+  "../../src/infrastructure/sqlite/city-selection-writer";
 import {
   createHttpCitySafetySearchStep,
   type CitySafetySearchHttpRequest,
@@ -242,6 +248,8 @@ const compositionHarness = vi.hoisted(() => ({
   enabled: false,
   captureReceiverCalls: false,
   applicationFactoryPorts: [] as unknown[],
+  selectionApplicationFactoryPorts: [] as unknown[],
+  selectionWriters: [] as unknown[],
   manifestStores: [] as unknown[],
   installedPackageReceivers: [] as unknown[],
   manifestLoadReceivers: [] as unknown[],
@@ -280,6 +288,34 @@ vi.mock("../../src/application/city-frontier", async (importOriginal) => {
       return actual.createCityFrontierApplication(...args);
     },
   };
+});
+
+vi.mock("../../src/application/city-selection", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/application/city-selection")>();
+  return {
+    ...actual,
+    createCitySelectionApplication: (
+      ...args: Parameters<typeof actual.createCitySelectionApplication>
+    ) => {
+      if (compositionHarness.enabled) {
+        compositionHarness.selectionApplicationFactoryPorts.push(args[0]);
+      }
+      return actual.createCitySelectionApplication(...args);
+    },
+  };
+});
+
+vi.mock("../../src/infrastructure/sqlite/city-selection-writer", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../src/infrastructure/sqlite/city-selection-writer")
+  >();
+  class ObservedSelectionWriter extends actual.SqliteCitySelectionWriter {
+    constructor(...args: ConstructorParameters<typeof actual.SqliteCitySelectionWriter>) {
+      super(...args);
+      if (compositionHarness.enabled) compositionHarness.selectionWriters.push(this);
+    }
+  }
+  return { ...actual, SqliteCitySelectionWriter: ObservedSelectionWriter };
 });
 
 vi.mock("../../src/infrastructure/city-frontier-composition", async (importOriginal) => {
@@ -672,6 +708,8 @@ afterEach(() => {
   compositionHarness.enabled = false;
   compositionHarness.captureReceiverCalls = false;
   compositionHarness.applicationFactoryPorts.splice(0);
+  compositionHarness.selectionApplicationFactoryPorts.splice(0);
+  compositionHarness.selectionWriters.splice(0);
   compositionHarness.manifestStores.splice(0);
   compositionHarness.installedPackageReceivers.splice(0);
   compositionHarness.manifestLoadReceivers.splice(0);
@@ -5273,7 +5311,6 @@ describe("City Frontier Application public boundary", () => {
       readonly resolvedCountries: CityFrontierResolvedCountryReadPort;
       readonly profiles: CityFrontierProfileReadPort;
       readonly liveSources: CityFrontierLiveSourceConfiguration;
-      readonly selectionHistory?: CitySelectionHistoryReadPort;
       readonly resolveAvailability?: typeof getCityResearchPackageAvailability;
       readonly clock?: () => Date;
       readonly fixedTiming?: CityFrontierFixedTiming;
@@ -5315,7 +5352,8 @@ describe("City Frontier Application public boundary", () => {
       | "startCityFrontier"
       | "prepareCityFrontierContinuation"
       | "continueCityFrontier"
-      | "presentCityFrontier";
+      | "presentCityFrontier"
+      | "selectCity";
 
     expectTypeOf<CityFrontierLiveSourceConfiguration>().toEqualTypeOf<ExpectedLiveSources>();
     expectTypeOf<CityFrontierFixedTiming>().toEqualTypeOf<ExpectedTiming>();
@@ -5324,7 +5362,8 @@ describe("City Frontier Application public boundary", () => {
     expectTypeOf<keyof ConfirmedLifeCompositionOptions>()
       .toEqualTypeOf<ExpectedRootOptionKeys>();
     expectTypeOf(createCityFrontierComposition)
-      .toEqualTypeOf<(options: CityFrontierCompositionOptions) => Readonly<CityFrontierApplicationAssembly>>();
+      .toEqualTypeOf<(options: CityFrontierCompositionOptions) =>
+        Readonly<CityFrontierApplication & CitySelectionApplication>>();
     expectTypeOf<ReturnType<typeof createConfirmedLifeComposition>>()
       .toMatchTypeOf<Readonly<Record<RootTaskMethodName, unknown>>>();
     expectTypeOf<CityFixedSourceRunInput<"si-city-long-term-rent">["now"]>()
@@ -5532,9 +5571,9 @@ describe("City Frontier Application public boundary", () => {
       const taskOptions = compositionHarness.rootCompositionArgs[compositionOffset] as
         CityFrontierCompositionOptions;
       const assembly = compositionHarness.rootCompositionResults[assemblyOffset] as
-        Readonly<CityFrontierApplicationAssembly>;
+        Readonly<CityFrontierApplication & CitySelectionApplication>;
       const root = returned as unknown as Record<PropertyKey, unknown>;
-      const application = assembly.application as unknown as Record<PropertyKey, unknown>;
+      const application = assembly as unknown as Record<PropertyKey, unknown>;
       expect(taskOptions.database).toBe(options.database);
       expect(taskOptions.hmacKey).toBe(options.hmacKey);
       for (const methodName of taskMethodNames) {
@@ -5736,8 +5775,8 @@ describe("City Frontier Application public boundary", () => {
       forbiddenTask14Specifiers.includes(specifier))).toEqual([]);
   });
 
-  test("composition isolates each manifest-store receiver and omitted history behind fresh adapters", async () => {
-    // Break caught: constructing duplicate stores, injecting raw authority, or retaining a module singleton.
+  test("composition isolates each manifest store and owns one durable selection writer", async () => {
+    // Break caught: constructing duplicate stores or retaining a module singleton.
     const assemblies = [0, 1].map((index) => {
       const database = openEvidenceDatabase(":memory:");
       databases.push(database);
@@ -5766,12 +5805,25 @@ describe("City Frontier Application public boundary", () => {
       SqliteCityPackageManifestStore[];
     const factoryPorts = compositionHarness.applicationFactoryPorts as
       CityFrontierApplicationPorts[];
+    const selectionFactoryPorts = compositionHarness.selectionApplicationFactoryPorts as
+      CitySelectionApplicationPorts[];
+    const selectionWriters = compositionHarness.selectionWriters as
+      SqliteCitySelectionWriter[];
     const manifestReaders = factoryPorts.map(({ installedPackageManifests }) =>
       installedPackageManifests);
     const selectionHistoryReaders = factoryPorts.map(({ selectionHistory }) => selectionHistory);
+    expect(selectionFactoryPorts).toHaveLength(2);
+    expect(selectionWriters).toHaveLength(2);
     expect(rawManifestStores[0]).not.toBe(rawManifestStores[1]);
     expect(manifestReaders[0]).not.toBe(manifestReaders[1]);
     expect(selectionHistoryReaders[0]).not.toBe(selectionHistoryReaders[1]);
+    for (const index of [0, 1] as const) {
+      expect(selectionHistoryReaders[index]).toBe(selectionWriters[index]);
+      expect(selectionFactoryPorts[index]!.writer).toBe(selectionWriters[index]);
+      expect(selectionFactoryPorts[index]!.frontier).toBeDefined();
+      expect(Reflect.ownKeys(assemblies[index]!)).not.toContain("selectionAuthority");
+      expect(Reflect.ownKeys(assemblies[index]!)).not.toContain("writer");
+    }
     for (const [index, manifestReader] of manifestReaders.entries()) {
       const rawManifestStore = rawManifestStores[index]!;
       expect(compositionHarness.installedPackageReceivers[index]).toBe(rawManifestStore);
@@ -5782,34 +5834,19 @@ describe("City Frontier Application public boundary", () => {
       expect("latestVerified" in manifestReader).toBe(false);
       recursivelyFrozen(manifestReader);
       recursivelyFrozen(assemblies[index]);
-      expect(Reflect.ownKeys(assemblies[index]!)).toEqual(["application", "selectionAuthority"]);
-      expect(Reflect.ownKeys(assemblies[index]!.application)).toEqual([
+      expect(Reflect.ownKeys(assemblies[index]!)).toEqual([
         "presentCityFrontierSetup",
         "startCityFrontier",
         "prepareCityFrontierContinuation",
         "continueCityFrontier",
         "presentCityFrontier",
+        "selectCity",
       ]);
     }
     for (const historyReader of selectionHistoryReaders) {
-      expect(Reflect.ownKeys(historyReader)).toEqual([
-        "listSelectionsWithBranchesVerified",
-      ]);
-      expect(Object.getPrototypeOf(historyReader)).toBe(Object.prototype);
-      const descriptor = Object.getOwnPropertyDescriptor(
-        historyReader,
-        "listSelectionsWithBranchesVerified",
-      );
-      expect(descriptor).toEqual(expect.objectContaining({
-        enumerable: true,
-        writable: false,
-        configurable: false,
-        value: expect.any(Function),
-      }));
-      expect(Object.getOwnPropertySymbols(historyReader)).toEqual([]);
+      expect(historyReader.listSelectionsWithBranchesVerified).toBeTypeOf("function");
       expect(rawManifestStores).not.toContain(historyReader);
       expect(compositionHarness.installedPackageReceivers).not.toContain(historyReader);
-      recursivelyFrozen(historyReader);
     }
 
     const emptyHistories = await Promise.all(selectionHistoryReaders.flatMap((historyReader) => [
@@ -5950,70 +5987,25 @@ describe("City Frontier Application public boundary", () => {
     }
   });
 
-  test("composition forwards explicit history exactly once and Present owns its borrowed array", async () => {
-    // Break caught: wrapping the caller's history port or borrowing its returned mutable array.
-    const historyCalls: string[] = [];
-    let historySource: CitySelectionWithBranch[] = [];
-    const originalHistorySource = historySource;
-    const selectionHistory = Object.freeze({
-      listSelectionsWithBranchesVerified: async (runId: string) => {
-        historyCalls.push(runId);
-        return historySource;
-      },
-    }) satisfies CitySelectionHistoryReadPort;
+  test("composition rejects an external selection-history override", () => {
+    // Break caught: caller-controlled history replacing the single durable Task 15 writer.
     const database = openEvidenceDatabase(":memory:");
     databases.push(database);
-    compositionHarness.enabled = true;
-    let composed: Readonly<CityFrontierApplicationAssembly>;
-    try {
-      composed = createCityFrontierComposition({
+    expect(() => createCityFrontierComposition({
         database,
-        hmacKey: "task-14-explicit-history-key-at-least-32-bytes",
+        hmacKey: "task-15-closed-history-key-at-least-32-bytes",
         resolvedCountries: { requireResolvedCountryShortlistForCity: NEVER },
         profiles: {
           loadRelocationAnyVerified: NEVER,
           loadPreferenceForRankingVerified: NEVER,
         },
-        liveSources: {
-          kind: "configured",
-          fixedRoutes: {
-            "si-city-long-term-rent": { inspect: NEVER },
-            "si-city-urban-transit": { inspect: NEVER },
-            "si-city-fixed-broadband": { inspect: NEVER },
+        liveSources: { kind: "unconfigured" },
+        selectionHistory: {
+          async listSelectionsWithBranchesVerified() {
+            return [];
           },
-          safetyDocuments: { inspect: NEVER },
         },
-        selectionHistory,
-      });
-    } finally {
-      compositionHarness.enabled = false;
-    }
-    expect(compositionHarness.applicationFactoryPorts).toHaveLength(1);
-    expect(compositionHarness.manifestStores).toHaveLength(1);
-    expect(compositionHarness.installedPackageReceivers).toHaveLength(1);
-    expect(Reflect.ownKeys(selectionHistory)).toEqual([
-      "listSelectionsWithBranchesVerified",
-    ]);
-    expect((compositionHarness.applicationFactoryPorts[0] as CityFrontierApplicationPorts)
-      .selectionHistory).toBe(selectionHistory);
-    expect(historyCalls).toEqual([]);
-    recursivelyFrozen(composed!);
-
-    const harness = await syntheticApplicationHarness({ selectionHistory });
-    const seeded = await seedCurrentSemanticKnowledge(harness, "explicit-history-ownership");
-    expect(seeded.head.revision.kind).toBe("terminal");
-    historyCalls.splice(0);
-    const presented = await harness.assembly.application.presentCityFrontier(seeded.head.runId);
-    expect(historyCalls).toEqual([seeded.head.runId]);
-    expect(presented.revision).toEqual(seeded.head.revision);
-    expect(presented.selections).toEqual([]);
-    expect(presented.selections).not.toBe(originalHistorySource);
-    recursivelyFrozen(presented);
-    originalHistorySource.push({} as CitySelectionWithBranch);
-    historySource = [{} as CitySelectionWithBranch];
-    expect(presented.selections).toEqual([]);
-    expect(seeded.head.selections).toEqual([]);
-    expect(presented.selections).not.toBe(historySource);
+      } as unknown as CityFrontierCompositionOptions)).toThrowError("integrity_mismatch");
   });
 
   test("Application imports only inward contracts and never Task 15 or infrastructure implementations", () => {
@@ -6046,13 +6038,10 @@ describe("City Frontier Application public boundary", () => {
       ...compositionSource.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g),
       ...compositionSource.matchAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/g),
     ].map((match) => match[1]);
-    expect(compositionSpecifiers.every((specifier) =>
-      !/(?:^|\/)application\/city-selection(?:-application)?$/.test(specifier) &&
-      !/^\.\/city-selection(?:-composition)?$/.test(specifier) &&
-      !/(?:^|\/)(?:sqlite\/)?city-selection-store$/.test(specifier))).toBe(true);
-    expect(compositionSource).not.toMatch(
-      /\b(?:CitySelectionApplication|createCitySelectionApplication|SqliteCitySelectionStore)\b/,
-    );
+    expect(compositionSpecifiers).toContain("../application/city-selection");
+    expect(compositionSpecifiers).toContain("./sqlite/city-selection-writer");
+    expect(compositionSource).toMatch(/\bcreateCitySelectionApplication\b/);
+    expect(compositionSource).toMatch(/\bSqliteCitySelectionWriter\b/);
   });
 
   test("composition rejects partial, open and hostile live-source configurations before database access", () => {
