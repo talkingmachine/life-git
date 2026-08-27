@@ -681,7 +681,7 @@ function sanitizeConflictBasis(value: unknown): CitySafetyConflictBasis {
   const denominator = sanitizeDenominator(value.denominator);
   if (quantities[0].population !== quantities[1].population ||
     quantities[0].population !== denominator.population ||
-    quantities[0].offenceCount >= quantities[1].offenceCount) invalidInspection();
+    BigInt(quantities[0].offenceCount) >= BigInt(quantities[1].offenceCount)) invalidInspection();
   return { referenceYear: value.referenceYear as number, quantities, denominator };
 }
 

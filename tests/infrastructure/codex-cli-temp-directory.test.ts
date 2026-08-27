@@ -142,6 +142,21 @@ describe("validateCodexTempRoot", () => {
     }
   });
 
+  test("rejects a real directory inside the workspace", async () => {
+    // Break caught: allowing Codex temporary artifacts to be created within the project tree.
+    const root = await tempRoot();
+    const workspace = join(root.path, "workspace");
+    const descendant = join(workspace, "private-codex-tmp");
+    await mkdir(descendant, { recursive: true });
+
+    await expect(validateCodexTempRoot({
+      path: descendant,
+      currentUid: root.uid,
+      userHomePath: "/users/person",
+      workspacePath: workspace,
+    })).rejects.toMatchObject({ code: "codex_temp_root_invalid" });
+  });
+
   test("canonicalizes a symlinked user home before excluding the temp root", async () => {
     const actualHome = await tempRoot();
     const aliasContainer = await tempRoot();
@@ -586,12 +601,16 @@ describe("inspectModelVisibleInputs", () => {
     const nativeSetImmediate = setImmediate;
     const controller = new AbortController();
     const spawner = fakeSpawner(JSON.stringify({ messages: [] }));
+    let resolveExit!: (value: { readonly code: number | null; readonly signal: string | null }) => void;
+    const exit = new Promise<{ readonly code: number | null; readonly signal: string | null }>(
+      (resolve) => { resolveExit = resolve; },
+    );
     spawner.spawn.mockImplementation((): SpawnedCodexProcess => ({
       pid: 85,
       stdout: output(""),
       stderr: output(""),
-      exit: new Promise(() => undefined),
-      kill: vi.fn(),
+      exit,
+      kill: vi.fn((signal) => { resolveExit({ code: null, signal }); }),
     }));
     const running = inspectModelVisibleInputs({
       preflight,

@@ -1680,7 +1680,23 @@ function loadMarkerKnowledgeCopies(
   ports: Readonly<CityFrontierApplicationPorts>,
 ): readonly CityKnowledgeRevision[] {
   return Object.freeze(markers.map(({ knowledgeRevisionId }) =>
-    ownedJson(ports.knowledge.loadVerified(knowledgeRevisionId)) as CityKnowledgeRevision));
+    ownKnowledgeRevision(ports.knowledge.loadVerified(knowledgeRevisionId))));
+}
+
+function ownKnowledgeRevision(value: unknown): CityKnowledgeRevision {
+  return ownedJson(value) as CityKnowledgeRevision;
+}
+
+function loadKnowledgePredecessor(
+  revision: CityKnowledgeRevision,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): CityKnowledgeRevision | undefined {
+  const predecessorRevisionId = revision.predecessorRevisionId;
+  if (predecessorRevisionId === undefined) return undefined;
+  const expectedId = identifier(predecessorRevisionId);
+  const predecessor = ownKnowledgeRevision(ports.knowledge.loadVerified(expectedId));
+  if (predecessor.id !== expectedId) mismatch();
+  return predecessor;
 }
 
 async function replayMarkerBindings(
@@ -1737,16 +1753,18 @@ async function replayMarkerBindings(
       evidenceContext.criteriaSnapshotId !== criteria.id ||
       evidenceContext.cityCheckRunId !== derivedCityCheckRunId ||
       snapshot.id !== `${derivedCityCheckRunId}:evidence`) mismatch();
+    const predecessor = loadKnowledgePredecessor(markerKnowledgeCopies[index]!, ports);
     const markerKnowledge = reconstructCityKnowledgeRevision({
       revision: markerKnowledgeCopies[index],
       packageKey: trust.context,
       evidence: evidence as unknown as CityKnowledgeEvidenceView,
       factContracts: knowledgeContracts(trust, persistedMarker.cityId),
+      ...(predecessor === undefined ? {} : { predecessor }),
     }, ports.decisionIntegrity);
     if (markerKnowledge.id !== persistedMarker.knowledgeRevisionId ||
       markerKnowledge.cityId !== persistedMarker.cityId ||
       markerKnowledge.evidenceSnapshotId !== persistedMarker.evidenceSnapshotId ||
-      markerKnowledge.predecessorRevisionId !== undefined ||
+      markerKnowledge.predecessorRevisionId !== predecessor?.id ||
       markerKnowledge.lastCheckedAt !== snapshot.completedAt ||
       markerKnowledge.createdAt !== snapshot.completedAt) mismatch();
     const markerAuthority = continuationMarkerAuthority(markerKnowledge, evidence);
@@ -2384,15 +2402,17 @@ function reconstructContinuationKnowledge(
   authority: ContinueAuthority,
   ports: Readonly<CityFrontierApplicationPorts>,
 ): CityKnowledgeRevision {
+  const predecessor = loadKnowledgePredecessor(revision, ports);
   const reconstructed = reconstructCityKnowledgeRevision({
     revision,
     packageKey: authority.trust.context,
     evidence: evidence as unknown as CityKnowledgeEvidenceView,
     factContracts: contracts,
+    ...(predecessor === undefined ? {} : { predecessor }),
   }, ports.decisionIntegrity);
   if (reconstructed.cityId !== authority.cityId ||
     reconstructed.evidenceSnapshotId !== evidence.snapshot.id ||
-    reconstructed.predecessorRevisionId !== undefined ||
+    reconstructed.predecessorRevisionId !== predecessor?.id ||
     reconstructed.lastCheckedAt !== evidence.snapshot.completedAt ||
     reconstructed.createdAt !== evidence.snapshot.completedAt) mismatch();
   return reconstructed;
@@ -2409,17 +2429,17 @@ function publishContinuationKnowledge(
   const completedAt = evidence.snapshot.completedAt;
   beforePublish();
   const published = reconstructContinuationKnowledge(
-    ports.knowledge.publishFromEvidence(
+    ownKnowledgeRevision(ports.knowledge.publishFromEvidence(
       evidenceSnapshotId,
       completedAt,
-    ),
+    )),
     evidence,
     contracts,
     authority,
     ports,
   );
   const loaded = reconstructContinuationKnowledge(
-    ports.knowledge.loadVerified(published.id),
+    ownKnowledgeRevision(ports.knowledge.loadVerified(published.id)),
     evidence,
     contracts,
     authority,
@@ -2436,16 +2456,17 @@ function recoverContinuationKnowledge(
 ): CityKnowledgeRevision | undefined {
   const found = ports.knowledge.findByEvidenceVerified(evidence.snapshot.id);
   if (found === undefined) return undefined;
+  const foundCopy = ownKnowledgeRevision(found);
   const contracts = knowledgeContracts(authority.trust, authority.cityId);
   const reconstructed = reconstructContinuationKnowledge(
-    found,
+    foundCopy,
     evidence,
     contracts,
     authority,
     ports,
   );
   const loaded = reconstructContinuationKnowledge(
-    ports.knowledge.loadVerified(reconstructed.id),
+    ownKnowledgeRevision(ports.knowledge.loadVerified(reconstructed.id)),
     evidence,
     contracts,
     authority,
@@ -2679,7 +2700,9 @@ async function reloadContinuationReadModel(
 
   const persistedMarker = revision.markers[authority.rank - 1];
   if (persistedMarker === undefined || revision.markers.length !== authority.rank) mismatch();
-  const borrowedKnowledge = ports.knowledge.loadVerified(persistedMarker.knowledgeRevisionId);
+  const knowledgeCopy = ownKnowledgeRevision(
+    ports.knowledge.loadVerified(persistedMarker.knowledgeRevisionId),
+  );
   const verifiedEvidence = await replayCityEvidence({
     evidenceSnapshotId: persistedMarker.evidenceSnapshotId,
     cityId: persistedMarker.cityId,
@@ -2693,7 +2716,7 @@ async function reloadContinuationReadModel(
   );
   if (!sameDecision(verifiedEvidence, expectedEvidence.verified, ports.decisionIntegrity)) mismatch();
   const knowledge = reconstructContinuationKnowledge(
-    borrowedKnowledge,
+    knowledgeCopy,
     verifiedEvidence,
     knowledgeContracts(authority.trust, authority.cityId),
     authority,

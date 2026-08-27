@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { readdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { types } from "node:util";
 
 import {
   CODEX_CLI_VERSION,
@@ -49,6 +50,10 @@ const RESULT_SCHEMA_VERSION = "codex-runtime-smoke@1" as const;
 const RESULT_STATUS = "tool_free" as const;
 const TEMP_DIRECTORY_PREFIX = "confirmed-life-codex-";
 const FIXTURE_URL = new URL("./fixtures/codex-cli/runtime-cases.json", import.meta.url);
+const FIXTURE_PATH = resolve(fileURLToPath(FIXTURE_URL));
+const FINAL_PROJECT_LIVE_MODEL_GATE_FLAG = "--final-project-live-model-gate";
+const LIVE_MODEL_GATE_DEFERRED = "onboarding_live_model_gate_deferred\n";
+const FEASIBILITY_FAILURE = "codex_tool_isolation_unproven\n";
 const CLOSED_ENVIRONMENT_KEYS = new Set(["CODEX_HOME", "TMPDIR", "LANG", "LC_ALL"]);
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const EMPTY_TUPLE = Object.freeze([]) as readonly [];
@@ -161,6 +166,36 @@ export interface CodexCliFeasibilityDiagnostic {
   readonly itemTypes: readonly string[];
   readonly overflowed: boolean;
 }
+
+export type CodexCliFeasibilityLaunchArguments = Readonly<{
+  mode: "deferred" | "final-project-live-model-gate";
+  artifactPath: string;
+  diagnosticPath?: string;
+}>;
+
+export type CodexCliFeasibilityEntrypointResult =
+  | Readonly<{ exitCode: 0; stdout: ""; stderr: "" }>
+  | Readonly<{
+      exitCode: 1;
+      stdout: "";
+      stderr: "onboarding_live_model_gate_deferred\n" | "codex_tool_isolation_unproven\n";
+    }>;
+
+const FEASIBILITY_SUCCESS_RESULT: CodexCliFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 0,
+  stdout: "",
+  stderr: "",
+});
+const FEASIBILITY_DEFERRED_RESULT: CodexCliFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: LIVE_MODEL_GATE_DEFERRED,
+});
+const FEASIBILITY_FAILURE_RESULT: CodexCliFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: FEASIBILITY_FAILURE,
+});
 
 export interface CodexCliDiagnosticProtocolObservation {
   readonly stdoutObserved: boolean;
@@ -907,6 +942,104 @@ function requireArtifactPath(value: unknown): string {
   return resolve(value);
 }
 
+function requireEntrypointArtifactPath(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || !value.endsWith(".json")) {
+    throw isolationUnproven();
+  }
+  const path = resolve(value);
+  if (path === resolve("/") || dirname(path) === path) throw isolationUnproven();
+  return path;
+}
+
+async function requireEntrypointOutputPaths(
+  artifactValue: unknown,
+  diagnosticValue: unknown,
+): Promise<Readonly<{ artifactPath: string; diagnosticPath?: string }>> {
+  const artifactPath = requireEntrypointArtifactPath(artifactValue);
+  const diagnosticPath = diagnosticValue === undefined
+    ? undefined
+    : requireEntrypointArtifactPath(diagnosticValue);
+  if (diagnosticPath === artifactPath) throw isolationUnproven();
+  const [fixtureIdentity, artifactIdentity, diagnosticIdentity] = await Promise.all([
+    readEntrypointPathIdentity(FIXTURE_PATH),
+    readEntrypointPathIdentity(artifactPath),
+    diagnosticPath === undefined ? undefined : readEntrypointPathIdentity(diagnosticPath),
+  ]);
+  if (
+    entrypointPathsAlias(fixtureIdentity, artifactIdentity) ||
+    (diagnosticIdentity !== undefined && (
+      entrypointPathsAlias(fixtureIdentity, diagnosticIdentity) ||
+      entrypointPathsAlias(artifactIdentity, diagnosticIdentity)
+    ))
+  ) throw isolationUnproven();
+  return Object.freeze({
+    artifactPath,
+    ...(diagnosticPath === undefined ? {} : { diagnosticPath }),
+  });
+}
+
+interface EntrypointPathIdentity {
+  readonly realPath: string;
+  readonly existing?: Readonly<{ dev: number | bigint; ino: number | bigint }>;
+}
+
+async function readEntrypointPathIdentity(path: string): Promise<EntrypointPathIdentity> {
+  const [realPath, identity] = await Promise.all([
+    resolveEntrypointRealPath(path),
+    statEntrypointPathIfPresent(path),
+  ]);
+  return Object.freeze({
+    realPath,
+    ...(identity === undefined
+      ? {}
+      : { existing: Object.freeze({ dev: identity.dev, ino: identity.ino }) }),
+  });
+}
+
+function entrypointPathsAlias(
+  left: EntrypointPathIdentity,
+  right: EntrypointPathIdentity,
+): boolean {
+  return left.realPath === right.realPath || (
+    left.existing !== undefined &&
+    right.existing !== undefined &&
+    left.existing.dev === right.existing.dev &&
+    left.existing.ino === right.existing.ino
+  );
+}
+
+async function resolveEntrypointRealPath(path: string): Promise<string> {
+  let existingPrefix = path;
+  const missingSuffix: string[] = [];
+  while (true) {
+    try {
+      return resolve(await realpath(existingPrefix), ...missingSuffix);
+    } catch (error) {
+      if (!isMissingEntrypointPathError(error)) throw error;
+      const parent = dirname(existingPrefix);
+      if (parent === existingPrefix) throw error;
+      missingSuffix.unshift(basename(existingPrefix));
+      existingPrefix = parent;
+    }
+  }
+}
+
+async function statEntrypointPathIfPresent(
+  path: string,
+): Promise<Awaited<ReturnType<typeof stat>> | undefined> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (isMissingEntrypointPathError(error)) return undefined;
+    throw error;
+  }
+}
+
+function isMissingEntrypointPathError(error: unknown): boolean {
+  if (error === null || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "ENOENT" || error.code === "ENOTDIR";
+}
+
 async function writeArtifactAtomically(path: string, artifact: CodexCliFeasibilityArtifact): Promise<void> {
   await writeJsonAtomically(path, artifact);
 }
@@ -1117,8 +1250,91 @@ export function parseCodexCliFeasibilityArguments(args: readonly string[]): {
   return { artifactPath, diagnosticPath };
 }
 
-async function main(): Promise<void> {
-  const paths = parseCodexCliFeasibilityArguments(process.argv.slice(2));
+function readOwnedLaunchArguments(value: unknown, maximumLength: number): readonly string[] {
+  if (
+    types.isProxy(value) ||
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0 ||
+    value.length > maximumLength
+  ) throw isolationUnproven();
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const allowed = new Set([
+    ...Array.from({ length: value.length }, (_unused, index) => String(index)),
+    "length",
+  ]);
+  if (Object.keys(descriptors).some((key) => !allowed.has(key))) throw isolationUnproven();
+  const copy: string[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor === undefined || !("value" in descriptor) ||
+      descriptor.enumerable !== true || typeof descriptor.value !== "string") {
+      throw isolationUnproven();
+    }
+    copy.push(descriptor.value);
+  }
+  return Object.freeze(copy);
+}
+
+export function parseCodexCliFeasibilityLaunchArguments(
+  input: unknown,
+): CodexCliFeasibilityLaunchArguments {
+  const args = readOwnedLaunchArguments(input, 5);
+  const enabled = args[0] === FINAL_PROJECT_LIVE_MODEL_GATE_FLAG;
+  const offset = enabled ? 1 : 0;
+  const outputLength = args.length - offset;
+  if ((outputLength !== 2 && outputLength !== 4) ||
+    args[offset] !== "--artifact" ||
+    (outputLength === 4 && args[offset + 2] !== "--diagnostic")) {
+    throw isolationUnproven();
+  }
+  const artifactPath = args[offset + 1];
+  const diagnosticPath = outputLength === 4 ? args[offset + 3] : undefined;
+  if (artifactPath === undefined || artifactPath.length === 0 ||
+    (outputLength === 4 && (diagnosticPath === undefined || diagnosticPath.length === 0))) {
+    throw isolationUnproven();
+  }
+  return Object.freeze({
+    mode: enabled ? "final-project-live-model-gate" : "deferred",
+    artifactPath,
+    ...(diagnosticPath === undefined ? {} : { diagnosticPath }),
+  });
+}
+
+export async function runCodexCliFeasibilityEntrypointForTest(input: {
+  readonly rawArguments: unknown;
+  readonly runFinalProjectLiveModelGate: (paths: Readonly<{
+    artifactPath: string;
+    diagnosticPath?: string;
+  }>) => Promise<void>;
+}): Promise<CodexCliFeasibilityEntrypointResult> {
+  let parsed: CodexCliFeasibilityLaunchArguments;
+  try {
+    parsed = parseCodexCliFeasibilityLaunchArguments(input.rawArguments);
+  } catch {
+    return FEASIBILITY_DEFERRED_RESULT;
+  }
+  try {
+    const paths = await requireEntrypointOutputPaths(
+      parsed.artifactPath,
+      parsed.diagnosticPath,
+    );
+    await rm(paths.artifactPath, { force: true });
+    if (parsed.mode === "deferred") return FEASIBILITY_DEFERRED_RESULT;
+    if (paths.diagnosticPath !== undefined) await rm(paths.diagnosticPath, { force: true });
+    await input.runFinalProjectLiveModelGate(paths);
+    return FEASIBILITY_SUCCESS_RESULT;
+  } catch {
+    return parsed.mode === "deferred"
+      ? FEASIBILITY_DEFERRED_RESULT
+      : FEASIBILITY_FAILURE_RESULT;
+  }
+}
+
+async function runFinalProjectLiveModelGate(paths: Readonly<{
+  artifactPath: string;
+  diagnosticPath?: string;
+}>): Promise<void> {
   const runtimeInput = {
     artifactPath: paths.artifactPath,
     configuredExecutable: process.env.CODEX_EXECUTABLE,
@@ -1135,10 +1351,19 @@ async function main(): Promise<void> {
   });
 }
 
+async function main(): Promise<void> {
+  const result = await runCodexCliFeasibilityEntrypointForTest({
+    rawArguments: process.argv.slice(2),
+    runFinalProjectLiveModelGate,
+  });
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.exitCode;
+}
+
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch((error: unknown) => {
-    const code = error instanceof CodexRuntimeError ? error.code : "codex_tool_isolation_unproven";
-    process.stderr.write(`${code}\n`);
+  void main().catch(() => {
+    process.stderr.write(FEASIBILITY_FAILURE);
     process.exitCode = 1;
   });
 }

@@ -2809,6 +2809,7 @@ interface SyntheticHarnessOptions {
   readonly afterClock?: (callCount: number) => void;
   readonly preserveRuns?: boolean;
   readonly failKnowledgePublishOnce?: Error;
+  readonly mapKnowledgePublishResult?: (revision: CityKnowledgeRevision) => unknown;
   readonly beforeKnowledgeFindReturn?: () => void;
   readonly failAppendBeforePersistenceOnce?: Error;
   readonly installedPackagesFactory?: (
@@ -3616,8 +3617,9 @@ async function syntheticApplicationHarness(
         knowledgePublishFailurePending = false;
         throw options.failKnowledgePublishOnce!;
       }
-      return withInfrastructurePlanGateRead(() =>
+      const published = withInfrastructurePlanGateRead(() =>
         fixture.knowledgeStore.publishFromEvidence(evidenceSnapshotId, createdAt));
+      return (options.mapKnowledgePublishResult?.(published) ?? published) as CityKnowledgeRevision;
     },
     latestVerified: (cityId: string) => {
       calls.authorityOrder.push(`knowledge.latest:${cityId}`);
@@ -10021,7 +10023,7 @@ describe("City Frontier Application public boundary", () => {
   });
 
   test("preserves a reviewed in-document conflict through Continue and durable Present replay", async () => {
-    // Break caught: aggregate conflict precedence discards the final reviewed terminal lineage.
+    // Break caught: lexicographic offence ordering persists 10 before 9 through durable replay.
     const assessmentAt = "2026-06-30T23:59:59.999Z";
     const navigationUrl = "https://ljubljana.si/safety";
     const terminalUrl = "https://ljubljana.si/report-internal-conflict-2024.pdf";
@@ -10062,7 +10064,7 @@ describe("City Frontier Application public boundary", () => {
             municipalityCodes: ["061"],
             definitionId: "si-municipal-police-offences-per-100000@1",
             referenceYear: 2024,
-            offenceCounts: ["1100", "1200"],
+            offenceCounts: ["10", "9"],
           },
       loadPopulation: async ({ runId, municipalityCode, referenceYear }) => ({
         kind: "captured",
@@ -10154,8 +10156,8 @@ describe("City Frontier Application public boundary", () => {
         conflictBasis: expect.objectContaining({
           referenceYear: 2024,
           quantities: [
-            expect.objectContaining({ offenceCount: "1100", population: "300000" }),
-            expect.objectContaining({ offenceCount: "1200", population: "300000" }),
+            expect.objectContaining({ offenceCount: "9", population: "300000" }),
+            expect.objectContaining({ offenceCount: "10", population: "300000" }),
           ],
         }),
       }),
@@ -14500,6 +14502,150 @@ describe("City Frontier Application public boundary", () => {
     recursivelyFrozen(evidenceAfter);
     recursivelyFrozen(knowledgeAfter);
     expect(harness.state.root()).toEqual(recovered.revision);
+  });
+
+  test("reconstructs successor knowledge across recovery and Present replay", async () => {
+    // Break caught: dropping the predecessor while reconstructing a later durable city revision.
+    const harness = await syntheticApplicationHarness({
+      preserveRuns: true,
+      discriminatingClock: true,
+    });
+    const firstStarted = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:successor-knowledge:first",
+    });
+    const firstPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: firstStarted.runId,
+      expectedRevisionId: firstStarted.revision.id,
+      commandId: "continue:successor-knowledge:first",
+    });
+    const firstCompleted = await harness.assembly.application.continueCityFrontier(
+      firstPrepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+    const cityId = firstCompleted.revision.markers[0]!.cityId;
+    const firstKnowledge = withInfrastructurePlanGateRead(() =>
+      harness.fixture.knowledgeStore.loadVerified(
+        firstCompleted.revision.markers[0]!.knowledgeRevisionId,
+      ));
+    expect(firstKnowledge.predecessorRevisionId).toBeUndefined();
+
+    const secondStarted = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:successor-knowledge:second",
+    });
+    expect(secondStarted.runId).not.toBe(firstStarted.runId);
+    expect(secondStarted.ranking.ordered[0]!.cityId).toBe(cityId);
+    const secondPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: secondStarted.runId,
+      expectedRevisionId: secondStarted.revision.id,
+      commandId: "continue:successor-knowledge:second",
+    });
+    const preAppendFailure = new Error("pre_append_successor_interruption");
+    const interrupted = await harness.assembly.application.continueCityFrontier(
+      secondPrepared,
+      (event: CityFrontierEvent) => {
+        if (event.type === "city_progress" && event.stage === "knowledge_published") {
+          throw preAppendFailure;
+        }
+      },
+      new AbortController().signal,
+    ).catch((error: unknown) => error);
+    expect(interrupted).toBe(preAppendFailure);
+    expect(harness.state.root()).toEqual(secondStarted.revision);
+
+    const successor = withInfrastructurePlanGateRead(() =>
+      harness.fixture.knowledgeStore.latestVerified(cityId));
+    expect(successor?.predecessorRevisionId).toBe(firstKnowledge.id);
+    const recovered = await harness.assembly.application.continueCityFrontier(
+      secondPrepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+    expect(recovered.revision.markers[0]).toMatchObject({
+      cityId,
+      knowledgeRevisionId: successor?.id,
+      evidenceSnapshotId: successor?.evidenceSnapshotId,
+    });
+    const replayEvents = vi.fn();
+    expect(await harness.assembly.application.continueCityFrontier(
+      secondPrepared,
+      replayEvents,
+      new AbortController().signal,
+    )).toEqual(recovered);
+    expect(replayEvents).not.toHaveBeenCalled();
+    expect(await harness.assembly.application.presentCityFrontier(secondStarted.runId))
+      .toEqual(recovered);
+  });
+
+  test("owns a published successor before reading its predecessor or calling another port", async () => {
+    // Break caught: invoking a borrowed predecessor accessor after Knowledge is durable but before Frontier append.
+    let poisonPublishedSuccessor = false;
+    let borrowedAccessorReads = 0;
+    const borrowedFailure = new Error("borrowed_knowledge_predecessor_accessor_invoked");
+    const harness = await syntheticApplicationHarness({
+      preserveRuns: true,
+      discriminatingClock: true,
+      mapKnowledgePublishResult(revision) {
+        if (!poisonPublishedSuccessor) return revision;
+        const borrowed = structuredClone(revision) as unknown as MutableRecord;
+        Object.defineProperty(borrowed, "predecessorRevisionId", {
+          configurable: true,
+          enumerable: true,
+          get() {
+            borrowedAccessorReads += 1;
+            throw borrowedFailure;
+          },
+        });
+        return borrowed;
+      },
+    });
+    const firstStarted = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:owned-successor:first",
+    });
+    const firstPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: firstStarted.runId,
+      expectedRevisionId: firstStarted.revision.id,
+      commandId: "continue:owned-successor:first",
+    });
+    await harness.assembly.application.continueCityFrontier(
+      firstPrepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+    const secondStarted = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:owned-successor:second",
+    });
+    const secondPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: secondStarted.runId,
+      expectedRevisionId: secondStarted.revision.id,
+      commandId: "continue:owned-successor:second",
+    });
+    const appendOffset = harness.calls.appends.length;
+    poisonPublishedSuccessor = true;
+
+    const failure = requireError(await harness.assembly.application.continueCityFrontier(
+      secondPrepared,
+      () => undefined,
+      new AbortController().signal,
+    ).catch((error: unknown) => error));
+
+    expect(failure.message).toBe("integrity_mismatch");
+    expect(failure).not.toBe(borrowedFailure);
+    expect(borrowedAccessorReads).toBe(0);
+    expect(harness.calls.appends).toHaveLength(appendOffset);
+    expect(harness.state.root()).toEqual(secondStarted.revision);
   });
 
   test("keeps durable authority when the last caller aborts or its recovery emitter fails", async () => {

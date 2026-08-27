@@ -1,6 +1,9 @@
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, link, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -80,7 +83,12 @@ const DIAGNOSTIC_KEYS = [
 const EXACT_RESULT = '{"schemaVersion":"codex-runtime-smoke@1","status":"tool_free"}';
 const EXACT_RESULT_DIGEST = "7c6f481c682d163ec58131701487742c77f396e74b6ea97cbc2d891192095192";
 const SYNTHETIC_SENTINEL = "SYNTHETIC_CODEX_RUNTIME_SENTINEL_4F7B1C9D";
+const PRIVATE_LAUNCH_SENTINEL = "PRIVATE_CODEX_FEASIBILITY_LAUNCH_SENTINEL_82c1";
+const FEASIBILITY_MODULE_URL = new URL("../../evals/codex-cli-feasibility.ts", import.meta.url);
+const TSX_LOADER_URL = new URL("../../node_modules/tsx/dist/loader.mjs", import.meta.url);
+const FIXTURE_URL = new URL("../../evals/fixtures/codex-cli/runtime-cases.json", import.meta.url);
 const createdDirectories: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   await Promise.all(createdDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -115,6 +123,261 @@ describe("Task 3 files", () => {
       "--diagnostic", "data/evals/codex-cli-feasibility-diagnostic.json",
     ])).toThrow("codex_tool_isolation_unproven");
   });
+
+  test("fails closed for both legacy shapes and only clears the trusted stale artifact", async () => {
+    // Break caught: either legacy production shape initializes the real Codex runtime without the exact gate.
+    const module = asLaunchGateModule(await loadFeasibilityModule());
+    if (typeof module.runCodexCliFeasibilityEntrypointForTest !== "function") {
+      expect(module.runCodexCliFeasibilityEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    for (const withDiagnostic of [false, true]) {
+      const directory = await temporaryDirectory();
+      const artifactPath = join(directory, `artifact-${String(withDiagnostic)}.json`);
+      const diagnosticPath = join(directory, `diagnostic-${String(withDiagnostic)}.json`);
+      await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+      await writeFile(diagnosticPath, "historical diagnostic\n", "utf8");
+      const runFinalProjectLiveModelGate = vi.fn(async () => {
+        throw new Error(PRIVATE_LAUNCH_SENTINEL);
+      });
+      const result = await module.runCodexCliFeasibilityEntrypointForTest({
+        rawArguments: withDiagnostic
+          ? ["--artifact", artifactPath, "--diagnostic", diagnosticPath]
+          : ["--artifact", artifactPath],
+        runFinalProjectLiveModelGate,
+      });
+
+      expect(result).toEqual(deferredLaunchResult());
+      expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+      await expectArtifactAbsent(artifactPath);
+      expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
+    }
+  });
+
+  test("recognizes only an exact leading final-project gate", async () => {
+    const module = asLaunchGateModule(await loadFeasibilityModule());
+    if (typeof module.parseCodexCliFeasibilityLaunchArguments !== "function") {
+      expect(module.parseCodexCliFeasibilityLaunchArguments).toBeTypeOf("function");
+      return;
+    }
+    expect(module.parseCodexCliFeasibilityLaunchArguments([
+      "--final-project-live-model-gate", "--artifact", "A",
+    ])).toEqual({
+      mode: "final-project-live-model-gate",
+      artifactPath: "A",
+    });
+    expect(module.parseCodexCliFeasibilityLaunchArguments([
+      "--final-project-live-model-gate", "--artifact", "A", "--diagnostic", "D",
+    ])).toEqual({
+      mode: "final-project-live-model-gate",
+      artifactPath: "A",
+      diagnosticPath: "D",
+    });
+  });
+
+  test("invokes only an exactly armed injected callback and contains its failure", async () => {
+    const module = asLaunchGateModule(await loadFeasibilityModule());
+    if (typeof module.runCodexCliFeasibilityEntrypointForTest !== "function") {
+      expect(module.runCodexCliFeasibilityEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    for (const fails of [false, true]) {
+      const directory = await temporaryDirectory();
+      const artifactPath = join(directory, `armed-artifact-${String(fails)}.json`);
+      const diagnosticPath = join(directory, `armed-diagnostic-${String(fails)}.json`);
+      await writeFile(artifactPath, "stale artifact\n", "utf8");
+      await writeFile(diagnosticPath, "stale diagnostic\n", "utf8");
+      const runFinalProjectLiveModelGate = vi.fn(async (paths: Readonly<{
+        artifactPath: string;
+        diagnosticPath?: string;
+      }>) => {
+        expect(Object.isFrozen(paths)).toBe(true);
+        expect(paths).toEqual({ artifactPath, diagnosticPath });
+        await expectArtifactAbsent(artifactPath);
+        await expectArtifactAbsent(diagnosticPath);
+        if (fails) throw new Error(PRIVATE_LAUNCH_SENTINEL);
+      });
+
+      const result = await module.runCodexCliFeasibilityEntrypointForTest({
+        rawArguments: [
+          "--final-project-live-model-gate",
+          "--artifact",
+          artifactPath,
+          "--diagnostic",
+          diagnosticPath,
+        ],
+        runFinalProjectLiveModelGate,
+      });
+      expect(runFinalProjectLiveModelGate).toHaveBeenCalledTimes(1);
+      expect(runFinalProjectLiveModelGate).toHaveBeenCalledWith({ artifactPath, diagnosticPath });
+      expect(result).toEqual(fails
+        ? { exitCode: 1, stdout: "", stderr: "codex_tool_isolation_unproven\n" }
+        : { exitCode: 0, stdout: "", stderr: "" });
+      expect(JSON.stringify(result)).not.toContain(PRIVATE_LAUNCH_SENTINEL);
+    }
+  });
+
+  test.each([
+    ["missing", []],
+    ["decorated", ["--final-project-live-model-gate=true", "--artifact", "A"]],
+    ["duplicate", [
+      "--final-project-live-model-gate", "--final-project-live-model-gate", "--artifact", "A",
+    ]],
+    ["misordered", ["--artifact", "A", "--final-project-live-model-gate"]],
+  ])("does not initialize or mutate for a %s gate shape", async (_name, shape) => {
+    const module = asLaunchGateModule(await loadFeasibilityModule());
+    if (typeof module.runCodexCliFeasibilityEntrypointForTest !== "function") {
+      expect(module.runCodexCliFeasibilityEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    const directory = await temporaryDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+    const rawArguments = shape.map((value) => value === "A" ? artifactPath : value);
+    const runFinalProjectLiveModelGate = vi.fn(async () => {
+      throw new Error(PRIVATE_LAUNCH_SENTINEL);
+    });
+
+    expect(await module.runCodexCliFeasibilityEntrypointForTest({
+      rawArguments,
+      runFinalProjectLiveModelGate,
+    })).toEqual(deferredLaunchResult());
+    expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+  });
+
+  test("descriptor-rejects hostile argv without invoking traps or accessors", async () => {
+    const module = asLaunchGateModule(await loadFeasibilityModule());
+    if (typeof module.runCodexCliFeasibilityEntrypointForTest !== "function") {
+      expect(module.runCodexCliFeasibilityEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    let proxyTouches = 0;
+    const proxy = new Proxy(["--artifact", "artifact.json"], {
+      getPrototypeOf() { proxyTouches += 1; throw new Error(PRIVATE_LAUNCH_SENTINEL); },
+      ownKeys() { proxyTouches += 1; throw new Error(PRIVATE_LAUNCH_SENTINEL); },
+      getOwnPropertyDescriptor() {
+        proxyTouches += 1;
+        throw new Error(PRIVATE_LAUNCH_SENTINEL);
+      },
+    });
+    let accessorTouches = 0;
+    const accessor = ["--artifact", "artifact.json"];
+    Object.defineProperty(accessor, "1", {
+      enumerable: true,
+      get() { accessorTouches += 1; return "artifact.json"; },
+    });
+    for (const rawArguments of [proxy, accessor]) {
+      const runFinalProjectLiveModelGate = vi.fn();
+      expect(await module.runCodexCliFeasibilityEntrypointForTest({
+        rawArguments,
+        runFinalProjectLiveModelGate,
+      })).toEqual(deferredLaunchResult());
+      expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    }
+    expect(proxyTouches).toBe(0);
+    expect(accessorTouches).toBe(0);
+  });
+
+  test("validates fixture and output aliases before removing either output", async () => {
+    const module = asLaunchGateModule(await loadFeasibilityModule());
+    if (typeof module.runCodexCliFeasibilityEntrypointForTest !== "function") {
+      expect(module.runCodexCliFeasibilityEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    const fixturePath = fileURLToPath(FIXTURE_URL);
+    const fixtureBytes = await readFile(fixturePath);
+    const aliasRoot = await temporaryDirectory();
+    const fixtureDirectoryAlias = join(aliasRoot, "fixture-directory-alias");
+    const fixtureHardLink = join(aliasRoot, "fixture-hard-link.json");
+    await symlink(dirname(fixturePath), fixtureDirectoryAlias, "dir");
+    await link(fixturePath, fixtureHardLink);
+    const aliases = [
+      fixturePath,
+      join(fixtureDirectoryAlias, basename(fixturePath)),
+      fixtureHardLink,
+    ];
+
+    for (const alias of aliases) {
+      const diagnosticPath = join(await temporaryDirectory(), "diagnostic.json");
+      await writeFile(diagnosticPath, "historical diagnostic\n", "utf8");
+      const runFinalProjectLiveModelGate = vi.fn();
+      expect(await module.runCodexCliFeasibilityEntrypointForTest({
+        rawArguments: ["--artifact", alias, "--diagnostic", diagnosticPath],
+        runFinalProjectLiveModelGate,
+      })).toEqual(deferredLaunchResult());
+      expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+      expect(await readFile(fixturePath)).toEqual(fixtureBytes);
+      expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
+    }
+
+    const samePath = join(await temporaryDirectory(), "same.json");
+    await writeFile(samePath, "untrusted shared output\n", "utf8");
+    expect(await module.runCodexCliFeasibilityEntrypointForTest({
+      rawArguments: ["--artifact", samePath, "--diagnostic", samePath],
+      runFinalProjectLiveModelGate: vi.fn(),
+    })).toEqual(deferredLaunchResult());
+    expect(await readFile(samePath, "utf8")).toBe("untrusted shared output\n");
+
+    const hardLinkRoot = await temporaryDirectory();
+    const artifactPath = join(hardLinkRoot, "artifact.json");
+    const diagnosticAlias = join(hardLinkRoot, "diagnostic-alias.json");
+    await writeFile(artifactPath, "shared inode output\n", "utf8");
+    await link(artifactPath, diagnosticAlias);
+    expect(await module.runCodexCliFeasibilityEntrypointForTest({
+      rawArguments: ["--artifact", artifactPath, "--diagnostic", diagnosticAlias],
+      runFinalProjectLiveModelGate: vi.fn(),
+    })).toEqual(deferredLaunchResult());
+    expect(await readFile(artifactPath, "utf8")).toBe("shared inode output\n");
+    expect(await readFile(diagnosticAlias, "utf8")).toBe("shared inode output\n");
+  });
+
+  test("fails a decorated subprocess with only the deferred public result", async () => {
+    const artifactPath = await freshArtifactPath();
+    await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+    const result = await failingExecFile(process.execPath, [
+      "--import",
+      fileURLToPath(TSX_LOADER_URL),
+      fileURLToPath(FEASIBILITY_MODULE_URL),
+      "--final-project-live-model-gate=true",
+      "--artifact",
+      artifactPath,
+    ]);
+
+    expect(result).toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+  });
+
+  test.each([false, true])(
+    "defers the canonical legacy subprocess (diagnostic=%s) without initializing Codex",
+    async (withDiagnostic) => {
+      const directory = await temporaryDirectory();
+      const artifactPath = join(directory, "artifact.json");
+      const diagnosticPath = join(directory, "diagnostic.json");
+      await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+      await writeFile(diagnosticPath, "historical diagnostic\n", "utf8");
+      const result = await failingExecFile(process.execPath, [
+        "--import",
+        fileURLToPath(TSX_LOADER_URL),
+        fileURLToPath(FEASIBILITY_MODULE_URL),
+        "--artifact",
+        artifactPath,
+        ...(withDiagnostic ? ["--diagnostic", diagnosticPath] : []),
+      ]);
+
+      expect(result).toMatchObject({
+        code: 1,
+        stdout: "",
+        stderr: "onboarding_live_model_gate_deferred\n",
+      });
+      await expectArtifactAbsent(artifactPath);
+      expect(await readFile(diagnosticPath, "utf8")).toBe("historical diagnostic\n");
+    },
+  );
 
   test("uses one reviewed synthetic fixture with the exact closed result schema", async () => {
     const fixture = JSON.parse(await readFile(
@@ -941,9 +1204,59 @@ function validModelProof(): Record<string, unknown> {
 }
 
 async function freshArtifactPath(): Promise<string> {
+  const directory = await temporaryDirectory();
+  return join(directory, "artifact.json");
+}
+
+async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "codex-feasibility-contract-"));
   createdDirectories.push(directory);
-  return join(directory, "artifact.json");
+  return directory;
+}
+
+interface FeasibilityLaunchGateModule {
+  readonly parseCodexCliFeasibilityLaunchArguments?: (input: unknown) => unknown;
+  readonly runCodexCliFeasibilityEntrypointForTest?: (input: {
+    readonly rawArguments: unknown;
+    readonly runFinalProjectLiveModelGate: (paths: Readonly<{
+      artifactPath: string;
+      diagnosticPath?: string;
+    }>) => Promise<void>;
+  }) => Promise<unknown>;
+}
+
+function asLaunchGateModule(value: unknown): FeasibilityLaunchGateModule {
+  return value as FeasibilityLaunchGateModule;
+}
+
+function deferredLaunchResult() {
+  return {
+    exitCode: 1 as const,
+    stdout: "" as const,
+    stderr: "onboarding_live_model_gate_deferred\n" as const,
+  };
+}
+
+async function failingExecFile(file: string, args: readonly string[]): Promise<{
+  readonly code: number | string | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
+  try {
+    await execFileAsync(file, args, { encoding: "utf8" });
+  } catch (error) {
+    const failure = error as Error & {
+      readonly code?: number | string | null;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
+    return {
+      code: failure.code ?? null,
+      stdout: failure.stdout ?? "",
+      stderr: failure.stderr ?? "",
+    };
+  }
+  throw new Error("expected subprocess failure");
 }
 
 function dirnameOf(path: string): string {

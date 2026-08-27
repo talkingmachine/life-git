@@ -711,6 +711,58 @@ describe("runCitySafetyDiscovery", () => {
     })).rejects.toThrow("invalid_city_safety_inspection");
   });
 
+  test("rejects lexically ordered but numerically reversed conflict quantities", async () => {
+    // Break caught: Application accepts canonical counts ordered as 10 then 9.
+    const context = buildContext();
+    const officialDocuments: CitySafetyOfficialDocumentPort = {
+      inspect: async (candidate) => {
+        const base = usable(candidate, 2025, {
+          offenceCount: "10",
+          population: "300000",
+          rateBasis: "offences_per_100000_residents",
+        });
+        if (base.kind !== "usable") throw new Error("expected usable fixture");
+        const conflictBasis = {
+          referenceYear: 2025,
+          quantities: [
+            base.detail.quantity,
+            { ...base.detail.quantity, offenceCount: "9" },
+          ] as const,
+          denominator: base.detail.denominator,
+        };
+        return {
+          kind: "rejected",
+          detail: {
+            officialTrace: base.detail.officialTrace,
+            reviewedOfficial: {
+              publisherId: base.detail.publisherId,
+              dataAuthorityId: "police",
+              publisherNavigationUrl: base.detail.publisherNavigationUrl,
+              resolvedEvidenceUrl: base.detail.resolvedEvidenceUrl,
+              referenceYear: 2025,
+            },
+            mediaType: base.detail.mediaType,
+            retentionPolicyId: base.detail.retentionPolicyId,
+            transientRawDeleted: base.detail.transientRawDeleted,
+            artifactRefs: base.detail.artifactRefs,
+            disposition: "rejected",
+            reason: "conflict",
+            conflictBasis,
+          },
+          artifacts: base.artifacts,
+        };
+      },
+    };
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: {
+        search: async () => ({ kind: "completed", providerId: "numeric-order-test", urls: [] }),
+      },
+      officialDocuments,
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
   test("rejects a canonically rehashed retained projection with forged city and outcome", async () => {
     // Break caught: projection envelope provenance is valid, but its semantic payload is not bound to the attempt.
     const context = buildContext("seal_hash_locator_then_delete_transient");
@@ -1224,7 +1276,7 @@ describe("Slovenia city-safety official adapter", () => {
   }
 
   test("retains ordered navigation/terminal/SURS projections and reuses the same-year denominator", async () => {
-    // Break caught: confirmed navigation loses lineage/raw bytes survive, or SURS is recaptured per candidate.
+    // Break caught: a successful cache entry retains and rereads the raw SURS artifact.
     const capture = vi.fn(async (request: { readonly url: string }) => {
       const captured = artifact(
         request.url.endsWith("safety") ? "navigation-source" : "terminal-source",
@@ -1244,10 +1296,35 @@ describe("Slovenia city-safety official adapter", () => {
       captured.url.endsWith("safety")
         ? { kind: "navigate" as const, confirmedDocumentUrl: "https://ljubljana.si/report.pdf" }
         : terminalAnalysis);
-    const loadPopulation = populationLoader();
+    let rawPopulationAccessible = true;
+    const loadPopulation: CitySafetyPopulationLoader & ReturnType<typeof vi.fn> = vi.fn(
+      async ({ runId, referenceYear }) => {
+        const rawArtifact = { ...artifact(
+          `surs-source-${referenceYear}`,
+          "https://pxweb.stat.si/population",
+        ), runId };
+        const rawBytes = rawArtifact.bytes;
+        Object.defineProperty(rawArtifact, "bytes", {
+          enumerable: true,
+          get() {
+            if (!rawPopulationAccessible) throw new Error("raw_population_cache_canary");
+            return rawBytes;
+          },
+        });
+        return {
+          kind: "captured" as const,
+          publisherId: "surs",
+          municipalityCode: "061",
+          referenceDate: `${referenceYear}-01-01`,
+          population: "300000",
+          artifact: rawArtifact,
+        };
+      },
+    );
     const adapter = createSloveniaCitySafetyAdapter({ capture, analyze, loadPopulation });
 
     const first = await adapter.inspect(inspectionInput());
+    rawPopulationAccessible = false;
     const second = await adapter.inspect({
       ...inspectionInput(),
       candidateUrl: "https://ljubljana.si/another.pdf",
@@ -1277,6 +1354,114 @@ describe("Slovenia city-safety official adapter", () => {
       .includes("PRIVATE_RAW_"))).toBe(false);
     expect(loadPopulation).toHaveBeenCalledTimes(1);
     expect(second.artifacts.filter(({ role }) => role === "surs_denominator")).toHaveLength(1);
+  });
+
+  test("owns every resolved and missing population cache seed", async () => {
+    // Break caught: caller or loader mutation corrupts private same-year population cache authority.
+    const capture = vi.fn(async (request: { readonly url: string }) => ({
+      artifact: artifact(
+        request.url.endsWith("safety") ? "navigation-source" : "terminal-source",
+        request.url,
+      ),
+      redirectChain: [request.url],
+    }));
+    const analyze: CitySafetyMunicipalDocumentAnalyzer = vi.fn(async ({ artifact: captured }) =>
+      captured.url.endsWith("safety")
+        ? { kind: "navigate" as const, confirmedDocumentUrl: "https://ljubljana.si/report.pdf" }
+        : terminalAnalysis);
+    const loadPopulation = populationLoader();
+    const adapter = createSloveniaCitySafetyAdapter({ capture, analyze, loadPopulation });
+    const first = await adapter.inspect(inspectionInput());
+    expect(first.kind).toBe("usable");
+    if (first.kind !== "usable") throw new Error("expected usable");
+    const firstArtifact = first.artifacts.find(({ role }) => role === "surs_denominator");
+    const firstReference = first.detail.artifactRefs.find(({ role }) => role === "surs_denominator");
+    expect(firstArtifact).toBeDefined();
+    expect(firstReference).toBeDefined();
+    const expectedBytes = new Uint8Array(firstArtifact!.bytes);
+    const expectedReference = structuredClone(firstReference!);
+    const expectedDenominator = structuredClone(first.detail.denominator);
+
+    firstArtifact!.bytes.fill(0);
+    (firstReference as unknown as { locator: string }).locator = "https://poison.invalid/reference";
+    (first.detail.denominator as unknown as { population: string }).population = "1";
+
+    const second = await adapter.inspect({
+      ...inspectionInput(),
+      candidateUrl: "https://ljubljana.si/another.pdf",
+    });
+    expect(second.kind).toBe("usable");
+    if (second.kind !== "usable") throw new Error("expected usable");
+    const secondArtifact = second.artifacts.find(({ role }) => role === "surs_denominator");
+    const secondReference = second.detail.artifactRefs.find(({ role }) => role === "surs_denominator");
+    expect(second.detail.denominator).toEqual(expectedDenominator);
+    expect(secondReference).toEqual(expectedReference);
+    expect(secondArtifact?.bytes).toEqual(expectedBytes);
+    expect(loadPopulation).toHaveBeenCalledTimes(1);
+
+    const borrowedMissing = { kind: "missing" } as { kind: "missing" | "captured" };
+    const loadMissing: CitySafetyPopulationLoader & ReturnType<typeof vi.fn> = vi.fn(
+      async () => borrowedMissing as { readonly kind: "missing" },
+    );
+    const missingAdapter = createSloveniaCitySafetyAdapter({ capture, analyze, loadPopulation: loadMissing });
+    const firstMissing = await missingAdapter.inspect(inspectionInput());
+    expect(firstMissing).toEqual(expect.objectContaining({
+      kind: "rejected",
+      detail: expect.objectContaining({ reason: "denominator_missing" }),
+    }));
+    borrowedMissing.kind = "captured";
+
+    const secondMissing = await missingAdapter.inspect({
+      ...inspectionInput(),
+      candidateUrl: "https://ljubljana.si/missing-again.pdf",
+    });
+    expect(secondMissing).toEqual(expect.objectContaining({
+      kind: "rejected",
+      detail: expect.objectContaining({ reason: "denominator_missing" }),
+    }));
+    expect(loadMissing).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    { name: "ordinary rejection", error: new Error("population_loader_failure") },
+    { name: "loader AbortError", error: new DOMException("loader aborted", "AbortError") },
+  ])("evicts a rejected population load after $name", async ({ error }) => {
+    // Break caught: a rejected population Promise permanently poisons the same cache key.
+    const loadPopulation: CitySafetyPopulationLoader & ReturnType<typeof vi.fn> = vi.fn(
+      async ({ runId, referenceYear }) => {
+        if (loadPopulation.mock.calls.length === 1) throw error;
+        return {
+          kind: "captured" as const,
+          publisherId: "surs",
+          municipalityCode: "061",
+          referenceDate: `${referenceYear}-01-01`,
+          population: "300000",
+          artifact: { ...artifact(
+            `surs-retry-${referenceYear}`,
+            "https://pxweb.stat.si/population",
+          ), runId },
+        };
+      },
+    );
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture: async (request) => ({
+        artifact: artifact("population-retry-terminal", request.url),
+        redirectChain: [request.url],
+      }),
+      analyze: async () => terminalAnalysis,
+      loadPopulation,
+    });
+    const firstInput = inspectionInput();
+
+    await expect(adapter.inspect(firstInput)).rejects.toBe(error);
+    expect(firstInput.signal.aborted).toBe(false);
+    const retry = await adapter.inspect({
+      ...inspectionInput(),
+      candidateUrl: "https://ljubljana.si/population-retry.pdf",
+    });
+
+    expect(retry.kind).toBe("usable");
+    expect(loadPopulation).toHaveBeenCalledTimes(2);
   });
 
   test("rejects broad municipality scope from complete terminal bytes without loading SURS", async () => {
@@ -1597,7 +1782,7 @@ describe("Slovenia city-safety official adapter", () => {
         artifact: artifact("conflict-source", request.url),
         redirectChain: [request.url],
       }),
-      analyze: async () => ({ ...terminalAnalysis, offenceCounts: ["1200", "1100"] }),
+      analyze: async () => ({ ...terminalAnalysis, offenceCounts: ["10", "9"] }),
       loadPopulation: populationLoader(),
     });
 
@@ -1611,8 +1796,8 @@ describe("Slovenia city-safety official adapter", () => {
         conflictBasis: expect.objectContaining({
           referenceYear: 2025,
           quantities: [
-            expect.objectContaining({ offenceCount: "1100" }),
-            expect.objectContaining({ offenceCount: "1200" }),
+            expect.objectContaining({ offenceCount: "9" }),
+            expect.objectContaining({ offenceCount: "10" }),
           ],
         }),
       }),

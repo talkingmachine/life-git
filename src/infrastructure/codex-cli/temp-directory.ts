@@ -102,7 +102,7 @@ async function canonicalizeReferencePath(path: string): Promise<string> {
 
 function isForbiddenRoot(path: string, canonicalHomePath: string, canonicalWorkspacePath: string): boolean {
   return path === "/" || path === canonicalHomePath || path === canonicalWorkspacePath ||
-    isParentOf(path, canonicalWorkspacePath);
+    isParentOf(path, canonicalWorkspacePath) || isParentOf(canonicalWorkspacePath, path);
 }
 
 function isParentOf(candidate: string, child: string): boolean {
