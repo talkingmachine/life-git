@@ -6,7 +6,10 @@ import type {
   InstalledCityPackageManifestAppendInput,
   InstalledCityPackageManifestStorePort,
 } from "../../application/city-data-contracts";
-import { CITY_CATALOG_RULES_VERSION } from "../../decision/city-catalog";
+import {
+  CITY_CATALOG_RULES_VERSION,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
+} from "../../decision/city-catalog";
 import {
   resolveApprovedCityCriteriaDefaults,
   type ApprovedCityCriteriaDefaultsRegistry,
@@ -119,6 +122,9 @@ function normalize(error: unknown): never {
   }
   if (message.value === "city_package_behavior_unavailable") {
     throw new Error("city_package_behavior_unavailable");
+  }
+  if (message.value === "city_catalog_upgrade_required") {
+    throw new Error("city_catalog_upgrade_required");
   }
   mismatch();
 }
@@ -458,8 +464,11 @@ export class SqliteCityPackageManifestStore implements
       if (this.integrity.canonical(catalog) !== this.integrity.canonical(input.catalog) ||
         catalog.catalog.countryCode !== definition.countryCode ||
         catalog.catalog.packageId !== definition.packageId ||
-        catalog.catalog.packageSchemaVersion !== definition.packageSchemaVersion ||
-        catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) mismatch();
+        catalog.catalog.packageSchemaVersion !== definition.packageSchemaVersion) mismatch();
+      if (catalog.catalog.rulesVersion === LEGACY_CITY_CATALOG_RULES_VERSION) {
+        throw new Error("city_catalog_upgrade_required");
+      }
+      if (catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) mismatch();
       const key = exactKey({
         countryCode: definition.countryCode,
         packageId: definition.packageId,
@@ -1010,7 +1019,8 @@ export class SqliteCityPackageManifestStore implements
       catalog.catalog.countryCode !== definition.countryCode ||
       catalog.catalog.packageId !== definition.packageId ||
       catalog.catalog.packageSchemaVersion !== definition.packageSchemaVersion ||
-      catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) mismatch();
+      (catalog.catalog.rulesVersion !== LEGACY_CITY_CATALOG_RULES_VERSION &&
+        catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION)) mismatch();
     const memberIds = catalog.catalog.members.map(({ cityId }) => cityId);
     const fixedPlanCityIds = Object.keys(exact(
       manifest.fixedPlansByCityId,

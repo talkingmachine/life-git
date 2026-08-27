@@ -2,6 +2,7 @@ import { types } from "node:util";
 
 import {
   CITY_CATALOG_RULES_VERSION,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
   reconstructVerifiedCityCatalog,
   type CityCatalogProjection,
 } from "../decision/city-catalog";
@@ -657,9 +658,8 @@ function verifyReplayContract(
   } catch {
     mismatch();
   }
-  if (catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) {
-    throw new Error("city_catalog_upgrade_required");
-  }
+  if (catalog.catalog.rulesVersion !== LEGACY_CITY_CATALOG_RULES_VERSION &&
+    catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) mismatch();
   if (catalog.catalog.id !== context.catalogRevisionId ||
     catalog.registry.countryCode !== context.countryCode ||
     catalog.catalog.countryCode !== context.countryCode ||

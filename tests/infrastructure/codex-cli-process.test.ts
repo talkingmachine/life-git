@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+
 import { describe, expect, test, vi } from "vitest";
 
 import {
@@ -62,6 +65,42 @@ function validBoundedRequest(overrides: Partial<BoundedProcessRequest> = {}): Bo
   };
 }
 
+function controlledNodeChild(input: {
+  readonly pid?: number;
+  readonly kill?: (signal: "SIGTERM" | "SIGKILL") => boolean;
+} = {}): EventEmitter & {
+  readonly pid: number | undefined;
+  readonly stdin: { readonly end: ReturnType<typeof vi.fn> };
+  readonly stdout: PassThrough;
+  readonly stderr: PassThrough;
+  readonly kill: ReturnType<typeof vi.fn>;
+} {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdout.end();
+  stderr.end();
+  return Object.assign(new EventEmitter(), {
+    pid: input.pid,
+    stdin: { end: vi.fn() },
+    stdout,
+    stderr,
+    kill: vi.fn(input.kill ?? (() => true)),
+  });
+}
+
+async function loadNodeProcessModule(child: EventEmitter): Promise<typeof import(
+  "../../src/infrastructure/codex-cli/process"
+)> {
+  vi.resetModules();
+  vi.doMock("node:child_process", () => ({ spawn: vi.fn(() => child) }));
+  return import("../../src/infrastructure/codex-cli/process");
+}
+
+function unloadNodeProcessModule(): void {
+  vi.doUnmock("node:child_process");
+  vi.resetModules();
+}
+
 describe("runBoundedProcess", () => {
   test("does not spawn when caller is already aborted", async () => {
     const spawner = fakeSpawner();
@@ -86,7 +125,85 @@ describe("runBoundedProcess", () => {
     expect(getter).not.toHaveBeenCalled();
   });
 
+  test("does not spawn when the native abort subscription cannot be established", async () => {
+    // Break caught: subscription setup after spawn can leak a child when native registration throws.
+    const signal = new AbortController().signal;
+    const eventStorage = Reflect.ownKeys(signal).find(
+      (key) => typeof key === "symbol" && key.description === "kEvents",
+    );
+    expect(eventStorage).toBeDefined();
+    expect(Reflect.deleteProperty(signal, eventStorage as PropertyKey)).toBe(true);
+    const spawner = fakeSpawner();
+    let thrown: unknown;
+
+    try {
+      await runBoundedProcess(validBoundedRequest({ signal }), spawner);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(spawner.spawn).not.toHaveBeenCalled();
+    expect(thrown).toMatchObject({ code: "codex_process_failed", message: "codex_process_failed" });
+  });
+
+  test.each(["throwing", "no-op"] as const)(
+    "uses native abort subscription despite %s caller-owned add/remove methods",
+    async (shadowBehavior) => {
+      // Break caught: caller-owned listener methods can disable abort teardown or throw after spawn.
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const addEventListener = vi.fn(() => {
+        if (shadowBehavior === "throwing") throw new Error("caller add must not run");
+      });
+      const removeEventListener = vi.fn(() => {
+        if (shadowBehavior === "throwing") throw new Error("caller remove must not run");
+      });
+      Object.defineProperties(controller.signal, {
+        addEventListener: { configurable: true, value: addEventListener },
+        removeEventListener: { configurable: true, value: removeEventListener },
+      });
+      const reason = new DOMException("genuine cancellation", "AbortError");
+      const exit = deferred<{ code: number | null; signal: string | null }>();
+      const kill = vi.fn();
+      const spawner = fakeSpawner(processWith({ exit: exit.promise, kill }));
+      const running = runBoundedProcess(
+        validBoundedRequest({ signal: controller.signal, timeoutMs: 10_000 }),
+        spawner,
+      );
+      let settled = false;
+      const observed = running.then(
+        () => { settled = true; },
+        () => { settled = true; },
+      );
+      let emittedExit = false;
+
+      try {
+        controller.abort(reason);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(kill.mock.calls).toEqual([["SIGTERM"]]);
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(250);
+        expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+        expect(settled).toBe(false);
+
+        exit.resolve({ code: null, signal: "SIGKILL" });
+        emittedExit = true;
+        await expect(running).rejects.toBe(reason);
+        await observed;
+        expect(addEventListener).not.toHaveBeenCalled();
+        expect(removeEventListener).not.toHaveBeenCalled();
+      } finally {
+        if (!emittedExit) exit.resolve({ code: null, signal: "SIGKILL" });
+        await observed;
+        vi.useRealTimers();
+      }
+    },
+  );
+
   test("preserves a real abort after a synthetic abort event", async () => {
+    vi.useFakeTimers();
     const controller = new AbortController();
     const exit = deferred<{ code: number | null; signal: string | null }>();
     const reason = new DOMException("real cancellation", "AbortError");
@@ -95,15 +212,24 @@ describe("runBoundedProcess", () => {
     });
     const spawner = fakeSpawner(processWith({ exit: exit.promise, kill }));
     const running = runBoundedProcess(validBoundedRequest({ signal: controller.signal }), spawner);
+    const observed = running.then(() => undefined, () => undefined);
 
-    controller.signal.dispatchEvent(new Event("abort"));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(kill).not.toHaveBeenCalled();
-    controller.abort(reason);
+    try {
+      controller.signal.dispatchEvent(new Event("abort"));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(kill).not.toHaveBeenCalled();
+      controller.abort(reason);
+      await Promise.resolve();
+      await Promise.resolve();
 
-    await expect(running).rejects.toBe(reason);
-    expect(kill).toHaveBeenCalledWith("SIGTERM");
+      expect(kill).toHaveBeenCalledWith("SIGTERM");
+      await expect(running).rejects.toBe(reason);
+    } finally {
+      exit.resolve({ code: null, signal: "SIGTERM" });
+      await observed;
+      vi.useRealTimers();
+    }
   });
 
   test("spawns exactly once with the supplied closed request and returns owned stdout chunks", async () => {
@@ -162,6 +288,52 @@ describe("runBoundedProcess", () => {
     expect(spawner.spawn).toHaveBeenCalledTimes(1);
     expect(thrown).toMatchObject({ code: "codex_process_failed", message: "codex_process_failed" });
     expect(String(thrown)).not.toContain("secret executable detail");
+  });
+
+  test("routes a synchronous post-spawn setup failure through the actual-exit barrier", async () => {
+    // Break caught: stream setup outside the teardown try can reject while leaving the child alive.
+    vi.useFakeTimers();
+    const exit = deferred<{ code: number | null; signal: string | null }>();
+    const kill = vi.fn();
+    const process = processWith({ exit: exit.promise, kill });
+    Object.defineProperty(process, "stdout", {
+      configurable: true,
+      get(): AsyncIterable<Uint8Array> {
+        throw new Error("private stdout setup detail");
+      },
+    });
+    const running = runBoundedProcess(validBoundedRequest(), fakeSpawner(process));
+    let settled = false;
+    let thrown: unknown;
+    const observed = running.then(
+      () => { settled = true; },
+      (error) => {
+        settled = true;
+        thrown = error;
+      },
+    );
+    let emittedExit = false;
+
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(kill.mock.calls).toEqual([["SIGTERM"]]);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(250);
+      expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+      expect(settled).toBe(false);
+
+      exit.resolve({ code: null, signal: "SIGKILL" });
+      emittedExit = true;
+      await observed;
+      expect(thrown).toMatchObject({ code: "codex_process_failed", message: "codex_process_failed" });
+      expect(String(thrown)).not.toContain("private stdout setup detail");
+    } finally {
+      if (!emittedExit) exit.resolve({ code: null, signal: "SIGKILL" });
+      await observed;
+      vi.useRealTimers();
+    }
   });
 
   test("rejects non-zero exit without including stderr content", async () => {
@@ -239,6 +411,112 @@ describe("runBoundedProcess", () => {
     await rejection;
     expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
     vi.useRealTimers();
+  });
+
+  test("keeps the public promise pending after SIGKILL until process exit is observed", async () => {
+    // Break caught: resolving teardown before the force-killed child has actually been reaped.
+    vi.useFakeTimers();
+    try {
+      const exit = deferred<{ code: number | null; signal: string | null }>();
+      const kill = vi.fn();
+      const spawner = fakeSpawner(processWith({ exit: exit.promise, kill }));
+      const running = runBoundedProcess(validBoundedRequest({ timeoutMs: 100 }), spawner);
+      let settled = false;
+      const observed = running.then(
+        () => { settled = true; },
+        () => { settled = true; },
+      );
+
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(250);
+
+      expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+      expect(settled).toBe(false);
+      exit.resolve({ code: null, signal: "SIGKILL" });
+
+      await expect(running).rejects.toMatchObject({ code: "codex_timeout" });
+      await observed;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test.each(["returns false", "throws"] as const)(
+    "does not treat a post-spawn error as exit when SIGTERM %s",
+    async (termFailure) => {
+      // Break caught: a failed kill emits `error`, which must not stand in for reaping the owned child.
+      vi.useFakeTimers();
+      const child = controlledNodeChild({
+        pid: 811,
+        kill: (signal) => {
+          if (signal === "SIGTERM") {
+            if (termFailure === "throws") throw new Error("synthetic kill failure");
+            return false;
+          }
+          return true;
+        },
+      });
+      const processModule = await loadNodeProcessModule(child);
+      const running = processModule.runBoundedProcess(
+        validBoundedRequest({ timeoutMs: 100 }),
+        processModule.nodeCodexProcessSpawner,
+      );
+      let settled = false;
+      const observed = running.then(
+        () => { settled = true; },
+        () => { settled = true; },
+      );
+      let emittedExit = false;
+
+      try {
+        child.emit("spawn");
+        await vi.advanceTimersByTimeAsync(100);
+        expect(child.kill.mock.calls).toEqual([["SIGTERM"]]);
+
+        child.emit("error", new Error("post-spawn kill error"));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(250);
+        expect(child.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+        expect(settled).toBe(false);
+
+        child.emit("exit", null, "SIGKILL");
+        emittedExit = true;
+        await expect(running).rejects.toMatchObject({ code: "codex_timeout" });
+        await observed;
+        expect(settled).toBe(true);
+      } finally {
+        if (!emittedExit) child.emit("exit", null, "SIGKILL");
+        await observed;
+        unloadNodeProcessModule();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  test("normalizes an error from a child that never spawned without sending signals", async () => {
+    // Break caught: ignoring the mutually exclusive pre-spawn `error` would wait until timeout.
+    const child = controlledNodeChild();
+    const processModule = await loadNodeProcessModule(child);
+    const running = processModule.runBoundedProcess(
+      validBoundedRequest(),
+      processModule.nodeCodexProcessSpawner,
+    );
+
+    try {
+      child.emit("error", new Error("private executable failure"));
+
+      await expect(running).rejects.toMatchObject({
+        code: "codex_process_failed",
+        message: "codex_process_failed",
+      });
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      unloadNodeProcessModule();
+    }
   });
 
   test("gives caller abort precedence over a concurrent process failure", async () => {

@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { resolve4, resolve6 } from "node:dns/promises";
-import { chmod, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isIP, SocketAddress } from "node:net";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { types } from "node:util";
 
 import {
   CODEX_CLI_VERSION,
@@ -39,6 +40,11 @@ const MAX_SNAPSHOT_AGE_MS = 1_000;
 const SAMPLE_INTERVAL_MS = 25;
 const NETWORK_FIXTURE_URL = new URL("./fixtures/codex-cli/runtime-cases.json", import.meta.url);
 const ALLOWLIST_URL = new URL("./fixtures/codex-cli/network-allowlist.json", import.meta.url);
+const NETWORK_FIXTURE_PATH = resolve(fileURLToPath(NETWORK_FIXTURE_URL));
+const ALLOWLIST_PATH = resolve(fileURLToPath(ALLOWLIST_URL));
+const FINAL_PROJECT_LIVE_MODEL_GATE_FLAG = "--final-project-live-model-gate";
+const LIVE_MODEL_GATE_DEFERRED = "onboarding_live_model_gate_deferred\n";
+const NETWORK_FAILURE = "codex_network_privacy_audit_failed\n";
 const EMPTY_TUPLE = Object.freeze([]) as readonly [];
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const NATIVE_REASON_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "reason")?.get;
@@ -138,6 +144,35 @@ export interface CodexCliNetworkPrivacyAuditArtifact extends NetworkObserverProo
   readonly residualTempDirectories: readonly [];
   readonly artifactDigest: string;
 }
+
+export type CodexCliNetworkPrivacyLaunchArguments = Readonly<{
+  mode: "deferred" | "final-project-live-model-gate";
+  artifactPath: string;
+}>;
+
+export type CodexCliNetworkPrivacyEntrypointResult =
+  | Readonly<{ exitCode: 0; stdout: ""; stderr: "" }>
+  | Readonly<{
+      exitCode: 1;
+      stdout: "";
+      stderr: "onboarding_live_model_gate_deferred\n" | "codex_network_privacy_audit_failed\n";
+    }>;
+
+const NETWORK_SUCCESS_RESULT: CodexCliNetworkPrivacyEntrypointResult = Object.freeze({
+  exitCode: 0,
+  stdout: "",
+  stderr: "",
+});
+const NETWORK_DEFERRED_RESULT: CodexCliNetworkPrivacyEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: LIVE_MODEL_GATE_DEFERRED,
+});
+const NETWORK_FAILURE_RESULT: CodexCliNetworkPrivacyEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: NETWORK_FAILURE,
+});
 
 interface SyntheticFixture {
   readonly fixtureVersion: "codex-cli-runtime-case@1";
@@ -1064,6 +1099,89 @@ function requireArtifactPath(value: string): string {
   return path;
 }
 
+function requireEntrypointArtifactPath(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || !value.endsWith(".json")) {
+    throw auditFailed();
+  }
+  const path = resolve(value);
+  if (path === resolve("/") || dirname(path) === path) throw auditFailed();
+  return path;
+}
+
+async function requireEntrypointOutputPath(value: unknown): Promise<string> {
+  const artifactPath = requireEntrypointArtifactPath(value);
+  const [artifactIdentity, runtimeFixtureIdentity, allowlistIdentity] = await Promise.all([
+    readEntrypointPathIdentity(artifactPath),
+    readEntrypointPathIdentity(NETWORK_FIXTURE_PATH),
+    readEntrypointPathIdentity(ALLOWLIST_PATH),
+  ]);
+  if (entrypointPathsAlias(artifactIdentity, runtimeFixtureIdentity) ||
+    entrypointPathsAlias(artifactIdentity, allowlistIdentity)) throw auditFailed();
+  return artifactPath;
+}
+
+interface EntrypointPathIdentity {
+  readonly realPath: string;
+  readonly existing?: Readonly<{ dev: number | bigint; ino: number | bigint }>;
+}
+
+async function readEntrypointPathIdentity(path: string): Promise<EntrypointPathIdentity> {
+  const [realPath, identity] = await Promise.all([
+    resolveEntrypointRealPath(path),
+    statEntrypointPathIfPresent(path),
+  ]);
+  return Object.freeze({
+    realPath,
+    ...(identity === undefined
+      ? {}
+      : { existing: Object.freeze({ dev: identity.dev, ino: identity.ino }) }),
+  });
+}
+
+function entrypointPathsAlias(
+  left: EntrypointPathIdentity,
+  right: EntrypointPathIdentity,
+): boolean {
+  return left.realPath === right.realPath || (
+    left.existing !== undefined &&
+    right.existing !== undefined &&
+    left.existing.dev === right.existing.dev &&
+    left.existing.ino === right.existing.ino
+  );
+}
+
+async function resolveEntrypointRealPath(path: string): Promise<string> {
+  let existingPrefix = path;
+  const missingSuffix: string[] = [];
+  while (true) {
+    try {
+      return resolve(await realpath(existingPrefix), ...missingSuffix);
+    } catch (error) {
+      if (!isMissingEntrypointPathError(error)) throw error;
+      const parent = dirname(existingPrefix);
+      if (parent === existingPrefix) throw error;
+      missingSuffix.unshift(basename(existingPrefix));
+      existingPrefix = parent;
+    }
+  }
+}
+
+async function statEntrypointPathIfPresent(
+  path: string,
+): Promise<Awaited<ReturnType<typeof stat>> | undefined> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (isMissingEntrypointPathError(error)) return undefined;
+    throw error;
+  }
+}
+
+function isMissingEntrypointPathError(error: unknown): boolean {
+  if (error === null || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "ENOENT" || error.code === "ENOTDIR";
+}
+
 async function writeArtifactAtomically(
   path: string,
   artifact: CodexCliNetworkPrivacyAuditArtifact,
@@ -1161,18 +1279,94 @@ export function parseNetworkPrivacyCliArguments(argv: readonly string[]): {
   return Object.freeze({ artifactPath: argv[1] });
 }
 
-async function main(): Promise<void> {
-  const { artifactPath } = parseNetworkPrivacyCliArguments(process.argv.slice(2));
+function readOwnedLaunchArguments(value: unknown, maximumLength: number): readonly string[] {
+  if (
+    types.isProxy(value) ||
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0 ||
+    value.length > maximumLength
+  ) throw auditFailed();
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const allowed = new Set([
+    ...Array.from({ length: value.length }, (_unused, index) => String(index)),
+    "length",
+  ]);
+  if (Object.keys(descriptors).some((key) => !allowed.has(key))) throw auditFailed();
+  const copy: string[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor === undefined || !("value" in descriptor) ||
+      descriptor.enumerable !== true || typeof descriptor.value !== "string") throw auditFailed();
+    copy.push(descriptor.value);
+  }
+  return Object.freeze(copy);
+}
+
+export function parseCodexCliNetworkPrivacyLaunchArguments(
+  input: unknown,
+): CodexCliNetworkPrivacyLaunchArguments {
+  const args = readOwnedLaunchArguments(input, 3);
+  if (args.length === 2 && args[0] === "--artifact" &&
+    args[1] !== undefined && args[1].length > 0) {
+    return Object.freeze({ mode: "deferred", artifactPath: args[1] });
+  }
+  if (args.length === 3 && args[0] === FINAL_PROJECT_LIVE_MODEL_GATE_FLAG &&
+    args[1] === "--artifact" && args[2] !== undefined && args[2].length > 0) {
+    return Object.freeze({
+      mode: "final-project-live-model-gate",
+      artifactPath: args[2],
+    });
+  }
+  throw auditFailed();
+}
+
+export async function runCodexCliNetworkPrivacyEntrypointForTest(input: {
+  readonly rawArguments: unknown;
+  readonly runFinalProjectLiveModelGate: (
+    paths: Readonly<{ artifactPath: string }>,
+  ) => Promise<void>;
+}): Promise<CodexCliNetworkPrivacyEntrypointResult> {
+  let parsed: CodexCliNetworkPrivacyLaunchArguments;
+  try {
+    parsed = parseCodexCliNetworkPrivacyLaunchArguments(input.rawArguments);
+  } catch {
+    return NETWORK_DEFERRED_RESULT;
+  }
+  try {
+    const artifactPath = await requireEntrypointOutputPath(parsed.artifactPath);
+    await rm(artifactPath, { force: true });
+    if (parsed.mode === "deferred") return NETWORK_DEFERRED_RESULT;
+    await input.runFinalProjectLiveModelGate(Object.freeze({ artifactPath }));
+    return NETWORK_SUCCESS_RESULT;
+  } catch {
+    return parsed.mode === "deferred" ? NETWORK_DEFERRED_RESULT : NETWORK_FAILURE_RESULT;
+  }
+}
+
+async function runFinalProjectLiveModelGate(
+  paths: Readonly<{ artifactPath: string }>,
+): Promise<void> {
   await runCodexCliNetworkPrivacy({
-    artifactPath,
+    artifactPath: paths.artifactPath,
     env: process.env,
     signal: new AbortController().signal,
   });
 }
 
+async function main(): Promise<void> {
+  const result = await runCodexCliNetworkPrivacyEntrypointForTest({
+    rawArguments: process.argv.slice(2),
+    runFinalProjectLiveModelGate,
+  });
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.exitCode;
+}
+
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch(() => {
-    process.stderr.write("codex_network_privacy_audit_failed\n");
+    process.stderr.write(NETWORK_FAILURE);
     process.exitCode = 1;
   });
 }

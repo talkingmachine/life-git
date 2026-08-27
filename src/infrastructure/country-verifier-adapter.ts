@@ -16,7 +16,12 @@ import {
   createColdStartComposition,
   type ColdStartCompositionOptions,
 } from "./cold-start-composition";
+import {
+  sharedProfileCompositionPort,
+  withSharedProfileCompositionPort,
+} from "./composition-dependencies";
 import { createEvidenceIntegrity } from "./integrity";
+import { SqliteProfileStore } from "./sqlite/profile-store";
 
 type VerificationEvent = Exclude<ColdStartEventAny, { readonly type: "assessment_completed" }>;
 
@@ -142,7 +147,13 @@ export function normalizeCountryVerificationProgress(
 export function createCountryVerifierAdapter(
   options: ColdStartCompositionOptions,
 ): CountryVerifierPort {
-  const coldStart = createColdStartComposition(options);
+  const profiles = sharedProfileCompositionPort(options) ??
+    new SqliteProfileStore(options.database);
+  const sharedOptions = withSharedProfileCompositionPort(
+    options,
+    profiles,
+  );
+  const coldStart = createColdStartComposition(sharedOptions);
   const integrity = createEvidenceIntegrity(options.hmacKey);
 
   const verifier: CountryVerifierPort = {
@@ -150,7 +161,7 @@ export function createCountryVerifierAdapter(
       if (country.countryCode !== "SI") throw new Error("country_not_installed");
       const runId = countryCheckRunId(parentRunId, country.countryCode, integrity);
       const countryCheck = createColdStartComposition({
-        ...options,
+        ...sharedOptions,
         nextRunId: () => runId,
       });
       const prepared = await countryCheck.prepareAny({

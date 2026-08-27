@@ -22,6 +22,8 @@ import type { ApprovedCityCriteriaDefaultsRegistry } from
 import {
   buildCityCatalogRevision,
   buildCityRegistryRevision,
+  LEGACY_CITY_CATALOG_RULES_VERSION,
+  type CityCatalogRevision,
 } from "../../src/decision/city-catalog";
 import {
   CITY_CRITERION_IDS,
@@ -938,6 +940,61 @@ function cloneContract(
     validateValue: value.validateValue,
     validateSourcePeriod: value.validateSourcePeriod,
   };
+}
+
+function contractWithCatalogRules(
+  value: CityPackageEvidenceReplayContract,
+  rulesVersion: string,
+): CityPackageEvidenceReplayContract {
+  const contract = cloneContract(value);
+  const { id: _catalogId, ...currentCatalog } = contract.catalogProjection.catalog;
+  void _catalogId;
+  const catalogPayload = {
+    ...currentCatalog,
+    members: currentCatalog.members.map((member) => ({
+      ...member,
+      inclusionReasons: ["population_threshold", ...(member.cityId === CITY_ID
+        ? ["national_capital" as const]
+        : [])],
+    })),
+    rulesVersion,
+  };
+  const catalog = {
+    id: `city-catalog:${INTEGRITY.hash(INTEGRITY.canonical(catalogPayload))}`,
+    ...catalogPayload,
+  } as CityCatalogRevision;
+  const { id: _directoryId, ...currentDirectory } = contract.officialAuthorityDirectory;
+  void _directoryId;
+  const directoryPayload = { ...currentDirectory, catalogRevisionId: catalog.id };
+  const officialAuthorityDirectory = {
+    id: `official-authority-directory:${INTEGRITY.hash(INTEGRITY.canonical(directoryPayload))}`,
+    ...directoryPayload,
+  };
+  const { id: _sourcePlanId, ...currentSourcePlan } = contract.safetySourcePlan;
+  void _sourcePlanId;
+  const sourcePlanPayload = {
+    ...currentSourcePlan,
+    catalogRevisionId: catalog.id,
+    authorityDirectoryId: officialAuthorityDirectory.id,
+  };
+  const safetySourcePlan = {
+    id: `city-safety-source-plan:${INTEGRITY.hash(INTEGRITY.canonical(sourcePlanPayload))}`,
+    ...sourcePlanPayload,
+  };
+  const key = Object.freeze({
+    ...contract.installedPackageManifest.key,
+    catalogRevisionId: catalog.id,
+  });
+  return {
+    ...contract,
+    installedPackageManifest: Object.freeze({
+      id: `${contract.installedPackageManifest.id}:${rulesVersion}`,
+      key,
+    }),
+    catalogProjection: { registry: contract.catalogProjection.registry, catalog },
+    officialAuthorityDirectory,
+    safetySourcePlan,
+  } as CityPackageEvidenceReplayContract;
 }
 
 function fakePorts(
@@ -2187,6 +2244,77 @@ describe("replayCityEvidence semantic replay", () => {
 });
 
 describe("replayCityEvidence historical fail-closed behavior", () => {
+  test("replays an authenticated legacy Catalog chain read-only and rejects unknown rules", async () => {
+    // Break caught: enforcing current Catalog rules inside the shared historical Evidence reader.
+    const harness = await historicalHarness();
+    const legacyContract = contractWithCatalogRules(
+      harness.contractA,
+      LEGACY_CITY_CATALOG_RULES_VERSION,
+    );
+    const reboundEvidence = (contract: CityPackageEvidenceReplayContract) => {
+      const values = new Map<string, VerifiedCityEvidence>();
+      for (const id of harness.evidenceIds) {
+        const value = cloneVerified(harness.verifiedById.get(id)!);
+        asMutable(value.snapshot).catalogRevisionId =
+          contract.installedPackageManifest.key.catalogRevisionId;
+        const ledger = asMutable(value.snapshot.safetyAttemptLedger);
+        ledger.catalogRevisionId = contract.catalogProjection.catalog.id;
+        ledger.authorityDirectoryId = contract.officialAuthorityDirectory.id;
+        ledger.sourcePlanId = contract.safetySourcePlan.id;
+        for (const candidate of ledger.candidates as MutableRecord[]) {
+          const origin = candidate.origin as MutableRecord;
+          if (origin.kind === "previous") {
+            origin.priorSourcePlanId = contract.safetySourcePlan.id;
+          }
+        }
+        resealContext(value);
+        values.set(id, value);
+      }
+      return values;
+    };
+    const legacyById = reboundEvidence(legacyContract);
+    const packageCalls: unknown[] = [];
+    const result = await replayCityEvidence(harness.input, {
+      read: {
+        loadVerified(id) {
+          const value = legacyById.get(id);
+          if (value === undefined) throw new Error("city_evidence_not_found");
+          return cloneVerified(value);
+        },
+        findVerifiedByCheckRunId: () => { throw new Error("forbidden_current_lookup"); },
+      },
+      integrity: createCityEvidenceReplayIntegrity(INTEGRITY),
+      package: {
+        loadExactReplayContract(key) {
+          packageCalls.push(structuredClone(key));
+          return INTEGRITY.canonical(key) ===
+            INTEGRITY.canonical(legacyContract.installedPackageManifest.key)
+            ? cloneContract(legacyContract)
+            : undefined;
+        },
+      },
+    });
+    expect(result.snapshot.id).toBe(harness.evidenceIds[2]);
+    expect(packageCalls.length).toBeGreaterThan(0);
+    expect(packageCalls.every((key) => INTEGRITY.canonical(key) ===
+      INTEGRITY.canonical(legacyContract.installedPackageManifest.key))).toBe(true);
+
+    const unknownContract = contractWithCatalogRules(harness.contractA, "city-catalog@999");
+    const unknownById = reboundEvidence(unknownContract);
+    await expect(replayCityEvidence(harness.input, {
+      read: {
+        loadVerified(id) {
+          const value = unknownById.get(id);
+          if (value === undefined) throw new Error("city_evidence_not_found");
+          return cloneVerified(value);
+        },
+        findVerifiedByCheckRunId: () => { throw new Error("forbidden_current_lookup"); },
+      },
+      integrity: createCityEvidenceReplayIntegrity(INTEGRITY),
+      package: { loadExactReplayContract: () => unknownContract },
+    })).rejects.toEqual(rejectedWith("integrity_mismatch"));
+  });
+
   test("owns reused borrowed nodes before the next ancestor read", async () => {
     const harness = await historicalHarness();
     const shared = cloneVerified(harness.verifiedById.get(harness.evidenceIds[2])!);

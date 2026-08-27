@@ -75,10 +75,17 @@ interface RetainedArtifact {
 }
 
 interface PopulationResolution {
-  readonly load: Exclude<CitySafetyPopulationLoadResult, { readonly kind: "missing" }>;
+  readonly kind: "resolved";
+  readonly publisherId: string;
+  readonly municipalityCode: string;
+  readonly referenceDate: string;
+  readonly population: string;
   readonly retained: RetainedArtifact;
   readonly reference: CitySafetyDenominatorReference;
 }
+
+type CachedPopulationResolution = { readonly kind: "missing" } | PopulationResolution;
+const MISSING_POPULATION_RESOLUTION = Object.freeze({ kind: "missing" as const });
 
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalValue);
@@ -118,16 +125,18 @@ function retainedArtifact(
   const transientRawDeleted = policy.retentionMode === "seal_hash_locator_then_delete_transient";
   const bytes = transientRawDeleted ? canonicalBytes(projection) : new Uint8Array(source.bytes);
   const artifactSha256 = transientRawDeleted ? sha256(bytes) : source.sha256;
+  const request = { ...source.request };
   const artifact: LiveCapturedArtifact<"si-city-safety"> = transientRawDeleted
     ? {
         ...source,
+        request,
         artifactId: `si-city-safety:${role}:${artifactSha256}`,
         role,
         mediaType: "application/json",
         sha256: artifactSha256,
         bytes,
       }
-    : { ...source, role, bytes };
+    : { ...source, request, role, bytes };
   const common = {
     artifactId: artifact.artifactId,
     artifactSha256,
@@ -140,6 +149,26 @@ function retainedArtifact(
     reference: role === "municipal_source"
       ? { role, documentRole: documentRole!, ...common }
       : { role, ...common },
+  };
+}
+
+function materializePopulationResolution(seed: PopulationResolution): PopulationResolution {
+  return {
+    kind: "resolved",
+    publisherId: seed.publisherId,
+    municipalityCode: seed.municipalityCode,
+    referenceDate: seed.referenceDate,
+    population: seed.population,
+    retained: {
+      artifact: {
+        ...seed.retained.artifact,
+        request: { ...seed.retained.artifact.request },
+        bytes: new Uint8Array(seed.retained.artifact.bytes),
+      },
+      reference: { ...seed.retained.reference },
+      sourceMediaType: seed.retained.sourceMediaType,
+    },
+    reference: { ...seed.reference },
   };
 }
 
@@ -306,8 +335,8 @@ function ordinalQuantities(
     offenceCount,
     population,
     rateBasis: "offences_per_100000_residents" as const,
-  })).sort((left, right) => left.offenceCount < right.offenceCount ? -1 :
-    left.offenceCount > right.offenceCount ? 1 : left.population < right.population ? -1 : 1);
+  })).sort((left, right) => BigInt(left.offenceCount) < BigInt(right.offenceCount) ? -1 :
+    BigInt(left.offenceCount) > BigInt(right.offenceCount) ? 1 : 0);
   return [quantities[0]!, quantities[1]!];
 }
 
@@ -317,26 +346,33 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
   readonly loadPopulation: CitySafetyPopulationLoader;
 }): CitySafetyOfficialDocumentPort {
   const capture = dependencies.capture ?? captureHttpWithTrace;
-  const populationCache = new Map<string, Promise<CitySafetyPopulationLoadResult>>();
+  const populationCache = new Map<string, Promise<CachedPopulationResolution>>();
 
   async function loadPopulation(
     input: CitySafetyCandidateInspectionInput,
     referenceYear: number,
     publisher: OfficialPublisherPolicy,
-  ): Promise<CitySafetyPopulationLoadResult> {
+  ): Promise<CachedPopulationResolution> {
     const key = `${input.runId}:${input.municipalityCode}:${referenceYear}`;
     let promise = populationCache.get(key);
     if (promise === undefined) {
-      promise = dependencies.loadPopulation({
+      const pending = dependencies.loadPopulation({
         runId: input.runId,
         municipalityCode: input.municipalityCode,
         referenceYear,
         publisher,
         signal: input.signal,
+      }).then((load) => load.kind === "missing"
+        ? MISSING_POPULATION_RESOLUTION
+        : retainPopulation(input, load, publisher));
+      populationCache.set(key, pending);
+      void pending.catch(() => {
+        if (populationCache.get(key) === pending) populationCache.delete(key);
       });
-      populationCache.set(key, promise);
+      promise = pending;
     }
-    return promise;
+    const cached = await promise;
+    return cached.kind === "missing" ? cached : materializePopulationResolution(cached);
   }
 
   function retainPopulation(
@@ -369,7 +405,15 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
       retentionPolicyId: policy.retentionPolicyId,
       transientRawDeleted: policy.retentionMode === "seal_hash_locator_then_delete_transient",
     };
-    return { load, retained, reference };
+    return {
+      kind: "resolved",
+      publisherId: load.publisherId,
+      municipalityCode: load.municipalityCode,
+      referenceDate: load.referenceDate,
+      population: load.population,
+      retained,
+      reference,
+    };
   }
 
   return {
@@ -582,10 +626,10 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
           offenceCount: terminalAnalysis.offenceCounts[0]!,
         });
       }
-      const population = retainPopulation(input, populationLoad, sursPolicy);
+      const population = populationLoad;
       const expectedReferenceDate = `${terminalAnalysis.referenceYear}-01-01`;
-      if (population.load.publisherId !== input.authorityDirectory.requiredPublisherIds.surs ||
-        population.load.municipalityCode !== input.municipalityCode) {
+      if (population.publisherId !== input.authorityDirectory.requiredPublisherIds.surs ||
+        population.municipalityCode !== input.municipalityCode) {
         return semanticReject("denominator_scope_mismatch", {
           kind: "denominator_scope_mismatch",
           referenceYear: terminalAnalysis.referenceYear,
@@ -593,7 +637,7 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
           observedDenominator: population.reference,
         }, population);
       }
-      if (population.load.referenceDate !== expectedReferenceDate) {
+      if (population.referenceDate !== expectedReferenceDate) {
         return semanticReject("denominator_period_mismatch", {
           kind: "denominator_period_mismatch",
           referenceYear: terminalAnalysis.referenceYear,
@@ -601,7 +645,7 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
           observedDenominator: population.reference,
         }, population);
       }
-      if (population.load.population === "0") {
+      if (population.population === "0") {
         return semanticReject("denominator_zero", {
           kind: "denominator_zero",
           referenceYear: terminalAnalysis.referenceYear,
@@ -609,21 +653,21 @@ export function createSloveniaCitySafetyAdapter(dependencies: {
           observedDenominator: population.reference,
         }, population);
       }
-      if (!/^[1-9][0-9]*$/.test(population.load.population)) {
+      if (!/^[1-9][0-9]*$/.test(population.population)) {
         throw new Error("invalid_city_safety_population");
       }
       const uniqueCounts = [...new Set(terminalAnalysis.offenceCounts)];
       if (uniqueCounts.length > 1) {
         const conflictBasis = {
           referenceYear: terminalAnalysis.referenceYear,
-          quantities: ordinalQuantities(uniqueCounts, population.load.population),
+          quantities: ordinalQuantities(uniqueCounts, population.population),
           denominator: population.reference,
         };
         return semanticReject("conflict", { kind: "conflict", conflictBasis }, population, conflictBasis);
       }
       const quantity: CitySafetyQuantity = {
         offenceCount: uniqueCounts[0]!,
-        population: population.load.population,
+        population: population.population,
         rateBasis: "offences_per_100000_residents",
       };
       const periodDisposition = classifyCitySafetyPeriod({

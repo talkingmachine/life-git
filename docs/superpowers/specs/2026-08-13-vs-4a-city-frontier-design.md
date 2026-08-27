@@ -122,6 +122,15 @@ Decision экспортирует отдельный structural replay
 recursively frozen. Эта функция не получает evaluator и не утверждает target semantics; существующий
 evaluator-aware `reconstructCityCriteria` остаётся отдельной semantic проверкой Application.
 
+Setup принимает только exact matched relocation/Preference Profile pair `@1/@1 | @2/@2` с IDs из
+resolved-country source. Legacy v1 mapping не меняется: `personal_safety` задаёт только safety
+mode/importance, `infrastructure` — только transit и broadband mode/importance, rent остаётся installed
+default. Ordered v2 `cityCriteria` отображается one-to-one на safety/rent/transit/broadband, но также
+задаёт только mode/importance. Во всех случаях criterion ID, definition ID и canonical package-unit
+target остаются из authenticated installed defaults; free-form v2 target не передаётся evaluator и не
+интерпретируется как unit target. Relocation snapshot служит только binding authority. Mixed versions,
+source/profile ID или tuple/order/ID drift fail closed до evaluator, Knowledge, ranking и write.
+
 ### `REQ-CF-03` — детерминированный ranking всего catalog
 
 Специализированный City Ranker получает exact Catalog Revision, Criteria Snapshot и current City
@@ -348,6 +357,70 @@ verified Resolved Country Shortlist entry
 `PlaceRanker@1` и Country Knowledge carry-forward contract не переиспользуются: их unknown scoring
 и partial-update semantics прямо несовместимы с этим slice.
 
+Sole constructible Application boundary — `createCityFrontierApplication` с exact closed least-authority
+port graph и frozen `Readonly<CityFrontierApplicationAssembly>` result. Factory descriptor-owns graph и
+captures method references до callbacks; Application не импортирует Infrastructure, SQLite, HTTP, timer
+или `node:*`. Только `assembly.application` доступен delivery; `selectionAuthority` — internal
+Application-to-Application port, отсутствующий в HTTP/events/read models. Composition строит Task 13
+stores, installed production registries и Evidence replay. При absent `selectionHistory` она создаёт
+fresh-empty-per-call adapter в Task14. Task 15 composition удаляет этот public override, создаёт writer ровно один раз, injects
+этот же object как Task14 history, строит Task14 assembly ровно один раз и строит Task15 из
+`assembly.selectionAuthority` плюс того же writer. После Task15 external history override отсутствует;
+`createCityFrontierApplication` по-прежнему возвращает internal assembly и не импортирует Task15, а
+`createCityFrontierComposition` возвращает exact frozen
+`Readonly<CityFrontierApplication & CitySelectionApplication>`. Root exposes только эту public surface,
+не writer/internal authority.
+
+Installed-package lookup остаётся удобной projection, но не authority для артефактов. Exact Application
+graph поэтому отдельно получает least-authority
+`installedPackageManifests: Pick<InstalledCityPackageManifestStorePort, "loadVerified">`.
+Setup/Start после authenticated latest Catalog root, а Continue/Present/internal authority сразу после
+frozen `findExact`, перед semantic work, exact-load full manifest по owned five-field key. Missing,
+malformed/forged content ID или payload hash, alternate manifest и любое audit-ID/key/definition/
+readiness/catalog-root drift дают fresh `integrity_mismatch`; HMAC остаётся Infrastructure postcondition.
+Application captures private frozen narrowed `{ canonical, hash }` view от
+`ports.evidenceIntegrity`: full-manifest и все administrative-artifact equations используют exact
+Evidence C→H с zero `sign`, тогда как `decisionIntegrity` остаётся только Decision reconstruction/ID
+authority. Bounded discriminating Decision-vs-Evidence sentinel фиксирует этот split без matrix.
+Application связывает каждый реально reconstructed fixed plan, safety plan, official directory,
+Criteria defaults и definition tuple с manifest scalars и exact
+`evidenceHash(evidenceCanonical(value)) === artifact.sha256`, а evaluator/validator policy IDs — без сравнения function
+bytes. Поэтому authentic B plan под A key при exact manifest A закрывается до Criteria/Evidence/
+Knowledge/flight/source, и Task 7 replay не подменяет этот ранний gate. Composition injects тот же
+captured `loadVerified` receiver единственного authenticated `SqliteCityPackageManifestStore`, который
+также underlying receiver для `InstalledCityPackages`, через отдельный fresh frozen plain one-method
+adapter. Adapter не равен store и не exposes append/latest/prototype capability; Application не
+импортирует Infrastructure.
+
+Internal terminal-selection authority exact-loads structural terminal/full chain, требует requested ID
+как unique current terminal run и loads frozen package/Catalog, отклоняет `@1` до
+evaluator/Knowledge/Evidence/Task11, хотя public Present сохраняет
+historical audit, и делает полный current semantic replay. Fresh result содержит read model, terminal,
+Ranking, pre-city branch, source заново собранный из verified resolved/profile graph, и exact
+`ReconstructCityFrontierInput`. Task14 не импортирует Task15 через эту границу.
+
+Live source configuration — exact `unconfigured | configured` union. Configured branch требует keyed
+fixed-route ports для rent/transit/broadband и official-document port; optional safety search является
+atomic `{ config, request }` pair и создаётся existing HTTP-step/search factories. Absence создаёт
+existing unconfigured search. Полностью unconfigured fixed/document ports fail closed
+`city_source_adapter_unconfigured`, если будут вызваны. Current SI раньше возвращает fresh frozen exact
+readiness issues `catalog_v2_projection_unsealed`, `registry_coordinates_unsealed`,
+`per_member_source_plan_artifacts_unsealed`, `criteria_policy_unapproved`; Setup/Start error имеет только
+exact message `city_package_not_ready`, без issues/class payload. Real Slovenia fixed/document adapters,
+analyzers и population implementations отложены до approved ready package; positive verification
+использует configured synthetic ports. Application вызывает только captured
+`ports.resolveAvailability`; composition default — `getCityResearchPackageAvailability`, который use
+case никогда не вызывает напрямую через import.
+
+Default fixed timing — exact `+45_000ms` и real setTimeout scheduler: canonical future callback максимум
+один раз, cancel idempotent/non-throwing и исключает later callback. Application captures один research
+start instant, передаёт policy три fresh Date copies и требует три byte-equal canonical future deadline.
+`CityFixedSourceRunInput.now` остаётся `() => string`: Application оборачивает captured `() => Date`,
+owns/validates каждый result и возвращает canonical ISO; Date/borrowed clock не пересекают Research
+boundary, invalid/throwing clock закрывается до source output. Safety search timeout остаётся отдельным.
+Fixed abort/deadline/clock/protocol/native errors и existing
+search semantics сохраняются; только bounded completed source outcomes становятся unknown.
+
 ## 6. Persistence, integrity и recovery
 
 Каждый durable snapshot имеет closed schema, canonical JSON, lowercase-64 payload hash, exact HMAC
@@ -378,6 +451,14 @@ Application identity закрыта тремя exact payload. `CityCriteriaComma
 Timestamp-free Start intent дополнительно содержит derived run ID. После verified inputs берётся один
 `startAt`:
 
+Continuation check identity — exact four-key
+`{ schemaVersion: "city-check-run@1", runId, cityId, rankingSnapshotId }`; ID равен
+`city-check:${H(C(exact descriptor-owned identity))}`. Frontier/Ranking IDs имеют exact prefixed
+lowercase-64 форму, city ID canonical nonempty. Boundary capture выполняет neutral C затем H, передаёт H
+ровно C-returned string, принимает raw lowercase-64 и возвращает fresh `integrity_mismatch` для hostile
+input/capability/result. Command, time, package и Catalog исключены, поэтому retry/race frozen
+run/city/Ranking сходятся к одному ID.
+
 ```text
 criteria.confirmedAt = ranking.assessmentAt = ranking.createdAt = root.createdAt = startAt
 preCity.createdAt = verifiedResolvedCountryShortlist.createdAt <= startAt
@@ -396,9 +477,9 @@ lookup/write. Identical five-key intent после этого возвращае
 winner даже при более поздних candidate clocks; изменённый intent/derived run даёт
 `integrity_mismatch`. Другой Start command для существующего deterministic run/root также
 `integrity_mismatch`. Every Frontier row is unique by `(runId, commandId)`, so a successor cannot reuse
-the root command; после command-first replay только
+the root command; после command miss и head mismatch Prepare/Continue exact-load claimed base. Только
 authenticated same-run/same-Ranking ancestor, который больше не unique head, даёт
-`stale_city_frontier_head`. Forged/missing/misbound predecessor, tamper и Start conflict —
+`stale_city_frontier_head`. Missing/cross-run/cross-Ranking/forged/misbound predecessor, tamper и Start conflict —
 `integrity_mismatch`; busy/native/unrelated constraint не relabel. City Knowledge publication для
 одного city сериализована; параллельные writers не создают forked revisions.
 Direct append на command hit сначала сравнивает candidate/stored operation (`integrity_mismatch` на
@@ -435,7 +516,9 @@ bound `@1 | @2`; unknown rules дают `integrity_mismatch`. Authentic `@1` д�
 Present для audit: `readModel.catalog.rulesVersion` позволяет Experience убрать Continue/Select
 affordances, а Application не имеет успешного Continue/Select path. Manifest/install, Evidence seal,
 Knowledge publication, Frontier/Selection writers и Setup/Start/Continue/Select требуют `@2` до write
-или semantic callback; shared read reconstruction не является write authorization.
+или semantic callback; shared read reconstruction не является write authorization. Public Present
+всё равно exact-loads independent full manifest и проверяет все artifact bindings до known-`@1`
+semantic replay; internal selection authority проходит тот же manifest gate и затем отклоняет `@1`.
 
 После SQLite structural load Application verified presentation/load отдельно реконструирует catalog
 membership, evaluator Criteria, semantic ranking/exclusions, marker prefix, cursor, stop condition,
@@ -443,13 +526,23 @@ four-fact Knowledge/Evidence semantics, warning basis и branch lineage. Под�
 criteria, predecessor, Evidence/Knowledge reference, marker или terminal composition fail-closed;
 SQLite не приписывает себе этот semantic результат.
 
-Task 15 Application после structural terminal/Ranking exact-authenticates package/Catalog и сразу
-отклоняет `@1` до Criteria/evaluator/Knowledge/Evidence/Task 11 callbacks, затем на `@2` семантически
-reconstructs Criteria/Ranking/Knowledge/Evidence/source, вызывает pure selection и единственный pair wrapper. Atomic writer получает
+Task 15 имеет sole constructible boundary
+`createCitySelectionApplication(CitySelectionApplicationPorts { frontier, writer, integrity, clock })`.
+Он получает full current authority только через Task14 `frontier`, который отклоняет `@1` до
+Criteria/evaluator/Knowledge/Evidence/Task 11 callbacks, вызывает pure selection против
+`authority.frontier`, source-replays `authority.preCityBranch` против `authority.preCitySource` и
+вызывает единственный pair wrapper. Atomic writer получает
 только explicit timestamp-free three-key intent, command ID и constructed pair; он делает command-first
 lookup, authenticates referenced Catalog и требует `@2` до replay return/insert, затем structural
 pair/stored-source/mirrors/FKs и insert/reload без evaluator, Knowledge/Evidence или Task 11 callback.
-Application повторяет semantics после structural reload.
+Application reloads ту же terminal authority и требует ровно одну matching history pair. Каждый Select
+после authority + pure selection получает ровно одно server time и строит один candidate/publication до
+writer call. Exact hit, включая race hit, сравнивает только timestamp-free intent, полностью игнорирует
+и никогда canonical-compares candidate bytes/ID/`createdAt`, и reconstructs pair со stored `createdAt`;
+miss alone validates/inserts candidate. Create/reconstruct требуют
+`selection.createdAt >= terminal.createdAt`, equality valid. Separate-connection identical races
+converge к одной pair; changed-remainder race даёт одного winner плюс `integrity_mismatch`, никогда
+UNIQUE/BUSY. Task15 не импортирует Infrastructure, а Task14 не импортирует Task15.
 
 Presentation/reload/select не выполняют official HTTP. После transport loss committed marker
 остаётся; reload показывает verified head и explicit Continue. Неподтверждённый live progress не
@@ -461,6 +554,37 @@ Criteria/evaluator/Knowledge/Evidence/Task 11/source/event/return. Поэтом�
 `city_catalog_upgrade_required` без semantic/source/event/append, а current-rules hit семантически
 replay-ит committed working/terminal winner без source или duplicate event. Новый retry продолжает
 frozen cursor и не проверяет committed city повторно.
+
+Application-factory-scoped single-flight Map keyed by deterministic check ID хранит canonical complete
+identity `{ cityCheckRunId, runId, baseRevisionId, rankingSnapshotId, cityId, assessmentAt,
+installedPackageContext }`; same-key drift — `integrity_mismatch`. Promise owns fixed+safety research,
+artifacts, один `completedAt`, generic seal, Evidence seal/reload, Knowledge publish/reload и verified
+marker authority. Followers не re-clock/reseal. Signals/emitters per-call и не хранятся в flight. Abort
+одного waiter detaches только его; zero waiters до publication abort shared controller и не пишет E/K/F.
+Перед Evidence seal flight повторно проверяет waiters и enters publishing; durable E/K не откатываются,
+но aborted caller не append/emits, а retry recover-ит без source. Причина — existing signal reason или
+platform `AbortError`, не новый City code. `finally` удаляет только тот же Map-entry identity.
+
+Каждый caller имеет private serialized event pump с fresh frozen contiguous 1-based events и canonical
+nondecreasing time. Exact `city_activated` sequence 1 идёт до source. Exported
+`CityFrontierProgressStage` — closed ten-literal union: четыре `source_started:<sourceId>` в exact
+`SLOVENIA_CITY_FACT_SOURCE_IDS` order, четыре `source_completed:<sourceId>` в том же order,
+`evidence_verified`, `knowledge_published`; extra display-text fields отсутствуют. До parallel launch flight
+broadcasts четыре source-start draft; после structural/authority validation всех результатов — четыре
+source-completed draft в том же canonical order, затем Evidence/Knowledge. Promise completion order не
+влияет на trace, flight не captures/awaits emitter. Start/Evidence/Knowledge forbid `sourceUrl`; fixed
+verified completion использует `navigationUrl` accepted installed-route attempt, а completed unknown
+после rejection всех routes — `navigationUrl` final attempted installed route; two-route success и
+all-rejected случаи это pin. Safety completion включает URL iff существует authenticated
+official document/navigation. Ни одна event string не содержит candidate/query/snippet/credential/raw error.
+Append precedes committed,
+затем exactly one completed с model canonical-equal return. Entry hit имеет zero events; stale different-
+command loser не получает commit/completed. Pre-append emit failure не создаёт successor, post-append
+preserves winner, detach/failure не оставляет late events.
+
+Command miss с completed Evidence/Knowledge emits private activation, затем только
+`evidence_verified`, `knowledge_published`, committed и completed, без source stages. Recovery Knowledge
+из Evidence и already-present Knowledge используют одинаковые pump/waiter/abort/emitter laws.
 
 ## 7. Verification и acceptance gate
 
@@ -475,11 +599,24 @@ frozen cursor и не проверяет committed city повторно.
 - frontier replacement, persistent red, selectable unknown, three/exhaustion/live-limit `0..2`,
   no-eleventh-city и abort/retry;
 - append-only/hash/HMAC/predecessor/idempotency/concurrency/tamper matrices;
+- exact check-ID closure/formula/capability tests and matched profile v1/v2 mapping;
+- factory/import/port closure, one assembly, internal current-terminal authority and injected/fresh-empty
+  selection history;
+- configured/unconfigured source composition, atomic optional search and default/injected timing;
+- bounded stale/missing/cross-run/cross-Ranking classification, complete single-flight identity, one/all
+  waiter abort and before/after durable-publication boundaries;
+- canonical source-order/private event traces, URL authority, pre/post-append emitter failures, hit/no-event
+  and identical/different-command races;
 - strict transport, EOF-held terminal, committed-before-event, zero-network double presentation;
 - UI/accessibility tests gray/green/yellow/red, warning acceptance, frozen-vs-fresh labels and same globe;
-- selection eligibility, exact risk binding, atomic selection+branch and sibling alternatives;
+- selection factory/authority closure, eligibility, exact risk binding, terminal chronology, stored-time
+  retry, atomic selection+branch, sibling alternatives and bounded separate-connection races;
 - full typecheck, lint, tests, production build, diff/provider audits and an official-source walkthrough
   on an isolated database before `source-verified` evidence.
+
+Architecture acceptance is 10/10: all runtime dependency arrows point inward; Application contains only
+use-case policy and inward contracts, while database, HTTP, timer and source configuration remain
+Infrastructure/composition details.
 
 Первый production slice устанавливает ровно один country package с reviewable official catalog и
 four-criterion source plan. Если package не может доказать catalog rule или выдать deterministic
@@ -490,6 +627,8 @@ explicitly unavailable; фиктивные data или generic crawler запр�
 
 - Все деревни/посёлки и manual/custom small-place flow.
 - Universal city crawler, worldwide metric ontology или автоматическое восстановление любого сайта.
+- Неутверждённые real Slovenia fixed/document adapters, analyzers и population implementation до ready
+  package; Task 14 production default остаётся explicitly unconfigured.
 - Random/famous-city fallback при incomplete official coverage.
 - Изменение country formal/effective status из city fit.
 - Выбор до terminal или отдельный risk modal.

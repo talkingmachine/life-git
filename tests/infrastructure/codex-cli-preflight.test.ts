@@ -328,8 +328,14 @@ describe("preflightCodexCli", () => {
     const fixture = await executableFixture();
     const nativeSetImmediate = setImmediate;
     vi.useFakeTimers();
-    const exit = new Promise<{ code: number | null; signal: string | null }>(() => undefined);
-    const spawner = sequenceSpawner([spawned("", { exit })]);
+    let resolveExit!: (result: { code: number | null; signal: string | null }) => void;
+    const exit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+      resolveExit = resolve;
+    });
+    const kill = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
+      if (signal === "SIGKILL") resolveExit({ code: null, signal });
+    });
+    const spawner = sequenceSpawner([spawned("", { exit, kill })]);
     const running = preflightCodexCli({
       configuredExecutable: fixture.executable,
       spawner,
@@ -342,10 +348,13 @@ describe("preflightCodexCli", () => {
     }
 
     await vi.advanceTimersByTimeAsync(CODEX_PREFLIGHT_LIMITS.timeoutMs);
+    expect(kill.mock.calls).toEqual([["SIGTERM"]]);
     await vi.advanceTimersByTimeAsync(250);
 
     await rejection;
+    expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
     expect(spawner.spawn).toHaveBeenCalledTimes(1);
+    expect(spawner.spawn.mock.calls.some(([request]) => request.args.includes("login"))).toBe(false);
   });
 });
 

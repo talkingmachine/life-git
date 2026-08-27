@@ -10,6 +10,10 @@ import type { OnboardingConfirmationReadPort } from
 import { rankPlaces, rankPlacesForVerifiedPreferences, type RankablePlace } from
   "../decision/place-ranker";
 import type { ColdStartCompositionOptions } from "./cold-start-composition";
+import {
+  sharedProfileCompositionPort,
+  withSharedProfileCompositionPort,
+} from "./composition-dependencies";
 import { createCountryVerifierAdapter } from "./country-verifier-adapter";
 import { createEvidenceIntegrity } from "./integrity";
 import { createInstalledPlacePackages } from "./sources/installed-place-packages";
@@ -36,9 +40,11 @@ function frontierPlaces(): readonly RankablePlace[] {
 }
 
 export function createPlaceFrontierComposition(options: PlaceFrontierCompositionOptions) {
-  const profiles = new SqliteProfileStore(options.database);
+  const profiles = sharedProfileCompositionPort(options) ??
+    new SqliteProfileStore(options.database);
+  const sharedOptions = withSharedProfileCompositionPort(options, profiles);
   const knowledge = new SqliteCountryKnowledgeStore(options.database, options.hmacKey);
-  const verifier = createCountryVerifierAdapter(options);
+  const verifier = createCountryVerifierAdapter(sharedOptions);
   return createPlaceFrontierApplication({
     onboardingConfirmations: options.onboardingConfirmations ??
       new SqliteOnboardingStore(options.database, options.hmacKey),

@@ -27,6 +27,7 @@ import {
   type SealedEvidence,
 } from "../research/research-plan";
 import { createEvidenceIntegrity } from "./integrity";
+import { sharedProfileCompositionPort } from "./composition-dependencies";
 import { createInstalledCountrySourceIndex } from "./sources/country-source-index";
 import { captureHttpOnce } from "./sources/gateway";
 import {
@@ -57,6 +58,8 @@ export interface ColdStartCompositionOptions {
 export function createColdStartComposition(
   options: ColdStartCompositionOptions,
 ): ColdStartApplicationAny {
+  const profiles = sharedProfileCompositionPort(options) ??
+    new SqliteProfileStore(options.database);
   const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(
     options.database,
   );
@@ -65,7 +68,6 @@ export function createColdStartComposition(
   );
   const dossierStore = new SqliteDossierStore(options.database, options.hmacKey);
   const knowledgeStore = new SqliteCountryKnowledgeStore(options.database, options.hmacKey);
-  const profileStore = new SqliteProfileStore(options.database);
   const integrity = createEvidenceIntegrity(options.hmacKey);
   const integrityFactory = Object.freeze({
     create: createEvidenceIntegrity,
@@ -74,7 +76,7 @@ export function createColdStartComposition(
   const countrySourceIndex = options.countrySourceIndex ?? createInstalledCountrySourceIndex();
 
   return createColdStartApplication({
-    profiles: profileStore,
+    profiles,
     countrySourceIndex,
     research: {
       prepare: (input) => {

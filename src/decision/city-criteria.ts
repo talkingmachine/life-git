@@ -1,8 +1,14 @@
 import { types } from "node:util";
 
 import type { CityDecisionIntegrity } from "./city-integrity";
-import type { PreferenceProfileSnapshot } from "./preference-profile";
-import type { RelocationProfileSnapshot } from "./relocation-profile";
+import type {
+  PreferenceProfileSnapshot,
+  PreferenceProfileV2Snapshot,
+} from "./preference-profile";
+import type {
+  RelocationProfileSnapshot,
+  RelocationProfileV2Snapshot,
+} from "./relocation-profile";
 
 export const CITY_CRITERION_IDS = ["safety", "long_term_rent", "urban_transit", "fixed_broadband"] as const;
 export type CityCriterionId = typeof CITY_CRITERION_IDS[number];
@@ -52,11 +58,69 @@ function normalizeCriteria(value: unknown, evaluators: CityCriterionEvaluatorReg
   if (new Set(criteria.map(({ criterionId }) => criterionId)).size !== 4) throw new Error("invalid_city_criteria");
   return criteria as unknown as CityCriteriaSnapshot["criteria"];
 }
-export function deriveCityCriteriaDraft(_profile: RelocationProfileSnapshot, preferences: PreferenceProfileSnapshot, defaults: InstalledCityCriteriaDefaults, evaluators: CityCriterionEvaluatorRegistry): CityCriteriaSnapshot["criteria"] {
+function v2CityPreferences(value: PreferenceProfileV2Snapshot): PreferenceProfileV2Snapshot["cityCriteria"] {
+  if (!record(value) || !exact(value, [
+    "schemaVersion", "id", "confirmedAt", "countryCriteria", "cityCriteria",
+  ]) || value.schemaVersion !== "preference-profile@2" ||
+    !Array.isArray(value.cityCriteria) || value.cityCriteria.length !== CITY_CRITERION_IDS.length ||
+    Object.getOwnPropertyNames(value.cityCriteria).length !== CITY_CRITERION_IDS.length + 1) {
+    throw new Error("integrity_mismatch");
+  }
+  for (let index = 0; index < CITY_CRITERION_IDS.length; index += 1) {
+    const preference = value.cityCriteria[index];
+    if (!record(preference) || !exact(preference, ["id", "mode", "importance", "target"]) ||
+      preference.id !== CITY_CRITERION_IDS[index] ||
+      (preference.mode !== "required" && preference.mode !== "weighted") ||
+      ![1, 2, 3, 4, 5].includes(preference.importance as number) ||
+      typeof preference.target !== "string") {
+      throw new Error("integrity_mismatch");
+    }
+  }
+  return value.cityCriteria;
+}
+
+export function deriveCityCriteriaDraft(
+  profile: RelocationProfileSnapshot,
+  preferences: PreferenceProfileSnapshot,
+  defaults: InstalledCityCriteriaDefaults,
+  evaluators: CityCriterionEvaluatorRegistry,
+): CityCriteriaSnapshot["criteria"];
+export function deriveCityCriteriaDraft(
+  profile: RelocationProfileV2Snapshot,
+  preferences: PreferenceProfileV2Snapshot,
+  defaults: InstalledCityCriteriaDefaults,
+  evaluators: CityCriterionEvaluatorRegistry,
+): CityCriteriaSnapshot["criteria"];
+export function deriveCityCriteriaDraft(
+  profile: RelocationProfileSnapshot | RelocationProfileV2Snapshot,
+  preferences: PreferenceProfileSnapshot | PreferenceProfileV2Snapshot,
+  defaults: InstalledCityCriteriaDefaults,
+  evaluators: CityCriterionEvaluatorRegistry,
+): CityCriteriaSnapshot["criteria"] {
+  if (!record(profile) || !record(preferences) ||
+    (profile.schemaVersion === "relocation-profile@1" &&
+      preferences.schemaVersion !== "preference-profile@1") ||
+    (profile.schemaVersion === "relocation-profile@2" &&
+      preferences.schemaVersion !== "preference-profile@2") ||
+    (profile.schemaVersion !== "relocation-profile@1" &&
+      profile.schemaVersion !== "relocation-profile@2")) {
+    throw new Error("integrity_mismatch");
+  }
+  const v2Controls = preferences.schemaVersion === "preference-profile@2"
+    ? v2CityPreferences(preferences)
+    : undefined;
   if (!record(defaults) || defaults.schemaVersion !== "city-criteria-defaults@1" || typeof defaults.mappingVersion !== "string") throw new Error("invalid_city_defaults");
   const criteria = normalizeCriteria(defaults.criteria, evaluators).map((criterion) => ({ ...criterion }));
-  const safety = preferences.criteria.find(({ id }) => id === "personal_safety");
-  const infrastructure = preferences.criteria.find(({ id }) => id === "infrastructure");
+  if (v2Controls !== undefined) {
+    for (let index = 0; index < criteria.length; index += 1) {
+      criteria[index]!.mode = v2Controls[index]!.mode;
+      criteria[index]!.importance = v2Controls[index]!.importance;
+    }
+    return freeze(criteria as unknown as CityCriteriaSnapshot["criteria"]);
+  }
+  const v1Preferences = preferences as PreferenceProfileSnapshot;
+  const safety = v1Preferences.criteria.find(({ id }) => id === "personal_safety");
+  const infrastructure = v1Preferences.criteria.find(({ id }) => id === "infrastructure");
   for (const criterion of criteria) {
     const preference = criterion.criterionId === "safety" ? safety : ["urban_transit", "fixed_broadband"].includes(criterion.criterionId) ? infrastructure : undefined;
     if (preference !== undefined) { criterion.mode = preference.mode; criterion.importance = preference.importance; }

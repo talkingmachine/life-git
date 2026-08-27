@@ -87,7 +87,7 @@ Discovery-вход может содержать сильную идею или 
 | [`vs-2-honest-cold-start`](changes/active/vs-2-honest-cold-start/change.md) | Baseline `approved`; remaining gate — provider-free current-source walkthrough и implementation evidence |
 | [`vs-3-place-frontier`](changes/active/vs-3-place-frontier/change.md) | `implemented`; historical automatic Country Frontier snapshots remain the immutable preliminary source for VS-3R |
 | [`vs-3r-yellow-resolution`](changes/active/vs-3r-yellow-resolution/change.md) | `implemented` — verified 2026-08-13; [implementation evidence](changes/active/vs-3r-yellow-resolution/implementation-evidence.md) approved; mandatory Yellow Resolution now gates future City Frontier |
-| [`vs-4a-city-frontier`](changes/active/vs-4a-city-frontier/change.md) | `approved — implementation pending`; [approved design](superpowers/specs/2026-08-13-vs-4a-city-frontier-design.md) and [plan index](superpowers/plans/2026-08-13-vs-4a-city-frontier.md) canonize the City Catalog, four-fact frontier, terminal shortlist and sibling city branch contract |
+| [`vs-4a-city-frontier`](changes/active/vs-4a-city-frontier/change.md) | `implementation in progress — beta core verified`; [implementation evidence](changes/active/vs-4a-city-frontier/implementation-evidence.md) records the verified beta core; [approved design](superpowers/specs/2026-08-13-vs-4a-city-frontier-design.md) and [plan index](superpowers/plans/2026-08-13-vs-4a-city-frontier.md) retain the forward City Catalog, four-fact frontier, terminal shortlist and sibling city branch contract |
 
 ## Архив change-пакетов
 

@@ -6,6 +6,8 @@ import * as cityFrontierContractsModule from
   "../../src/application/city-frontier-contracts";
 import {
   type CityFrontierEvent,
+  type CityFrontierProgressEvent,
+  type CityFrontierProgressStage,
   type CityFrontierOperation,
   type CityFrontierReadModel,
   type CityFrontierRevision,
@@ -1371,6 +1373,47 @@ describe("closed City Frontier contracts", () => {
       readonly operation: ExpectedOperation;
       readonly createdAt: string;
     };
+    type ExpectedProgressStage =
+      | "source_started:si-city-safety"
+      | "source_started:si-city-long-term-rent"
+      | "source_started:si-city-urban-transit"
+      | "source_started:si-city-fixed-broadband"
+      | "source_completed:si-city-safety"
+      | "source_completed:si-city-long-term-rent"
+      | "source_completed:si-city-urban-transit"
+      | "source_completed:si-city-fixed-broadband"
+      | "evidence_verified"
+      | "knowledge_published";
+    type ExpectedProgressBase = {
+      readonly type: "city_progress";
+      readonly runId: string;
+      readonly baseRevisionId: string;
+      readonly sequence: number;
+      readonly occurredAt: string;
+      readonly cityId: string;
+    };
+    type ExpectedProgress =
+      | (ExpectedProgressBase & {
+          readonly stage:
+            | "source_started:si-city-safety"
+            | "source_started:si-city-long-term-rent"
+            | "source_started:si-city-urban-transit"
+            | "source_started:si-city-fixed-broadband"
+            | "evidence_verified"
+            | "knowledge_published";
+          readonly sourceUrl?: never;
+        })
+      | (ExpectedProgressBase & {
+          readonly stage:
+            | "source_completed:si-city-long-term-rent"
+            | "source_completed:si-city-urban-transit"
+            | "source_completed:si-city-fixed-broadband";
+          readonly sourceUrl: string;
+        })
+      | (ExpectedProgressBase & {
+          readonly stage: "source_completed:si-city-safety";
+          readonly sourceUrl?: string;
+        });
     type ExpectedEvent =
       | {
           readonly type: "city_activated";
@@ -1381,18 +1424,7 @@ describe("closed City Frontier contracts", () => {
           readonly cityId: string;
           readonly rank: number;
         }
-      | {
-          readonly type: "city_progress";
-          readonly runId: string;
-          readonly baseRevisionId: string;
-          readonly sequence: number;
-          readonly occurredAt: string;
-          readonly cityId: string;
-          readonly stage: string;
-          readonly label: string;
-          readonly detail?: string;
-          readonly sourceUrl?: string;
-        }
+      | ExpectedProgress
       | {
           readonly type: "city_revision_committed";
           readonly runId: string;
@@ -1519,6 +1551,10 @@ describe("closed City Frontier contracts", () => {
       .toEqualTypeOf<ExpectedSealRevisionInput>();
     expectTypeOf<CityFrontierReadModel>().toEqualTypeOf<ExpectedReadModel>();
     expectTypeOf<CityFrontierReadModel>().not.toEqualTypeOf<ExpectedRevision>();
+    expectTypeOf<CityFrontierProgressStage>()
+      .toEqualTypeOf<ExpectedProgressStage>();
+    expectTypeOf<CityFrontierProgressEvent>()
+      .toEqualTypeOf<ExpectedProgress>();
     expectTypeOf<CityFrontierEvent>().toEqualTypeOf<ExpectedEvent>();
     expectTypeOf<CitySelectionSnapshot>().toEqualTypeOf<ExpectedSelection>();
     expectTypeOf<CitySelectionSnapshotPayload>()
@@ -1539,6 +1575,52 @@ describe("closed City Frontier contracts", () => {
     expectTypeOf<CityBranchCommit>().toEqualTypeOf<ExpectedCityBranch>();
     expectTypeOf<CityBranchSelectionProjection>()
       .toEqualTypeOf<ExpectedBranchSelection>();
+  });
+
+  test("pins the exact confidential progress-stage wire and per-stage key presence", () => {
+    // Break caught: reopening stage text or leaking display/provider/search data through progress events.
+    const stages = [
+      "source_started:si-city-safety",
+      "source_started:si-city-long-term-rent",
+      "source_started:si-city-urban-transit",
+      "source_started:si-city-fixed-broadband",
+      "source_completed:si-city-safety",
+      "source_completed:si-city-long-term-rent",
+      "source_completed:si-city-urban-transit",
+      "source_completed:si-city-fixed-broadband",
+      "evidence_verified",
+      "knowledge_published",
+    ] as const satisfies readonly CityFrontierProgressStage[];
+    const common = {
+      type: "city_progress" as const,
+      runId: "city-frontier:run",
+      baseRevisionId: "city-frontier:base",
+      sequence: 1,
+      occurredAt: "2026-08-25T12:00:00.000Z",
+      cityId: "ljubljana",
+    };
+    const start = { ...common, stage: stages[0] } satisfies CityFrontierProgressEvent;
+    const fixedCompletion = {
+      ...common,
+      stage: stages[5],
+      sourceUrl: "https://official.example/rent",
+    } satisfies CityFrontierProgressEvent;
+    const safetyWithoutDocument = {
+      ...common,
+      stage: stages[4],
+    } satisfies CityFrontierProgressEvent;
+
+    expect(stages).toHaveLength(10);
+    expect(Reflect.ownKeys(start)).toEqual([
+      "type", "runId", "baseRevisionId", "sequence", "occurredAt", "cityId", "stage",
+    ]);
+    expect(Reflect.ownKeys(fixedCompletion)).toEqual([
+      "type", "runId", "baseRevisionId", "sequence", "occurredAt", "cityId", "stage", "sourceUrl",
+    ]);
+    expect(Reflect.ownKeys(safetyWithoutDocument)).not.toContain("sourceUrl");
+    expect(JSON.stringify([start, fixedCompletion, safetyWithoutDocument])).not.toMatch(
+      /label|detail|query|snippet|credential|provider|raw.?error/i,
+    );
   });
 
   test("pins every exact amended Task 12 function signature", () => {

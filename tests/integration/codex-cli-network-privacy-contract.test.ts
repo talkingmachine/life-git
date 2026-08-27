@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import type { spawn } from "node:child_process";
+import { execFile, type spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, link, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -35,7 +37,19 @@ const EXACT_ALLOWLIST = Object.freeze({
 const BUNDLED_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex";
 const PUBLIC_IPV4 = "104.18.32.47";
 const SYNTHETIC_SENTINEL = "SYNTHETIC_CODEX_RUNTIME_SENTINEL_4F7B1C9D";
+const PRIVATE_LAUNCH_SENTINEL = "PRIVATE_CODEX_NETWORK_LAUNCH_SENTINEL_91d4";
+const NETWORK_MODULE_URL = new URL("../../evals/codex-cli-network-privacy.ts", import.meta.url);
+const TSX_LOADER_URL = new URL("../../node_modules/tsx/dist/loader.mjs", import.meta.url);
+const RUNTIME_FIXTURE_URL = new URL(
+  "../../evals/fixtures/codex-cli/runtime-cases.json",
+  import.meta.url,
+);
+const ALLOWLIST_FIXTURE_URL = new URL(
+  "../../evals/fixtures/codex-cli/network-allowlist.json",
+  import.meta.url,
+);
 const createdDirectories: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   vi.useRealTimers();
@@ -66,6 +80,205 @@ describe("Codex CLI network/privacy gate files", () => {
     expect(() => parseNetworkPrivacyCliArguments([
       "--", "--artifact", "data/evals/codex-cli-network-privacy.json",
     ])).toThrow("codex_network_privacy_audit_failed");
+  });
+
+  test("defers legacy argv before runtime initialization and clears only stale A", async () => {
+    // Break caught: the documented production form initializes DNS, subprocess, and model work without the gate.
+    const module = asNetworkLaunchGateModule(await import("../../evals/codex-cli-network-privacy"));
+    if (typeof module.runCodexCliNetworkPrivacyEntrypointForTest !== "function") {
+      expect(module.runCodexCliNetworkPrivacyEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    const directory = await freshDirectory();
+    const artifactPath = join(directory, "artifact.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    const runFinalProjectLiveModelGate = vi.fn(async () => {
+      throw new Error(PRIVATE_LAUNCH_SENTINEL);
+    });
+
+    expect(await module.runCodexCliNetworkPrivacyEntrypointForTest({
+      rawArguments: ["--artifact", artifactPath],
+      runFinalProjectLiveModelGate,
+    })).toEqual(deferredLaunchResult());
+    expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("recognizes only the exact leading final-project gate", async () => {
+    const module = asNetworkLaunchGateModule(await import("../../evals/codex-cli-network-privacy"));
+    if (typeof module.parseCodexCliNetworkPrivacyLaunchArguments !== "function") {
+      expect(module.parseCodexCliNetworkPrivacyLaunchArguments).toBeTypeOf("function");
+      return;
+    }
+    expect(module.parseCodexCliNetworkPrivacyLaunchArguments([
+      "--final-project-live-model-gate", "--artifact", "A",
+    ])).toEqual({
+      mode: "final-project-live-model-gate",
+      artifactPath: "A",
+    });
+  });
+
+  test("invokes only an exactly armed injected callback and contains its failure", async () => {
+    const module = asNetworkLaunchGateModule(await import("../../evals/codex-cli-network-privacy"));
+    if (typeof module.runCodexCliNetworkPrivacyEntrypointForTest !== "function") {
+      expect(module.runCodexCliNetworkPrivacyEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    for (const fails of [false, true]) {
+      const artifactPath = join(await freshDirectory(), `armed-artifact-${String(fails)}.json`);
+      await writeFile(artifactPath, "stale artifact\n", "utf8");
+      const runFinalProjectLiveModelGate = vi.fn(async (
+        paths: Readonly<{ artifactPath: string }>,
+      ) => {
+        expect(Object.isFrozen(paths)).toBe(true);
+        expect(paths).toEqual({ artifactPath });
+        await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
+        if (fails) throw new Error(PRIVATE_LAUNCH_SENTINEL);
+      });
+
+      const result = await module.runCodexCliNetworkPrivacyEntrypointForTest({
+        rawArguments: [
+          "--final-project-live-model-gate",
+          "--artifact",
+          artifactPath,
+        ],
+        runFinalProjectLiveModelGate,
+      });
+      expect(runFinalProjectLiveModelGate).toHaveBeenCalledTimes(1);
+      expect(runFinalProjectLiveModelGate).toHaveBeenCalledWith({ artifactPath });
+      expect(result).toEqual(fails
+        ? { exitCode: 1, stdout: "", stderr: "codex_network_privacy_audit_failed\n" }
+        : { exitCode: 0, stdout: "", stderr: "" });
+      expect(JSON.stringify(result)).not.toContain(PRIVATE_LAUNCH_SENTINEL);
+    }
+  });
+
+  test.each([
+    ["missing", []],
+    ["decorated", ["--final-project-live-model-gate=true", "--artifact", "A"]],
+    ["duplicate", [
+      "--final-project-live-model-gate", "--final-project-live-model-gate", "--artifact", "A",
+    ]],
+    ["misordered", ["--artifact", "A", "--final-project-live-model-gate"]],
+  ])("does not initialize or mutate for a %s gate shape", async (_name, shape) => {
+    const module = asNetworkLaunchGateModule(await import("../../evals/codex-cli-network-privacy"));
+    if (typeof module.runCodexCliNetworkPrivacyEntrypointForTest !== "function") {
+      expect(module.runCodexCliNetworkPrivacyEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    const artifactPath = join(await freshDirectory(), "artifact.json");
+    await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+    const rawArguments = shape.map((value) => value === "A" ? artifactPath : value);
+    const runFinalProjectLiveModelGate = vi.fn();
+
+    expect(await module.runCodexCliNetworkPrivacyEntrypointForTest({
+      rawArguments,
+      runFinalProjectLiveModelGate,
+    })).toEqual(deferredLaunchResult());
+    expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+  });
+
+  test("descriptor-rejects hostile argv without invoking traps or accessors", async () => {
+    const module = asNetworkLaunchGateModule(await import("../../evals/codex-cli-network-privacy"));
+    if (typeof module.runCodexCliNetworkPrivacyEntrypointForTest !== "function") {
+      expect(module.runCodexCliNetworkPrivacyEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    let proxyTouches = 0;
+    const proxy = new Proxy(["--artifact", "artifact.json"], {
+      getPrototypeOf() { proxyTouches += 1; throw new Error(PRIVATE_LAUNCH_SENTINEL); },
+      ownKeys() { proxyTouches += 1; throw new Error(PRIVATE_LAUNCH_SENTINEL); },
+      getOwnPropertyDescriptor() {
+        proxyTouches += 1;
+        throw new Error(PRIVATE_LAUNCH_SENTINEL);
+      },
+    });
+    let accessorTouches = 0;
+    const accessor = ["--artifact", "artifact.json"];
+    Object.defineProperty(accessor, "1", {
+      enumerable: true,
+      get() { accessorTouches += 1; return "artifact.json"; },
+    });
+    for (const rawArguments of [proxy, accessor]) {
+      const runFinalProjectLiveModelGate = vi.fn();
+      expect(await module.runCodexCliNetworkPrivacyEntrypointForTest({
+        rawArguments,
+        runFinalProjectLiveModelGate,
+      })).toEqual(deferredLaunchResult());
+      expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+    }
+    expect(proxyTouches).toBe(0);
+    expect(accessorTouches).toBe(0);
+  });
+
+  test("protects both reviewed fixtures through direct, symlink-parent, and hard-link aliases", async () => {
+    const module = asNetworkLaunchGateModule(await import("../../evals/codex-cli-network-privacy"));
+    if (typeof module.runCodexCliNetworkPrivacyEntrypointForTest !== "function") {
+      expect(module.runCodexCliNetworkPrivacyEntrypointForTest).toBeTypeOf("function");
+      return;
+    }
+    for (const fixtureUrl of [RUNTIME_FIXTURE_URL, ALLOWLIST_FIXTURE_URL]) {
+      const fixturePath = fileURLToPath(fixtureUrl);
+      const fixtureBytes = await readFile(fixturePath);
+      const aliasRoot = await freshDirectory();
+      const fixtureDirectoryAlias = join(aliasRoot, "fixture-directory-alias");
+      const fixtureHardLink = join(aliasRoot, `fixture-hard-link-${basename(fixturePath)}`);
+      await symlink(dirname(fixturePath), fixtureDirectoryAlias, "dir");
+      await link(fixturePath, fixtureHardLink);
+      for (const alias of [
+        fixturePath,
+        join(fixtureDirectoryAlias, basename(fixturePath)),
+        fixtureHardLink,
+      ]) {
+        const runFinalProjectLiveModelGate = vi.fn();
+        expect(await module.runCodexCliNetworkPrivacyEntrypointForTest({
+          rawArguments: ["--artifact", alias],
+          runFinalProjectLiveModelGate,
+        })).toEqual(deferredLaunchResult());
+        expect(runFinalProjectLiveModelGate).not.toHaveBeenCalled();
+        expect(await readFile(fixturePath)).toEqual(fixtureBytes);
+      }
+    }
+  });
+
+  test("fails a decorated subprocess with only the deferred public result", async () => {
+    const artifactPath = join(await freshDirectory(), "artifact.json");
+    await writeFile(artifactPath, "untrusted artifact\n", "utf8");
+    const result = await failingExecFile(process.execPath, [
+      "--import",
+      fileURLToPath(TSX_LOADER_URL),
+      fileURLToPath(NETWORK_MODULE_URL),
+      "--final-project-live-model-gate=true",
+      "--artifact",
+      artifactPath,
+    ]);
+
+    expect(result).toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    expect(await readFile(artifactPath, "utf8")).toBe("untrusted artifact\n");
+  });
+
+  test("defers the canonical legacy subprocess without initializing network or Codex", async () => {
+    const artifactPath = join(await freshDirectory(), "artifact.json");
+    await writeFile(artifactPath, "stale passing artifact\n", "utf8");
+    const result = await failingExecFile(process.execPath, [
+      "--import",
+      fileURLToPath(TSX_LOADER_URL),
+      fileURLToPath(NETWORK_MODULE_URL),
+      "--artifact",
+      artifactPath,
+    ]);
+
+    expect(result).toMatchObject({
+      code: 1,
+      stdout: "",
+      stderr: "onboarding_live_model_gate_deferred\n",
+    });
+    await expect(access(artifactPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test.each([
@@ -569,6 +782,50 @@ async function freshDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "codex-network-artifact-"));
   createdDirectories.push(directory);
   return directory;
+}
+
+interface NetworkLaunchGateModule {
+  readonly parseCodexCliNetworkPrivacyLaunchArguments?: (input: unknown) => unknown;
+  readonly runCodexCliNetworkPrivacyEntrypointForTest?: (input: {
+    readonly rawArguments: unknown;
+    readonly runFinalProjectLiveModelGate: (
+      paths: Readonly<{ artifactPath: string }>,
+    ) => Promise<void>;
+  }) => Promise<unknown>;
+}
+
+function asNetworkLaunchGateModule(value: unknown): NetworkLaunchGateModule {
+  return value as NetworkLaunchGateModule;
+}
+
+function deferredLaunchResult() {
+  return {
+    exitCode: 1 as const,
+    stdout: "" as const,
+    stderr: "onboarding_live_model_gate_deferred\n" as const,
+  };
+}
+
+async function failingExecFile(file: string, args: readonly string[]): Promise<{
+  readonly code: number | string | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
+  try {
+    await execFileAsync(file, args, { encoding: "utf8" });
+  } catch (error) {
+    const failure = error as Error & {
+      readonly code?: number | string | null;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
+    return {
+      code: failure.code ?? null,
+      stdout: failure.stdout ?? "",
+      stderr: failure.stderr ?? "",
+    };
+  }
+  throw new Error("expected subprocess failure");
 }
 
 async function syntheticFixture(): Promise<SyntheticFixtureInput> {

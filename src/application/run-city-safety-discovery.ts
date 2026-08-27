@@ -681,7 +681,7 @@ function sanitizeConflictBasis(value: unknown): CitySafetyConflictBasis {
   const denominator = sanitizeDenominator(value.denominator);
   if (quantities[0].population !== quantities[1].population ||
     quantities[0].population !== denominator.population ||
-    quantities[0].offenceCount >= quantities[1].offenceCount) invalidInspection();
+    BigInt(quantities[0].offenceCount) >= BigInt(quantities[1].offenceCount)) invalidInspection();
   return { referenceYear: value.referenceYear as number, quantities, denominator };
 }
 
@@ -1026,6 +1026,7 @@ async function executeDiscovery(
     abortIfNeeded(input.signal);
     const queryId = `city-safety-query:${input.runId}:${queryIndex + 1}`;
     const searchedAt = clockInstant(ports.clock);
+    abortIfNeeded(input.signal);
     const resultLimit = MAX_CANDIDATES - candidateAttempts.length;
     const response = validateSearchResponse(await ports.search.search({
       queryId,

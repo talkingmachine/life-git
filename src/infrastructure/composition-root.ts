@@ -37,6 +37,12 @@ import { createEvidenceIntegrity } from "./integrity";
 import { createCodexOnboardingModel } from "./codex-cli/onboarding-model";
 import { getCodexCliModelAdapter } from "./codex-cli/runtime";
 import { createColdStartComposition } from "./cold-start-composition";
+import { withSharedProfileCompositionPort } from "./composition-dependencies";
+import {
+  createCityFrontierComposition,
+  type CityFrontierFixedTiming,
+  type CityFrontierLiveSourceConfiguration,
+} from "./city-frontier-composition";
 import { createCountryResolutionComposition } from "./country-resolution-composition";
 import { createPlaceFrontierComposition } from "./place-frontier-composition";
 import { captureHttpOnce } from "./sources/gateway";
@@ -58,6 +64,10 @@ export interface ConfirmedLifeCompositionOptions {
   readonly clock?: () => Date;
   readonly nextId?: (kind: "run" | "revision" | "assessment") => string;
   readonly deadlineAt?: (now: Date) => Date;
+  readonly cityFrontierLiveSources?: CityFrontierLiveSourceConfiguration;
+  readonly cityFrontierResolveAvailability?: typeof import("../research/city-package")
+    .getCityResearchPackageAvailability;
+  readonly cityFrontierFixedTiming?: CityFrontierFixedTiming;
 }
 
 export function createConfirmedLifeComposition(options: ConfirmedLifeCompositionOptions) {
@@ -120,20 +130,20 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     nextId,
     deadlineAt: options.deadlineAt ?? ((now) => new Date(now.getTime() + 45_000)),
   });
-  const coldStart = createColdStartComposition({
+  const coldStart = createColdStartComposition(withSharedProfileCompositionPort({
     database: options.database,
     hmacKey: options.hmacKey,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
-  });
-  const placeFrontier = createPlaceFrontierComposition({
+  }, profileStore));
+  const placeFrontier = createPlaceFrontierComposition(withSharedProfileCompositionPort({
     database: options.database,
     hmacKey: options.hmacKey,
     onboardingConfirmations: onboardingStore,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
-  });
-  const countryResolution = createCountryResolutionComposition({
+  }, profileStore));
+  const countryResolution = createCountryResolutionComposition(withSharedProfileCompositionPort({
     database: options.database,
     hmacKey: options.hmacKey,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
@@ -141,7 +151,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
       requestStep: options.requestStep as unknown as RequestStep<SloveniaSourceId>,
     }),
     nextRunId: () => nextId("run"),
-  });
+  }, profileStore));
   const housingBranch = createHousingBranchApplication({
     profileStore,
     runStore,
@@ -177,6 +187,36 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     saveInitialHousingBranch: housingBranch.saveInitialHousingBranch,
     forkHousingBranch: housingBranch.forkHousingBranch,
   });
+  const loadRelocationAnyVerified = profileStore.loadRelocationAnyVerified;
+  const loadPreferenceForRankingVerified = profileStore.loadPreferenceForRankingVerified;
+  const cityFrontier = createCityFrontierComposition({
+    database: options.database,
+    hmacKey: options.hmacKey,
+    resolvedCountries: {
+      requireResolvedCountryShortlistForCity:
+        countryResolution.requireResolvedCountryShortlistForCity,
+    },
+    profiles: {
+      loadRelocationAnyVerified: (id) => Reflect.apply(
+        loadRelocationAnyVerified,
+        profileStore,
+        [id],
+      ),
+      loadPreferenceForRankingVerified: (id) => Reflect.apply(
+        loadPreferenceForRankingVerified,
+        profileStore,
+        [id],
+      ),
+    },
+    liveSources: options.cityFrontierLiveSources ?? { kind: "unconfigured" },
+    ...(options.cityFrontierResolveAvailability === undefined ? {} : {
+      resolveAvailability: options.cityFrontierResolveAvailability,
+    }),
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    ...(options.cityFrontierFixedTiming === undefined ? {} : {
+      fixedTiming: options.cityFrontierFixedTiming,
+    }),
+  });
   return Object.freeze({
     ...confirmedLife,
     ...coldStart,
@@ -211,6 +251,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     presentCountryResolution: countryResolution.presentCountryResolution,
     requireResolvedCountryShortlistForCity:
       countryResolution.requireResolvedCountryShortlistForCity,
+    ...cityFrontier.application,
   });
 }
 

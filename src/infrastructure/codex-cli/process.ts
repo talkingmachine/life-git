@@ -43,6 +43,8 @@ export interface BoundedProcessResult {
 const FORCE_KILL_AFTER_MS = 250;
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const NATIVE_REASON_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "reason")?.get;
+const NATIVE_ADD_EVENT_LISTENER = EventTarget.prototype.addEventListener;
+const NATIVE_REMOVE_EVENT_LISTENER = EventTarget.prototype.removeEventListener;
 
 export const nodeCodexProcessSpawner: CodexProcessSpawner = Object.freeze({
   spawn(input: Parameters<CodexProcessSpawner["spawn"]>[0]): SpawnedCodexProcess {
@@ -56,7 +58,13 @@ export const nodeCodexProcessSpawner: CodexProcessSpawner = Object.freeze({
     child.stdin.end(input.stdin);
 
     const exit = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
-      child.once("error", reject);
+      let spawned = child.pid !== undefined;
+      child.once("spawn", () => {
+        spawned = true;
+      });
+      child.on("error", (error) => {
+        if (!spawned) reject(error);
+      });
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
 
@@ -76,7 +84,17 @@ export async function runBoundedProcess(
   request: BoundedProcessRequest,
   spawner: CodexProcessSpawner,
 ): Promise<BoundedProcessResult> {
-  throwIfAborted(request.signal);
+  let abort: ReturnType<typeof createAbortPromise> | undefined;
+  try {
+    throwIfAborted(request.signal);
+    abort = createAbortPromise(request.signal);
+    throwIfAborted(request.signal);
+  } catch {
+    abort?.dispose();
+    const callerAbort = safelyReadAbortReason(request.signal);
+    if (callerAbort !== undefined) throw callerAbort;
+    throw processFailed();
+  }
 
   let process: SpawnedCodexProcess;
   try {
@@ -88,30 +106,32 @@ export async function runBoundedProcess(
       stdin: request.stdin,
     });
   } catch {
+    abort.dispose();
+    const callerAbort = safelyReadAbortReason(request.signal);
+    if (callerAbort !== undefined) throw callerAbort;
     throw processFailed();
   }
 
   let hasExited = false;
-  const observedExit = process.exit.then(
-    (result) => {
-      hasExited = true;
-      return result;
-    },
-    () => {
-      hasExited = true;
-      throw processFailed();
-    },
-  );
-  const stdout = readStdout(process.stdout, request.maxStdoutBytes);
-  const stderr = readStderr(process.stderr, request.maxStderrBytes, request.captureStderr === true);
-  const completion = Promise.all([stdout, stderr, observedExit]);
-  const abort = createAbortPromise(request.signal);
   let timeoutIdentifier: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timeoutIdentifier = setTimeout(() => reject(new CodexRuntimeError("codex_timeout")), request.timeoutMs);
-  });
 
   try {
+    const observedExit = process.exit.then(
+      (result) => {
+        hasExited = true;
+        return result;
+      },
+      () => {
+        hasExited = true;
+        throw processFailed();
+      },
+    );
+    const stdout = readStdout(process.stdout, request.maxStdoutBytes);
+    const stderr = readStderr(process.stderr, request.maxStderrBytes, request.captureStderr === true);
+    const completion = Promise.all([stdout, stderr, observedExit]);
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutIdentifier = setTimeout(() => reject(new CodexRuntimeError("codex_timeout")), request.timeoutMs);
+    });
     const [stdoutChunks, stderrResult, exit] = await Promise.race([completion, abort.promise, timeout]);
     throwIfAborted(request.signal);
     if (exit.code !== 0) throw processFailed();
@@ -124,7 +144,7 @@ export async function runBoundedProcess(
     return result;
   } catch (error) {
     await terminateProcess(process, () => hasExited);
-    const callerAbort = abortReason(request.signal);
+    const callerAbort = safelyReadAbortReason(request.signal);
     if (callerAbort !== undefined) throw callerAbort;
     if (error instanceof CodexRuntimeError) throw error;
     throw processFailed();
@@ -186,8 +206,27 @@ function createAbortPromise(signal: AbortSignal): {
     const reason = abortReason(signal);
     if (reason !== undefined) rejectAbort(reason);
   };
-  signal.addEventListener("abort", onAbort);
-  return { promise, dispose: () => signal.removeEventListener("abort", onAbort) };
+  try {
+    NATIVE_ADD_EVENT_LISTENER.call(signal, "abort", onAbort);
+  } catch (error) {
+    try {
+      NATIVE_REMOVE_EVENT_LISTENER.call(signal, "abort", onAbort);
+    } catch {
+      // Registration never completed on a valid signal.
+    }
+    throw error;
+  }
+  void promise.catch(() => undefined);
+  return {
+    promise,
+    dispose: () => {
+      try {
+        NATIVE_REMOVE_EVENT_LISTENER.call(signal, "abort", onAbort);
+      } catch {
+        // Cleanup failure must not replace the caller-visible process outcome.
+      }
+    },
+  };
 }
 
 async function terminateProcess(process: SpawnedCodexProcess, hasExited: () => boolean): Promise<void> {
@@ -197,7 +236,10 @@ async function terminateProcess(process: SpawnedCodexProcess, hasExited: () => b
     process.exit.then(() => undefined, () => undefined),
     new Promise<void>((resolve) => setTimeout(resolve, FORCE_KILL_AFTER_MS)),
   ]);
-  if (!hasExited()) safelyKill(process, "SIGKILL");
+  if (!hasExited()) {
+    safelyKill(process, "SIGKILL");
+    await process.exit.then(() => undefined, () => undefined);
+  }
 }
 
 function safelyKill(process: SpawnedCodexProcess, signal: "SIGTERM" | "SIGKILL"): void {
@@ -216,6 +258,14 @@ function throwIfAborted(signal: AbortSignal): void {
 function abortReason(signal: AbortSignal): unknown | undefined {
   if (NATIVE_ABORTED_GETTER?.call(signal) !== true) return undefined;
   return NATIVE_REASON_GETTER?.call(signal) ?? new DOMException("Aborted", "AbortError");
+}
+
+function safelyReadAbortReason(signal: AbortSignal): unknown | undefined {
+  try {
+    return abortReason(signal);
+  } catch {
+    return undefined;
+  }
 }
 
 function processFailed(): CodexRuntimeError {
