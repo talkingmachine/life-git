@@ -43,6 +43,51 @@ const CURRENT_COUNTRY_KNOWLEDGE_TABLE = normalizeSchemaSql(`
   );
 `);
 
+const CURRENT_DOSSIER_V2_TABLE = normalizeExactSchemaSql(`
+CREATE TABLE IF NOT EXISTS dossier_versions_v2 (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (country_code = 'SI'),
+  predecessor_id TEXT REFERENCES dossier_versions_v2(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'si-dossier@2'),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  manifest_hash TEXT NOT NULL CHECK (length(manifest_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  published_at TEXT NOT NULL,
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (country_code, evidence_snapshot_id)
+);
+`);
+
+const CURRENT_DOSSIER_V2_ONE_SUCCESSOR = normalizeExactSchemaSql(`
+CREATE UNIQUE INDEX IF NOT EXISTS dossier_versions_v2_one_successor
+ON dossier_versions_v2 (predecessor_id)
+WHERE predecessor_id IS NOT NULL;
+`);
+
+const CURRENT_DOSSIER_V2_ONE_ROOT = normalizeExactSchemaSql(`
+CREATE UNIQUE INDEX IF NOT EXISTS dossier_versions_v2_one_root
+ON dossier_versions_v2 (country_code)
+WHERE predecessor_id IS NULL;
+`);
+
+const CURRENT_DOSSIER_V2_NO_UPDATE = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS dossier_versions_v2_no_update
+BEFORE UPDATE ON dossier_versions_v2
+BEGIN
+  SELECT RAISE(ABORT, 'dossier_version_v2_is_immutable');
+END;
+`);
+
+const CURRENT_DOSSIER_V2_NO_DELETE = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS dossier_versions_v2_no_delete
+BEFORE DELETE ON dossier_versions_v2
+BEGIN
+  SELECT RAISE(ABORT, 'dossier_version_v2_is_immutable');
+END;
+`);
+
 const CURRENT_CITY_EVIDENCE_TABLE = normalizeSchemaSql(`
   CREATE TABLE IF NOT EXISTS city_evidence_snapshots (
     id TEXT PRIMARY KEY REFERENCES evidence_snapshots(id),
@@ -90,6 +135,43 @@ const CURRENT_COUNTRY_RESOLUTION_TABLE = normalizeSchemaSql(`
   );
 `);
 
+const CURRENT_ONBOARDING_CONFIRMATIONS_TABLE = normalizeExactSchemaSql(`
+CREATE TABLE IF NOT EXISTS onboarding_confirmations (
+  schema_version TEXT NOT NULL
+    CHECK (schema_version = 'onboarding-receipt@1'),
+  receipt_id TEXT PRIMARY KEY,
+  completion_command_id TEXT NOT NULL UNIQUE,
+  confirmation_digest TEXT NOT NULL CHECK (
+    length(confirmation_digest) = 64
+    AND confirmation_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  preference_profile_id TEXT NOT NULL REFERENCES profile_snapshots(id),
+  frontier_run_id TEXT NOT NULL UNIQUE,
+  confirmed_at TEXT NOT NULL UNIQUE,
+  provenance_json TEXT NOT NULL,
+  versions_json TEXT NOT NULL,
+  UNIQUE (profile_id, preference_profile_id),
+  CHECK (profile_id <> preference_profile_id)
+);
+`);
+
+const CURRENT_ONBOARDING_NO_UPDATE_TRIGGER = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS onboarding_confirmations_no_update
+BEFORE UPDATE ON onboarding_confirmations
+BEGIN
+  SELECT RAISE(ABORT, 'onboarding_confirmation_is_immutable');
+END;
+`);
+
+const CURRENT_ONBOARDING_NO_DELETE_TRIGGER = normalizeExactSchemaSql(`
+CREATE TRIGGER IF NOT EXISTS onboarding_confirmations_no_delete
+BEFORE DELETE ON onboarding_confirmations
+BEGIN
+  SELECT RAISE(ABORT, 'onboarding_confirmation_is_immutable');
+END;
+`);
+
 interface SchemaEntry {
   readonly type: string;
   readonly sql: string | null;
@@ -106,8 +188,28 @@ interface ForeignKeyEntry {
   readonly match: string;
 }
 
+interface IndexListEntry {
+  readonly name: string;
+  readonly unique: number;
+}
+
+interface IndexInfoEntry {
+  readonly seqno: number;
+  readonly name: string;
+}
+
 function normalizeSchemaSql(value: string): string {
   return value.toLowerCase().replace(/\s+/g, "").replace("ifnotexists", "").replace(/;$/, "");
+}
+
+function normalizeExactSchemaSql(value: string): string {
+  const withoutOptionalExistence = value.trim()
+    .replace(/^CREATE TABLE IF NOT EXISTS /, "CREATE TABLE ")
+    .replace(/^CREATE TRIGGER IF NOT EXISTS /, "CREATE TRIGGER ")
+    .replace(/^CREATE UNIQUE INDEX IF NOT EXISTS /, "CREATE UNIQUE INDEX ");
+  return withoutOptionalExistence.endsWith(";")
+    ? withoutOptionalExistence.slice(0, -1).trimEnd()
+    : withoutOptionalExistence;
 }
 
 function hasCurrentBranchCommitForeignKey(database: Database.Database): boolean {
@@ -147,6 +249,85 @@ function preflightExistingCountryKnowledge(database: Database.Database): void {
   }
 }
 
+function hasExactDossierV2Object(
+  database: Database.Database,
+  name: string,
+  type: "index" | "trigger",
+  expectedSql: string,
+): boolean {
+  const entry = database.prepare(
+    "SELECT type, sql FROM sqlite_master WHERE name = ?",
+  ).get(name) as SchemaEntry | undefined;
+  return entry !== undefined && entry.type === type && entry.sql !== null &&
+    normalizeExactSchemaSql(entry.sql) === expectedSql;
+}
+
+function hasExactDossierV2ObjectSet(database: Database.Database): boolean {
+  const objects = database.prepare(`
+    SELECT type, name FROM sqlite_master
+    WHERE tbl_name = 'dossier_versions_v2' AND name NOT LIKE 'sqlite_%'
+    ORDER BY type, name
+  `).all() as Array<{ readonly type: string; readonly name: string }>;
+  const expected = [
+    { type: "index", name: "dossier_versions_v2_one_root" },
+    { type: "index", name: "dossier_versions_v2_one_successor" },
+    { type: "table", name: "dossier_versions_v2" },
+    { type: "trigger", name: "dossier_versions_v2_no_delete" },
+    { type: "trigger", name: "dossier_versions_v2_no_update" },
+  ];
+  return objects.length === expected.length && objects.every((entry, index) =>
+    entry.type === expected[index]!.type && entry.name === expected[index]!.name
+  );
+}
+
+function preflightExistingDossierV2(database: Database.Database): void {
+  const entry = database.prepare(`
+    SELECT type, sql FROM sqlite_master WHERE name = 'dossier_versions_v2'
+  `).get() as SchemaEntry | undefined;
+  const objectNames = [
+    "dossier_versions_v2_one_successor",
+    "dossier_versions_v2_one_root",
+    "dossier_versions_v2_no_update",
+    "dossier_versions_v2_no_delete",
+  ] as const;
+  if (entry === undefined) {
+    const orphanedObject = database.prepare(`
+      SELECT 1 FROM sqlite_master WHERE name IN (?, ?, ?, ?) LIMIT 1
+    `).get(...objectNames);
+    if (orphanedObject !== undefined) throw new Error("database_schema_reset_required");
+    return;
+  }
+  if (
+    entry.type !== "table" || entry.sql === null ||
+    normalizeExactSchemaSql(entry.sql) !== CURRENT_DOSSIER_V2_TABLE ||
+    !hasExactDossierV2ObjectSet(database) ||
+    !hasExactDossierV2Object(
+      database,
+      objectNames[0],
+      "index",
+      CURRENT_DOSSIER_V2_ONE_SUCCESSOR,
+    ) ||
+    !hasExactDossierV2Object(
+      database,
+      objectNames[1],
+      "index",
+      CURRENT_DOSSIER_V2_ONE_ROOT,
+    ) ||
+    !hasExactDossierV2Object(
+      database,
+      objectNames[2],
+      "trigger",
+      CURRENT_DOSSIER_V2_NO_UPDATE,
+    ) ||
+    !hasExactDossierV2Object(
+      database,
+      objectNames[3],
+      "trigger",
+      CURRENT_DOSSIER_V2_NO_DELETE,
+    )
+  ) throw new Error("database_schema_reset_required");
+}
+
 function preflightExistingCityEvidence(database: Database.Database): void {
   const entry = database.prepare(`
     SELECT type, sql FROM sqlite_master WHERE name = 'city_evidence_snapshots'
@@ -173,6 +354,96 @@ function preflightExistingCountryResolution(database: Database.Database): void {
   }
 }
 
+function hasCurrentOnboardingForeignKeys(database: Database.Database): boolean {
+  const foreignKeys = database.pragma(
+    "foreign_key_list(onboarding_confirmations)",
+  ) as ForeignKeyEntry[];
+  if (foreignKeys.length !== 2) return false;
+  return ["profile_id", "preference_profile_id"].every((column) => {
+    const candidates = foreignKeys.filter((entry) => entry.from === column);
+    if (candidates.length !== 1) return false;
+    const candidate = candidates[0]!;
+    return candidate.seq === 0 &&
+      candidate.table === "profile_snapshots" &&
+      candidate.to === "id" &&
+      candidate.on_update === "NO ACTION" &&
+      candidate.on_delete === "NO ACTION" &&
+      candidate.match === "NONE" &&
+      foreignKeys.filter((entry) => entry.id === candidate.id).length === 1;
+  });
+}
+
+function hasCurrentOnboardingUniqueConstraints(database: Database.Database): boolean {
+  const indexes = database.pragma(
+    "index_list(onboarding_confirmations)",
+  ) as IndexListEntry[];
+  const uniqueColumnSets = indexes
+    .filter(({ unique }) => unique === 1)
+    .map(({ name }) => (database.pragma(`index_info('${name}')`) as IndexInfoEntry[])
+      .sort((left, right) => left.seqno - right.seqno)
+      .map(({ name: column }) => column)
+      .join(","))
+    .sort();
+  const expected = [
+    "completion_command_id",
+    "confirmed_at",
+    "frontier_run_id",
+    "profile_id,preference_profile_id",
+    "receipt_id",
+  ];
+  return uniqueColumnSets.length === expected.length &&
+    uniqueColumnSets.every((value, index) => value === expected[index]);
+}
+
+function hasExactSchemaObject(
+  database: Database.Database,
+  name: string,
+  type: "trigger",
+  expectedSql: string,
+): boolean {
+  const entry = database.prepare(
+    "SELECT type, sql FROM sqlite_master WHERE name = ?",
+  ).get(name) as SchemaEntry | undefined;
+  return entry !== undefined && entry.type === type && entry.sql !== null &&
+    normalizeExactSchemaSql(entry.sql) === expectedSql;
+}
+
+function preflightExistingOnboardingConfirmations(database: Database.Database): void {
+  const entry = database.prepare(`
+    SELECT type, sql FROM sqlite_master WHERE name = 'onboarding_confirmations'
+  `).get() as SchemaEntry | undefined;
+  const triggerNames = [
+    "onboarding_confirmations_no_update",
+    "onboarding_confirmations_no_delete",
+  ] as const;
+  if (entry === undefined) {
+    const orphanedObject = database.prepare(`
+      SELECT 1 FROM sqlite_master WHERE name IN (?, ?) LIMIT 1
+    `).get(...triggerNames);
+    if (orphanedObject !== undefined) throw new Error("database_schema_reset_required");
+    return;
+  }
+  if (
+    entry.type !== "table" ||
+    entry.sql === null ||
+    normalizeExactSchemaSql(entry.sql) !== CURRENT_ONBOARDING_CONFIRMATIONS_TABLE ||
+    !hasCurrentOnboardingForeignKeys(database) ||
+    !hasCurrentOnboardingUniqueConstraints(database) ||
+    !hasExactSchemaObject(
+      database,
+      triggerNames[0],
+      "trigger",
+      CURRENT_ONBOARDING_NO_UPDATE_TRIGGER,
+    ) ||
+    !hasExactSchemaObject(
+      database,
+      triggerNames[1],
+      "trigger",
+      CURRENT_ONBOARDING_NO_DELETE_TRIGGER,
+    )
+  ) throw new Error("database_schema_reset_required");
+}
+
 export function openEvidenceDatabase(path: string): Database.Database {
   const database = new Database(path);
   try {
@@ -180,7 +451,9 @@ export function openEvidenceDatabase(path: string): Database.Database {
     preflightExistingRunRevisions(database);
     preflightExistingCityEvidence(database);
     preflightExistingCountryKnowledge(database);
+    preflightExistingDossierV2(database);
     preflightExistingCountryResolution(database);
+    preflightExistingOnboardingConfirmations(database);
     database.exec(schema);
     return database;
   } catch (error) {

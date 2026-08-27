@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type Database from "better-sqlite3";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 
 import {
   sqlitePublicationWorker,
@@ -29,14 +29,18 @@ import { replayEvidenceByRules } from "../../src/application/replay-evidence";
 import {
   createColdStartApplication,
   type ColdStartApplication,
+  type ColdStartApplicationAny,
   type ColdStartEvent,
+  type ColdStartEventAny,
   type ColdStartPrepared,
   type ColdStartReadModel,
+  type ColdStartReadModelAny,
 } from "../../src/application/cold-start";
 import { confirmProfile } from "../../src/decision/profile";
 import { assessColdStart } from "../../src/decision/cold-start-assessment";
 import {
   confirmRelocationProfile,
+  materializeRelocationProfileV2,
   type RelocationProfileDraft,
 } from "../../src/decision/relocation-profile";
 import { REQUIRED_CLAIM_KINDS } from "../../src/research/country-registry";
@@ -48,11 +52,21 @@ import type {
   SloveniaSourceId,
   VerifiedCountryClaim,
 } from "../../src/research/cold-start-contracts";
+import {
+  SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_PARSER_VERSIONS,
+  SLOVENIA_V2_RESEARCH_SCOPE,
+  type ColdStartEvidenceClaimV2,
+} from "../../src/research/cold-start-contracts-v2";
 import type { HttpStepRequest, LiveCapturedArtifact } from "../../src/research/contracts";
 import {
   buildCountryDossier,
   type DossierPublishResult,
 } from "../../src/research/dossier";
+import {
+  buildCountryDossierV2,
+  type DossierVersionV2,
+} from "../../src/research/dossier-v2";
 import { createSloveniaPlan } from "../../src/research/slovenia-plan";
 import { createInstalledCountrySourceIndex } from "../../src/infrastructure/sources/country-source-index";
 import { SourceCaptureError } from "../../src/infrastructure/sources/gateway";
@@ -566,6 +580,715 @@ describe("relocation profile confirmation boundary", () => {
       "SELECT snapshot_json FROM profile_snapshots WHERE id = ?",
     ).pluck().get(legacy.id)).toBe(legacyJson);
     await expect(store.loadRelocationVerified(legacy.id)).rejects.toThrow("integrity_mismatch");
+  });
+});
+
+function relocationV2ForColdStart() {
+  return materializeRelocationProfileV2({
+    confirmedAt: "2026-08-22T08:00:00.000Z",
+    profile: {
+      schemaVersion: "relocation-profile@2",
+      profile: {
+        currentLocation: { countryCode: "RU", city: "Moscow" },
+        moveHorizon: "within_3_months",
+        movingParty: "alone",
+        participants: [{
+          participantId: "00000000-0000-4000-8000-000000000101",
+          relationship: "self",
+          citizenships: ["RU"],
+          passport: { validUntil: "2030-01-01" },
+          currentWork: {
+            applicability: "required",
+            value: { status: "employment", occupation: "Engineer" },
+          },
+          remoteContinuation: { applicability: "required", value: "yes" },
+          monthlyIncome: {
+            applicability: "required",
+            value: { amount: "3000", currency: "EUR", basis: "net" },
+          },
+          education: {
+            applicability: "required",
+            value: { level: "higher", field: "Engineering" },
+          },
+          relevantExperienceYears: { applicability: "required", value: 8 },
+        }],
+        savings: { min: "10000", max: "20000", currency: "EUR" },
+      },
+    },
+  });
+}
+
+function relocationV2GroupForColdStart() {
+  const base = relocationV2ForColdStart();
+  const self = base.profile.participants[0];
+  const spouse = {
+    ...self,
+    participantId: "00000000-0000-4000-8000-000000000102",
+    relationship: "spouse" as const,
+  };
+  const child = {
+    participantId: "00000000-0000-4000-8000-000000000103",
+    relationship: "minor_child" as const,
+    citizenships: ["RU"],
+    passport: "absent" as const,
+    currentWork: { applicability: "not_applicable" as const },
+    remoteContinuation: { applicability: "not_applicable" as const },
+    monthlyIncome: { applicability: "not_applicable" as const },
+    education: { applicability: "not_applicable" as const },
+    relevantExperienceYears: { applicability: "not_applicable" as const },
+  };
+  return materializeRelocationProfileV2({
+    confirmedAt: base.confirmedAt,
+    profile: {
+      schemaVersion: "relocation-profile@2",
+      profile: {
+        ...base.profile,
+        movingParty: "with_companions",
+        participants: [
+          self,
+          spouse,
+          child,
+        ],
+      },
+    },
+  });
+}
+
+async function routeOnlyV2Evidence(input: {
+  readonly runId: string;
+  readonly assessmentDate: string;
+  readonly contextHash: string;
+}) {
+  const sourceId = "si-digital-nomad-route" as const;
+  const bytes = new TextEncoder().encode("official Slovenia digital nomad route");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const artifactId = `${sourceId}:route:${sha256}`;
+  const navigationUrl = SOURCE_URLS[sourceId];
+  const artifact: LiveCapturedArtifact<SloveniaSourceId> = {
+    artifactId,
+    runId: input.runId,
+    sourceId,
+    role: "gov-route-page",
+    url: navigationUrl,
+    mediaType: "text/plain",
+    sha256,
+    bytes,
+    origin: "live",
+    capturedAt: `${input.assessmentDate}T10:00:00.000Z`,
+    responseStatus: 200,
+    responseUrl: navigationUrl,
+    request: { method: "GET", url: navigationUrl },
+  };
+  const anchor = {
+    artifactId,
+    locator: "ZTuj-2 Article 51a",
+    excerptSha256: createHash("sha256").update("route basis").digest("hex"),
+  };
+  const claim: ColdStartEvidenceClaimV2 = {
+    claimId: `${sourceId}:route_basis:si-route@3`,
+    claimKind: "route_basis",
+    sourceId,
+    value: {
+      route: "temporary_residence_digital_nomad",
+      legalBasis: "ZTuj-2 Article 51a",
+      effectiveFrom: "2025-11-21",
+    },
+    scope: SLOVENIA_V2_RESEARCH_SCOPE,
+    sourcePeriod: "2025-11-21",
+    anchor,
+    evidence: [{
+      sourceId,
+      artifactId,
+      navigationUrl,
+      resolvedEvidenceUrl: navigationUrl,
+      sourcePeriod: "2025-11-21",
+      anchor,
+    }],
+    validatorVersion: "si-route@3",
+    status: "verified",
+  };
+  const parserEntries = SOURCE_IDS.map((candidateSourceId) => ({
+    sourceId: candidateSourceId,
+    navigationUrl: SOURCE_URLS[candidateSourceId],
+    resolvedEvidenceUrl: SOURCE_URLS[candidateSourceId],
+    artifacts: candidateSourceId === sourceId ? [artifact] : [],
+  }));
+  const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaimV2>[] =
+    parserEntries.map((parserEntry) => parserEntry.sourceId === sourceId
+      ? { sourceId, parserEntry, coverage: "verified" as const, claims: [claim] }
+      : {
+          sourceId: parserEntry.sourceId,
+          parserEntry,
+          coverage: "unavailable" as const,
+          blocker: {
+            sourceId: parserEntry.sourceId,
+            kind: "semantic_mismatch" as const,
+            navigationUrl: parserEntry.navigationUrl,
+            artifactIds: [],
+          },
+        });
+  const prepared = await sealEvidencePlan({
+    id: `${input.runId}:evidence`,
+    assessmentDate: input.assessmentDate,
+    entries,
+    sourceIds: SOURCE_IDS,
+    parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+    rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+    contextHash: input.contextHash,
+  }, createEvidenceIntegrity(KEY));
+  return { prepared, parserEntries };
+}
+
+describe("closed relocation-profile@2 Cold Start dispatch", () => {
+  test("returns the exact Any surface while inherited methods stay V1-only", () => {
+    const db = database();
+    const application = createColdStartComposition({ database: db, hmacKey: KEY });
+    const historical = coldStartHarness().application;
+
+    expectTypeOf(application).toMatchTypeOf<ColdStartApplicationAny>();
+    expectTypeOf(application.prepare).returns.resolves.toMatchTypeOf<ColdStartPrepared>();
+    expectTypeOf(application.run).returns.resolves.toMatchTypeOf<ColdStartReadModel>();
+    expectTypeOf(application.present).returns.resolves.toMatchTypeOf<ColdStartReadModel>();
+    expectTypeOf(application.runAny).returns.resolves.toMatchTypeOf<ColdStartReadModelAny>();
+    expect(Object.keys(application)).toEqual([
+      "prepare", "run", "present", "prepareAny", "runAny", "presentAny",
+    ]);
+    expect(Object.keys(historical)).toEqual(["prepare", "run", "present"]);
+  });
+
+  test("dispatches an ID-loaded @1 through Any with exact historical bytes and no V2 rows", async () => {
+    const db = database();
+    const runId = "any-v1-run";
+    const fixture = await replayableFixture({ runId });
+    const requestStep = async (request: HttpStepRequest<SloveniaSourceId>) => {
+      const captured = fixture.artifacts.find((artifact) =>
+        artifact.sourceId === request.sourceId && artifact.role === request.role
+      );
+      if (captured === undefined) throw new Error(`missing fixture for ${request.role}`);
+      return captured;
+    };
+    let allocation = 0;
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      requestStep,
+      clock: () => new Date("2026-08-11T10:00:00.000Z"),
+      nextRunId: () => allocation++ === 0 ? "profile-seed-run" : runId,
+    });
+    const profileSeed = await application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+    const prepared = await application.prepareAny({
+      countryInput: "SI",
+      profileId: profileSeed.profileId,
+    });
+    const events: ColdStartEventAny[] = [];
+
+    const result = await application.runAny(
+      prepared,
+      (event) => { events.push(event); },
+      new AbortController().signal,
+    );
+
+    expect(result.assessmentRulesVersion).toBe("cold-start-assessment@1");
+    expect("assessmentProjection" in result).toBe(false);
+    expect(canonicalJson(await application.presentAny({
+      runId,
+      profileId: profileSeed.profileId,
+    }))).toBe(canonicalJson(result));
+    expect(canonicalJson(await application.present({
+      runId,
+      profileId: profileSeed.profileId,
+    }))).toBe(canonicalJson(result));
+    expect(events.at(-1)).toMatchObject({
+      type: "assessment_completed",
+      payload: { readModel: result },
+    });
+    expect(JSON.parse(db.prepare(
+      "SELECT snapshot_json FROM evidence_snapshots WHERE id = ?",
+    ).pluck().get(`${runId}:evidence`) as string)).toMatchObject({
+      rulesVersion: "vs2-si-evidence@2",
+    });
+    expect(db.prepare(
+      "SELECT schema_version FROM dossier_versions WHERE evidence_snapshot_id = ?",
+    ).pluck().all(`${runId}:evidence`)).not.toContain("si-dossier@2");
+  });
+
+  test("seals an unavailable @3 branch with an empty ordered projection and re-presents it", async () => {
+    const db = database();
+    const profile = relocationV2ForColdStart();
+    const snapshotJson = canonicalJson(profile);
+    db.prepare(`
+      INSERT INTO profile_snapshots (id, confirmed_at, snapshot_json, snapshot_hash)
+      VALUES (?, ?, ?, ?)
+    `).run(profile.id, profile.confirmedAt, snapshotJson, sha256Text(snapshotJson));
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      countrySourceIndex: {
+        lookup: () => ({
+          ok: false as const,
+          kind: "country_not_installed" as const,
+          candidates: [] as const,
+        }),
+      },
+      clock: () => new Date("2026-08-22T10:00:00.000Z"),
+      nextRunId: () => "country-v2-unavailable-run",
+    });
+    const prepared = await application.prepareAny({ countryInput: "SI", profileId: profile.id });
+    const inheritedEvents: ColdStartEvent[] = [];
+    await expect(application.run(
+      prepared,
+      (event) => { inheritedEvents.push(event); },
+      new AbortController().signal,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(inheritedEvents).toEqual([]);
+    const events: ColdStartEventAny[] = [];
+
+    const result = await application.runAny(
+      prepared,
+      (event) => { events.push(event); },
+      new AbortController().signal,
+    );
+
+    if (result.assessmentRulesVersion !== "cold-start-assessment@2") {
+      throw new Error("expected V2 read model");
+    }
+    expect(result).toMatchObject({
+      assessmentRulesVersion: "cold-start-assessment@2",
+      evidenceSnapshotId: "country-v2-unavailable-run:evidence",
+      coverage: { verified: 0, required: 9, claimKinds: [] },
+      comparator: { marker: "yellow", personalFit: "research_incomplete" },
+      assessmentProjection: {
+        schemaVersion: "country-assessment-projection@2",
+        profileSnapshotId: profile.id,
+        evidenceSnapshotId: "country-v2-unavailable-run:evidence",
+        participantAssessments: [],
+      },
+    });
+    expect(result.dossier).toBeUndefined();
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.assessmentProjection)).toBe(true);
+    expect(events.map(({ type }) => type)).toEqual(["assessment_completed"]);
+    expect(await application.presentAny({ runId: prepared.runId, profileId: profile.id }))
+      .toEqual(result);
+    await expect(application.prepare({ countryInput: "SI", profileId: profile.id }))
+      .rejects.toThrow("integrity_mismatch");
+    await expect(application.present({ runId: prepared.runId, profileId: profile.id }))
+      .rejects.toThrow("integrity_mismatch");
+    const stored = db.prepare(
+      "SELECT snapshot_json FROM evidence_snapshots WHERE id = ?",
+    ).pluck().get(result.evidenceSnapshotId) as string;
+    expect(JSON.parse(stored)).toMatchObject({
+      rulesVersion: "vs2-si-evidence@3",
+      parserVersions: {
+        "si-digital-nomad-route": "si-route@3",
+        "si-income-threshold": "si-income@3",
+        "si-companion-employment": "si-companion@3",
+        "cbr-eur": "cbr-eur@1",
+      },
+    });
+  });
+
+  test("derives dense dossier-route × participant order independently of the comparator", async () => {
+    const profile = relocationV2GroupForColdStart();
+    let fixture: Awaited<ReturnType<typeof routeOnlyV2Evidence>> | undefined;
+    let dossier: DossierVersionV2 | undefined;
+    const prepareV1 = vi.fn();
+    const loadV1Bundle = vi.fn();
+    const replayV1 = vi.fn();
+    const loadV2Bundle = vi.fn(async () => ({
+      snapshot: fixture!.prepared.snapshot,
+      entries: fixture!.parserEntries,
+    }));
+    const replayV2 = vi.fn(async () => fixture!.prepared.snapshot);
+    const application = createColdStartApplication({
+      profiles: {
+        appendRelocation: vi.fn(),
+        loadRelocationVerified: vi.fn(),
+        loadRelocationAnyVerified: vi.fn(async () => profile),
+      },
+      countrySourceIndex: { lookup: () => installedIndexResult },
+      research: {
+        prepare: prepareV1,
+        prepareV2: async (input) => {
+          fixture = await routeOnlyV2Evidence({
+            runId: input.runId,
+            assessmentDate: input.assessmentDate,
+            contextHash: input.contextHash,
+          });
+          return fixture.prepared;
+        },
+      },
+      evidence: {
+        seal: vi.fn(),
+        loadVerifiedBundle: loadV1Bundle,
+        replay: replayV1,
+        sealV2: vi.fn(),
+        loadVerifiedBundleV2: loadV2Bundle,
+        replayV2,
+      },
+      dossiers: {
+        publishWithEvidence: vi.fn(),
+        findByPayload: vi.fn(),
+        publishWithEvidenceV2: vi.fn(({ preparedEvidence, publishedAt }) => {
+          const payload = buildCountryDossierV2(preparedEvidence);
+          const payloadHash = sha256Text(canonicalJson(payload));
+          dossier = {
+            id: "a".repeat(64),
+            ordinal: 1,
+            countryCode: "SI",
+            evidenceSnapshotId: preparedEvidence.snapshot.id,
+            schemaVersion: "si-dossier@2",
+            payload,
+            payloadHash,
+            manifestHash: "b".repeat(64),
+            hmac: "c".repeat(64),
+            publishedAt,
+          };
+          return { version: dossier, created: true };
+        }),
+        findV2ByPayload: vi.fn(() => dossier),
+      },
+      knowledge: {
+        publishCurrent: vi.fn(async () => ({})),
+        latest: vi.fn(async () => undefined),
+        resolveForEvidence: vi.fn(async () => ({})),
+      },
+      integrity: createEvidenceIntegrity(KEY),
+      clock: () => new Date("2026-08-22T10:00:00.000Z"),
+      nextRunId: () => "country-v2-route-run",
+    });
+    const prepared = await application.prepareAny({ countryInput: "SI", profileId: profile.id });
+    const events: ColdStartEventAny[] = [];
+
+    const result = await application.runAny(
+      prepared,
+      (event) => { events.push(event); },
+      new AbortController().signal,
+    );
+
+    if (result.assessmentRulesVersion !== "cold-start-assessment@2") {
+      throw new Error("expected V2 read model");
+    }
+    expect(result.assessmentProjection.participantAssessments.map((assessment) => ({
+      routeId: assessment.routeId,
+      participantId: assessment.participantId,
+    }))).toEqual(profile.profile.participants.map(({ participantId }) => ({
+      routeId: "si-temporary-residence-digital-nomad",
+      participantId,
+    })));
+    expect(result.assessmentProjection.participantAssessments).toHaveLength(3);
+    expect(result.comparator.participantAssessments).toEqual(
+      result.assessmentProjection.participantAssessments,
+    );
+    expect(result.comparator.marker).toBe("yellow");
+    expect(result.dossier?.id).toBe(dossier?.id);
+    expect(events.slice(-2).map(({ type }) => type)).toEqual([
+      "dossier_published", "assessment_completed",
+    ]);
+    expect(await application.presentAny({ runId: prepared.runId, profileId: profile.id }))
+      .toEqual(result);
+    expect(prepareV1).not.toHaveBeenCalled();
+    expect(loadV1Bundle).not.toHaveBeenCalled();
+    expect(replayV1).not.toHaveBeenCalled();
+    expect(loadV2Bundle).toHaveBeenCalledTimes(2);
+    expect(replayV2).toHaveBeenCalledTimes(2);
+    fixture = await routeOnlyV2Evidence({
+      runId: prepared.runId,
+      assessmentDate: prepared.assessmentAt,
+      contextHash: "wrong-profile-binding",
+    });
+    await expect(application.presentAny({ runId: prepared.runId, profileId: profile.id }))
+      .rejects.toThrow("integrity_mismatch");
+    expect(replayV2).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps identical V2 dossier payloads bound to each run's exact Evidence snapshot", async () => {
+    const db = database();
+    const profile = relocationV2ForColdStart();
+    const profileJson = canonicalJson(profile);
+    db.prepare(`
+      INSERT INTO profile_snapshots (id, confirmed_at, snapshot_json, snapshot_hash)
+      VALUES (?, ?, ?, ?)
+    `).run(profile.id, profile.confirmedAt, profileJson, sha256Text(profileJson));
+    const profiles = new SqliteProfileStore(db);
+    const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaimV2>(db);
+    const dossierStore = new SqliteDossierStore(db, KEY);
+    const runIds = ["country-v2-binding-first", "country-v2-binding-second"] as const;
+    let runIndex = 0;
+    const application = createColdStartApplication({
+      profiles,
+      countrySourceIndex: { lookup: () => installedIndexResult },
+      research: {
+        prepare: vi.fn(),
+        prepareV2: async (input) => {
+          const fixture = await routeOnlyV2Evidence({
+            runId: input.runId,
+            assessmentDate: input.assessmentDate,
+            contextHash: input.contextHash,
+          });
+          for (const entry of fixture.parserEntries) {
+            for (const artifact of entry.artifacts) await evidenceStore.appendArtifact(artifact);
+          }
+          return fixture.prepared;
+        },
+      },
+      evidence: {
+        seal: vi.fn(),
+        loadVerifiedBundle: vi.fn(),
+        replay: vi.fn(),
+        sealV2: (sealed) => evidenceStore.seal(sealed),
+        loadVerifiedBundleV2: (id) => evidenceStore.loadVerifiedBundle(id, KEY, {
+          parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+          rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+        }),
+        replayV2: async (id) => {
+          const verified = await evidenceStore.loadVerifiedBundle(id, KEY, {
+            parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+            rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+          });
+          return verified.snapshot;
+        },
+      },
+      dossiers: dossierStore,
+      knowledge: {
+        publishCurrent: vi.fn(async () => ({})),
+        latest: vi.fn(async () => undefined),
+        resolveForEvidence: vi.fn(async () => ({})),
+      },
+      integrity: createEvidenceIntegrity(KEY),
+      clock: () => new Date("2026-08-22T10:00:00.000Z"),
+      nextRunId: () => runIds[runIndex++]!,
+    });
+
+    const results = [];
+    for (const runId of runIds) {
+      const prepared = await application.prepareAny({ countryInput: "SI", profileId: profile.id });
+      expect(prepared.runId).toBe(runId);
+      results.push(await application.runAny(
+        prepared,
+        () => undefined,
+        new AbortController().signal,
+      ));
+    }
+
+    expect(results.map(({ evidenceSnapshotId }) => evidenceSnapshotId)).toEqual(
+      runIds.map((runId) => `${runId}:evidence`),
+    );
+    const dossierIds = results.map(({ dossier }) => dossier?.id);
+    expect(dossierIds.every((id): id is string => id !== undefined)).toBe(true);
+    expect(new Set(dossierIds).size).toBe(2);
+    const storedRows = db.prepare(`
+      SELECT id, predecessor_id, evidence_snapshot_id, payload_hash
+      FROM dossier_versions_v2 ORDER BY predecessor_id IS NOT NULL, id
+    `).all() as {
+      readonly id: string;
+      readonly predecessor_id: string | null;
+      readonly evidence_snapshot_id: string;
+      readonly payload_hash: string;
+    }[];
+    expect(storedRows).toEqual([
+      {
+        id: dossierIds[0],
+        predecessor_id: null,
+        evidence_snapshot_id: `${runIds[0]}:evidence`,
+        payload_hash: expect.any(String),
+      },
+      {
+        id: dossierIds[1],
+        predecessor_id: dossierIds[0],
+        evidence_snapshot_id: `${runIds[1]}:evidence`,
+        payload_hash: expect.any(String),
+      },
+    ]);
+    const storedPayloadHashes = db.prepare(
+      "SELECT payload_hash FROM dossier_versions_v2 ORDER BY published_at, id",
+    ).pluck().all();
+    expect(new Set(storedPayloadHashes).size).toBe(1);
+    for (const [index, runId] of runIds.entries()) {
+      const replayed = await application.presentAny({ runId, profileId: profile.id });
+      expect(replayed).toEqual(results[index]);
+      expect(replayed.evidenceSnapshotId).toBe(`${runId}:evidence`);
+    }
+  });
+
+  test("rejects a requested/sealed profile mismatch before run allocation or research", async () => {
+    const profile = relocationV2ForColdStart();
+    const research = vi.fn();
+    const nextRunId = vi.fn(() => "must-not-be-allocated");
+    const application = createColdStartApplication({
+      profiles: {
+        appendRelocation: vi.fn(),
+        loadRelocationVerified: vi.fn(),
+        loadRelocationAnyVerified: vi.fn(async () => profile),
+      },
+      countrySourceIndex: { lookup: vi.fn() },
+      research: { prepare: research, prepareV2: research },
+      evidence: {
+        seal: vi.fn(),
+        loadVerifiedBundle: vi.fn(),
+        replay: vi.fn(),
+        sealV2: vi.fn(),
+        loadVerifiedBundleV2: vi.fn(),
+        replayV2: vi.fn(),
+      },
+      dossiers: {
+        publishWithEvidence: vi.fn(),
+        findByPayload: vi.fn(),
+        publishWithEvidenceV2: vi.fn(),
+        findV2ByPayload: vi.fn(),
+      },
+      knowledge: {} as never,
+      integrity: createEvidenceIntegrity(KEY),
+      clock: () => new Date("2026-08-22T10:00:00.000Z"),
+      nextRunId,
+    });
+
+    await expect(application.prepareAny({
+      countryInput: "SI",
+      profileId: "0".repeat(64),
+    })).rejects.toThrow("integrity_mismatch");
+    expect(nextRunId).not.toHaveBeenCalled();
+    expect(research).not.toHaveBeenCalled();
+  });
+
+  test("pre-abort and runAny/presentAny ID mismatches have zero downstream effects", async () => {
+    const profile = relocationV2ForColdStart();
+    const loadAny = vi.fn(async () => profile);
+    const lookup = vi.fn();
+    const latest = vi.fn();
+    const researchV2 = vi.fn();
+    const loadBundleV2 = vi.fn();
+    const emit = vi.fn();
+    const application = createColdStartApplication({
+      profiles: {
+        appendRelocation: vi.fn(),
+        loadRelocationVerified: vi.fn(),
+        loadRelocationAnyVerified: loadAny,
+      },
+      countrySourceIndex: { lookup },
+      research: { prepare: vi.fn(), prepareV2: researchV2 },
+      evidence: {
+        seal: vi.fn(),
+        loadVerifiedBundle: vi.fn(),
+        replay: vi.fn(),
+        sealV2: vi.fn(),
+        loadVerifiedBundleV2: loadBundleV2,
+        replayV2: vi.fn(),
+      },
+      dossiers: {
+        publishWithEvidence: vi.fn(),
+        findByPayload: vi.fn(),
+        publishWithEvidenceV2: vi.fn(),
+        findV2ByPayload: vi.fn(),
+      },
+      knowledge: {
+        publishCurrent: vi.fn(),
+        latest,
+        resolveForEvidence: vi.fn(),
+      },
+      integrity: createEvidenceIntegrity(KEY),
+      clock: () => new Date("2026-08-22T10:00:00.000Z"),
+      nextRunId: vi.fn(),
+    });
+    const prepared: ColdStartPrepared = {
+      runId: "mismatch-run",
+      profileId: "0".repeat(64),
+      country: {
+        code: "SI",
+        englishName: "Slovenia",
+        displayName: "Словения",
+        flag: "🇸🇮",
+        coordinate: { lat: 46.1512, lng: 14.9955 },
+      },
+      assessmentAt: "2026-08-22",
+      deadlineAt: "2026-08-22T10:01:00.000Z",
+    };
+    const aborted = new AbortController();
+    aborted.abort(new Error("pre-aborted"));
+
+    await expect(application.runAny(prepared, emit, aborted.signal))
+      .rejects.toThrow("pre-aborted");
+    expect(loadAny).not.toHaveBeenCalled();
+
+    await expect(application.runAny(prepared, emit, new AbortController().signal))
+      .rejects.toThrow("integrity_mismatch");
+    await expect(application.presentAny({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    })).rejects.toThrow("integrity_mismatch");
+    expect(loadAny).toHaveBeenCalledTimes(2);
+    expect(latest).not.toHaveBeenCalled();
+    expect(lookup).not.toHaveBeenCalled();
+    expect(researchV2).not.toHaveBeenCalled();
+    expect(loadBundleV2).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  test("aborts after V2 research without sealing, publishing or emitting a terminal event", async () => {
+    const profile = relocationV2ForColdStart();
+    const abort = new AbortController();
+    const sealV2 = vi.fn();
+    const publishDossierV2 = vi.fn();
+    const publishKnowledge = vi.fn();
+    const events: ColdStartEventAny[] = [];
+    const application = createColdStartApplication({
+      profiles: {
+        appendRelocation: vi.fn(),
+        loadRelocationVerified: vi.fn(),
+        loadRelocationAnyVerified: vi.fn(async () => profile),
+      },
+      countrySourceIndex: { lookup: () => installedIndexResult },
+      research: {
+        prepare: vi.fn(),
+        prepareV2: async (input) => {
+          const fixture = await routeOnlyV2Evidence({
+            runId: input.runId,
+            assessmentDate: input.assessmentDate,
+            contextHash: input.contextHash,
+          });
+          abort.abort(new Error("abort-after-v2-research"));
+          return fixture.prepared;
+        },
+      },
+      evidence: {
+        seal: vi.fn(),
+        loadVerifiedBundle: vi.fn(),
+        replay: vi.fn(),
+        sealV2,
+        loadVerifiedBundleV2: vi.fn(),
+        replayV2: vi.fn(),
+      },
+      dossiers: {
+        publishWithEvidence: vi.fn(),
+        findByPayload: vi.fn(),
+        publishWithEvidenceV2: publishDossierV2,
+        findV2ByPayload: vi.fn(),
+      },
+      knowledge: {
+        publishCurrent: publishKnowledge,
+        latest: vi.fn(async () => undefined),
+        resolveForEvidence: vi.fn(),
+      },
+      integrity: createEvidenceIntegrity(KEY),
+      clock: () => new Date("2026-08-22T10:00:00.000Z"),
+      nextRunId: () => "abort-v2-run",
+    });
+    const prepared = await application.prepareAny({ countryInput: "SI", profileId: profile.id });
+
+    await expect(application.runAny(
+      prepared,
+      (event) => { events.push(event); },
+      abort.signal,
+    )).rejects.toThrow("abort-after-v2-research");
+
+    expect(sealV2).not.toHaveBeenCalled();
+    expect(publishDossierV2).not.toHaveBeenCalled();
+    expect(publishKnowledge).not.toHaveBeenCalled();
+    expect(events.some(({ type }) => type === "assessment_completed")).toBe(false);
+    expect(events.some(({ type }) => type === "dossier_published")).toBe(false);
   });
 });
 

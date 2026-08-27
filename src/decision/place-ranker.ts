@@ -2,10 +2,22 @@ import Decimal from "decimal.js";
 
 import {
   confirmPreferenceProfile,
+  reconstructPreferenceProfileV2,
   type PlaceCriterionId,
   type PreferenceCriterion,
   type PreferenceProfileSnapshot,
+  type PreferenceProfileV2Snapshot,
 } from "./preference-profile";
+
+export type RankingPreferenceProfile =
+  | PreferenceProfileSnapshot
+  | PreferenceProfileV2Snapshot;
+
+export interface RankPlacesInput<P extends RankingPreferenceProfile> {
+  readonly assessmentAt: string;
+  readonly preferences: P;
+  readonly places: readonly RankablePlace[];
+}
 
 export type PlaceFactorState =
   | "known"
@@ -88,27 +100,29 @@ function assertAssessmentDate(value: string): void {
 }
 
 function verifiedPreferences(
-  preferences: PreferenceProfileSnapshot,
-): PreferenceProfileSnapshot {
-  if (preferences.schemaVersion !== "preference-profile@1") {
-    throw new Error("invalid_preference_profile");
-  }
-
-  let confirmed: PreferenceProfileSnapshot;
+  preferences: RankingPreferenceProfile,
+): { readonly criteria: readonly PreferenceCriterion[] } {
   try {
+    if (preferences.schemaVersion === "preference-profile@2") {
+      const reconstructed = reconstructPreferenceProfileV2(preferences);
+      return { criteria: reconstructed.countryCriteria };
+    }
+    if (preferences.schemaVersion !== "preference-profile@1") {
+      throw new Error("invalid preference schema");
+    }
     const confirmedAt = new Date(preferences.confirmedAt);
     if (confirmedAt.toISOString() !== preferences.confirmedAt) {
       throw new Error("invalid confirmedAt");
     }
-    confirmed = confirmPreferenceProfile(
+    const confirmed = confirmPreferenceProfile(
       { criteria: preferences.criteria },
       () => confirmedAt,
     );
+    if (confirmed.id !== preferences.id) throw new Error("invalid preference id");
+    return confirmed;
   } catch {
     throw new Error("invalid_preference_profile");
   }
-  if (confirmed.id !== preferences.id) throw new Error("invalid_preference_profile");
-  return confirmed;
 }
 
 function assertFactorState(state: PlaceFactorState): void {
@@ -250,11 +264,15 @@ function isMismatchResult(
   return Array.isArray(result);
 }
 
-export function rankPlaces(input: {
-  readonly assessmentAt: string;
-  readonly preferences: PreferenceProfileSnapshot;
-  readonly places: readonly RankablePlace[];
-}): PlaceRankingResult {
+export function rankPlaces(
+  input: RankPlacesInput<PreferenceProfileSnapshot>,
+): PlaceRankingResult {
+  return rankPlacesForVerifiedPreferences(input);
+}
+
+export function rankPlacesForVerifiedPreferences(
+  input: RankPlacesInput<RankingPreferenceProfile>,
+): PlaceRankingResult {
   assertAssessmentDate(input.assessmentAt);
   const preferences = verifiedPreferences(input.preferences);
   const totalImportance = preferences.criteria.reduce(
@@ -304,7 +322,7 @@ function sameRankingValue(left: unknown, right: unknown): boolean {
 
 export function reconstructPlaceRanking(input: {
   readonly assessmentAt: string;
-  readonly preferences: PreferenceProfileSnapshot;
+  readonly preferences: RankingPreferenceProfile;
   readonly ordered: readonly RankedPlace[];
   readonly excludedPlaces: readonly RankablePlace[];
   readonly excluded: readonly RequiredMismatch[];
@@ -321,7 +339,7 @@ export function reconstructPlaceRanking(input: {
     coordinate,
     factors,
   }) => ({ countryCode, label, flag, coordinate, factors }));
-  const reconstructed = rankPlaces({
+  const reconstructed = rankPlacesForVerifiedPreferences({
     assessmentAt: input.assessmentAt,
     preferences: input.preferences,
     places: [...orderedPlaces, ...input.excludedPlaces],

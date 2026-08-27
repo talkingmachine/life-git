@@ -1,4 +1,6 @@
 import type { FrontierMarker } from "./country-verifier";
+import { reconstructCountryAssessmentProjectionV2Structure } from
+  "./country-assessment-projection-v2";
 import { reconstructFormalResidenceVerdict } from "../decision/formal-residence-verdict";
 import {
   COUNTRY_RESOLUTION_RULES_VERSION,
@@ -65,6 +67,8 @@ export function reconstructFrontierMarker(
     readonly evidenceSnapshotId?: string;
   },
 ): FrontierMarker {
+  const isV2 = isRecord(value) &&
+    value.sourceAssessmentRulesVersion === "cold-start-assessment@2";
   if (!isRecord(value) || !hasExactKeys(value, [
     "country", "rank", "countryCheckRunId", "sourceAssessmentRulesVersion", "lastCheckedAt",
     "evidenceSnapshotId", ...(value.currentKnowledgeRevisionId === undefined
@@ -73,10 +77,10 @@ export function reconstructFrontierMarker(
       ? []
       : ["updatedKnowledgeRevisionId"]), ...(value.knowledgeUpdatedAt === undefined
       ? []
-      : ["knowledgeUpdatedAt"]), "formalVerdict",
+      : ["knowledgeUpdatedAt"]), ...(isV2 ? ["assessmentProjection"] : []), "formalVerdict",
   ]) || !Number.isInteger(value.rank) || (value.rank as number) < 1 ||
     !isNonEmptyString(value.countryCheckRunId) ||
-    value.sourceAssessmentRulesVersion !== "cold-start-assessment@1" ||
+    (value.sourceAssessmentRulesVersion !== "cold-start-assessment@1" && !isV2) ||
     !isCanonicalDay(value.lastCheckedAt) || !isNonEmptyString(value.evidenceSnapshotId) ||
     (value.currentKnowledgeRevisionId !== undefined &&
       !isNonEmptyString(value.currentKnowledgeRevisionId)) ||
@@ -88,6 +92,12 @@ export function reconstructFrontierMarker(
       value.updatedKnowledgeRevisionId !== value.currentKnowledgeRevisionId) ||
     (expected?.evidenceSnapshotId !== undefined &&
       expected.evidenceSnapshotId !== value.evidenceSnapshotId)) integrityMismatch();
+  const assessmentProjection = isV2
+    ? reconstructCountryAssessmentProjectionV2Structure(value.assessmentProjection, {
+        profileSnapshotId: expected?.profileSnapshotId ?? integrityMismatch(),
+        evidenceSnapshotId: value.evidenceSnapshotId as string,
+      })
+    : undefined;
   const formalVerdict = reconstructFormalResidenceVerdict(value.formalVerdict, {
     ...expected,
     evidenceSnapshotId: value.evidenceSnapshotId,
@@ -95,6 +105,7 @@ export function reconstructFrontierMarker(
   return structuredClone({
     ...value,
     country: reconstructFrontierCountry(value.country),
+    ...(assessmentProjection === undefined ? {} : { assessmentProjection }),
     formalVerdict,
   }) as FrontierMarker;
 }

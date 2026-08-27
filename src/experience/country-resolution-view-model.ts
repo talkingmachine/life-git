@@ -15,6 +15,10 @@ import {
   type CountryResolutionEventState,
 } from "./country-resolution-stream";
 import {
+  projectCountryAssessmentExplanations,
+  type CountryAssessmentExplanation,
+} from "./country-assessment-projection-v2";
+import {
   projectPlaceFrontierCountryCard,
   type PlaceFrontierCountryCard,
 } from "./place-frontier-view-model";
@@ -29,6 +33,7 @@ export interface CountryResolutionCandidateView {
     | "Требует решения"
     | "Исключено";
   readonly summary?: string;
+  readonly assessmentExplanations?: readonly CountryAssessmentExplanation[];
   readonly officialUrls: readonly string[];
   readonly manualCheckLinks: readonly { readonly label: string; readonly url: string }[];
 }
@@ -134,6 +139,11 @@ function markerCandidate(
     ...(decision?.decision === "rejected" ? {
       summary: "Формальные данные остались неполными; пользователь отказался принимать риск " +
         "самостоятельной проверки.",
+    } : {}),
+    ...(marker.sourceAssessmentRulesVersion === "cold-start-assessment@2" ? {
+      assessmentExplanations: projectCountryAssessmentExplanations(
+        marker.assessmentProjection,
+      ),
     } : {}),
     ...promptLinks,
   });

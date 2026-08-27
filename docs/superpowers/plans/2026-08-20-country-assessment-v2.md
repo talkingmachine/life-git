@@ -41,6 +41,77 @@ export type ParticipantRequirementScopeV2 =
       readonly relationship: "spouse" | "minor_child" | "other_family";
     };
 
+export interface CitizenshipApplicabilityV2 {
+  readonly classifications: readonly {
+    readonly countryCode: string;
+    readonly status: "eligible" | "excluded";
+  }[];
+}
+
+export interface CompanionEntryV2 {
+  readonly relationshipClassifications: readonly {
+    readonly relationship: "spouse" | "minor_child" | "other_family";
+    readonly status: "eligible" | "excluded";
+  }[];
+}
+
+export interface IncomeRequirementV2 {
+  readonly metric: "latest_official_average_monthly_net_salary";
+  readonly multiplier: "2";
+  readonly thresholdEur: string;
+  readonly currency: "EUR";
+  readonly basis: "net";
+  readonly appliesTo: "applicant";
+  readonly period: string;
+}
+
+export const SLOVENIA_V2_RESEARCH_SCOPE =
+  "VS-2 Slovenia cold start" as const;
+
+export const SLOVENIA_V2_SOURCE_ORDER = Object.freeze([
+  "si-digital-nomad-route",
+  "si-income-threshold",
+  "si-companion-employment",
+  "cbr-eur",
+] as const);
+
+export const SLOVENIA_V2_PARSER_VERSIONS = Object.freeze({
+  "si-digital-nomad-route": "si-route@3",
+  "si-income-threshold": "si-income@3",
+  "si-companion-employment": "si-companion@3",
+  "cbr-eur": "cbr-eur@1",
+} as const);
+
+export const SLOVENIA_V2_EVIDENCE_RULES_VERSION =
+  "vs2-si-evidence@3" as const;
+
+export const SLOVENIA_V2_FORMAL_ROUTE_ID =
+  "si-temporary-residence-digital-nomad" as const;
+
+export const SLOVENIA_V2_CLAIM_SOURCE = Object.freeze({
+  route_basis: "si-digital-nomad-route",
+  citizenship_applicability: "si-digital-nomad-route",
+  remote_work_relations: "si-digital-nomad-route",
+  income: "si-income-threshold",
+  qualification: "si-digital-nomad-route",
+  companion_entry: "si-digital-nomad-route",
+  companion_local_work_access: "si-companion-employment",
+  duration: "si-digital-nomad-route",
+  general_statutory_prerequisites: "si-digital-nomad-route",
+} as const satisfies Readonly<Record<ClaimKind, Exclude<SloveniaSourceId, "cbr-eur">>>);
+
+export const SLOVENIA_V2_CLAIM_VALIDATOR = Object.freeze({
+  route_basis: "si-route@3",
+  citizenship_applicability: "si-route@3",
+  remote_work_relations: "si-route@3",
+  income: "si-income@3",
+  qualification: "si-route@3",
+  companion_entry: "si-route@3",
+  companion_local_work_access: "si-companion@3",
+  duration: "si-route@3",
+  general_statutory_prerequisites: "si-route@3",
+} as const satisfies Readonly<Record<ClaimKind, string>>);
+
 export interface ClaimValueByKindV2 {
   readonly route_basis: ClaimValueByKind["route_basis"];
   readonly citizenship_applicability: CitizenshipApplicabilityV2;
@@ -109,9 +180,31 @@ export interface DossierPublishResultV2 {
   readonly version: DossierVersionV2;
   readonly created: boolean;
 }
+
+export function buildCountryDossierV2(
+  preparedEvidence: SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaimV2>,
+): CountryDossierPayloadV2;
+
+export function reconstructCountryDossierPayloadV2(
+  value: unknown,
+): CountryDossierPayloadV2;
 ```
 
 V2 dossier publication requires exactly one verified `route_basis`. Every non-scoped V2 claim kind may occur zero or one time. `duration` and `general_statutory_prerequisites` may each occur once per distinct `ParticipantRequirementScopeV2`, so one dossier can carry the applicant requirement plus separately proved spouse/minor-child/other-family requirements. Unscoped claim IDs remain `${sourceId}:${claimKind}:${validatorVersion}`. Applicant-scoped IDs use `${sourceId}:${claimKind}:applicant:${validatorVersion}`; companion-scoped IDs use `${sourceId}:${claimKind}:companion-${relationship}:${validatorVersion}`. Present claims follow the existing `REQUIRED_CLAIM_KINDS` order; scoped claims then order applicant first and companion relationships as `spouse`, `minor_child`, `other_family`. Duplicate kind/scope pairs fail. Missing optional claims are not blockers disguised as values, and catalog completeness is never inferred from dossier cardinality.
+
+Task 1 owns the complete persisted V2 identity policy above. The Task 2 Slovenia plan imports and
+re-exports those constants; it must not duplicate them. `companion-entry-classifier@1` is an
+internal classifier within the retained route-source parser `si-route@3`, so the persisted
+`companion_entry.validatorVersion` and claim ID use `si-route@3`. The inherited `Claim.scope`
+remains `SLOVENIA_V2_RESEARCH_SCOPE`; scoped identity, duplicate detection and ordering use only
+`claim.value.scope`. `buildCountryDossierV2` throws `publication_not_allowed`; the persisted-value
+reconstructor throws `integrity_mismatch`.
+
+Task 1 also owns the singleton formal-route mapping
+`temporary_residence_digital_nomad -> si-temporary-residence-digital-nomad` through
+`SLOVENIA_V2_FORMAL_ROUTE_ID`. Dossier claim order is not route order. The V2 assessment derives
+that one route only when the reconstructed dossier contains the exact route basis and must not
+invent any other route ID.
 
 - [ ] Write RED tests for every exact V2 claim shape, simultaneous applicant/companion scopes, dense canonical kind/scope order, duplicate kind/scope and extra claim rejection, missing `route_basis`, artifact/source/anchor ownership, fresh frozen copies and V1/V2 cross-version rejection.
 - [ ] Add historical assertions that the current V1 payload, manifest and dossier bytes are unchanged.
@@ -139,15 +232,12 @@ V2 dossier publication requires exactly one verified `route_basis`. Every non-sc
 - Produces: `validateSloveniaV2Entry`, `createSloveniaPlanV2`, `createSloveniaResearchV2`.
 
 ```ts
-export const SLOVENIA_V2_PARSER_VERSIONS = Object.freeze({
-  "si-digital-nomad-route": "si-route@3",
-  "si-income-threshold": "si-income@3",
-  "si-companion-employment": "si-companion@3",
-  "cbr-eur": "cbr-eur@1",
-} as const);
-
-export const SLOVENIA_V2_EVIDENCE_RULES_VERSION =
-  "vs2-si-evidence@3" as const;
+export {
+  SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_PARSER_VERSIONS,
+  SLOVENIA_V2_RESEARCH_SCOPE,
+  SLOVENIA_V2_SOURCE_ORDER,
+} from "./cold-start-contracts-v2";
 
 export type SloveniaV2ValidationResult =
   | { readonly ok: true; readonly claims: readonly ColdStartEvidenceClaimV2[] }
@@ -199,6 +289,8 @@ Unlike V1 all-or-nothing dossier rules, V2 Evidence keeps every independently ve
 - Create: `src/decision/cold-start-assessment-v2.ts`
 - Create: `tests/domain/cold-start-assessment-v2.test.ts`
 - Modify: `tests/domain/formal-residence-verdict.test.ts`
+- Modify: `src/research/cold-start-contracts-v2.ts`
+- Modify: `tests/research/cold-start-v2-contracts.test.ts`
 
 **Interfaces:**
 - Consumes: `CountryAssessmentInputV2`, V2 Evidence/Dossier, optional exact `CatalogCompletenessAttestation`, existing `assessFormalResidence` and CBR facts.
@@ -213,11 +305,17 @@ export function assessColdStartV2(
 ): ColdStartComparatorV2;
 ```
 
-The pure algorithm follows the approved order: reconstruct all borrowed inputs; require exactly one `self`; derive the UTC-clamped move interval; evaluate each route in dossier order and each participant in profile order; apply exact citizenship, companion, passport, work and income claims; aggregate `impossible > unknown > verified`; pass only decisive proved mismatch reasons into an impossible `ResidenceRouteOutcome`; then call existing `assessFormalResidence`. Production passes no completeness attestation until an installed exact attestation exists, so missing catalog proof cannot become red.
+The pure algorithm follows the approved order: reconstruct all borrowed inputs; require exactly one `self`; derive the UTC-clamped move interval; derive only the singleton route owned by `SLOVENIA_V2_FORMAL_ROUTE_ID`; evaluate each participant in profile order; apply exact citizenship, companion, passport, work and income claims; aggregate `impossible > unknown > verified`; pass only decisive proved mismatch reasons into an impossible `ResidenceRouteOutcome`; then call existing `assessFormalResidence` exactly once. Without a dossier, the assessor derives no route, returns an empty participant projection and reaches the existing yellow/research-incomplete path rather than fabricating a placeholder route.
+
+The current `@2` input contains no exact remote-work relation or route-specific legality proof. Consequently, for the installed digital-nomad route, `remote_continuation: "yes"` remains `unknown` and no viable `@2` route is reachable in Tasks 1–5. A viable path is deferred until a separately sealed route-specific relation/legality fact is added; `assessColdStartV2` must not infer one from `current_work` or `remote_continuation`.
+
+Completeness is accepted only after a descriptor-safe exact copy proves `jurisdiction === "SI"`, the profile ID, an effective interval covering `assessmentAt`, the exact Evidence Snapshot ID, applicable catalog route IDs exactly equal to the singleton derived route set, and Evidence references whose snapshot IDs equal the assessment Evidence ID and whose artifact IDs exist in that Evidence Snapshot. Separately proved excluded catalog routes may coexist. A mismatch, or an attestation for an empty derived route set, is omitted before the formal call. No verified producer/loader exists yet and the installed Slovenia catalog remains `unproven`, so production passes `undefined`; synthetic attestations exist only to exercise the formal seam.
+
+Every move boundary is computed first with UTC month clamping. The passport-required boundary is then computed from that already-clamped move boundary by adding the permit maximum plus passport reserve; the offsets are never collapsed. For example, `2026-01-31 + 3 months = 2026-04-30`, then `+ 15 months = 2027-07-30`, not July 31.
 
 Money handling is closed: EUR direct; RUB through a fresh sealed CBR claim; any other ISO currency, stale/missing FX or gross/net mismatch is `unknown`. `not_working` and explicit remote `no` are current mismatches only for a route that proves remote work is required. Applicant permit terms never apply to a companion without companion-scoped claims.
 
-- [ ] Write RED table tests for self-only and self+companion, exact relationship classification, proven exclusion, all four move horizons, absent/early/overlap/late passport, `not_working`, remote yes/no, direct EUR, fresh/stale RUB, unsupported ISO currency, income basis, zero income, and missing route claims.
+- [ ] Write RED table tests for self-only and self+companion, exact relationship classification, proven exclusion, all four move horizons including the sequential January-31 clamp, absent/early/overlap/late passport, `not_working`, remote yes/no, direct EUR, fresh/stale RUB, unsupported ISO currency, income basis, zero income, missing route claims and the no-dossier zero-route path. Prove that current onboarding-only inputs cannot produce a viable route.
 - [ ] Assert hard mismatch dominance, deterministic route/participant order, unique pairs, non-empty decisive claim/evidence references, exact formula bytes and caller immutability.
 - [ ] Prove synthetic exact completeness plus all-impossible can be red, while absent/mismatched completeness is yellow. Prove `assessFormalResidence` and all V1 fixtures remain unchanged.
 - [ ] Run `pnpm exec vitest run tests/domain/cold-start-assessment-v2.test.ts tests/domain/formal-residence-verdict.test.ts`; expect a missing V2 assessor.
@@ -230,16 +328,25 @@ Money handling is closed: EUR direct; RUB through a fresh sealed CBR claim; any 
 ### Task 4: Dispatch verified profiles inside Cold Start
 
 **Files:**
-- Verify unchanged: `src/application/country-assessment-projection-v2.ts`
+- Create: `src/application/country-assessment-projection-v2.ts`
 - Modify: `src/application/cold-start.ts`
 - Modify: `src/infrastructure/cold-start-composition.ts`
 - Modify: `src/infrastructure/sqlite/profile-store.ts`
 - Modify: `src/infrastructure/sqlite/dossier-store.ts`
+- Modify: `src/infrastructure/sqlite/db.ts`
+- Modify: `src/infrastructure/sqlite/evidence-store.ts`
+- Modify: `src/infrastructure/sqlite/schema.sql`
 - Modify: `src/research/country-knowledge.ts`
 - Modify: `src/infrastructure/sqlite/country-knowledge-store.ts`
+- Create: `tests/integration/country-assessment-projection-v2.test.ts`
 - Modify: `tests/integration/cold-start.test.ts`
 - Modify: `tests/integration/country-knowledge.test.ts`
+- Modify: `tests/integration/database-schema.test.ts`
+- Modify: `tests/integration/confirmed-life.test.ts`
+- Create: `tests/integration/dossier-store-v2.test.ts`
+- Modify: `tests/integration/evidence-store.test.ts`
 - Modify: `tests/integration/profile-store.test.ts`
+- Modify: `tests/branch/life-git.test.ts`
 
 **Interfaces:**
 - Consumes: verified profile union from onboarding Task 6A, V1 research methods unchanged, V2 plan/assessor from Tasks 1–3.
@@ -383,15 +490,64 @@ export interface ColdStartApplicationPortsV2 extends Omit<
     findV2ByPayload(
       countryCode: "SI",
       payloadHash: string,
+      evidenceSnapshotId: string,
     ): DossierVersionV2 | undefined;
   };
 }
 ```
 
-`Omit` changes only the four versioned seams and preserves the current required `countrySourceIndex`, `knowledge`, `integrity`, `clock`, `nextRunId` and every other unchanged port. `SqliteProfileStore.loadRelocationVerified` remains V1-only for existing Place Frontier consumers; the new `loadRelocationAnyVerified` is used only by Cold Start dispatch. Direct draft preparation and the existing outward `ColdStartReadModel` remain V1 in this task. `createColdStartApplication` with `ColdStartApplicationPortsV2` and `createColdStartComposition` return the exact `ColdStartApplicationAny` surface above. Its ID-only `prepareAny`, `runAny` and `presentAny` verified-load the profile, check the requested/sealed ID, and return `ColdStartReadModelAny`; inherited `prepare`, `run` and `present` remain byte-compatible V1 for historical/direct callers. In the V2 branch Cold Start already owns the verified profile and reconstructed dossier, so it derives `orderedPairs` from dossier route order crossed with profile participant order and calls `reconstructCountryAssessmentProjectionV2` before the read model crosses its port. The resulting fresh frozen `assessmentProjection` is bound to the same profile/Evidence IDs and comparator; no adapter is asked to reload or infer order. Task 5 atomically exposes that projection through Country Verifier and the streams by calling the explicit Any methods. V1 continues to call existing research/dossier/assessor methods. V2 calls the suffixed V2 methods and returns `ColdStartReadModelV2`. `SqliteDossierStore` uses the existing table but reconstructs by exact schema; V1 and V2 predecessor chains never cross. Country Knowledge accepts the exact V3 Evidence projection without rewriting historical revisions and publishes only claims its V2 contract understands.
+`Omit` changes only the four versioned seams and preserves the current required `countrySourceIndex`, `knowledge`, `integrity`, `clock`, `nextRunId` and every other unchanged port. `SqliteProfileStore.loadRelocationVerified` remains V1-only for existing Place Frontier consumers; the new `loadRelocationAnyVerified` is used only by Cold Start dispatch. Direct draft preparation and the existing outward `ColdStartReadModel` remain V1 in this task. `createColdStartApplication` with `ColdStartApplicationPortsV2` and `createColdStartComposition` return the exact `ColdStartApplicationAny` surface above. Its ID-only `prepareAny`, `runAny` and `presentAny` verified-load the profile, check the requested/sealed ID, and return `ColdStartReadModelAny`; inherited `prepare`, `run` and `present` remain byte-compatible V1 for historical/direct callers. In the V2 branch Cold Start already owns the verified profile and reconstructed dossier, so it derives `orderedPairs` from dossier route order crossed with profile participant order and calls `reconstructCountryAssessmentProjectionV2` before the read model crosses its port. The resulting fresh frozen `assessmentProjection` is bound to the same profile/Evidence IDs and comparator; no adapter is asked to reload or infer order. Task 5 atomically exposes that projection through Country Verifier and the streams by calling the explicit Any methods. V1 continues to call existing research/dossier/assessor methods. V2 calls the suffixed V2 methods and returns `ColdStartReadModelV2`. Country Knowledge accepts the exact V3 Evidence projection without rewriting historical revisions and publishes only claims its V2 contract understands.
 
-- [ ] Write REDs for V1 draft, V1 ID, V2 ID, unknown schema, profile ID mismatch before research, exact V2 Evidence/Dossier replay, independently derived route × participant order, projection/comparator binding, partial V2 dossier, no-completeness yellow, and zero adapter schema logic.
-- [ ] Add store REDs for V1/V2 dossier isolation, tamper, lost race and exact retry; add Knowledge REDs for V3 parser/rules bindings and V1 historical bytes.
+V1 `dossier_versions` and all of its constraints, rows and canonical bytes remain untouched. V2 is
+stored in a separate immutable `dossier_versions_v2` table with a fixed `si-dossier@2` schema,
+self-referencing predecessor chain, Evidence foreign key, one root and one successor per version.
+Its exact idempotency key is `(countryCode, payloadHash, evidenceSnapshotId)`: retrying the same
+verified Evidence returns the same version without a new row, while a distinct Evidence Snapshot
+with byte-identical dossier payload appends a new V2 version bound to that new Evidence. Therefore
+`findV2ByPayload` always requires all three values and can never return a dossier bound to another
+run. The table has `UNIQUE(country_code, evidence_snapshot_id)`; payload hash keeps its existing
+meaning `sha256(canonicalJson(payload))` and is intentionally non-unique across Evidence snapshots.
+Open-time schema preflight rejects an incompatible pre-existing V2 table or trigger before any DDL;
+direct update/delete remains impossible. V1 and V2 chains cannot cross because they use separate
+foreign-key domains.
+
+The generic SQLite Evidence store remains the persistence primitive, but every typed read is an
+exact versioned boundary. The existing `loadVerifiedCountryEvidence` remains V1-only. Task 4 adds
+`loadVerifiedCountryEvidenceV2(database, id, key): VerifiedCountryEvidenceInputV2`, which invokes
+the existing generic verifier with exact `SLOVENIA_V2_PARSER_VERSIONS` and
+`SLOVENIA_V2_EVIDENCE_RULES_VERSION`. Composition owns a separately typed
+`SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaimV2>`: `sealV2` delegates to its generic
+seal, `loadVerifiedBundleV2` always supplies the exact V3 expectations, and `replayV2` first performs
+that exact verified V3 load before delegating to the existing rules-aware replay. A V1 snapshot,
+unknown rules version or parser drift must fail before it can cross a V2-typed port; there is no
+registry or fallback cast.
+
+Country Knowledge keeps its existing outward port, persisted `country-knowledge@1` schema, linear
+chain and canonical HMAC/hash bytes. The domain adds the closed
+`VerifiedCountryEvidenceInputV2` and a suffixed
+`buildSloveniaKnowledgeRevisionV2(...): SloveniaCountryKnowledgeRevision | undefined`. The V2
+builder validates the complete V3 Evidence graph, exact source order, rules/parser versions, claim
+IDs, validators, participant scopes and artifact ownership, but emits compact references only for
+unscoped V2 country claims. `duration` and `general_statutory_prerequisites` are never emitted from
+V3 because `FormalKnowledgeReference` has no participant scope and permits only one reference per
+`ClaimKind`; if a V3 revision contains either scoped kind, any predecessor reference and status for
+that kind is retired instead of being silently reused or last-write-wins. Those scoped facts remain
+only in V2 Dossier/Assessment. No `scope` field is added to `country-knowledge@1`, and no claim value
+or artifact byte enters a Knowledge revision. The historical atomic transient policy is preserved:
+any relevant `timeout`, `deadline`, `rate_limited` or `server_error` returns no revision, so the
+current predecessor remains unchanged and scoped retirement is deferred until an otherwise
+publishable Evidence revision.
+
+`SqliteCountryKnowledgeStore.resolveForEvidence`, `publishCurrentFromEvidence` and revision replay
+keep their current signatures and dispatch only after reading the stored exact rules branch:
+`vs2-si-evidence@2` uses the existing V1 loader/builder, `vs2-si-evidence@3` uses the V2
+loader/builder, and every other value fails `integrity_mismatch`. The same exact branch is used when
+recomputing a persisted revision. A V2 successor may follow a V1 predecessor in the one Knowledge
+chain, but no historical row is rewritten. Composition's unchanged `knowledge.publishCurrent`
+also validates `lastCheckedAt` through the selected exact V1/V2 projection.
+
+- [ ] Write REDs for V1 draft, V1 ID, V2 ID, unknown schema, profile ID mismatch before research, exact V2 Evidence/Dossier replay, the absent order-aware projection module, independently derived route × participant order, projection/comparator binding, partial V2 dossier, no-completeness yellow, and zero adapter schema logic.
+- [ ] Add store REDs for V1/V2 dossier isolation, tamper, lost race and exact retry; prove two distinct Evidence IDs with the same V2 payload append distinct exactly bound versions while one exact Evidence retry is idempotent; add schema-preflight/immutability REDs. Add Evidence REDs for exact V1/V3 loader and replay separation; add Knowledge REDs for V3 parser/rules bindings, scoped-claim retirement, exact internal dispatch and V1 historical bytes.
 - [ ] Run `pnpm exec vitest run tests/integration/cold-start.test.ts tests/integration/country-knowledge.test.ts tests/integration/profile-store.test.ts`; expect only explicit V2 seams to fail. Add a compile fixture proving existing Place Frontier still receives the unchanged V1 loader, `ColdStartApplicationPortsV2` satisfies every unchanged base member, composition returns `ColdStartApplicationAny`, and inherited V1 methods retain their old result/event types and behavior.
 - [ ] Implement the closed branch with separate suffixed V2 methods; do not genericize the existing V1 API.
 - [ ] Re-run the focused suites, then `pnpm run typecheck`, scoped `pnpm exec eslint`, and `git diff --check`.
@@ -402,7 +558,7 @@ export interface ColdStartApplicationPortsV2 extends Omit<
 ### Task 5: Carry the V2 explanation through Country Frontier
 
 **Files:**
-- Create: `src/application/country-assessment-projection-v2.ts`
+- Modify: `src/application/country-assessment-projection-v2.ts`
 - Modify: `src/application/country-verifier.ts`
 - Modify: `src/application/place-frontier.ts`
 - Modify: `src/application/country-resolution.ts`
@@ -410,14 +566,17 @@ export interface ColdStartApplicationPortsV2 extends Omit<
 - Modify: `src/infrastructure/country-verifier-adapter.ts`
 - Modify: `src/experience/cold-start-stream.ts`
 - Modify: `src/experience/cold-start-view-model.ts`
+- Create: `src/experience/country-assessment-projection-v2.ts`
 - Modify: `src/experience/place-frontier-stream.ts`
 - Modify: `src/experience/place-frontier-view-model.ts`
 - Modify: `src/experience/country-resolution-stream.ts`
 - Modify: `src/experience/country-resolution-view-model.ts`
 - Modify: `src/experience/components/ColdStartComparator.tsx`
+- Modify: `src/experience/components/ColdStartJourney.tsx`
 - Modify: `src/experience/components/PlaceFrontierJourney.tsx`
 - Modify: `src/experience/components/CountryResolutionPanel.tsx`
 - Modify: `tests/integration/cold-start-experience.test.tsx`
+- Modify: `tests/integration/country-assessment-projection-v2.test.ts`
 - Modify: `tests/integration/place-frontier.test.ts`
 - Modify: `tests/integration/place-frontier-transport.test.ts`
 - Modify: `tests/integration/place-frontier-experience.test.tsx`
@@ -432,8 +591,32 @@ export interface ColdStartApplicationPortsV2 extends Omit<
 
 Task 4 owns the exact `CountryAssessmentProjectionV2` and its order-aware reconstructor because Cold Start is the boundary that simultaneously holds the verified profile and dossier. Keep the current `CountryVerifierPort.check/present` input signatures. In this task, widen its result and the adapter together; `country-verifier-adapter.ts` calls `ColdStartApplicationAny.prepareAny/runAny/presentAny` explicitly and branches on `ColdStartReadModelAny`, so no intermediate union is assigned to the historical literal-`@1` result. Historical direct Cold Start callers keep the inherited V1 methods. For V2, the adapter requires the read model's already reconstructed `assessmentProjection` IDs to equal its profile/Evidence IDs and copies that fresh frozen projection; it has no profile/dossier loader and never derives order from opaque IDs or the projection being checked. It adds no projection key for V1. Result, presentation and marker are exact discriminated unions from the approved spec. Marker materialization, replay expectation, SQLite JSON, stream schemas and view-model normalization preserve the exact projection. Persisted marker/revision readers verify their own HMAC and structural density/unique-pair rules; any semantic `present` path obtains the order-verified projection again from Cold Start. Country Resolution digests the complete reconstructed marker, so accepted-yellow/replacement replay cannot drop or change participant explanations.
 
+Projection validation has two explicit trust levels. The Application structural reconstructor checks
+exact keys and ID bindings, closed values, unique pairs, stable participant relationships and a
+dense route-major rectangle, then returns a fresh frozen copy. The existing Task 4 order-aware
+reconstructor remains the only semantic order oracle and additionally compares against profile
+participant order crossed with dossier route order. Persisted shortlist/resolution readers and
+browser wire schemas perform only the structural checks they can honestly prove; their enclosing
+canonical HMAC rejects ordinary persisted tamper. A schema-valid whole-grid reorder is rejected by
+`presentPlaceFrontier` / `presentCountryResolution`, which call `CountryVerifierPort.present`, obtain
+the independently order-verified Cold Start projection again and canonical-compare the complete
+marker. Neither storage nor wire derives an expected order from the projection under test. Browser
+streams share a local browser-safe strict projection schema and never runtime-import the Node-backed
+Application reconstructor.
+
+Live Cold Start additionally binds V2 `assessmentProjection.profileSnapshotId` to the profile ID
+already verified in the response header and Journey props; its Evidence ID must equal the terminal
+read model Evidence ID. `decodeColdStartStream` receives that expected profile ID, and stored initial
+presentation validates the same binding before rendering. A V2 terminal without this external
+profile binding is rejected. Finally, Place Frontier keeps direct preparation strictly V1, but its
+run/present replay boundary exact-loads both bound snapshots through the closed union readers and
+accepts only `relocation-profile@1 + preference-profile@1` or
+`relocation-profile@2 + preference-profile@2`. Mixed-version pairs fail before any country verifier
+call. This makes persisted V2 shortlist and Country Resolution replay reachable without moving the
+later receipt-to-fixed-run preparation work into this task.
+
 - [ ] Write REDs for exact V2 check/present/materialization, profile/evidence bindings, preservation of Task 4's independently ordered dense projection, unique `(routeId, participantId)`, closed reasons and fresh frozen copies; prove the adapter has no loader and IDs alone are never accepted as an ordering oracle.
-- [ ] Mutate/remove/add/reorder every projection field at marker, shortlist, resolution revision and wire boundaries; require `integrity_mismatch`. Assert V1 output contains no projection key and historical stream bytes remain exact.
+- [ ] Mutate/remove/add every projection field and introduce duplicate/sparse/non-dense pairs at marker, shortlist, resolution revision and wire boundaries; require `integrity_mismatch`. A schema-valid whole-grid reorder may cross a structural store/wire reader only when its enclosing integrity is valid, but must fail semantic `present` replay against the independently reconstructed Cold Start projection. Assert V1 output contains no projection key and historical stream bytes remain exact.
 - [ ] Add UI REDs in `ColdStartComparator`, `PlaceFrontierJourney` and `CountryResolutionPanel` showing concise route/participant unknown or mismatch explanations without exposing names, legal probability or a second marker.
 - [ ] Run `pnpm exec vitest run tests/integration/cold-start-experience.test.tsx tests/integration/place-frontier.test.ts tests/integration/place-frontier-transport.test.ts tests/integration/place-frontier-experience.test.tsx tests/integration/country-resolution.test.ts tests/integration/country-resolution-transport.test.ts tests/integration/country-resolution-store.test.ts tests/integration/country-resolution-experience.test.tsx`; expect only V2 union/projection failures.
 - [ ] Implement the exact union and projection; do not change port inputs or `country-frontier@1` calculation.

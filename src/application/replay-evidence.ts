@@ -9,6 +9,11 @@ import type {
   SloveniaSourceId,
 } from "../research/cold-start-contracts";
 import {
+  SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_SOURCE_ORDER,
+  type ColdStartEvidenceClaimV2,
+} from "../research/cold-start-contracts-v2";
+import {
   evidenceCanonicalEqual,
   sealEvidencePlan,
   type EvidenceIntegrity,
@@ -24,6 +29,7 @@ import {
   type EvidenceParsers,
 } from "../research/run";
 import { createSloveniaPlan } from "../research/slovenia-plan";
+import { createSloveniaPlanV2 } from "../research/slovenia-plan-v2";
 
 export interface ReplayEvidenceInput {
   readonly snapshotId: string;
@@ -176,6 +182,37 @@ export async function replayEvidenceByRules<
       VS1_RESEARCH_PLAN,
       {
         store: ports.store as unknown as ReplayEvidenceStore,
+        integrityFactory: ports.integrityFactory,
+      },
+    ) as unknown as Promise<EvidenceSnapshot<S, C>>;
+  }
+  if (verified.snapshot.rulesVersion === SLOVENIA_V2_EVIDENCE_RULES_VERSION) {
+    if (
+      verified.entries.length !== SLOVENIA_V2_SOURCE_ORDER.length ||
+      SLOVENIA_V2_SOURCE_ORDER.some(
+        (sourceId, index) => verified.entries[index]?.sourceId !== sourceId,
+      )
+    ) throw new Error("integrity_mismatch");
+    const sourceLineage = Object.fromEntries(SLOVENIA_V2_SOURCE_ORDER.map((sourceId) => {
+      const entry = verified.entries.find((candidate) => candidate.sourceId === sourceId)!;
+      return [sourceId, {
+        navigationUrl: entry.navigationUrl,
+        ...(entry.indexedSourceUrl === undefined
+          ? {}
+          : { indexedSourceUrl: entry.indexedSourceUrl }),
+      }];
+    })) as Record<SloveniaSourceId, {
+      readonly navigationUrl: string;
+      readonly indexedSourceUrl?: string;
+    }>;
+    return replayEvidencePlan(
+      input,
+      createSloveniaPlanV2(sourceLineage),
+      {
+        store: ports.store as unknown as ReplayEvidenceStore<
+          SloveniaSourceId,
+          ColdStartEvidenceClaimV2
+        >,
         integrityFactory: ports.integrityFactory,
       },
     ) as unknown as Promise<EvidenceSnapshot<S, C>>;

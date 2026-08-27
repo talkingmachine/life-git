@@ -1,4 +1,7 @@
-import type { ColdStartEvent, ColdStartReadModel } from "../application/cold-start";
+import type {
+  ColdStartEventAny,
+  ColdStartReadModelAny,
+} from "../application/cold-start";
 import type {
   CandidateState,
   ResearchCandidate,
@@ -8,6 +11,7 @@ import type {
 import { createProductGlobeRoute } from "./research-map/product-route";
 import {
   initialColdStartEventState,
+  normalizeColdStartReadModel,
   reduceColdStartEvent,
   type ColdStartEventState,
 } from "./cold-start-stream";
@@ -22,7 +26,7 @@ export type ColdStartScreenState =
       readonly kind: "completed";
       readonly runId: string;
       readonly stream: ColdStartEventState;
-      readonly readModel: ColdStartReadModel;
+      readonly readModel: ColdStartReadModelAny;
     }
   | {
       readonly kind: "transportError";
@@ -38,7 +42,7 @@ export interface ColdStartView {
   readonly globeMode: "full" | "collapsed";
   readonly marker: "pending" | "green" | "yellow" | "red";
   readonly progress: readonly ResearchProgressItem[];
-  readonly readModel?: ColdStartReadModel;
+  readonly readModel?: ColdStartReadModelAny;
   readonly transportError?: string;
 }
 
@@ -61,7 +65,7 @@ const SLOVENIA = Object.freeze({
 });
 
 interface ProgressDraft {
-  readonly eventType: ColdStartEvent["type"];
+  readonly eventType: ColdStartEventAny["type"];
   readonly key: string;
   readonly label: string;
   readonly detail?: string;
@@ -69,7 +73,7 @@ interface ProgressDraft {
   readonly count: number;
 }
 
-function progressDraft(event: ColdStartEvent): ProgressDraft {
+function progressDraft(event: ColdStartEventAny): ProgressDraft {
   switch (event.type) {
     case "source_discovered":
       return {
@@ -127,7 +131,7 @@ function progressDraft(event: ColdStartEvent): ProgressDraft {
   }
 }
 
-function aggregateProgress(events: readonly ColdStartEvent[]): readonly ResearchProgressItem[] {
+function aggregateProgress(events: readonly ColdStartEventAny[]): readonly ResearchProgressItem[] {
   const drafts: ProgressDraft[] = [];
   for (const event of events) {
     const next = progressDraft(event);
@@ -164,7 +168,7 @@ export function createColdStartRunningState(runId: string): ColdStartScreenState
 
 export function reduceColdStartScreenEvent(
   state: ColdStartScreenState,
-  event: ColdStartEvent,
+  event: ColdStartEventAny,
 ): ColdStartScreenState {
   if (state.kind !== "running") throw new Error("screen_not_running");
   if (event.runId !== state.runId) throw new Error("changed_run_id");
@@ -193,12 +197,16 @@ export function failColdStartScreen(
   });
 }
 
-export function presentColdStartReadModel(readModel: ColdStartReadModel): ColdStartScreenState {
+export function presentColdStartReadModel(
+  readModel: ColdStartReadModelAny,
+  expectedProfileSnapshotId?: string,
+): ColdStartScreenState {
+  const verified = normalizeColdStartReadModel(readModel, expectedProfileSnapshotId);
   return Object.freeze({
     kind: "completed",
-    runId: readModel.runId,
+    runId: verified.runId,
     stream: initialColdStartEventState(),
-    readModel,
+    readModel: verified,
   });
 }
 

@@ -85,12 +85,33 @@ profile ID, effective interval, catalog routes and all sealed Evidence reference
 соответствовать assessment profile/date/Evidence. Только этот объект передаётся в
 `assessFormalResidence`; отсутствие или mismatch не может привести к red.
 
+Для Slovenia accepted attestation дополнительно требует `jurisdiction === "SI"`, exact
+`profileSnapshotId`, `evidenceSnapshotId === evidence.id`, effective interval, покрывающий
+`assessmentAt`, и applicable catalog route IDs, точно равные derived formal route IDs. Separately
+proved excluded catalog routes могут присутствовать рядом. Каждая catalog Evidence reference
+использует `evidence.id`, а её `artifactId` существует в `evidence.artifactIds`. При пустом derived
+route set attestation отбрасывается, чтобы пустое исследование не стало red по vacuous truth.
+Descriptor-safe mismatch отбрасывается до formal call, а не превращается в domain result. Пока
+verified catalog-attestation producer/loader отсутствует и installed Slovenia catalog имеет
+`completeness: "unproven"`, production передаёт `undefined`; synthetic test attestation проверяет
+только formal seam и не является production completeness proof.
+
 ### Отдельные Evidence/Dossier V2
 
 Исторические `ColdStartEvidenceClaim`, `vs2-si-evidence@2` и `si-dossier@1` не расширяются. Для
 нового assessment создаются отдельные `ColdStartEvidenceClaimV2`, rules
 `vs2-si-evidence@3` и `DossierVersionV2` со schema `si-dossier@2`. Они могут ссылаться на те же
 retained official artifacts, но имеют отдельные parser/rules versions и canonical replay.
+
+Историческая таблица `dossier_versions` остаётся V1-only и не меняет constraints или bytes. V2
+использует отдельную immutable `dossier_versions_v2` с собственной predecessor chain и Evidence
+foreign key. Exact identity/read key равен `(countryCode, payloadHash, evidenceSnapshotId)`.
+Повтор того же verified Evidence idempotent; новый Evidence Snapshot с тем же canonical dossier
+payload создаёт новую V2 revision, потому что downstream assessment требует exact
+`dossier.evidenceSnapshotId === evidence.id`. `payloadHash` по-прежнему равен
+`sha256(canonicalJson(payload))` и не становится Evidence-binding digest. V2 lookup без точного
+Evidence ID запрещён. Отдельные FK/index/immutability triggers исключают смешанную V1/V2 chain, а
+open-time preflight отвергает несовместимую существующую V2 schema до DDL.
 
 Три значения, которых не было в V1, имеют закрытые shapes:
 
@@ -146,6 +167,13 @@ statutory claims scoped to that companion relationship. These V2 values do not a
 If official capture cannot prove any new typed classifier/scope, that V2 claim is unavailable and
 the corresponding assessment component is `unknown`.
 
+Country Assessment V2 является singleton-route contract. `cold-start-contracts-v2` владеет exact
+mapping `temporary_residence_digital_nomad -> si-temporary-residence-digital-nomad`, экспортирует
+`SLOVENIA_V2_FORMAL_ROUTE_ID`, и тем самым задаёт единственный route и его порядок. Dossier claim
+order не является route order, и `assessColdStartV2` не придумывает другие route IDs. Без dossier
+route не выводится: formal input содержит пустой routes, `participantAssessments` пуст, а результат
+остаётся yellow с `research_incomplete`.
+
 ## 5. Participant assessment
 
 Для каждого route строится participant-scoped внутренний результат:
@@ -168,6 +196,10 @@ export interface ParticipantRouteAssessmentV2 {
 - Для Slovenia V2 package отдельный `companion-entry-classifier@1` parser заполняет
   `relationshipClassifications` только из retained official text. Он не изменяет V1 claim;
   до доказанного V2 classifier companion path честно `unknown`.
+- `companion-entry-classifier@1` является внутренним классификатором source parser
+  `si-route@3`; persisted `companion_entry.validatorVersion` и claim ID используют
+  `si-route@3`, а Evidence `parserVersions["si-digital-nomad-route"]` остаётся единственным
+  source-level parser binding.
 - `other_family` не приравнивается к spouse/minor child; без отдельного official rule это `unknown`.
 - Работа, доход и образование companion не влияют на основной route, если официальный claim явно
   их не потребляет.
@@ -180,8 +212,8 @@ Route aggregation имеет фиксированный порядок:
 2. иначе хотя бы один participant или route prerequisite `unknown` -> `unknown`;
 3. иначе route -> `viable`.
 
-Canonical projection order is the sealed dossier route order, then the exact participant order from
-`RelocationProfileV2Snapshot` within each route. Every `(routeId, participantId)` pair occurs
+Canonical projection order is the singleton derived route order, then the exact participant order
+from `RelocationProfileV2Snapshot` within that route. Every `(routeId, participantId)` pair occurs
 exactly once; missing, duplicate or reordered pairs fail reconstruction.
 
 Hard mismatch является достаточным доказательством невозможности конкретного route и не
@@ -217,6 +249,15 @@ Calendar addition использует существующее UTC month-clampi
 `general_statutory_prerequisites.passportBeyondPermitMonths` образуют необходимый запас после
 предполагаемой даты переезда.
 
+Каждая move boundary сначала вычисляется через `addUtcMonthsClamped(assessmentAt, horizonOffset)`.
+Passport-required date затем вычисляется от уже clamped move boundary добавлением
+`maximumMonths + passportBeyondPermitMonths`; horizon и permit offsets не объединяются в одно
+сложение. Поэтому `2026-01-31 + 3 months = 2026-04-30`, затем `+ 15 months = 2027-07-30`, а не
+`2027-07-31`. Expiry раньше required early boundary означает `impossible`; finite late boundary и
+expiry не раньше неё означают `verified`; остальные случаи, включая open late boundary, дают
+`unknown`. `passport: absent` становится `impossible` только когда оба exact scoped claims
+доказывают требование. Applicant scope никогда не обслуживает companion.
+
 Для companion используются только claims с `ParticipantRequirementScopeV2` для его exact
 relationship. Если companion path не имеет собственных scoped duration/statutory claims, его
 passport component и весь participant path остаются `unknown`; applicant terms не копируются.
@@ -245,6 +286,11 @@ passport component и весь participant path остаются `unknown`; appl
   `remote_work_prerequisite_unknown` и route `unknown`.
 - Route-specific legality не собирается onboarding и всегда остаётся unknown до отдельного
   route-specific подтверждения.
+- Текущий `@2` input не содержит exact remote-work relation или route-specific legality proof.
+  Поэтому установленный digital-nomad route не может стать `viable` в Tasks 1–5:
+  `remote_continuation: yes` остаётся `unknown`, а relation/legality нельзя выводить из
+  `current_work` или намерения продолжить работу. Viable path откладывается до отдельно sealed
+  route-specific факта.
 - Не собранная health insurance не делает route impossible/unknown: при официальном требовании
   она остаётся существующим procedural action `insurance`.
 
@@ -359,6 +405,27 @@ reaches `@2` only through its persisted receipt/profile ID. This preserves the c
 `CountryVerifierPort` surface and keeps schema ownership inside the use case that already loads and
 assesses the profile.
 
+Evidence persistence stays generic internally, while every application read remains versioned and
+closed. The historical Country Knowledge projection accepts only `vs2-si-evidence@2` with the exact
+V1 parser map. A separate V2 projection accepts only `vs2-si-evidence@3` with
+`SLOVENIA_V2_PARSER_VERSIONS`; V1, V3 and unknown rules never cross-cast. V2 replay performs this
+exact verified load before the existing rules-aware replay. The outward Cold Start Knowledge port
+does not widen: its store dispatches internally by the verified stored rules version and rejects
+anything other than the two explicit branches.
+
+Country Knowledge continues to persist `country-knowledge@1` in the same append-only linear chain.
+It fully validates every V3 claim and Evidence reference, but publishes compact references only for
+unscoped V2 country claims. Scoped `duration` and
+`general_statutory_prerequisites` are intentionally absent because the historical
+`FormalKnowledgeReference` has no participant-scope field and permits only one reference per
+`ClaimKind`. When V3 supplies one of those scoped kinds, the corresponding predecessor reference
+and status are retired rather than carried forward or selected by array order. Scope remains in the
+V2 Dossier and Assessment; no optional scope field or new Knowledge schema is introduced here. V1
+revision bytes are unchanged, and a V2-triggered revision may append after a V1 predecessor without
+rewriting it. Existing transient-source atomicity also remains unchanged: a relevant timeout,
+deadline, rate limit or server error publishes no Knowledge successor, leaving the predecessor
+current and deferring scoped retirement until an otherwise publishable revision.
+
 Participant explanations remain in the canonical Country Frontier result instead of disappearing
 after `assessColdStartV2`. Cold Start constructs this projection while it still owns both the
 verified profile participant order and reconstructed dossier route order; the outer adapter only
@@ -411,12 +478,25 @@ returns the `@2` read model. The adapter only checks the same profile and Eviden
 copies that already verified projection; it never infers order from opaque IDs.
 `materializeFrontierMarker`, `countryVerificationReplayExpectation`, marker persistence, stream
 normalization and view-model reconstruction retain that exact dense ordered projection. A pure
-`reconstructCountryAssessmentProjectionV2` checks exact keys, both ID bindings, closed reason codes,
-unique `(routeId, participantId)` pairs and canonical participant order before returning a private
-frozen copy. `@1` result/marker bytes have no `assessmentProjection` key. Missing/extra projection
-data, mixed rules versions, changed participant/route/status/reason/claim IDs or reordered entries
-fail reconstruction as `integrity_mismatch`. The projection explains a verdict; it never
-participates in marker calculation a second time.
+structural reconstructor checks exact keys, both ID bindings, closed reason codes, unique
+`(routeId, participantId)` pairs, stable relationships and a dense route-major rectangle before
+returning a private frozen copy. The existing order-aware `reconstructCountryAssessmentProjectionV2`
+additionally requires the independent profile-participant × dossier-route order and remains the only
+semantic order oracle. Persisted and wire boundaries cannot recover that order from an opaque
+profile ID and MUST NOT derive it from the projection under test: they perform structural validation
+and rely on their existing enclosing integrity where present. A schema-valid whole-grid reorder is
+rejected when Place Frontier or Country Resolution calls semantic `present`, obtains the freshly
+order-verified Cold Start result and canonical-compares the complete marker. `@1` result/marker
+bytes have no `assessmentProjection` key. Missing/extra projection data, mixed rules versions and
+changed participant/route/status/reason/claim IDs fail reconstruction as `integrity_mismatch`. The
+projection explains a verdict; it never participates in marker calculation a second time.
+
+For the live Cold Start stream, `x-life-profile-id` and the Journey profile prop are the external
+profile binding: every V2 terminal projection must match that profile ID and the terminal Evidence
+ID before rendering. The browser uses a local strict schema and never runtime-imports the
+Node-backed Application reconstructor. Place Frontier direct preparation remains V1-only, while
+run/present exact-load the persisted profile pair and accept only matching `@1/@1` or `@2/@2`
+relocation/preference versions before invoking country verification; mixed pairs fail closed.
 
 `SqliteProfileStore` has separate `@1` and `@2` reconstruction branches. `@1` hashes/bytes are
 unchanged. `@2` assessment and participant projections are canonical, immutable and replayed with
@@ -425,7 +505,9 @@ exact profile/evidence/dossier/assessment-date bindings.
 ## 13. Acceptance scenarios
 
 1. Canonical `self + spouse` never drops or merges participant data.
-2. A verified self route plus verified spouse companion path can be `viable`.
+2. Route может быть `viable` только когда каждый participant и route prerequisite verified.
+   Текущий onboarding-only digital-nomad input не может выполнить это условие, потому что exact
+   remote relation/legality отсутствует.
 3. The same self route with an unclassified spouse path is `unknown`, not green.
 4. A proven companion exclusion makes that route `impossible`.
 5. A passport valid through the late interval passes; one expiring before the early interval fails;
@@ -436,8 +518,9 @@ exact profile/evidence/dossier/assessment-date bindings.
    employment/service.
 8. EUR uses direct comparison; fresh CBR supports RUB; unsupported/unsealed FX remains unknown.
 9. Missing insurance appears only as a procedural action.
-10. Any viable route produces green; an unknown route produces yellow; all impossible produce red
-    only with verified complete catalog.
+10. Любой viable route, когда будущий separately sealed legality input сделает его достижимым,
+    produces green; текущий route остаётся unknown/yellow. All impossible produce red only with
+    verified complete catalog.
 11. Historical `@1` fixtures, hashes, stream bytes and replay remain unchanged.
 12. Cold Start rejects a requested/sealed profile ID mismatch before research calls; the
     Infrastructure adapter transfers only the opaque ID and never schema-dispatches it.

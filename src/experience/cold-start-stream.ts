@@ -1,9 +1,14 @@
 import { z } from "zod";
 
 import type {
-  ColdStartEvent,
-  ColdStartReadModel,
+  ColdStartEventAny,
+  ColdStartReadModelAny,
 } from "../application/cold-start";
+import {
+  parseCountryAssessmentProjectionV2,
+  participantRouteAssessmentV2Schema,
+  sameParticipantAssessments,
+} from "./country-assessment-projection-v2";
 import {
   FINITE_NDJSON_MAX_LINE_BYTES,
   readFiniteNdjson,
@@ -169,7 +174,7 @@ const formalResidenceVerdictSchema = z.object({
   ]),
 }).strict();
 
-const formulaSchema = z.object({
+const rubFormulaSchema = z.object({
   formulaId: z.literal("FORMULA-VS2-INCOME-01"),
   formulaVersion: z.literal("1"),
   expression: z.literal("monthlyIncomeRub / eurRub < thresholdEur"),
@@ -181,7 +186,17 @@ const formulaSchema = z.object({
   sourceClaimIds: z.array(z.string().min(1)),
 }).strict();
 
-const comparatorSchema = z.object({
+const eurFormulaSchema = z.object({
+  formulaId: z.literal("FORMULA-VS2-INCOME-EUR-01"),
+  formulaVersion: z.literal("1"),
+  expression: z.literal("monthlyIncomeEur < thresholdEur"),
+  monthlyIncomeEur: z.string().min(1),
+  thresholdEur: z.string().min(1),
+  rounding: z.literal("UNROUNDED_THEN_HALF_UP_2DP"),
+  sourceClaimIds: z.array(z.string().min(1)),
+}).strict();
+
+const comparatorCommon = {
   marker: z.enum(["green", "yellow", "red"]),
   personalFit: z.enum([
     "verified_route_available",
@@ -192,8 +207,12 @@ const comparatorSchema = z.object({
   ]),
   cityScope: z.literal("not_checked"),
   formalVerdict: formalResidenceVerdictSchema,
-  formula: formulaSchema.optional(),
-}).strict().superRefine((comparator, context) => {
+};
+
+function validateComparatorMarker(
+  comparator: { readonly marker: string; readonly formalVerdict: { readonly marker: string } },
+  context: z.RefinementCtx,
+): void {
   if (comparator.marker !== comparator.formalVerdict.marker) {
     context.addIssue({
       code: "custom",
@@ -201,14 +220,27 @@ const comparatorSchema = z.object({
       path: ["marker"],
     });
   }
-});
+}
 
-const readModelSchema = z.object({
+const comparatorV1Schema = z.object({
+  ...comparatorCommon,
+  formula: rubFormulaSchema.optional(),
+}).strict().superRefine(validateComparatorMarker);
+
+const comparatorV2Schema = z.object({
+  ...comparatorCommon,
+  participantAssessments: z.array(participantRouteAssessmentV2Schema),
+  formula: z.union([rubFormulaSchema, eurFormulaSchema]).optional(),
+}).strict().superRefine(validateComparatorMarker);
+
+const readModelBeforeVersion = {
   runId: z.string().min(1),
   country: countrySchema,
   checkedAt: z.iso.date(),
   evidenceSnapshotId: z.string().min(1),
-  assessmentRulesVersion: z.literal("cold-start-assessment@1"),
+};
+
+const readModelAfterVersion = {
   knowledge: z.object({
     rankingRevisionId: z.string().min(1).optional(),
     currentRevisionId: z.string().min(1).optional(),
@@ -236,12 +268,20 @@ const readModelSchema = z.object({
     required: z.literal(9),
     claimKinds: z.array(claimKindSchema),
   }).strict(),
-  comparator: comparatorSchema,
-  sourceNavigation: z.array(z.object({
-    label: z.string().min(1),
-    url: z.string().url(),
-  }).strict()),
-}).strict().superRefine((readModel, context) => {
+};
+
+const sourceNavigationSchema = z.array(z.object({
+  label: z.string().min(1),
+  url: z.string().url(),
+}).strict());
+
+function validateReadModelCommon(
+  readModel: {
+    readonly checkedAt: string;
+    readonly knowledge: { readonly lastCheckedAt: string };
+  },
+  context: z.RefinementCtx,
+): void {
   if (readModel.knowledge.lastCheckedAt !== readModel.checkedAt) {
     context.addIssue({
       code: "custom",
@@ -249,7 +289,46 @@ const readModelSchema = z.object({
       path: ["knowledge", "lastCheckedAt"],
     });
   }
+}
+
+const readModelV1Schema = z.object({
+  ...readModelBeforeVersion,
+  assessmentRulesVersion: z.literal("cold-start-assessment@1"),
+  ...readModelAfterVersion,
+  comparator: comparatorV1Schema,
+  sourceNavigation: sourceNavigationSchema,
+}).strict().superRefine(validateReadModelCommon);
+
+const readModelV2Schema = z.object({
+  ...readModelBeforeVersion,
+  assessmentRulesVersion: z.literal("cold-start-assessment@2"),
+  ...readModelAfterVersion,
+  comparator: comparatorV2Schema,
+  assessmentProjection: z.unknown(),
+  sourceNavigation: sourceNavigationSchema,
+}).strict().superRefine((readModel, context) => {
+  validateReadModelCommon(readModel, context);
+  try {
+    const projection = parseCountryAssessmentProjectionV2(readModel.assessmentProjection, {
+      evidenceSnapshotId: readModel.evidenceSnapshotId,
+    });
+    if (!sameParticipantAssessments(
+      readModel.comparator.participantAssessments,
+      projection.participantAssessments,
+    )) throw new Error("integrity_mismatch");
+  } catch {
+    context.addIssue({
+      code: "custom",
+      message: "integrity_mismatch",
+      path: ["assessmentProjection"],
+    });
+  }
 });
+
+const readModelSchema = z.discriminatedUnion("assessmentRulesVersion", [
+  readModelV1Schema,
+  readModelV2Schema,
+]);
 
 const eventBase = {
   runId: z.string().min(1),
@@ -330,10 +409,10 @@ export const coldStartEventSchema = coldStartEventWireSchema.superRefine((event,
 });
 
 export interface ColdStartEventState {
-  readonly events: readonly ColdStartEvent[];
+  readonly events: readonly ColdStartEventAny[];
   readonly lastSequence: number;
   readonly runId?: string;
-  readonly terminal?: ColdStartReadModel;
+  readonly terminal?: ColdStartReadModelAny;
 }
 
 export function initialColdStartEventState(): ColdStartEventState {
@@ -342,7 +421,7 @@ export function initialColdStartEventState(): ColdStartEventState {
 
 export function reduceColdStartEvent(
   state: ColdStartEventState,
-  event: ColdStartEvent,
+  event: ColdStartEventAny,
 ): ColdStartEventState {
   if (state.terminal !== undefined) throw new Error("event_after_terminal");
   if (event.sequence !== state.lastSequence + 1) throw new Error("invalid_event_sequence");
@@ -363,14 +442,65 @@ export function reduceColdStartEvent(
   });
 }
 
+export function normalizeColdStartReadModel(
+  value: unknown,
+  expectedProfileSnapshotId?: string,
+): ColdStartReadModelAny {
+  const parsed = readModelSchema.safeParse(value);
+  if (!parsed.success) throw new Error("integrity_mismatch");
+  if (parsed.data.assessmentRulesVersion === "cold-start-assessment@1") {
+    return deepFreeze(structuredClone(parsed.data)) as ColdStartReadModelAny;
+  }
+  if (expectedProfileSnapshotId === undefined || expectedProfileSnapshotId.length === 0) {
+    throw new Error("integrity_mismatch");
+  }
+  const projection = parseCountryAssessmentProjectionV2(parsed.data.assessmentProjection, {
+    profileSnapshotId: expectedProfileSnapshotId,
+    evidenceSnapshotId: parsed.data.evidenceSnapshotId,
+  });
+  if (!sameParticipantAssessments(
+    parsed.data.comparator.participantAssessments,
+    projection.participantAssessments,
+  )) throw new Error("integrity_mismatch");
+  return deepFreeze(structuredClone({
+    ...parsed.data,
+    assessmentProjection: projection,
+  })) as ColdStartReadModelAny;
+}
+
+function parseColdStartEvent(
+  value: unknown,
+  expectedProfileSnapshotId: string,
+): ColdStartEventAny {
+  const parsed = coldStartEventSchema.safeParse(value);
+  if (!parsed.success) throw new Error("integrity_mismatch");
+  if (parsed.data.type !== "assessment_completed") {
+    return deepFreeze(structuredClone(parsed.data)) as ColdStartEventAny;
+  }
+  return deepFreeze(structuredClone({
+    ...parsed.data,
+    payload: {
+      readModel: normalizeColdStartReadModel(
+        parsed.data.payload.readModel,
+        expectedProfileSnapshotId,
+      ),
+    },
+  })) as ColdStartEventAny;
+}
+
 export async function* decodeColdStartStream(
   stream: ReadableStream<Uint8Array>,
+  expectedProfileSnapshotId: string,
   signal?: AbortSignal,
-): AsyncGenerator<ColdStartEvent> {
+): AsyncGenerator<ColdStartEventAny> {
+  if (
+    typeof expectedProfileSnapshotId !== "string" ||
+    expectedProfileSnapshotId.length === 0
+  ) throw new Error("integrity_mismatch");
   let state = initialColdStartEventState();
-  let pendingTerminal: ColdStartEvent | undefined;
+  let pendingTerminal: ColdStartEventAny | undefined;
   for await (const value of readFiniteNdjson(stream, signal)) {
-    const event = coldStartEventSchema.parse(value) as ColdStartEvent;
+    const event = parseColdStartEvent(value, expectedProfileSnapshotId);
     state = reduceColdStartEvent(state, event);
     if (event.type === "assessment_completed") pendingTerminal = event;
     else yield event;
@@ -379,4 +509,12 @@ export async function* decodeColdStartStream(
     throw new Error("missing_terminal_event");
   }
   yield pendingTerminal;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
 }

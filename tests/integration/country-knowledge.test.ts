@@ -13,8 +13,10 @@ import {
 
 import {
   buildSloveniaKnowledgeRevision,
+  buildSloveniaKnowledgeRevisionV2,
   type SloveniaCountryKnowledgeRevision,
   type VerifiedCountryEvidenceInput,
+  type VerifiedCountryEvidenceInputV2,
 } from "../../src/research/country-knowledge";
 import type {
   ClaimKind,
@@ -23,6 +25,17 @@ import type {
   SloveniaSourceId,
   VerifiedCountryClaim,
 } from "../../src/research/cold-start-contracts";
+import {
+  SLOVENIA_V2_CLAIM_VALIDATOR,
+  SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_PARSER_VERSIONS,
+  SLOVENIA_V2_RESEARCH_SCOPE,
+  SLOVENIA_V2_SOURCE_ORDER,
+  sloveniaV2ClaimId,
+  type ClaimValueByKindV2,
+  type ColdStartEvidenceClaimV2,
+  type VerifiedCountryClaimV2,
+} from "../../src/research/cold-start-contracts-v2";
 import type { LiveCapturedArtifact } from "../../src/research/contracts";
 import {
   evidenceArtifactProvenance,
@@ -301,6 +314,273 @@ function partialEvidence(runId = "partial-run"): Promise<KnowledgeFixture> {
   });
 }
 
+type V2CountrySourceId = Exclude<SloveniaSourceId, "cbr-eur">;
+
+const V2_CLAIM_KINDS = [
+  "route_basis",
+  "citizenship_applicability",
+  "remote_work_relations",
+  "qualification",
+  "companion_entry",
+  "duration",
+  "general_statutory_prerequisites",
+] as const satisfies readonly ClaimKind[];
+
+function v2SourceFor(kind: ClaimKind): V2CountrySourceId {
+  if (kind === "income") return "si-income-threshold";
+  if (kind === "companion_local_work_access") return "si-companion-employment";
+  return "si-digital-nomad-route";
+}
+
+function v2SourcePeriod(kind: ClaimKind): string {
+  return kind === "income" ? "2026M01" : "2025-11-21";
+}
+
+function v2Claim(
+  kind: ClaimKind,
+  sourceArtifact: LiveCapturedArtifact<SloveniaSourceId>,
+  scope: "applicant" | "companion-spouse" = "applicant",
+  citizenshipCountryCode = "RU",
+): VerifiedCountryClaimV2 {
+  const sourceId = v2SourceFor(kind);
+  const sourcePeriod = v2SourcePeriod(kind);
+  const requirementScope = scope === "applicant"
+    ? { kind: "applicant" as const }
+    : { kind: "companion" as const, relationship: "spouse" as const };
+  let value: ClaimValueByKindV2[ClaimKind];
+  if (kind === "route_basis") {
+    value = {
+      route: "temporary_residence_digital_nomad",
+      legalBasis: "ZTuj-2 Article 51a",
+      effectiveFrom: "2025-11-21",
+    };
+  } else if (kind === "citizenship_applicability") {
+    value = { classifications: [{ countryCode: citizenshipCountryCode, status: "eligible" }] };
+  } else if (kind === "remote_work_relations") {
+    value = {
+      allowedRelations: ["foreign_employer", "own_foreign_business", "foreign_clients"],
+      slovenianLabourMarketWorkIncluded: false,
+    };
+  } else if (kind === "income") {
+    value = {
+      metric: "latest_official_average_monthly_net_salary",
+      multiplier: "2",
+      thresholdEur: "3112.00",
+      currency: "EUR",
+      basis: "net",
+      appliesTo: "applicant",
+      period: "2026M01",
+    };
+  } else if (kind === "qualification") {
+    value = { rule: "not_listed_in_authoritative_requirements" };
+  } else if (kind === "companion_entry") {
+    value = { relationshipClassifications: [{ relationship: "spouse", status: "eligible" }] };
+  } else if (kind === "companion_local_work_access") {
+    value = { access: "conditional", labourMarketCheck: true, informationSheet: true };
+  } else if (kind === "duration") {
+    value = { maximumMonths: 12, extendable: false, reapplyAfterMonths: 6, scope: requirementScope };
+  } else {
+    value = {
+      passportBeyondPermitMonths: 3,
+      healthInsurance: true,
+      article55GroundsApply: true,
+      scope: requirementScope,
+    };
+  }
+  const anchor = {
+    artifactId: sourceArtifact.artifactId,
+    locator: `${kind}:v3-locator`,
+    excerptSha256: sha256Text(`${kind}:v3-excerpt`),
+  };
+  return {
+    claimId: sloveniaV2ClaimId(kind, value),
+    sourceId,
+    value,
+    scope: SLOVENIA_V2_RESEARCH_SCOPE,
+    sourcePeriod,
+    anchor,
+    status: "verified",
+    claimKind: kind,
+    evidence: [{
+      sourceId,
+      artifactId: sourceArtifact.artifactId,
+      navigationUrl: sourceArtifact.request.url,
+      resolvedEvidenceUrl: sourceArtifact.responseUrl,
+      sourcePeriod,
+      anchor,
+    }],
+    validatorVersion: SLOVENIA_V2_CLAIM_VALIDATOR[kind],
+  } as VerifiedCountryClaimV2;
+}
+
+interface KnowledgeV2Fixture {
+  readonly evidence: VerifiedCountryEvidenceInputV2;
+  readonly sealed: SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaimV2>;
+  readonly liveArtifacts: readonly LiveCapturedArtifact<SloveniaSourceId>[];
+}
+
+async function fullEvidenceV2(
+  runId = "v2-full-run",
+  citizenshipCountryCode = "RU",
+): Promise<KnowledgeV2Fixture> {
+  const sourceArtifacts: Readonly<Record<V2CountrySourceId, LiveCapturedArtifact<SloveniaSourceId>>> = {
+    "si-digital-nomad-route": artifact("si-digital-nomad-route", runId),
+    "si-income-threshold": artifact("si-income-threshold", runId),
+    "si-companion-employment": artifact("si-companion-employment", runId),
+  };
+  const routeClaims: readonly VerifiedCountryClaimV2[] = [
+    ...V2_CLAIM_KINDS.map((kind) => v2Claim(
+        kind,
+        sourceArtifacts[v2SourceFor(kind)],
+        "applicant",
+        citizenshipCountryCode,
+      )),
+    v2Claim("duration", sourceArtifacts["si-digital-nomad-route"], "companion-spouse"),
+    v2Claim(
+      "general_statutory_prerequisites",
+      sourceArtifacts["si-digital-nomad-route"],
+      "companion-spouse",
+    ),
+  ];
+  const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaimV2>[] = [
+    {
+      sourceId: "si-digital-nomad-route",
+      parserEntry: {
+        sourceId: "si-digital-nomad-route",
+        navigationUrl: URLS["si-digital-nomad-route"],
+        resolvedEvidenceUrl: URLS["si-digital-nomad-route"],
+        artifacts: [sourceArtifacts["si-digital-nomad-route"]],
+      },
+      coverage: "verified",
+      claims: routeClaims,
+    },
+    {
+      sourceId: "si-income-threshold",
+      parserEntry: {
+        sourceId: "si-income-threshold",
+        navigationUrl: URLS["si-income-threshold"],
+        resolvedEvidenceUrl: URLS["si-income-threshold"],
+        artifacts: [sourceArtifacts["si-income-threshold"]],
+      },
+      coverage: "verified",
+      claims: [v2Claim("income", sourceArtifacts["si-income-threshold"])],
+    },
+    {
+      sourceId: "si-companion-employment",
+      parserEntry: {
+        sourceId: "si-companion-employment",
+        navigationUrl: URLS["si-companion-employment"],
+        resolvedEvidenceUrl: URLS["si-companion-employment"],
+        artifacts: [sourceArtifacts["si-companion-employment"]],
+      },
+      coverage: "verified",
+      claims: [v2Claim(
+        "companion_local_work_access",
+        sourceArtifacts["si-companion-employment"],
+      )],
+    },
+    {
+      sourceId: "cbr-eur",
+      parserEntry: {
+        sourceId: "cbr-eur",
+        navigationUrl: URLS["cbr-eur"],
+        resolvedEvidenceUrl: URLS["cbr-eur"],
+        artifacts: [],
+      },
+      coverage: "unavailable",
+      blocker: {
+        sourceId: "cbr-eur",
+        kind: "semantic_mismatch",
+        navigationUrl: URLS["cbr-eur"],
+        artifactIds: [],
+      },
+    },
+  ];
+  const sealed = await sealEvidencePlan({
+    id: `${runId}:evidence`,
+    assessmentDate: "2026-08-22",
+    entries,
+    sourceIds: SLOVENIA_V2_SOURCE_ORDER,
+    parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+    rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  }, createEvidenceIntegrity(KEY));
+  const liveArtifacts = Object.values(sourceArtifacts);
+  return {
+    sealed,
+    liveArtifacts,
+    evidence: {
+      snapshot: sealed.snapshot,
+      entries: sealed.manifest.entries,
+      artifacts: liveArtifacts.map(evidenceArtifactProvenance),
+    },
+  };
+}
+
+async function scopedOnlyEvidenceV2(
+  runId: string,
+  incomeBlockerKind: "semantic_mismatch" | "timeout" = "semantic_mismatch",
+  knowledgeBaselineRevisionId?: string,
+): Promise<KnowledgeV2Fixture> {
+  const routeArtifact = artifact("si-digital-nomad-route", runId);
+  const claims = (["duration", "general_statutory_prerequisites"] as const).flatMap((kind) => [
+    v2Claim(kind, routeArtifact),
+    v2Claim(kind, routeArtifact, "companion-spouse"),
+  ]);
+  const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaimV2>[] = [
+    {
+      sourceId: "si-digital-nomad-route",
+      parserEntry: {
+        sourceId: "si-digital-nomad-route",
+        navigationUrl: URLS["si-digital-nomad-route"],
+        resolvedEvidenceUrl: URLS["si-digital-nomad-route"],
+        artifacts: [routeArtifact],
+      },
+      coverage: "verified",
+      claims,
+    },
+    ...(["si-income-threshold", "si-companion-employment", "cbr-eur"] as const).map(
+      (sourceId): TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaimV2> => ({
+        sourceId,
+        parserEntry: {
+          sourceId,
+          navigationUrl: URLS[sourceId],
+          resolvedEvidenceUrl: URLS[sourceId],
+          artifacts: [],
+        },
+        coverage: "unavailable",
+        blocker: {
+          sourceId,
+          kind: sourceId === "si-income-threshold"
+            ? incomeBlockerKind
+            : "semantic_mismatch",
+          navigationUrl: URLS[sourceId],
+          artifactIds: [],
+        },
+      }),
+    ),
+  ];
+  const sealed = await sealEvidencePlan({
+    id: `${runId}:evidence`,
+    assessmentDate: "2026-08-22",
+    entries,
+    sourceIds: SLOVENIA_V2_SOURCE_ORDER,
+    parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+    rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+    ...(knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId }),
+  }, createEvidenceIntegrity(KEY));
+  return {
+    sealed,
+    liveArtifacts: [routeArtifact],
+    evidence: {
+      snapshot: sealed.snapshot,
+      entries: sealed.manifest.entries,
+      artifacts: [evidenceArtifactProvenance(routeArtifact)],
+    },
+  };
+}
+
 function unavailableEvidence(
   kind: "timeout" | "deadline",
 ): Promise<KnowledgeFixture> {
@@ -329,6 +609,17 @@ function fileDatabase(): { readonly database: Database.Database; readonly path: 
 
 async function persistFixture(database: Database.Database, fixture: KnowledgeFixture): Promise<void> {
   const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(database);
+  for (const sourceArtifact of fixture.liveArtifacts) {
+    await evidenceStore.appendArtifact(sourceArtifact);
+  }
+  await evidenceStore.seal(fixture.sealed);
+}
+
+async function persistFixtureV2(
+  database: Database.Database,
+  fixture: KnowledgeV2Fixture,
+): Promise<void> {
+  const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaimV2>(database);
   for (const sourceArtifact of fixture.liveArtifacts) {
     await evidenceStore.appendArtifact(sourceArtifact);
   }
@@ -768,6 +1059,260 @@ describe("append-only country knowledge", () => {
     expect(results.map(({ publishedRevision }) =>
       store.loadVerified(publishedRevision!.id).id
     ).sort()).toEqual(results.map(({ publishedRevision }) => publishedRevision!.id).sort());
+  });
+});
+
+describe("Country Knowledge V2 dispatch", () => {
+  test("validates every V3 claim and emits only compact unscoped references", async () => {
+    const fixture = await fullEvidenceV2();
+    const revision = buildSloveniaKnowledgeRevisionV2({
+      evidence: fixture.evidence,
+      createdAt: CREATED_AT,
+    });
+
+    expect(revision).toBeDefined();
+    expect(revision!.formalClaimRefs.map(({ claimKind }) => claimKind)).toEqual([
+      "route_basis",
+      "citizenship_applicability",
+      "remote_work_relations",
+      "income",
+      "qualification",
+      "companion_entry",
+      "companion_local_work_access",
+    ]);
+    expect(revision!.formalClaimRefs.every(({ evidenceSnapshotId, definitionId }) =>
+      evidenceSnapshotId === fixture.evidence.snapshot.id &&
+      (
+        definitionId === SLOVENIA_V2_CLAIM_VALIDATOR.route_basis ||
+        definitionId === SLOVENIA_V2_CLAIM_VALIDATOR.income ||
+        definitionId === SLOVENIA_V2_CLAIM_VALIDATOR.companion_local_work_access
+      )
+    )).toBe(true);
+    expect(JSON.stringify(revision)).not.toMatch(/scope|3112\.00|RAW-BYTES|bytes/);
+    expect(Object.isFrozen(revision)).toBe(true);
+  });
+
+  test("rejects V1 Evidence at the V2 domain boundary", async () => {
+    const fixture = await fullEvidence();
+    expect(() => buildSloveniaKnowledgeRevisionV2({
+      evidence: fixture.evidence as unknown as VerifiedCountryEvidenceInputV2,
+      createdAt: CREATED_AT,
+    })).toThrow("integrity_mismatch");
+  });
+
+  test("retires scoped predecessor references without last-write-wins", async () => {
+    const predecessorFixture = await fullEvidence("v1-scoped-reference-root");
+    const predecessor = build(predecessorFixture)!;
+    expect(predecessor.formalClaimRefs.map(({ claimKind }) => claimKind)).toEqual(
+      expect.arrayContaining(["duration", "general_statutory_prerequisites"]),
+    );
+    const fixture = await fullEvidenceV2("v2-scoped-reference-successor");
+    const successor = buildSloveniaKnowledgeRevisionV2({
+      evidence: fixture.evidence,
+      predecessor,
+      createdAt: CREATED_AT,
+    })!;
+
+    expect(successor.predecessorId).toBe(predecessor.id);
+    expect(successor.formalClaimRefs.map(({ claimKind }) => claimKind)).not.toContain("duration");
+    expect(successor.formalClaimRefs.map(({ claimKind }) => claimKind))
+      .not.toContain("general_statutory_prerequisites");
+  });
+
+  test("retires scoped predecessor status kinds without deleting unrelated status", async () => {
+    const predecessorFixture = await partialEvidence("v1-scoped-status-root");
+    const predecessor = build(predecessorFixture)!;
+    expect(predecessor.statusObservations.some(({ affectedClaimKinds }) =>
+      affectedClaimKinds.includes("duration") ||
+      affectedClaimKinds.includes("general_statutory_prerequisites")
+    )).toBe(true);
+    const fixture = await scopedOnlyEvidenceV2("v2-scoped-status-successor");
+    const successor = buildSloveniaKnowledgeRevisionV2({
+      evidence: fixture.evidence,
+      predecessor,
+      createdAt: CREATED_AT,
+    })!;
+
+    expect(successor.statusObservations).toEqual([
+      expect.objectContaining({
+        sourceId: "si-digital-nomad-route",
+        affectedClaimKinds: [
+          "route_basis",
+          "citizenship_applicability",
+          "remote_work_relations",
+          "qualification",
+          "companion_entry",
+        ],
+      }),
+    ]);
+  });
+
+  test("keeps the predecessor untouched when a transient source blocks V3 publication", async () => {
+    const predecessor = structuredClone(build(await fullEvidence("v1-transient-root"))!);
+    const predecessorBytes = canonicalJson(predecessor);
+    const fixture = await scopedOnlyEvidenceV2("v2-transient-successor", "timeout");
+
+    expect(buildSloveniaKnowledgeRevisionV2({
+      evidence: fixture.evidence,
+      predecessor,
+      createdAt: CREATED_AT,
+    })).toBeUndefined();
+    expect(canonicalJson(predecessor)).toBe(predecessorBytes);
+    expect(Object.isFrozen(predecessor)).toBe(false);
+  });
+
+  test.each([
+    ["applicant duration claim ID", "duration", "applicant", "claimId"],
+    [
+      "companion statutory validator",
+      "general_statutory_prerequisites",
+      "companion",
+      "validatorVersion",
+    ],
+  ] as const)("rejects a malformed scoped V3 %s before omitting it", async (
+    _name,
+    kind,
+    scopeKind,
+    field,
+  ) => {
+    const fixture = await fullEvidenceV2(`malformed-scoped-${field}`);
+    const claims = fixture.evidence.snapshot.claims.map((claim) => {
+      if (!("claimKind" in claim) || claim.claimKind !== kind) return claim;
+      const value = claim.value as ClaimValueByKindV2["duration"];
+      if (value.scope.kind !== scopeKind) return claim;
+      return { ...claim, [field]: `malformed-${field}` };
+    });
+    const malformed: VerifiedCountryEvidenceInputV2 = {
+      ...fixture.evidence,
+      snapshot: { ...fixture.evidence.snapshot, claims },
+    };
+
+    expect(() => buildSloveniaKnowledgeRevisionV2({
+      evidence: malformed,
+      createdAt: CREATED_AT,
+    })).toThrow("integrity_mismatch");
+  });
+
+  test("dispatches V1 and V3 Evidence exactly and preserves the V1 row bytes", async () => {
+    const database = memoryDatabase();
+    const v1Fixture = await fullEvidence("dispatch-v1");
+    const v2Fixture = await fullEvidenceV2("dispatch-v2");
+    await persistFixture(database, v1Fixture);
+    await persistFixtureV2(database, v2Fixture);
+    const store = new SqliteCountryKnowledgeStore(database, KEY);
+    const v1 = store.publish(build(v1Fixture)!);
+    const v1Payload = database.prepare(
+      "SELECT payload_json, payload_hash, hmac FROM country_knowledge_revisions WHERE id = ?",
+    ).get(v1.id) as { readonly payload_json: string; readonly payload_hash: string; readonly hmac: string };
+    expect(v1Payload).toEqual({
+      payload_json:
+        "{\"countryCode\":\"SI\",\"createdAt\":\"2026-08-12T12:00:00.000Z\"," +
+        "\"formalClaimRefs\":[{\"claimId\":\"si-digital-nomad-route:route_basis:si-route@2\"," +
+        "\"claimKind\":\"route_basis\",\"definitionId\":\"si-route@2\"," +
+        "\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}," +
+        "{\"claimId\":\"si-digital-nomad-route:citizenship_applicability:si-route@2\"," +
+        "\"claimKind\":\"citizenship_applicability\",\"definitionId\":\"si-route@2\"," +
+        "\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}," +
+        "{\"claimId\":\"si-digital-nomad-route:remote_work_relations:si-route@2\"," +
+        "\"claimKind\":\"remote_work_relations\",\"definitionId\":\"si-route@2\"," +
+        "\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}," +
+        "{\"claimId\":\"si-income-threshold:income:si-income@2\",\"claimKind\":\"income\"," +
+        "\"definitionId\":\"si-income@2\",\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}," +
+        "{\"claimId\":\"si-digital-nomad-route:qualification:si-route@2\"," +
+        "\"claimKind\":\"qualification\",\"definitionId\":\"si-route@2\"," +
+        "\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}," +
+        "{\"claimId\":\"si-digital-nomad-route:companion_entry:si-route@2\"," +
+        "\"claimKind\":\"companion_entry\",\"definitionId\":\"si-route@2\"," +
+        "\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}," +
+        "{\"claimId\":\"si-companion-employment:companion_local_work_access:si-companion@2\"," +
+        "\"claimKind\":\"companion_local_work_access\",\"definitionId\":\"si-companion@2\"," +
+        "\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}," +
+        "{\"claimId\":\"si-digital-nomad-route:duration:si-route@2\"," +
+        "\"claimKind\":\"duration\",\"definitionId\":\"si-route@2\"," +
+        "\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}," +
+        "{\"claimId\":\"si-digital-nomad-route:general_statutory_prerequisites:si-route@2\"," +
+        "\"claimKind\":\"general_statutory_prerequisites\",\"definitionId\":\"si-route@2\"," +
+        "\"evidenceSnapshotId\":\"dispatch-v1:evidence\"}]," +
+        "\"id\":\"country-knowledge:SI:dispatch-v1:evidence\"," +
+        "\"observationSchemaVersion\":\"si-knowledge@1\",\"packageId\":\"SI\"," +
+        "\"schemaVersion\":\"country-knowledge@1\",\"statusObservations\":[]," +
+        "\"triggerEvidenceSnapshotId\":\"dispatch-v1:evidence\"}",
+      payload_hash: "e7c1a842dc77da0d455425943bd571629463dfbc699d009b811af3330991c3af",
+      hmac: "8f96d07b09b30622030f25e7353c65b405f21fce4ff24f087cb5410c288adb8b",
+    });
+
+    const v2Publication = store.publishCurrentFromEvidence(v2Fixture.sealed.snapshot.id);
+    expect(v2Publication.publishedRevision?.predecessorId).toBe(v1.id);
+    expect(store.resolveForEvidence(v2Fixture.sealed.snapshot.id)).toEqual(v2Publication);
+    expect(database.prepare(
+      "SELECT payload_json, payload_hash, hmac FROM country_knowledge_revisions WHERE id = ?",
+    ).get(v1.id)).toEqual(v1Payload);
+  });
+
+  test("keeps baseline-less transient V3 publish and resolve empty without changing the head", async () => {
+    const database = memoryDatabase();
+    const predecessorFixture = await fullEvidence("dispatch-transient-v1");
+    const transientFixture = await scopedOnlyEvidenceV2(
+      "dispatch-transient-v2",
+      "timeout",
+    );
+    await persistFixture(database, predecessorFixture);
+    await persistFixtureV2(database, transientFixture);
+    const store = new SqliteCountryKnowledgeStore(database, KEY);
+    const predecessor = store.publish(build(predecessorFixture)!);
+
+    const publication = store.publishCurrentFromEvidence(
+      transientFixture.sealed.snapshot.id,
+    );
+
+    expect(publication).toEqual({});
+    expect(store.resolveForEvidence(transientFixture.sealed.snapshot.id)).toEqual(publication);
+    expect(store.latest("SI")).toEqual(predecessor);
+    expect(database.prepare(
+      "SELECT COUNT(*) FROM country_knowledge_revisions",
+    ).pluck().get()).toBe(1);
+  });
+
+  test("returns a transient V3 Evidence baseline after a concurrent successor becomes head", async () => {
+    const database = memoryDatabase();
+    const baselineFixture = await fullEvidence("dispatch-transient-race-a");
+    await persistFixture(database, baselineFixture);
+    const store = new SqliteCountryKnowledgeStore(database, KEY);
+    const baseline = store.publish(build(baselineFixture)!);
+    const transientFixture = await scopedOnlyEvidenceV2(
+      "dispatch-transient-race-pending",
+      "timeout",
+      baseline.id,
+    );
+    await persistFixtureV2(database, transientFixture);
+    const successorFixture = await fullEvidenceV2("dispatch-transient-race-b");
+    await persistFixtureV2(database, successorFixture);
+    const successor = store.publishCurrentFromEvidence(successorFixture.sealed.snapshot.id);
+    expect(successor.publishedRevision?.predecessorId).toBe(baseline.id);
+    const expected = store.resolveForEvidence(transientFixture.sealed.snapshot.id);
+
+    const publication = store.publishCurrentFromEvidence(
+      transientFixture.sealed.snapshot.id,
+    );
+
+    expect(publication).toEqual(expected);
+    expect(publication).toEqual({ currentRevision: baseline });
+    expect(store.latest("SI")).toEqual(successor.publishedRevision);
+    expect(database.prepare(
+      "SELECT COUNT(*) FROM country_knowledge_revisions",
+    ).pluck().get()).toBe(2);
+  });
+
+  test("fails closed for unknown stored Evidence rules", async () => {
+    const database = memoryDatabase();
+    const fixture = await fullEvidenceV2("dispatch-unknown");
+    await persistFixtureV2(database, fixture);
+    database.exec("DROP TRIGGER evidence_snapshots_no_update");
+    database.prepare(
+      "UPDATE evidence_snapshots SET rules_version = ? WHERE id = ?",
+    ).run("vs2-si-evidence@unknown", fixture.sealed.snapshot.id);
+    const store = new SqliteCountryKnowledgeStore(database, KEY);
+    expect(() => store.resolveForEvidence(fixture.sealed.snapshot.id)).toThrow("integrity_mismatch");
   });
 });
 

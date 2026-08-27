@@ -8,7 +8,7 @@
 | Область | единый вход в полный Life Branches journey до запуска Country Frontier |
 | Зависимости | Product Charter, Demo Story, Preference Profile, City Criteria, Competition Runtime через Codex CLI |
 | Supersedes | structured-only start UI; прежний запрет model-assisted onboarding в конкурсном runtime |
-| Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20 |
+| Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20; source-evidence guard amendment / approved 2026-08-22 |
 
 ## 1. Цель и наблюдаемый результат
 
@@ -43,6 +43,10 @@ Country Frontier. Отдельного экрана повторного под�
 13. Competition questionnaire имеет один закрытый versioned field catalog. Установленный country
     package не может незаметно добавлять в onboarding новые обязательные поля.
 
+Точный disclosure первого экрана: `Содержимое анкеты передаётся в OpenAI через установленный Codex
+CLI с вашим текущим личным входом ChatGPT/Codex. API-ключ не нужен; обработка моделью не является
+локальной.`
+
 ## 3. Экран onboarding
 
 ### Desktop
@@ -66,6 +70,11 @@ Country Frontier. Отдельного экрана повторного под�
 - Закреплённая компактная панель показывает последний вопрос модели и переводит пользователя к
   чату, не скрывая форму.
 - Основное действие и ошибки остаются доступны без горизонтальной прокрутки.
+
+Neutral globe является отдельной закрытой presentation-веткой: у неё нет origin, marker, label,
+route, aircraft или verdict. Existing routed globe contract сохраняет обязательный origin и свои
+байты. Slow idle rotation включается только без `prefers-reduced-motion`; при изменении media query
+уже запущенное вращение останавливается.
 
 ## 4. Структура анкеты
 
@@ -150,10 +159,14 @@ post-country подтверждение City Criteria, а не добавляе�
 
 Модель не изменяет draft напрямую. Extraction возвращает только allowlisted предложения
 `fieldId + typedValue + messageId + sourceSpan`; `sourceSpan` существует лишь в текущей session.
-До изменения формы guard проверяет границы span в exact сообщении, затем field-specific normalizer
-независимо получает из этого span тот же typed value. Предложение также обязано пройти versioned
-field schema и allowlist. Если однозначная нормализация невозможна, значение не подставляется:
-модель задаёт уточняющий вопрос, а не просит пользователя подтверждать придуманную догадку.
+Codex отвечает за смысловую интерпретацию обычного русского или английского текста. До изменения
+формы deterministic guard требует exact текущий user-message ID и корректные UTF-16 границы.
+Сначала он пропускает без изменения анкеты exact placeholder `-`, `не знаю`, `неизвестно`,
+`unknown`, `n/a` или `na` после NFKC/case/whitespace normalization; любой другой фрагмент обязан
+быть непустым и содержать букву или цифру. Предложение отдельно проходит
+versioned field schema и allowlist. Guard не пытается строить второй естественно-языковой parser,
+не сравнивает `typedValue` с JSON/substring-представлением и не принимает неизвестный field ID.
+Если Codex не видит явной информации, он не возвращает предложение и задаёт уточняющий вопрос.
 
 Финальное model review возвращает только `fieldIds + closed reasonCode`. Блокером становится не
 свободный model verdict, а только issue, подтверждённый соответствующим parser/schema или
@@ -200,23 +213,31 @@ observed model/runtime metadata сохраняется в eval artifact, тол�
   переезда и полями сопровождающих, либо планом работы и её условиями.
 
 Ревью возвращает точные field IDs и закрытый reason code каждой проблемы. UI отрисовывает из него
-краткое объяснение. Поля получают inline error,
-чат задаёт необходимые уточняющие вопросы, а переход не выполняется. После исправлений пользователь
-снова нажимает `Продолжить`.
+краткое объяснение. Поля получают inline error, чат дословно показывает server follow-up
+`Заполните выделенные поля.`, не добавляя его в server-owned session messages, а переход не
+выполняется. После исправлений пользователь снова нажимает `Продолжить`.
 
 Если блокеров нет, приложение атомарно фиксирует Profile Snapshot, расширенный Preference Profile
 Snapshot с country и universal city values и закрытое questionnaire provenance, очищает session
 chat и сразу запускает Country Frontier.
 
+Browser adoption упорядочен: strict validation NDJSON/identity headers, создание single-use handoff,
+установка `?flow=place-frontier&run=<runId>`, затем один discriminated `editing -> frontier` state
+transition, который удаляет draft/transcript/composer/issues до первого чтения stream. Ошибка до
+этого перехода отменяет неусыновлённый stream и сохраняет форму; ошибка stream после перехода не
+восстанавливает onboarding. Отдельный browser launch-запрос к `/api/place-frontier` не выполняется.
+
 ## 8. Privacy и сохранение
 
-- Полный transcript существует только во время onboarding.
+- Полный transcript существует только во время onboarding в эфемерной памяти React и локальной
+  Node-обработки текущего запроса.
 - После успешного перехода transcript не сохраняется в journey history.
 - Durable whitelist ограничен подтверждёнными structured snapshots, field IDs, typed old/new
   values, origin enum, closed reason codes, review state и версиями Codex invocation/schema.
 - Краткие объяснения отрисовываются из reason code и не сохраняются отдельным свободным текстом.
-- Transcript, message excerpts, source spans, prompts, raw model output, embeddings и session/temp
-  caches удаляются при завершении session. Application/crash/telemetry logs не содержат их content.
+- Transcript, raw manual input, message excerpts, source spans, prompts, raw model output, embeddings
+  и completion command никогда не попадают в durable state, logs, telemetry или eval artifacts и
+  удаляются из browser state при принятии Frontier handoff.
 - Codex CLI получает только данные текущей onboarding session либо явно выбранные
   golden/adversarial fixtures. Они могут передаваться OpenAI через личный Codex login.
 - Приложение не отправляет questionnaire content иным providers и не включает его в

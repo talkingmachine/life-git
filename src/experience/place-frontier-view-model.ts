@@ -14,6 +14,10 @@ import type {
 } from "./research-map/contracts";
 import { createProductGlobeRoute } from "./research-map/product-route";
 import {
+  projectCountryAssessmentExplanations,
+  type CountryAssessmentExplanation,
+} from "./country-assessment-projection-v2";
+import {
   initialPlaceFrontierEventState,
   reducePlaceFrontierEvent,
   type PlaceFrontierEventState,
@@ -42,7 +46,8 @@ export interface PlaceFrontierCountryCard {
   readonly contributions: RankedPlace["contributions"];
   readonly formalVerdict: FormalResidenceVerdict;
   readonly evidenceSnapshotId: string;
-  readonly sourceAssessmentRulesVersion: string;
+  readonly sourceAssessmentRulesVersion: FrontierMarker["sourceAssessmentRulesVersion"];
+  readonly assessmentExplanations?: readonly CountryAssessmentExplanation[];
   readonly rankingKnowledgeRevisionId: string | null;
   readonly currentKnowledgeRevisionId?: string;
   readonly currentRunUpdatedRevisionId?: string;
@@ -170,6 +175,11 @@ export function projectPlaceFrontierCountryCard(
     formalVerdict: marker.formalVerdict,
     evidenceSnapshotId: marker.evidenceSnapshotId,
     sourceAssessmentRulesVersion: marker.sourceAssessmentRulesVersion,
+    ...(marker.sourceAssessmentRulesVersion === "cold-start-assessment@2" ? {
+      assessmentExplanations: projectCountryAssessmentExplanations(
+        marker.assessmentProjection,
+      ),
+    } : {}),
     rankingKnowledgeRevisionId:
       readModel.rankingSnapshot.knowledgeRevisionIds[marker.country.countryCode] ?? null,
     ...(marker.currentKnowledgeRevisionId === undefined ? {} : {

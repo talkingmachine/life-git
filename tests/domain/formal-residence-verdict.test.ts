@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, test } from "vitest";
 
 import {
@@ -99,6 +101,14 @@ function assess(
 }
 
 describe("formal residence marker semantics", () => {
+  test("keeps the historical formal-residence@1 viable fixture bytes unchanged", () => {
+    const serialized = JSON.stringify(assess([route("dn", "viable")]));
+
+    expect(createHash("sha256").update(serialized).digest("hex")).toBe(
+      "d8caf6df52b1976c6ab8395f2a66df52eff0c3371a1a1f730d9b3ad8ead047a3",
+    );
+  });
+
   test.each([
     ["reversed", "2026-08-13", "2026-08-11"],
     ["future", "2026-08-13", undefined],

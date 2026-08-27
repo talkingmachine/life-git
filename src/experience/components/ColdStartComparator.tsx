@@ -2,17 +2,21 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 
-import type { ColdStartReadModel } from "../../application/cold-start";
+import type { ColdStartReadModelAny } from "../../application/cold-start";
+import {
+  projectCountryAssessmentExplanations,
+  type CountryAssessmentExplanation,
+} from "../country-assessment-projection-v2";
 import { UiIcon } from "./UiIcon";
 
 interface ColdStartComparatorProps {
   readonly onRetry?: () => void;
-  readonly readModel: ColdStartReadModel;
+  readonly readModel: ColdStartReadModelAny;
   readonly retryPending?: boolean;
 }
 
 const PERSONAL_FIT_LABELS: Readonly<Record<
-  ColdStartReadModel["comparator"]["personalFit"],
+  ColdStartReadModelAny["comparator"]["personalFit"],
   string
 >> = {
   verified_route_available: "Подтверждён доступный маршрут",
@@ -40,6 +44,9 @@ export function ColdStartComparator({
   const isGreen = readModel.comparator.marker === "green";
   const markerCopy = MARKER_COPY[readModel.comparator.marker];
   const detailId = `cold-start-reasons-${readModel.runId}`;
+  const assessmentExplanations = readModel.assessmentRulesVersion === "cold-start-assessment@2"
+    ? projectCountryAssessmentExplanations(readModel.assessmentProjection)
+    : [];
 
   useLayoutEffect(() => {
     if (reasonsOpen) heading.current?.focus();
@@ -87,6 +94,8 @@ export function ColdStartComparator({
         <div><dt>Контекст выдачи</dt><dd>исследовано отдельно от top-5</dd></div>
         <div><dt>Снимок</dt><dd>{readModel.evidenceSnapshotId}</dd></div>
       </dl>
+
+      <ParticipantExplanations explanations={assessmentExplanations} />
 
       <details className="cold-start-comparator__sources">
         <summary>
@@ -166,18 +175,7 @@ export function ColdStartComparator({
               </h3>
               <ReasonList reasons={readModel.comparator.formalVerdict.reasons} />
               {readModel.comparator.formula === undefined ? null : (
-                <dl className="cold-start-comparator__formula">
-                  <div><dt>Формула</dt><dd>{readModel.comparator.formula.expression}</dd></div>
-                  <div><dt>Доход RUB</dt><dd>{readModel.comparator.formula.monthlyIncomeRub}</dd></div>
-                  <div><dt>EUR/RUB</dt><dd>{readModel.comparator.formula.eurRub}</dd></div>
-                  <div><dt>Доход EUR</dt><dd>{readModel.comparator.formula.incomeEur}</dd></div>
-                  <div><dt>Порог EUR</dt><dd>{readModel.comparator.formula.thresholdEur}</dd></div>
-                  <div><dt>Округление</dt><dd>{readModel.comparator.formula.rounding}</dd></div>
-                  <div>
-                    <dt>Claim IDs</dt>
-                    <dd>{readModel.comparator.formula.sourceClaimIds.join(" · ")}</dd>
-                  </div>
-                </dl>
+                <FormulaDetails formula={readModel.comparator.formula} />
               )}
             </section>
           ) : null}
@@ -201,7 +199,7 @@ export function ColdStartComparator({
 function ReasonList({
   reasons,
 }: {
-  readonly reasons: ColdStartReadModel["comparator"]["formalVerdict"]["reasons"];
+  readonly reasons: ColdStartReadModelAny["comparator"]["formalVerdict"]["reasons"];
 }) {
   return (
     <ol className="cold-start-comparator__reason-list">
@@ -224,5 +222,64 @@ function ReasonList({
         </li>
       ))}
     </ol>
+  );
+}
+
+function ParticipantExplanations({
+  explanations,
+}: {
+  readonly explanations: readonly CountryAssessmentExplanation[];
+}) {
+  if (explanations.length === 0) return null;
+  return (
+    <section className="cold-start-comparator__participants">
+      <h3>По участникам</h3>
+      <ul>
+        {explanations.map((explanation, index) => (
+          <li key={`participant-explanation-${index}`}>
+            <p><strong>{explanation.participantLabel}</strong> · {explanation.routeLabel}</p>
+            <p>{explanation.status === "unknown"
+              ? "Нужно уточнить"
+              : "Есть подтверждённое несоответствие"}</p>
+            <ul>
+              {explanation.reasonLabels.map((reason, reasonIndex) => (
+                <li key={`participant-reason-${index}-${reasonIndex}`}>{reason}</li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function FormulaDetails({
+  formula,
+}: {
+  readonly formula: NonNullable<ColdStartReadModelAny["comparator"]["formula"]>;
+}) {
+  if (formula.formulaId === "FORMULA-VS2-INCOME-EUR-01") {
+    return (
+      <dl className="cold-start-comparator__formula">
+        <div><dt>Формула</dt><dd>{formula.expression}</dd></div>
+        <div><dt>Доход EUR</dt><dd>{formula.monthlyIncomeEur}</dd></div>
+        <div><dt>Порог EUR</dt><dd>{formula.thresholdEur}</dd></div>
+        <div><dt>Округление</dt><dd>{formula.rounding}</dd></div>
+      </dl>
+    );
+  }
+  return (
+    <dl className="cold-start-comparator__formula">
+      <div><dt>Формула</dt><dd>{formula.expression}</dd></div>
+      <div><dt>Доход RUB</dt><dd>{formula.monthlyIncomeRub}</dd></div>
+      <div><dt>EUR/RUB</dt><dd>{formula.eurRub}</dd></div>
+      <div><dt>Доход EUR</dt><dd>{formula.incomeEur}</dd></div>
+      <div><dt>Порог EUR</dt><dd>{formula.thresholdEur}</dd></div>
+      <div><dt>Округление</dt><dd>{formula.rounding}</dd></div>
+      <div>
+        <dt>Claim IDs</dt>
+        <dd>{formula.sourceClaimIds.join(" · ")}</dd>
+      </div>
+    </dl>
   );
 }

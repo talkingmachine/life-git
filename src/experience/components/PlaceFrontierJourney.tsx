@@ -256,6 +256,34 @@ function FormalReasons({ reasons }: {
   );
 }
 
+function ParticipantAssessmentExplanations({
+  explanations,
+}: {
+  readonly explanations: PlaceFrontierCountryCard["assessmentExplanations"];
+}) {
+  if (explanations === undefined || explanations.length === 0) return null;
+  return (
+    <section className="place-frontier-card__participants">
+      <h4>По участникам</h4>
+      <ul>
+        {explanations.map((explanation, index) => (
+          <li key={`participant-explanation-${index}`}>
+            <p><strong>{explanation.participantLabel}</strong> · {explanation.routeLabel}</p>
+            <p>{explanation.status === "unknown"
+              ? "Нужно уточнить"
+              : "Есть подтверждённое несоответствие"}</p>
+            <ul>
+              {explanation.reasonLabels.map((reason, reasonIndex) => (
+                <li key={`participant-reason-${index}-${reasonIndex}`}>{reason}</li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function CountryCard({ card }: { readonly card: PlaceFrontierCountryCard }) {
   const verdict = card.formalVerdict;
   return (
@@ -272,6 +300,7 @@ function CountryCard({ card }: { readonly card: PlaceFrontierCountryCard }) {
         <div><dt>Последняя проверка</dt><dd>{card.lastCheckedAt}</dd></div>
         <div><dt>Обновление знаний</dt><dd>{card.knowledgeUpdatedAt ?? "Нет"}</dd></div>
       </dl>
+      <ParticipantAssessmentExplanations explanations={card.assessmentExplanations} />
       <section>
         <h4>Вклад предпочтений</h4>
         <ul>

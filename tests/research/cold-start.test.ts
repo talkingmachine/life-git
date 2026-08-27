@@ -25,7 +25,10 @@ import type {
   ColdStartEvidenceClaim,
   SloveniaSourceId,
 } from "../../src/research/cold-start-contracts";
-import { createSloveniaResearch } from "../../src/infrastructure/sources/slovenia-source-adapter";
+import {
+  createSloveniaResearch,
+  createSloveniaResearchV2,
+} from "../../src/infrastructure/sources/slovenia-source-adapter";
 
 type FakeSourceId = "alpha" | "beta";
 type FakeClaim = Claim<{ readonly accepted: true }, FakeSourceId>;
@@ -850,6 +853,40 @@ function sloveniaArtifact(
 }
 
 describe("Slovenia installed research plan", () => {
+  test("installs the separate partial V2 evidence contract without changing @2", () => {
+    const v1 = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES }).plan;
+    const v2 = createSloveniaResearchV2({ candidates: SLOVENIA_CANDIDATES }).plan;
+
+    expect(v2).toMatchObject({
+      id: "vs2-slovenia@3",
+      scope: "VS-2 Slovenia cold start",
+      sourceIds: [
+        "si-digital-nomad-route",
+        "si-income-threshold",
+        "si-companion-employment",
+        "cbr-eur",
+      ],
+      parserVersions: {
+        "si-digital-nomad-route": "si-route@3",
+        "si-income-threshold": "si-income@3",
+        "si-companion-employment": "si-companion@3",
+        "cbr-eur": "cbr-eur@1",
+      },
+      rulesVersion: "vs2-si-evidence@3",
+      limits: { concurrency: 3, maxCaptures: 11, deadlineMs: 60_000 },
+    });
+    expect(v1).toMatchObject({
+      id: "vs2-slovenia@2",
+      parserVersions: {
+        "si-digital-nomad-route": "si-route@2",
+        "si-income-threshold": "si-income@2",
+        "si-companion-employment": "si-companion@2",
+        "cbr-eur": "cbr-eur@1",
+      },
+      rulesVersion: "vs2-si-evidence@2",
+    });
+  });
+
   test("installs only the Slovenia v2 evidence contract", () => {
     const { plan } = createSloveniaResearch({ candidates: SLOVENIA_CANDIDATES });
 

@@ -9,6 +9,8 @@ import type {
 import { reconstructFormalResidenceVerdict } from
   "../decision/formal-residence-verdict";
 import { projectTerminalSummary } from "../decision/place-frontier-summary";
+import { parseCountryAssessmentProjectionV2 } from
+  "./country-assessment-projection-v2";
 import {
   cancelStreamWithoutMasking,
   createFiniteStreamHandoff,
@@ -105,18 +107,34 @@ const rankingSchema = z.object({
   createdAt: instantSchema,
 }).strict();
 
-const markerSchema = z.object({
+const markerBeforeVersion = {
   country: frontierCountrySchema,
   rank: z.number().int().positive(),
   countryCheckRunId: z.string().regex(/^frontier-country:[a-f0-9]{64}$/),
-  sourceAssessmentRulesVersion: z.literal("cold-start-assessment@1"),
+};
+
+const markerAfterVersion = {
   lastCheckedAt: daySchema,
   evidenceSnapshotId: nonEmptyStringSchema,
   currentKnowledgeRevisionId: nonEmptyStringSchema.optional(),
   updatedKnowledgeRevisionId: nonEmptyStringSchema.optional(),
   knowledgeUpdatedAt: instantSchema.optional(),
   formalVerdict: z.unknown(),
-}).strict().superRefine((marker, context) => {
+};
+
+const markerSchema = z.discriminatedUnion("sourceAssessmentRulesVersion", [
+  z.object({
+    ...markerBeforeVersion,
+    sourceAssessmentRulesVersion: z.literal("cold-start-assessment@1"),
+    ...markerAfterVersion,
+  }).strict(),
+  z.object({
+    ...markerBeforeVersion,
+    sourceAssessmentRulesVersion: z.literal("cold-start-assessment@2"),
+    ...markerAfterVersion,
+    assessmentProjection: z.unknown(),
+  }).strict(),
+]).superRefine((marker, context) => {
   if ((marker.currentKnowledgeRevisionId === undefined) !==
     (marker.knowledgeUpdatedAt === undefined)) {
     context.addIssue({ code: "custom", message: "knowledge_head_metadata_mismatch" });
@@ -124,6 +142,19 @@ const markerSchema = z.object({
   if (marker.updatedKnowledgeRevisionId !== undefined &&
     marker.updatedKnowledgeRevisionId !== marker.currentKnowledgeRevisionId) {
     context.addIssue({ code: "custom", message: "knowledge_updated_revision_mismatch" });
+  }
+  if (marker.sourceAssessmentRulesVersion === "cold-start-assessment@2") {
+    try {
+      parseCountryAssessmentProjectionV2(marker.assessmentProjection, {
+        evidenceSnapshotId: marker.evidenceSnapshotId,
+      });
+    } catch {
+      context.addIssue({
+        code: "custom",
+        message: "integrity_mismatch",
+        path: ["assessmentProjection"],
+      });
+    }
   }
 });
 
@@ -326,7 +357,21 @@ export function normalizeFrontierMarker(
     ...(profileSnapshotId === undefined ? {} : { profileSnapshotId }),
     evidenceSnapshotId: envelope.evidenceSnapshotId,
   });
-  return freezeCopy({ ...envelope, formalVerdict }) as FrontierMarker;
+  if (envelope.sourceAssessmentRulesVersion === "cold-start-assessment@1") {
+    return freezeCopy({ ...envelope, formalVerdict }) as FrontierMarker;
+  }
+  const assessmentProjection = parseCountryAssessmentProjectionV2(
+    envelope.assessmentProjection,
+    {
+      ...(profileSnapshotId === undefined ? {} : { profileSnapshotId }),
+      evidenceSnapshotId: envelope.evidenceSnapshotId,
+    },
+  );
+  return freezeCopy({
+    ...envelope,
+    formalVerdict,
+    assessmentProjection,
+  }) as FrontierMarker;
 }
 
 function parseEvent(value: unknown): PlaceFrontierEvent {

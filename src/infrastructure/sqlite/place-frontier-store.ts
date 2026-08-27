@@ -8,7 +8,10 @@ import {
 } from "../../application/place-frontier";
 import { reconstructFrontierMarker } from "../../application/country-resolution-contracts";
 import { reconstructPlaceRanking } from "../../decision/place-ranker";
-import type { PreferenceProfileSnapshot } from "../../decision/preference-profile";
+import type {
+  PreferenceProfileSnapshot,
+  PreferenceProfileV2Snapshot,
+} from "../../decision/preference-profile";
 import { canonicalJson, hmacSha256, secureHexEqual, sha256Text } from "../integrity";
 
 type SnapshotKind = "ranking" | "shortlist";
@@ -204,7 +207,8 @@ function decodeShortlist(value: unknown, ranking: RankingSnapshot): ShortlistSna
   if (
     envelope.id !== `${envelope.runId}:shortlist` ||
     envelope.runId !== ranking.runId ||
-    envelope.rankingSnapshotId !== ranking.id
+    envelope.rankingSnapshotId !== ranking.id ||
+    Date.parse(envelope.createdAt) < Date.parse(ranking.assessmentAt)
   ) integrityMismatch();
   const markers = envelope.markers.map((marker, index) =>
     decodeMarker(marker, ranking, envelope.runId, index));
@@ -224,7 +228,9 @@ export class SqlitePlaceFrontierStore {
     private readonly database: Database.Database,
     private readonly hmacKey: string,
     private readonly preferences: {
-      loadPreferenceVerified(id: string): Promise<PreferenceProfileSnapshot>;
+      loadPreferenceForRankingVerified(
+        id: string,
+      ): Promise<PreferenceProfileSnapshot | PreferenceProfileV2Snapshot>;
     },
   ) {
     if (hmacKey.length === 0) throw new Error("integrity_key_missing");
@@ -240,6 +246,22 @@ export class SqlitePlaceFrontierStore {
         if (canonicalJson(stored) !== canonicalJson(snapshot)) integrityMismatch();
       });
       append.immediate();
+    } catch (error) {
+      normalizeStoreFailure(error);
+    }
+  }
+
+  async insertOrLoadRanking(snapshotInput: RankingSnapshot): Promise<RankingSnapshot> {
+    try {
+      const snapshot = decodeRanking(snapshotInput);
+      await this.verifyRankingSemantics(snapshot);
+      const insertOrLoad = this.database.transaction(() => {
+        this.insertOrIgnore("ranking", snapshot);
+        return this.loadRanking(snapshot.runId);
+      });
+      const winner = insertOrLoad.immediate();
+      await this.verifyRankingSemantics(winner);
+      return winner;
     } catch (error) {
       normalizeStoreFailure(error);
     }
@@ -272,6 +294,20 @@ export class SqlitePlaceFrontierStore {
     }
   }
 
+  async loadRankingVerifiedIfPresent(
+    idOrRunId: string,
+  ): Promise<RankingSnapshot | undefined> {
+    try {
+      const payload = this.loadPayloadIfPresent("ranking", idOrRunId);
+      if (payload === undefined) return undefined;
+      const ranking = decodeRanking(payload);
+      await this.verifyRankingSemantics(ranking);
+      return ranking;
+    } catch (error) {
+      normalizeStoreFailure(error);
+    }
+  }
+
   async loadShortlistVerified(idOrRunId: string): Promise<ShortlistSnapshot> {
     try {
       const shortlistEnvelope = this.loadPayload("shortlist", idOrRunId);
@@ -285,8 +321,26 @@ export class SqlitePlaceFrontierStore {
     }
   }
 
+  async loadShortlistVerifiedIfPresent(
+    idOrRunId: string,
+  ): Promise<ShortlistSnapshot | undefined> {
+    try {
+      const shortlistEnvelope = this.loadPayloadIfPresent("shortlist", idOrRunId);
+      if (shortlistEnvelope === undefined) return undefined;
+      const rankingSnapshotId = (shortlistEnvelope as { readonly rankingSnapshotId?: unknown })
+        .rankingSnapshotId;
+      if (typeof rankingSnapshotId !== "string" || rankingSnapshotId.length === 0) {
+        integrityMismatch();
+      }
+      const ranking = await this.loadRankingVerified(rankingSnapshotId);
+      return decodeShortlist(shortlistEnvelope, ranking);
+    } catch (error) {
+      normalizeStoreFailure(error);
+    }
+  }
+
   private async verifyRankingSemantics(snapshot: RankingSnapshot): Promise<void> {
-    const preferences = await this.preferences.loadPreferenceVerified(
+    const preferences = await this.preferences.loadPreferenceForRankingVerified(
       snapshot.preferenceProfileSnapshotId,
     );
     if (preferences.id !== snapshot.preferenceProfileSnapshotId) integrityMismatch();
@@ -331,12 +385,18 @@ export class SqlitePlaceFrontierStore {
   }
 
   private loadPayload(kind: SnapshotKind, idOrRunId: string): unknown {
+    const payload = this.loadPayloadIfPresent(kind, idOrRunId);
+    if (payload === undefined) throw new Error("snapshot_not_found");
+    return payload;
+  }
+
+  private loadPayloadIfPresent(kind: SnapshotKind, idOrRunId: string): unknown | undefined {
     const rows = this.database.prepare(`
       SELECT id, run_id, kind, schema_version, payload_json, payload_hash, hmac, created_at
       FROM place_frontier_snapshots
       WHERE kind = ? AND (id = ? OR run_id = ?)
     `).all(kind, idOrRunId, idOrRunId) as SnapshotRow[];
-    if (rows.length === 0) throw new Error("snapshot_not_found");
+    if (rows.length === 0) return undefined;
     if (rows.length !== 1) integrityMismatch();
     return this.verifyRow(rows[0]!, kind);
   }

@@ -1,3 +1,5 @@
+import { types } from "node:util";
+
 import type {
   CaptureRequest,
   CaptureResult,
@@ -12,6 +14,7 @@ import type {
   SloveniaSourceId,
   SourceCandidate,
 } from "../../research/cold-start-contracts";
+import type { ColdStartEvidenceClaimV2 } from "../../research/cold-start-contracts-v2";
 import {
   decodePisrsRegistry,
   decodeSiStatMetadata,
@@ -20,7 +23,11 @@ import {
   type PisrsSelectedNpb,
 } from "../../research/parsers/slovenia";
 import { createSloveniaPlan } from "../../research/slovenia-plan";
-import type { ResearchSourceLineage } from "../../research/research-plan";
+import { createSloveniaPlanV2 } from "../../research/slovenia-plan-v2";
+import type {
+  ResearchPlan,
+  ResearchSourceLineage,
+} from "../../research/research-plan";
 import {
   selectSloveniaCandidateSlots,
   type SloveniaCandidateSlots,
@@ -33,6 +40,116 @@ const PISRS_API_ROOT = "https://pisrs.si/api/rezultat";
 const SISTAT_ENDPOINT = "https://pxweb.stat.si/SiStatData/api/v1/en/Data/H285S.px";
 
 type CountrySourceId = Exclude<SloveniaSourceId, "cbr-eur">;
+
+function integrityMismatch(): never {
+  throw new Error("integrity_mismatch");
+}
+
+function denseBorrowedArray<T>(borrowed: readonly T[]): readonly T[] {
+  if (types.isProxy(borrowed) || Object.getPrototypeOf(borrowed) !== Array.prototype ||
+    Object.getOwnPropertySymbols(borrowed).length !== 0) integrityMismatch();
+  const descriptors = Object.getOwnPropertyDescriptors(borrowed) as Record<
+    string,
+    PropertyDescriptor
+  >;
+  const lengthDescriptor = descriptors.length;
+  if (lengthDescriptor === undefined || !("value" in lengthDescriptor)) integrityMismatch();
+  const lengthValue = lengthDescriptor.value;
+  if (
+    typeof lengthValue !== "number" ||
+    !Number.isSafeInteger(lengthValue) || lengthValue < 0
+  ) integrityMismatch();
+  const length = lengthValue;
+  const expectedKeys = [
+    ...Array.from({ length }, (_, index) => String(index)),
+    "length",
+  ].sort();
+  const actualKeys = Object.keys(descriptors).sort();
+  if (
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key, index) => key !== expectedKeys[index])
+  ) integrityMismatch();
+  const copy: T[] = [];
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (
+      descriptor === undefined || !("value" in descriptor) ||
+      !descriptor.enumerable
+    ) integrityMismatch();
+    copy.push(descriptor.value as T);
+  }
+  return copy;
+}
+
+function snapshotV2Candidate(borrowed: SourceCandidate): SourceCandidate {
+  if (typeof borrowed !== "object" || borrowed === null || types.isProxy(borrowed) ||
+    (Object.getPrototypeOf(borrowed) !== Object.prototype &&
+      Object.getPrototypeOf(borrowed) !== null) ||
+    Object.getOwnPropertySymbols(borrowed).length !== 0) integrityMismatch();
+  const descriptors = Object.getOwnPropertyDescriptors(borrowed);
+  const expectedKeys = [
+    "candidateId",
+    "url",
+    "authorityRoot",
+    "claimKinds",
+    "discoveredFrom",
+  ].sort();
+  const actualKeys = Object.keys(descriptors).sort();
+  if (
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key, index) => key !== expectedKeys[index]) ||
+    Object.entries(descriptors).some(([key, descriptor]) =>
+      key === "__proto__" || !("value" in descriptor) || !descriptor.enumerable
+    )
+  ) integrityMismatch();
+  const value = (key: keyof SourceCandidate): unknown => {
+    const descriptor = descriptors[key];
+    return descriptor !== undefined && "value" in descriptor
+      ? descriptor.value
+      : integrityMismatch();
+  };
+  const claimKinds = value("claimKinds");
+  if (!Array.isArray(claimKinds)) integrityMismatch();
+  const copiedKinds = denseBorrowedArray(claimKinds);
+  if (
+    typeof value("candidateId") !== "string" || typeof value("url") !== "string" ||
+    typeof value("authorityRoot") !== "string" || value("discoveredFrom") !== "registry" ||
+    !copiedKinds.every((kind) => typeof kind === "string")
+  ) integrityMismatch();
+  return {
+    candidateId: value("candidateId") as string,
+    url: value("url") as string,
+    authorityRoot: value("authorityRoot") as string,
+    claimKinds: copiedKinds as SourceCandidate["claimKinds"],
+    discoveredFrom: "registry",
+  };
+}
+
+function snapshotV2Candidates(
+  borrowed: readonly SourceCandidate[],
+): readonly SourceCandidate[] {
+  return denseBorrowedArray(borrowed).map(snapshotV2Candidate);
+}
+
+function snapshotV2ResearchInput(borrowed: {
+  readonly candidates: readonly SourceCandidate[];
+}): readonly SourceCandidate[] {
+  if (
+    typeof borrowed !== "object" || borrowed === null || types.isProxy(borrowed) ||
+    (Object.getPrototypeOf(borrowed) !== Object.prototype &&
+      Object.getPrototypeOf(borrowed) !== null) ||
+    Object.getOwnPropertySymbols(borrowed).length !== 0
+  ) integrityMismatch();
+  const descriptors = Object.getOwnPropertyDescriptors(borrowed);
+  const keys = Object.keys(descriptors);
+  const candidates = descriptors.candidates;
+  if (
+    keys.length !== 1 || keys[0] !== "candidates" || candidates === undefined ||
+    !("value" in candidates) || !candidates.enumerable ||
+    !Array.isArray(candidates.value)
+  ) integrityMismatch();
+  return snapshotV2Candidates(candidates.value as readonly SourceCandidate[]);
+}
 
 function snapshotCandidate(candidate: SourceCandidate): SourceCandidate {
   return Object.freeze({
@@ -402,6 +519,21 @@ export function createSloveniaResearch(input: {
   const source = new SloveniaSourceAdapter(input.candidates);
   return Object.freeze({
     plan: createSloveniaPlan(source.sourceLineage),
+    source,
+  });
+}
+
+export interface SloveniaResearchV2 {
+  readonly plan: ResearchPlan<SloveniaSourceId, ColdStartEvidenceClaimV2>;
+  readonly source: OfficialSourcePort<SloveniaSourceId>;
+}
+
+export function createSloveniaResearchV2(input: {
+  readonly candidates: readonly SourceCandidate[];
+}): SloveniaResearchV2 {
+  const source = new SloveniaSourceAdapter(snapshotV2ResearchInput(input));
+  return Object.freeze({
+    plan: createSloveniaPlanV2(source.sourceLineage),
     source,
   });
 }

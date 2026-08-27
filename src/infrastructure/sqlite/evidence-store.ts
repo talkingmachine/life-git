@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { types } from "node:util";
 
 import type Database from "better-sqlite3";
 
@@ -20,9 +21,16 @@ import type {
   ColdStartEvidenceClaim,
   SloveniaSourceId,
 } from "../../research/cold-start-contracts";
+import {
+  type ColdStartEvidenceClaimV2,
+  SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+  SLOVENIA_V2_PARSER_VERSIONS,
+  SLOVENIA_V2_SOURCE_ORDER,
+} from "../../research/cold-start-contracts-v2";
 import type {
   KnowledgeEvidenceEntry,
   VerifiedCountryEvidenceInput,
+  VerifiedCountryEvidenceInputV2,
 } from "../../research/country-knowledge";
 import {
   assertSealedEvidenceStructure,
@@ -81,6 +89,79 @@ const DEFAULT_EVIDENCE_PERSISTENCE_INTEGRITY: EvidencePersistenceIntegrity = Obj
 
 function integrityMismatch(): never {
   throw new Error("integrity_mismatch");
+}
+
+const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype) as object;
+const TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  Symbol.toStringTag,
+)!.get!;
+const TYPED_ARRAY_BUFFER_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "buffer",
+)!.get!;
+const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "byteLength",
+)!.get!;
+const TYPED_ARRAY_BYTE_OFFSET_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "byteOffset",
+)!.get!;
+const ARRAY_BUFFER_SLICE = ArrayBuffer.prototype.slice;
+const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER = typeof SharedArrayBuffer === "undefined"
+  ? undefined
+  : Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!;
+
+function isSharedArrayBuffer(buffer: ArrayBufferLike): boolean {
+  if (SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER === undefined) return false;
+  try {
+    Reflect.apply(SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER, buffer, []);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function snapshotUint8Array(value: object): Uint8Array | undefined {
+  let brand: unknown;
+  let buffer: ArrayBufferLike;
+  let byteLength: number;
+  let byteOffset: number;
+  try {
+    brand = Reflect.apply(TYPED_ARRAY_TAG_GETTER, value, []);
+    if (brand === undefined) return undefined;
+    if (brand !== "Uint8Array") integrityMismatch();
+    buffer = Reflect.apply(TYPED_ARRAY_BUFFER_GETTER, value, []) as ArrayBufferLike;
+    byteLength = Reflect.apply(TYPED_ARRAY_BYTE_LENGTH_GETTER, value, []) as number;
+    byteOffset = Reflect.apply(TYPED_ARRAY_BYTE_OFFSET_GETTER, value, []) as number;
+  } catch {
+    return integrityMismatch();
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const expectedKeys = Array.from({ length: byteLength }, (_, index) => String(index)).sort();
+  const actualKeys = Object.keys(descriptors).sort();
+  if (
+    !Number.isSafeInteger(byteLength) || byteLength < 0 ||
+    !Number.isSafeInteger(byteOffset) || byteOffset < 0 ||
+    isSharedArrayBuffer(buffer) || Object.getOwnPropertySymbols(descriptors).length !== 0 ||
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key, index) => key !== expectedKeys[index]) ||
+    Object.values(descriptors).some((descriptor) =>
+      !("value" in descriptor) || !descriptor.enumerable
+    ) ||
+    Object.getPrototypeOf(value) !== Uint8Array.prototype
+  ) integrityMismatch();
+  try {
+    const copy = Reflect.apply(
+      ARRAY_BUFFER_SLICE,
+      buffer,
+      [byteOffset, byteOffset + byteLength],
+    ) as ArrayBuffer;
+    return new Uint8Array(copy);
+  } catch {
+    return integrityMismatch();
+  }
 }
 
 function bytesHash(bytes: Uint8Array): string {
@@ -146,42 +227,65 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function ownedDataSnapshot<T>(borrowed: T): T {
   const active = new Set<object>();
   const visit = (value: unknown): unknown => {
-    if (value === null || value === undefined || typeof value === "string" ||
-      typeof value === "number" || typeof value === "boolean") return value;
-    if (typeof value !== "object") integrityMismatch();
-    if (value instanceof Uint8Array) {
-      if (typeof SharedArrayBuffer !== "undefined" && value.buffer instanceof SharedArrayBuffer) {
-        integrityMismatch();
-      }
-      return new Uint8Array(value);
+    if (
+      value === null || value === undefined || typeof value === "string" ||
+      typeof value === "boolean"
+    ) return value;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) integrityMismatch();
+      return value;
     }
-    if (active.has(value) || Object.getOwnPropertySymbols(value).length !== 0) integrityMismatch();
+    if (typeof value !== "object" || types.isProxy(value)) integrityMismatch();
+    const copiedBytes = snapshotUint8Array(value);
+    if (copiedBytes !== undefined) return copiedBytes;
+    if (active.has(value)) integrityMismatch();
+    const prototype = Object.getPrototypeOf(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (Object.getOwnPropertySymbols(descriptors).length !== 0) integrityMismatch();
     active.add(value);
     try {
       if (Array.isArray(value)) {
-        if (Object.getPrototypeOf(value) !== Array.prototype) integrityMismatch();
+        if (prototype !== Array.prototype) integrityMismatch();
+        const lengthDescriptor = descriptors.length;
+        if (lengthDescriptor === undefined || !("value" in lengthDescriptor)) {
+          integrityMismatch();
+        }
+        const length = lengthDescriptor.value;
+        if (!Number.isSafeInteger(length) || length < 0) integrityMismatch();
+        const expectedNames = [
+          ...Array.from({ length }, (_, index) => String(index)),
+          "length",
+        ].sort();
+        const actualNames = Object.keys(descriptors).sort();
+        if (
+          actualNames.length !== expectedNames.length ||
+          actualNames.some((name, index) => name !== expectedNames[index])
+        ) integrityMismatch();
         const copy: unknown[] = [];
-        for (let index = 0; index < value.length; index += 1) {
-          const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        for (let index = 0; index < length; index += 1) {
+          const descriptor = descriptors[String(index)];
           if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
             integrityMismatch();
           }
           copy.push(visit(descriptor.value));
         }
-        const expected = [...Array.from({ length: value.length }, (_, index) => String(index)), "length"];
-        if (Object.getOwnPropertyNames(value).sort().some((name, index) =>
-          name !== expected.sort()[index])) integrityMismatch();
         return copy;
       }
-      const prototype = Object.getPrototypeOf(value);
       if (prototype !== Object.prototype && prototype !== null) integrityMismatch();
-      const copy = Object.create(null) as Record<string, unknown>;
-      for (const key of Object.getOwnPropertyNames(value)) {
-        const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+      const copy: Record<string, unknown> = {};
+      for (const [key, descriptor] of Object.entries(descriptors)) {
+        if (
+          key === "__proto__" || !("value" in descriptor) ||
+          !descriptor.enumerable
+        ) {
           integrityMismatch();
         }
-        copy[key] = visit(descriptor.value);
+        Object.defineProperty(copy, key, {
+          configurable: true,
+          enumerable: true,
+          value: visit(descriptor.value),
+          writable: true,
+        });
       }
       return copy;
     } finally {
@@ -212,6 +316,9 @@ function structuralSourceIds<S extends string, C extends Claim<unknown, S>>(
       "si-companion-employment",
       "cbr-eur",
     ] as unknown as readonly S[];
+  }
+  if (snapshot.rulesVersion === SLOVENIA_V2_EVIDENCE_RULES_VERSION) {
+    return SLOVENIA_V2_SOURCE_ORDER as unknown as readonly S[];
   }
   if (
     !Array.isArray(manifest.entries) ||
@@ -455,6 +562,37 @@ const SLOVENIA_PARSER_VERSIONS: Readonly<Record<SloveniaSourceId, string>> = {
   "cbr-eur": "cbr-eur@1",
 };
 
+/** @internal Verified, byte-free Knowledge projection for the closed V2 contract. */
+export function loadVerifiedCountryEvidenceV2(
+  database: Database.Database,
+  id: string,
+  key: string,
+): VerifiedCountryEvidenceInputV2 {
+  const verified = loadVerifiedEvidenceBundle<SloveniaSourceId, ColdStartEvidenceClaimV2>(
+    database,
+    id,
+    createEvidenceIntegrity(key),
+    {
+      parserVersions: SLOVENIA_V2_PARSER_VERSIONS,
+      rulesVersion: SLOVENIA_V2_EVIDENCE_RULES_VERSION,
+    },
+  );
+  const { snapshot, manifest } = verified;
+  const entries: readonly KnowledgeEvidenceEntry[] = manifest.entries.map((entry) => ({
+    sourceId: entry.sourceId,
+    navigationUrl: entry.navigationUrl,
+    ...(entry.indexedSourceUrl === undefined ? {} : { indexedSourceUrl: entry.indexedSourceUrl }),
+    resolvedEvidenceUrl: entry.resolvedEvidenceUrl,
+    artifactIds: [...entry.artifactIds],
+    ...(entry.versionHint === undefined ? {} : { versionHint: entry.versionHint }),
+  }));
+  return {
+    snapshot,
+    entries,
+    artifacts: manifest.artifacts.map((artifact) => ({ ...artifact })),
+  };
+}
+
 /** @internal Verified, byte-free Knowledge projection for transactional consumers. */
 export function loadVerifiedCountryEvidence(
   database: Database.Database,
@@ -541,5 +679,12 @@ export class SqliteEvidenceStore<
     key: string,
   ): Promise<VerifiedCountryEvidenceInput> {
     return loadVerifiedCountryEvidence(this.database, id, key);
+  }
+
+  async loadVerifiedCountryEvidenceV2(
+    id: string,
+    key: string,
+  ): Promise<VerifiedCountryEvidenceInputV2> {
+    return loadVerifiedCountryEvidenceV2(this.database, id, key);
   }
 }

@@ -12,6 +12,10 @@ import type { FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
 import { PlaceFrontierJourney } from
   "../../src/experience/components/PlaceFrontierJourney";
+import { CountryResolutionPanel } from
+  "../../src/experience/components/CountryResolutionPanel";
+import { projectCountryResolutionView } from
+  "../../src/experience/country-resolution-view-model";
 
 const NOW = "2026-08-12T08:00:00.000Z";
 const PROFILE_ID = "c".repeat(64);
@@ -135,6 +139,43 @@ function yellowMarker(countryCode: string, rank: number, catalogOnly = false): F
   };
 }
 
+function yellowMarkerV2(
+  countryCode: string,
+  rank: number,
+  participantStatus: "unknown" | "impossible" = "unknown",
+): FrontierMarker {
+  const value = yellowMarker(countryCode, rank);
+  return {
+    ...value,
+    sourceAssessmentRulesVersion: "cold-start-assessment@2",
+    assessmentProjection: {
+      schemaVersion: "country-assessment-projection@2",
+      profileSnapshotId: PROFILE_ID,
+      evidenceSnapshotId: value.evidenceSnapshotId,
+      participantAssessments: [
+        {
+          routeId: "si-temporary-residence-digital-nomad",
+          participantId: "private-self-id",
+          relationship: "self",
+          status: "verified",
+          reasonCodes: ["route_requirements_verified"],
+          claimIds: ["private-self-claim"],
+        },
+        {
+          routeId: "si-temporary-residence-digital-nomad",
+          participantId: "private-spouse-id",
+          relationship: "spouse",
+          status: participantStatus,
+          reasonCodes: [participantStatus === "unknown"
+            ? "remote_work_prerequisite_unknown"
+            : "companion_route_impossible"],
+          claimIds: ["private-spouse-claim"],
+        },
+      ],
+    },
+  };
+}
+
 function automaticFixture(): PlaceFrontierReadModel {
   const markers = [marker("AA", 1), marker("BB", 2)];
   const runId = "automatic-run-all-green";
@@ -240,6 +281,25 @@ function unresolvedFixture(catalogOnly = false): CountryResolutionReadModel {
       createdAt: NOW,
       kind: "working",
       phase: "awaiting_decision",
+    },
+  };
+}
+
+function unresolvedV2Fixture(
+  participantStatus: "unknown" | "impossible" = "unknown",
+): CountryResolutionReadModel {
+  const readModel = unresolvedFixture();
+  return {
+    ...readModel,
+    automaticFrontier: {
+      ...readModel.automaticFrontier,
+      shortlistSnapshot: {
+        ...readModel.automaticFrontier.shortlistSnapshot,
+        markers: [
+          yellowMarkerV2("AA", 1, participantStatus),
+          ...readModel.automaticFrontier.shortlistSnapshot.markers.slice(1),
+        ],
+      },
     },
   };
 }
@@ -418,6 +478,77 @@ afterEach(() => {
 });
 
 describe("country-resolution same-planet handoff", () => {
+  test("projects only safe V2 route and participant explanations for a resolution prompt", () => {
+    const v2ReadModel = unresolvedV2Fixture();
+
+    const view = projectCountryResolutionView({ kind: "stable", readModel: v2ReadModel });
+    const explanation = view.candidates[0]?.assessmentExplanations?.[0];
+
+    expect(explanation).toEqual({
+      routeLabel: "ВНЖ цифрового кочевника",
+      participantLabel: "Супруг или супруга",
+      status: "unknown",
+      reasonLabels: ["Не подтверждены условия удалённой работы"],
+    });
+    expect(Object.keys(explanation ?? {}).sort()).toEqual([
+      "participantLabel",
+      "reasonLabels",
+      "routeLabel",
+      "status",
+    ]);
+    expect(JSON.stringify(explanation)).not.toMatch(
+      /private-|participantId|claimIds|имя|вероят|шанс|%/i,
+    );
+  });
+
+  test("renders a concise V2 explanation without private data or a second marker", () => {
+    const readModel = unresolvedV2Fixture();
+    const view = projectCountryResolutionView({ kind: "stable", readModel });
+    const rendered = render(
+      <CountryResolutionPanel
+        decisionPending={false}
+        onContinue={vi.fn()}
+        onDecision={vi.fn()}
+        onReload={vi.fn()}
+        readModel={readModel}
+        view={view}
+      />,
+    );
+
+    const explanation = screen.getByRole("region", { name: "Объяснение по участникам" });
+    expect(explanation.textContent).toContain(
+      "ВНЖ цифрового кочевника · Супруг или супруга",
+    );
+    expect(explanation.textContent).toContain("Нужно уточнить");
+    expect(explanation.textContent).toContain("Не подтверждены условия удалённой работы");
+    expect(explanation.textContent).not.toMatch(
+      /private-|participantId|claimIds|имя|вероят|шанс|%|green|yellow|red/i,
+    );
+    expect(rendered.container.querySelectorAll(".formal-marker, .traffic-light")).toHaveLength(0);
+  });
+
+  test("renders an impossible participant as a confirmed mismatch without probability", () => {
+    const readModel = unresolvedV2Fixture("impossible");
+    const view = projectCountryResolutionView({ kind: "stable", readModel });
+    render(
+      <CountryResolutionPanel
+        decisionPending={false}
+        onContinue={vi.fn()}
+        onDecision={vi.fn()}
+        onReload={vi.fn()}
+        readModel={readModel}
+        view={view}
+      />,
+    );
+
+    const explanation = screen.getByRole("region", { name: "Объяснение по участникам" });
+    expect(explanation.textContent).toContain("Есть подтверждённое несоответствие");
+    expect(explanation.textContent).toContain(
+      "Сопровождающий не подходит под условия маршрута",
+    );
+    expect(explanation.textContent).not.toMatch(/вероят|шанс|%/i);
+  });
+
   test("starts from a verified stored automatic terminal once and retains the same globe", async () => {
     const automatic = automaticFixture();
     const resolved = allGreenResolution(automatic);
