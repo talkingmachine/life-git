@@ -10,8 +10,10 @@ import {
   sha256Text,
 } from "../integrity";
 import type {
+  AdministrativeCapturedArtifact,
   CapturedEntry,
   Claim,
+  EvidenceOrigin,
   EvidenceSnapshot,
   LiveCapturedArtifact,
   ParserEntry,
@@ -21,6 +23,11 @@ import type {
   ColdStartEvidenceClaim,
   SloveniaSourceId,
 } from "../../research/cold-start-contracts";
+import {
+  reconstructAdministrativeEvidenceShell,
+  type AdministrativeEvidenceLoadExpectations,
+  type CityPackageAdministrativeEvidenceClaim,
+} from "../../research/city-package-artifact-set";
 import {
   type ColdStartEvidenceClaimV2,
   SLOVENIA_V2_EVIDENCE_RULES_VERSION,
@@ -39,6 +46,7 @@ import {
   type EvidenceArtifactProvenance,
   type EvidenceManifest,
   type SealedEvidence,
+  type EvidenceWriteStore,
   type VerifiedEvidenceBundle,
   type VerifiedLoadExpectations,
 } from "../../research/research-plan";
@@ -53,22 +61,44 @@ interface SnapshotRow {
   readonly rules_version: string;
 }
 
-interface ArtifactRow<S extends string = SourceId> {
+interface StoredArtifactCommon<S extends string = SourceId> {
   readonly run_id: string;
   readonly artifact_id: string;
   readonly source_id: S;
   readonly role: string;
-  readonly url: string;
   readonly media_type: string;
   readonly sha256: string;
   readonly bytes: Uint8Array;
   readonly byte_length: number;
+  readonly sealed: 0 | 1;
+}
+
+interface StoredLiveArtifactRow<S extends string = SourceId> extends StoredArtifactCommon<S> {
   readonly origin: "live";
+  readonly url: string;
   readonly captured_at: string;
   readonly response_status: number;
   readonly response_url: string;
   readonly request_json: string;
+  readonly producer: null;
+  readonly created_at: null;
 }
+
+interface StoredAdministrativeArtifactRow<S extends string = SourceId>
+  extends StoredArtifactCommon<S> {
+  readonly origin: "administrative";
+  readonly url: null;
+  readonly captured_at: null;
+  readonly response_status: null;
+  readonly response_url: null;
+  readonly request_json: null;
+  readonly producer: string;
+  readonly created_at: string;
+}
+
+type StoredArtifactRow<S extends string = SourceId> =
+  | StoredLiveArtifactRow<S>
+  | StoredAdministrativeArtifactRow<S>;
 
 interface VerifiedStoredEvidenceBundle<
   S extends string,
@@ -77,6 +107,23 @@ interface VerifiedStoredEvidenceBundle<
   readonly snapshot: EvidenceSnapshot<S, C>;
   readonly manifest: EvidenceManifest<S, C>;
   readonly entries: readonly CapturedEntry<S>[];
+}
+
+/** @internal Infrastructure-only DTO; it contains no SQLite row or union. */
+export interface AdministrativeVerifiedEvidenceEntry<S extends string> {
+  readonly sourceId: S;
+  readonly origin: "administrative";
+  readonly artifacts: readonly AdministrativeCapturedArtifact<S>[];
+}
+
+/** @internal Infrastructure-only DTO exported only between SQLite adapters. */
+export interface AdministrativeVerifiedEvidenceBundle<
+  S extends string,
+  C extends Claim<unknown, S>,
+> {
+  readonly snapshot: EvidenceSnapshot<S, C>;
+  readonly manifest: EvidenceManifest<S, C, "administrative">;
+  readonly entries: readonly AdministrativeVerifiedEvidenceEntry<S>[];
 }
 
 type EvidencePersistenceIntegrity = Pick<EvidenceIntegrity, "canonical" | "hash">;
@@ -172,7 +219,9 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]);
 }
 
-function rowProvenance<S extends string>(row: ArtifactRow<S>): EvidenceArtifactProvenance<S> {
+function liveRowProvenance<S extends string>(
+  row: StoredLiveArtifactRow<S>,
+): EvidenceArtifactProvenance<S> {
   let request: LiveCapturedArtifact<S>["request"];
   try {
     request = JSON.parse(row.request_json) as LiveCapturedArtifact<S>["request"];
@@ -196,8 +245,33 @@ function rowProvenance<S extends string>(row: ArtifactRow<S>): EvidenceArtifactP
   };
 }
 
-function capturedArtifactFromRow<S extends string>(row: ArtifactRow<S>): LiveCapturedArtifact<S> {
-  const provenance = rowProvenance(row);
+function administrativeRowProvenance<S extends string>(
+  row: StoredAdministrativeArtifactRow<S>,
+): EvidenceArtifactProvenance<S, "administrative"> {
+  return {
+    artifactId: row.artifact_id,
+    runId: row.run_id,
+    sourceId: row.source_id,
+    role: row.role,
+    mediaType: row.media_type,
+    sha256: row.sha256,
+    byteLength: row.byte_length,
+    origin: "administrative",
+    producer: row.producer,
+    createdAt: row.created_at,
+  };
+}
+
+function storedRowProvenance<S extends string>(
+  row: StoredArtifactRow<S>,
+): EvidenceArtifactProvenance<S, EvidenceOrigin> {
+  return row.origin === "live" ? liveRowProvenance(row) : administrativeRowProvenance(row);
+}
+
+function capturedArtifactFromRow<S extends string>(
+  row: StoredLiveArtifactRow<S>,
+): LiveCapturedArtifact<S> {
+  const provenance = liveRowProvenance(row);
   return {
     artifactId: provenance.artifactId,
     runId: provenance.runId,
@@ -215,9 +289,28 @@ function capturedArtifactFromRow<S extends string>(row: ArtifactRow<S>): LiveCap
   };
 }
 
+function administrativeCapturedArtifactFromRow<S extends string>(
+  row: StoredAdministrativeArtifactRow<S>,
+): AdministrativeCapturedArtifact<S> {
+  const provenance = administrativeRowProvenance(row);
+  return {
+    artifactId: provenance.artifactId,
+    runId: provenance.runId,
+    sourceId: provenance.sourceId,
+    role: provenance.role,
+    mediaType: provenance.mediaType,
+    sha256: provenance.sha256,
+    bytes: new Uint8Array(row.bytes),
+    origin: "administrative",
+    producer: provenance.producer,
+    createdAt: provenance.createdAt,
+  };
+}
+
 const ARTIFACT_COLUMNS = `
   run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
-  byte_length, origin, captured_at, response_status, response_url, request_json
+  byte_length, origin, captured_at, response_status, response_url, request_json,
+  producer, created_at, sealed
 `;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -295,9 +388,13 @@ function ownedDataSnapshot<T>(borrowed: T): T {
   return visit(borrowed) as T;
 }
 
-function structuralSourceIds<S extends string, C extends Claim<unknown, S>>(
+function structuralSourceIds<
+  S extends string,
+  C extends Claim<unknown, S>,
+  O extends EvidenceOrigin,
+>(
   snapshot: EvidenceSnapshot<S, C>,
-  manifest: EvidenceManifest<S, C>,
+  manifest: EvidenceManifest<S, C, O>,
 ): readonly S[] {
   if (!isRecord(snapshot) || !isRecord(manifest)) integrityMismatch();
   if (snapshot.rulesVersion === "vs1-evidence@1") {
@@ -327,9 +424,13 @@ function structuralSourceIds<S extends string, C extends Claim<unknown, S>>(
   return manifest.entries.map((entry) => entry.sourceId);
 }
 
-function snapshotPayload<S extends string, C extends Claim<unknown, S>>(
+function snapshotPayload<
+  S extends string,
+  C extends Claim<unknown, S>,
+  O extends EvidenceOrigin = "live",
+>(
   snapshot: EvidenceSnapshot<S, C>,
-): EvidenceManifest<S, C>["snapshot"] {
+): EvidenceManifest<S, C, O>["snapshot"] {
   return {
     id: snapshot.id,
     assessmentDate: snapshot.assessmentDate,
@@ -349,22 +450,195 @@ function snapshotPayload<S extends string, C extends Claim<unknown, S>>(
 export function verifySealedEvidenceForInsert<
   S extends string,
   C extends Claim<unknown, S>,
+  O extends EvidenceOrigin,
 >(
-  sealed: SealedEvidence<S, C>,
+  sealed: SealedEvidence<S, C, O>,
   integrity: EvidenceIntegrity,
 ): void {
-  assertSealedEvidenceStructure(
-    sealed,
-    structuralSourceIds(sealed.snapshot, sealed.manifest),
-  );
-  const canonicalManifest = integrity.canonical(sealed.manifest);
-  if (canonicalManifest !== sealed.canonicalManifest ||
-    !secureHexEqual(sealed.snapshot.manifestHash, integrity.hash(canonicalManifest)) ||
-    !secureHexEqual(sealed.snapshot.hmac, integrity.sign(canonicalManifest)) ||
-    integrity.canonical(sealed.manifest.snapshot) !==
-      integrity.canonical(snapshotPayload(sealed.snapshot))) {
+  const ownedSealed = ownedDataSnapshot(sealed);
+  if (!isRecord(ownedSealed) ||
+    !exactObjectKeys(ownedSealed, ["snapshot", "manifest", "canonicalManifest"])) {
     integrityMismatch();
   }
+  assertSealedEvidenceStructure(
+    ownedSealed,
+    structuralSourceIds(ownedSealed.snapshot, ownedSealed.manifest),
+  );
+  const canonicalManifest = integrity.canonical(ownedSealed.manifest);
+  if (canonicalManifest !== ownedSealed.canonicalManifest ||
+    !secureHexEqual(ownedSealed.snapshot.manifestHash, integrity.hash(canonicalManifest)) ||
+    !secureHexEqual(ownedSealed.snapshot.hmac, integrity.sign(canonicalManifest)) ||
+    integrity.canonical(ownedSealed.manifest.snapshot) !==
+      integrity.canonical(snapshotPayload(ownedSealed.snapshot))) {
+    integrityMismatch();
+  }
+}
+
+function exactObjectKeys(value: object, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index]);
+}
+
+function nonemptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function canonicalUtcMilliseconds(value: unknown): value is string {
+  if (typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) && new Date(milliseconds).toISOString() === value;
+}
+
+function canonicalIdentifier(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/.test(value);
+}
+
+function exactOwnDataKeys(value: object, expected: readonly string[]): boolean {
+  if (Object.getOwnPropertySymbols(value).length !== 0) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const actual = Object.keys(descriptors).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length && actual.every((key, index) => {
+    const descriptor = descriptors[key];
+    return key === sortedExpected[index] && descriptor !== undefined &&
+      "value" in descriptor && descriptor.enumerable;
+  });
+}
+
+function denseOwnArray(value: unknown): value is readonly unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const expected = [
+    ...Array.from({ length: value.length }, (_, index) => String(index)),
+    "length",
+  ].sort();
+  const actual = Object.keys(descriptors).sort();
+  return actual.length === expected.length && actual.every((key, index) => {
+    const descriptor = descriptors[key];
+    return key === expected[index] && descriptor !== undefined && "value" in descriptor &&
+      (key === "length" || descriptor.enumerable);
+  });
+}
+
+function isClosedCityPackageAdministrativeClaim(
+  value: unknown,
+): value is CityPackageAdministrativeEvidenceClaim {
+  if (!isRecord(value) || !exactOwnDataKeys(value, [
+    "claimId", "sourceId", "value", "scope", "sourcePeriod", "anchor", "status",
+  ]) || !canonicalIdentifier(value.claimId) || value.sourceId !== "city-package-installation" ||
+    value.scope !== "city-package-installation" || !canonicalUtcMilliseconds(value.sourcePeriod) ||
+    value.status !== "verified" || !isRecord(value.value) ||
+    !exactOwnDataKeys(value.value, [
+      "schemaVersion", "key", "installRunId", "evidenceId", "orderedArtifacts",
+    ]) || value.value.schemaVersion !== "installed-city-package-artifact-set@1" ||
+    !isRecord(value.value.key) || !exactOwnDataKeys(value.value.key, [
+      "countryCode", "packageId", "packageSchemaVersion", "catalogRevisionId",
+      "evidenceRulesVersion",
+    ]) || typeof value.value.key.countryCode !== "string" ||
+    !/^[A-Z]{2}$/.test(value.value.key.countryCode) ||
+    !canonicalIdentifier(value.value.key.packageId) ||
+    !canonicalIdentifier(value.value.key.packageSchemaVersion) ||
+    !canonicalIdentifier(value.value.key.catalogRevisionId) ||
+    !canonicalIdentifier(value.value.key.evidenceRulesVersion) ||
+    !canonicalIdentifier(value.value.installRunId) ||
+    !canonicalIdentifier(value.value.evidenceId) ||
+    !denseOwnArray(value.value.orderedArtifacts) || value.value.orderedArtifacts.length === 0 ||
+    !isRecord(value.anchor) ||
+    !exactOwnDataKeys(value.anchor, ["artifactId", "locator", "excerptSha256"]) ||
+    !canonicalIdentifier(value.anchor.artifactId) ||
+    typeof value.anchor.locator !== "string" || value.anchor.locator.length === 0 ||
+    typeof value.anchor.excerptSha256 !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.anchor.excerptSha256)) return false;
+  return value.value.orderedArtifacts.every((item) =>
+    isRecord(item) && exactOwnDataKeys(item, ["artifactOrdinal", "role", "artifactId"]) &&
+    Number.isSafeInteger(item.artifactOrdinal) && !Object.is(item.artifactOrdinal, -0) &&
+    (item.artifactOrdinal as number) >= 0 &&
+    (item.role === "installed_city_fixed_source_plan" ||
+      item.role === "installed_city_safety_source_plan" ||
+      item.role === "installed_city_official_authority_directory" ||
+      item.role === "installed_city_criteria_defaults" ||
+      item.role === "installed_city_criterion_definitions") &&
+    canonicalIdentifier(item.artifactId));
+}
+
+function deepFreezePlain<T>(value: T, seen = new Set<object>()): T {
+  if (value === null || typeof value !== "object" || seen.has(value) ||
+    value instanceof Uint8Array) return value;
+  seen.add(value);
+  Object.freeze(value);
+  for (const child of Object.values(value)) deepFreezePlain(child, seen);
+  return value;
+}
+
+function isolatedIntegrityView(integrity: EvidenceIntegrity): EvidenceIntegrity {
+  if (integrity === null || typeof integrity !== "object") integrityMismatch();
+  const canonical = integrity.canonical;
+  const hash = integrity.hash;
+  const sign = integrity.sign;
+  if (typeof canonical !== "function" || typeof hash !== "function" ||
+    typeof sign !== "function") integrityMismatch();
+  const view: EvidenceIntegrity = Object.freeze({
+    canonical(value: unknown): string {
+      const isolated = value !== null && typeof value === "object"
+        ? ownedDataSnapshot(value)
+        : value;
+      return Reflect.apply(canonical, view, [isolated]) as string;
+    },
+    hash(canonicalText: string): string {
+      return Reflect.apply(hash, view, [canonicalText]) as string;
+    },
+    sign(canonicalText: string): string {
+      return Reflect.apply(sign, view, [canonicalText]) as string;
+    },
+  });
+  return view;
+}
+
+function assertLiveArtifactForStorage<S extends string>(artifact: LiveCapturedArtifact<S>): void {
+  if (!isRecord(artifact) || !exactObjectKeys(artifact, [
+    "artifactId", "runId", "sourceId", "role", "url", "mediaType", "sha256", "bytes",
+    "origin", "capturedAt", "responseStatus", "responseUrl", "request",
+  ]) || !isRecord(artifact.request)) integrityMismatch();
+  const requestKeys = [
+    "method", "url",
+    ...(Object.prototype.hasOwnProperty.call(artifact.request, "bodyMediaType")
+      ? ["bodyMediaType"]
+      : []),
+    ...(Object.prototype.hasOwnProperty.call(artifact.request, "bodySha256")
+      ? ["bodySha256"]
+      : []),
+  ];
+  if (
+    !exactObjectKeys(artifact.request, requestKeys) || artifact.origin !== "live" ||
+    !nonemptyString(artifact.runId) || !nonemptyString(artifact.artifactId) ||
+    !nonemptyString(artifact.sourceId) || !nonemptyString(artifact.role) ||
+    !nonemptyString(artifact.url) || !nonemptyString(artifact.mediaType) ||
+    !nonemptyString(artifact.responseUrl) ||
+    !nonemptyString(artifact.capturedAt) ||
+    !Number.isInteger(artifact.responseStatus) || artifact.responseStatus < 100 ||
+    artifact.responseStatus > 599 || !(artifact.bytes instanceof Uint8Array) ||
+    bytesHash(artifact.bytes) !== artifact.sha256
+  ) integrityMismatch();
+}
+
+function assertAdministrativeArtifactForStorage<S extends string>(
+  artifact: AdministrativeCapturedArtifact<S>,
+): void {
+  if (
+    !isRecord(artifact) || !exactObjectKeys(artifact, [
+      "artifactId", "runId", "sourceId", "role", "mediaType", "sha256", "bytes",
+      "origin", "producer", "createdAt",
+    ]) ||
+    artifact.origin !== "administrative" || !nonemptyString(artifact.runId) ||
+    !nonemptyString(artifact.artifactId) || !nonemptyString(artifact.sourceId) ||
+    !nonemptyString(artifact.role) || !nonemptyString(artifact.mediaType) ||
+    !nonemptyString(artifact.producer) ||
+    !canonicalUtcMilliseconds(artifact.createdAt) || !(artifact.bytes instanceof Uint8Array) ||
+    bytesHash(artifact.bytes) !== artifact.sha256
+  ) integrityMismatch();
 }
 
 /** @internal */
@@ -373,17 +647,14 @@ export function insertLiveArtifact<S extends string>(
   artifact: LiveCapturedArtifact<S>,
   integrity: EvidencePersistenceCanonicalizer = DEFAULT_EVIDENCE_PERSISTENCE_INTEGRITY,
 ): void {
-  if (artifact.origin !== "live" || artifact.runId.length === 0 ||
-    !(artifact.bytes instanceof Uint8Array) || bytesHash(artifact.bytes) !== artifact.sha256) {
-    integrityMismatch();
-  }
+  assertLiveArtifactForStorage(artifact);
   const existing = database.prepare(
     `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
-  ).get(artifact.runId, artifact.artifactId) as ArtifactRow<S> | undefined;
+  ).get(artifact.runId, artifact.artifactId) as StoredArtifactRow<S> | undefined;
   const canonical = integrity.canonical.bind(integrity);
   if (existing !== undefined) {
-    if (!bytesEqual(existing.bytes, artifact.bytes) ||
-      canonical(rowProvenance(existing)) !== canonical(evidenceArtifactProvenance(artifact))) {
+    if (existing.origin !== "live" || !bytesEqual(existing.bytes, artifact.bytes) ||
+      canonical(liveRowProvenance(existing)) !== canonical(evidenceArtifactProvenance(artifact))) {
       integrityMismatch();
     }
     return;
@@ -411,15 +682,64 @@ export function insertLiveArtifact<S extends string>(
   );
 }
 
-export function insertSealedEvidence<S extends string, C extends Claim<unknown, S>>(
+function insertAdministrativeArtifact<S extends string>(
   database: Database.Database,
-  sealed: SealedEvidence<S, C>,
-  integrity: EvidencePersistenceIntegrity = DEFAULT_EVIDENCE_PERSISTENCE_INTEGRITY,
+  artifact: AdministrativeCapturedArtifact<S>,
+  integrity: EvidencePersistenceCanonicalizer = DEFAULT_EVIDENCE_PERSISTENCE_INTEGRITY,
 ): void {
-  assertSealedEvidenceStructure(
+  assertAdministrativeArtifactForStorage(artifact);
+  const existing = database.prepare(
+    `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
+  ).get(artifact.runId, artifact.artifactId) as StoredArtifactRow<S> | undefined;
+  const canonical = integrity.canonical.bind(integrity);
+  if (existing !== undefined) {
+    if (
+      existing.origin !== "administrative" || !bytesEqual(existing.bytes, artifact.bytes) ||
+      canonical(administrativeRowProvenance(existing)) !==
+        canonical(evidenceArtifactProvenance<S, "administrative">(artifact))
+    ) integrityMismatch();
+    return;
+  }
+  const ownedBytes = new Uint8Array(artifact.bytes);
+  database.prepare(`
+    INSERT INTO artifacts (
+      run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
+      byte_length, origin, captured_at, response_status, response_url, request_json,
+      producer, created_at, sealed
+    ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'administrative', NULL, NULL, NULL, NULL, ?, ?, 0)
+  `).run(
+    artifact.runId,
+    artifact.artifactId,
+    artifact.sourceId,
+    artifact.role,
+    artifact.mediaType,
+    artifact.sha256,
+    ownedBytes,
+    ownedBytes.byteLength,
+    artifact.producer,
+    artifact.createdAt,
+  );
+}
+
+function insertSealedEvidenceForOrigin<
+  S extends string,
+  C extends Claim<unknown, S>,
+  O extends EvidenceOrigin,
+>(
+  database: Database.Database,
+  sealed: SealedEvidence<S, C, O>,
+  integrity: EvidencePersistenceIntegrity,
+  expectedOrigin: O,
+  acceptExactRetry: boolean,
+): void {
+  if (!isRecord(sealed) ||
+    !exactObjectKeys(sealed, ["snapshot", "manifest", "canonicalManifest"])) {
+    integrityMismatch();
+  }
+  if (assertSealedEvidenceStructure(
     sealed,
     structuralSourceIds(sealed.snapshot, sealed.manifest),
-  );
+  ) !== expectedOrigin) integrityMismatch();
   const canonical = integrity.canonical.bind(integrity);
   const hash = integrity.hash.bind(integrity);
   const canonicalManifest = canonical(sealed.manifest);
@@ -428,18 +748,40 @@ export function insertSealedEvidence<S extends string, C extends Claim<unknown, 
     canonical(sealed.manifest.snapshot) !== canonical(snapshotPayload(sealed.snapshot))) {
     integrityMismatch();
   }
+  const storedArtifacts: StoredArtifactRow<S>[] = [];
   for (const expected of sealed.manifest.artifacts) {
     const row = database.prepare(
       `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE run_id = ? AND artifact_id = ?`,
-    ).get(expected.runId, expected.artifactId) as ArtifactRow<S> | undefined;
+    ).get(expected.runId, expected.artifactId) as StoredArtifactRow<S> | undefined;
     if (
       row === undefined ||
-      canonical(rowProvenance(row)) !== canonical(expected) ||
+      canonical(storedRowProvenance(row)) !== canonical(expected) ||
       row.byte_length !== row.bytes.byteLength ||
       bytesHash(row.bytes) !== expected.sha256
     ) {
       integrityMismatch();
     }
+    storedArtifacts.push(row);
+  }
+  const canonicalSnapshot = canonical(sealed.snapshot);
+  const canonicalParserVersions = canonical(sealed.snapshot.parserVersions);
+  const existingSnapshot = database.prepare(`
+    SELECT assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
+           parser_versions_json, rules_version
+    FROM evidence_snapshots WHERE id = ?
+  `).get(sealed.snapshot.id) as SnapshotRow | undefined;
+  if (existingSnapshot !== undefined) {
+    if (
+      !acceptExactRetry || storedArtifacts.some((artifact) => artifact.sealed !== 1) ||
+      existingSnapshot.assessment_date !== sealed.snapshot.assessmentDate ||
+      existingSnapshot.snapshot_json !== canonicalSnapshot ||
+      existingSnapshot.manifest_json !== sealed.canonicalManifest ||
+      existingSnapshot.manifest_hash !== sealed.snapshot.manifestHash ||
+      existingSnapshot.hmac !== sealed.snapshot.hmac ||
+      existingSnapshot.parser_versions_json !== canonicalParserVersions ||
+      existingSnapshot.rules_version !== sealed.snapshot.rulesVersion
+    ) integrityMismatch();
+    return;
   }
   for (const artifact of sealed.manifest.artifacts) {
     database.prepare(`
@@ -455,13 +797,32 @@ export function insertSealedEvidence<S extends string, C extends Claim<unknown, 
   `).run(
     sealed.snapshot.id,
     sealed.snapshot.assessmentDate,
-    canonical(sealed.snapshot),
+    canonicalSnapshot,
     sealed.canonicalManifest,
     sealed.snapshot.manifestHash,
     sealed.snapshot.hmac,
-    canonical(sealed.snapshot.parserVersions),
+    canonicalParserVersions,
     sealed.snapshot.rulesVersion,
   );
+}
+
+export function insertSealedEvidence<S extends string, C extends Claim<unknown, S>>(
+  database: Database.Database,
+  sealed: SealedEvidence<S, C>,
+  integrity: EvidencePersistenceIntegrity = DEFAULT_EVIDENCE_PERSISTENCE_INTEGRITY,
+): void {
+  insertSealedEvidenceForOrigin(database, sealed, integrity, "live", false);
+}
+
+function insertVerifiedAdministrativeEvidence<
+  S extends string,
+  C extends Claim<unknown, S>,
+>(
+  database: Database.Database,
+  sealed: SealedEvidence<S, C, "administrative">,
+  integrity: EvidencePersistenceIntegrity,
+): void {
+  insertSealedEvidenceForOrigin(database, sealed, integrity, "administrative", true);
 }
 
 /** @internal Synchronous verified bundle reader for a single SQLite view. */
@@ -489,10 +850,10 @@ export function loadVerifiedEvidenceBundle<
   } catch {
     integrityMismatch();
   }
-  assertSealedEvidenceStructure(
+  if (assertSealedEvidenceStructure(
     { snapshot, manifest },
     structuralSourceIds(snapshot, manifest),
-  );
+  ) !== "live") integrityMismatch();
   const canonicalManifest = integrity.canonical(manifest);
   if (snapshot.id !== id || row.assessment_date !== snapshot.assessmentDate ||
     row.rules_version !== snapshot.rulesVersion ||
@@ -517,9 +878,10 @@ export function loadVerifiedEvidenceBundle<
     const stored = database.prepare(
       `SELECT ${ARTIFACT_COLUMNS} FROM artifacts
        WHERE run_id = ? AND artifact_id = ? AND sealed = 1`,
-    ).get(expectedArtifact.runId, expectedArtifact.artifactId) as ArtifactRow<S> | undefined;
+    ).get(expectedArtifact.runId, expectedArtifact.artifactId) as StoredArtifactRow<S> | undefined;
     if (stored === undefined ||
-      integrity.canonical(rowProvenance(stored)) !== integrity.canonical(expectedArtifact) ||
+      stored.origin !== "live" ||
+      integrity.canonical(liveRowProvenance(stored)) !== integrity.canonical(expectedArtifact) ||
       stored.byte_length !== stored.bytes.byteLength ||
       bytesHash(stored.bytes) !== expectedArtifact.sha256 ||
       artifactsById.has(expectedArtifact.artifactId)) integrityMismatch();
@@ -538,6 +900,115 @@ export function loadVerifiedEvidenceBundle<
     ...(entry.versionHint === undefined ? {} : { versionHint: entry.versionHint }),
   }));
   return { snapshot, manifest, entries };
+}
+
+/** @internal Synchronous administrative reader for installed-package reconstruction. */
+export function loadVerifiedAdministrativeEvidenceBundle(
+  database: Database.Database,
+  borrowedExpected: AdministrativeEvidenceLoadExpectations,
+  integrity: EvidenceIntegrity,
+): AdministrativeVerifiedEvidenceBundle<
+  "city-package-installation",
+  CityPackageAdministrativeEvidenceClaim
+> {
+  const expected = ownedDataSnapshot(borrowedExpected);
+  if (!isRecord(expected) ||
+    !exactObjectKeys(expected, ["evidenceId", "installedAt", "artifactIds"]) ||
+    !canonicalIdentifier(expected.evidenceId) || !canonicalUtcMilliseconds(expected.installedAt) ||
+    !Array.isArray(expected.artifactIds) || expected.artifactIds.length < 7 ||
+    expected.artifactIds.length > 304 ||
+    !expected.artifactIds.every(canonicalIdentifier) ||
+    new Set(expected.artifactIds).size !== expected.artifactIds.length) integrityMismatch();
+
+  const row = database.prepare(`
+    SELECT assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
+           parser_versions_json, rules_version
+    FROM evidence_snapshots WHERE id = ?
+  `).get(expected.evidenceId) as SnapshotRow | undefined;
+  if (row === undefined) integrityMismatch();
+
+  let parsedSnapshot: EvidenceSnapshot<
+    "city-package-installation",
+    CityPackageAdministrativeEvidenceClaim
+  >;
+  let parsedManifest: EvidenceManifest<
+    "city-package-installation",
+    CityPackageAdministrativeEvidenceClaim,
+    "administrative"
+  >;
+  try {
+    parsedSnapshot = JSON.parse(row.snapshot_json) as typeof parsedSnapshot;
+    parsedManifest = JSON.parse(row.manifest_json) as typeof parsedManifest;
+  } catch {
+    return integrityMismatch();
+  }
+  const ownedRows = deepFreezePlain(ownedDataSnapshot({
+    snapshot: parsedSnapshot,
+    manifest: parsedManifest,
+  }));
+  const { snapshot, manifest } = ownedRows;
+  const view = isolatedIntegrityView(integrity);
+  const canonicalSnapshot = view.canonical(snapshot);
+  const canonicalManifest = view.canonical(manifest);
+  if (
+    row.snapshot_json !== canonicalSnapshot || row.manifest_json !== canonicalManifest ||
+    row.assessment_date !== snapshot.assessmentDate ||
+    row.parser_versions_json !== view.canonical(snapshot.parserVersions) ||
+    row.rules_version !== snapshot.rulesVersion ||
+    !secureHexEqual(row.manifest_hash, snapshot.manifestHash) ||
+    !secureHexEqual(row.hmac, snapshot.hmac)
+  ) integrityMismatch();
+  verifySealedEvidenceForInsert({ snapshot, manifest, canonicalManifest }, view);
+  const shell = reconstructAdministrativeEvidenceShell(snapshot, expected);
+  const claim = shell.claims[0];
+  if (!isClosedCityPackageAdministrativeClaim(claim)) integrityMismatch();
+
+  const artifactsById = new Map<string, AdministrativeCapturedArtifact<
+    "city-package-installation"
+  >>();
+  for (const expectedArtifact of manifest.artifacts) {
+    const stored = database.prepare(
+      `SELECT ${ARTIFACT_COLUMNS} FROM artifacts
+       WHERE run_id = ? AND artifact_id = ? AND sealed = 1`,
+    ).get(expectedArtifact.runId, expectedArtifact.artifactId) as StoredArtifactRow<
+      "city-package-installation"
+    > | undefined;
+    if (
+      stored === undefined || stored.origin !== "administrative" ||
+      view.canonical(administrativeRowProvenance(stored)) !==
+        view.canonical(expectedArtifact) ||
+      stored.byte_length !== stored.bytes.byteLength ||
+      bytesHash(stored.bytes) !== expectedArtifact.sha256 ||
+      artifactsById.has(expectedArtifact.artifactId)
+    ) integrityMismatch();
+    artifactsById.set(
+      expectedArtifact.artifactId,
+      administrativeCapturedArtifactFromRow(stored),
+    );
+  }
+  if (manifest.entries.length !== 1 ||
+    manifest.entries[0]!.sourceId !== "city-package-installation" ||
+    manifest.entries[0]!.origin !== "administrative") integrityMismatch();
+  const entryArtifacts = manifest.entries[0]!.artifactIds.map((artifactId) => {
+    const artifact = artifactsById.get(artifactId);
+    if (artifact === undefined) integrityMismatch();
+    return Object.freeze({ ...artifact, bytes: new Uint8Array(artifact.bytes) });
+  });
+  if (entryArtifacts.length !== expected.artifactIds.length ||
+    !entryArtifacts.every((artifact, index) => artifact.artifactId === expected.artifactIds[index])) {
+    integrityMismatch();
+  }
+  const typedSnapshot: EvidenceSnapshot<
+    "city-package-installation",
+    CityPackageAdministrativeEvidenceClaim
+  > = Object.freeze({ ...shell, claims: Object.freeze([claim]) });
+  const ownedManifest = deepFreezePlain(ownedDataSnapshot(manifest));
+  const entries = Object.freeze([Object.freeze({
+    sourceId: "city-package-installation" as const,
+    origin: "administrative" as const,
+    artifacts: Object.freeze(entryArtifacts),
+  })]);
+  return Object.freeze({ snapshot: typedSnapshot, manifest: ownedManifest, entries });
 }
 
 /** @internal Synchronous verifier for callers that must remain inside a SQLite transaction. */
@@ -624,7 +1095,7 @@ export function loadVerifiedCountryEvidence(
 export class SqliteEvidenceStore<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
-> {
+> implements EvidenceWriteStore<S, C> {
   constructor(private readonly database: Database.Database) {}
 
   async appendArtifact(borrowedArtifact: LiveCapturedArtifact<S>): Promise<void> {
@@ -686,5 +1157,42 @@ export class SqliteEvidenceStore<
     key: string,
   ): Promise<VerifiedCountryEvidenceInputV2> {
     return loadVerifiedCountryEvidenceV2(this.database, id, key);
+  }
+}
+
+export class SqliteAdministrativeEvidenceStore<
+  S extends string,
+  C extends Claim<unknown, S>,
+> implements EvidenceWriteStore<S, C, "administrative"> {
+  constructor(
+    private readonly database: Database.Database,
+    private readonly integrity: EvidenceIntegrity,
+  ) {
+    this.database.pragma("busy_timeout = 5000");
+  }
+
+  async appendArtifact(
+    borrowedArtifact: AdministrativeCapturedArtifact<S>,
+  ): Promise<void> {
+    const artifact = ownedDataSnapshot(borrowedArtifact);
+    const appendTransaction = this.database.transaction(() =>
+      insertAdministrativeArtifact(this.database, artifact)
+    );
+    appendTransaction.immediate();
+  }
+
+  async seal(
+    borrowedSealed: SealedEvidence<S, C, "administrative">,
+  ): Promise<void> {
+    const sealed = ownedDataSnapshot(borrowedSealed);
+    verifySealedEvidenceForInsert(sealed, this.integrity);
+    const sealTransaction = this.database.transaction(() =>
+      insertVerifiedAdministrativeEvidence(
+        this.database,
+        sealed,
+        this.integrity,
+      )
+    );
+    sealTransaction.immediate();
   }
 }

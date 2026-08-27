@@ -27,6 +27,94 @@ const CURRENT_STAGE_SHAPE_CHECK = `
     )
   )`;
 
+const CURRENT_ARTIFACT_ORIGIN_CHECK = `CHECK (
+    (origin = 'live'
+      AND url IS NOT NULL AND captured_at IS NOT NULL AND response_status IS NOT NULL
+      AND response_url IS NOT NULL AND request_json IS NOT NULL
+      AND producer IS NULL AND created_at IS NULL)
+    OR
+    (origin = 'administrative'
+      AND url IS NULL AND captured_at IS NULL AND response_status IS NULL
+      AND response_url IS NULL AND request_json IS NULL
+      AND producer IS NOT NULL AND length(producer) > 0
+      AND created_at IS NOT NULL AND length(created_at) > 0)
+  )`;
+
+const CURRENT_CITY_CATALOG_SQL = `CREATE TABLE city_catalog_revisions (
+  id TEXT PRIMARY KEY,
+  registry_revision_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  registry_evidence_snapshot_id TEXT NOT NULL,
+  catalog_evidence_snapshot_id TEXT NOT NULL,
+  rules_version TEXT NOT NULL CHECK (
+    rules_version IN ('city-catalog@1', 'city-catalog@2')
+  ),
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64)
+)`;
+
+const CURRENT_CITY_KNOWLEDGE_SQL = `CREATE TABLE city_knowledge_revisions (
+  id TEXT PRIMARY KEY,
+  city_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  rules_version TEXT NOT NULL,
+  predecessor_id TEXT REFERENCES city_knowledge_revisions(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+  last_checked_at TEXT NOT NULL,
+  knowledge_updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (city_id, evidence_snapshot_id)
+)`;
+
+const CURRENT_INSTALLED_CITY_PACKAGE_MANIFESTS_SQL = `CREATE TABLE installed_city_package_manifests (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  catalog_revision_id TEXT NOT NULL REFERENCES city_catalog_revisions(id),
+  evidence_rules_version TEXT NOT NULL,
+  predecessor_manifest_id TEXT REFERENCES installed_city_package_manifests(id),
+  administrative_evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  installed_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_manifest_id IS NULL OR predecessor_manifest_id <> id)
+)`;
+
+const CURRENT_INSTALLED_CITY_PACKAGE_HEADS_SQL = `CREATE TABLE installed_city_package_heads (
+  country_code TEXT PRIMARY KEY CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  current_manifest_id TEXT NOT NULL UNIQUE,
+  FOREIGN KEY (country_code, current_manifest_id)
+    REFERENCES installed_city_package_manifests(country_code, id)
+)`;
+
 afterEach(() => {
   for (const database of databases.splice(0)) {
     if (database.open) database.close();
@@ -120,7 +208,254 @@ function createRunRevisionsSchema(
   return database;
 }
 
+interface DirectArtifactRow {
+  readonly run_id: string;
+  readonly artifact_id: string;
+  readonly source_id: string;
+  readonly role: string;
+  readonly url: string | null;
+  readonly media_type: string;
+  readonly sha256: string;
+  readonly bytes: Uint8Array;
+  readonly byte_length: number;
+  readonly origin: string | null;
+  readonly captured_at: string | null;
+  readonly response_status: number | null;
+  readonly response_url: string | null;
+  readonly request_json: string | null;
+  readonly producer: string | null;
+  readonly created_at: string | null;
+  readonly sealed: number;
+}
+
+function directArtifactRow(
+  artifactId: string,
+  origin: "live" | "administrative",
+  overrides: Partial<DirectArtifactRow> = {},
+): DirectArtifactRow {
+  const live = origin === "live";
+  return {
+    run_id: "direct-schema-run",
+    artifact_id: artifactId,
+    source_id: "direct-schema-source",
+    role: "official-document",
+    url: live ? "https://official.example/source" : null,
+    media_type: "application/octet-stream",
+    sha256: "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+    bytes: Uint8Array.of(1),
+    byte_length: 1,
+    origin,
+    captured_at: live ? "2026-08-24T10:00:00.000Z" : null,
+    response_status: live ? 200 : null,
+    response_url: live ? "https://official.example/source" : null,
+    request_json: live ? '{"method":"GET","url":"https://official.example/source"}' : null,
+    producer: live ? null : "install-city-package@1",
+    created_at: live ? null : "2026-08-24T10:00:00.000Z",
+    sealed: 0,
+    ...overrides,
+  };
+}
+
+function insertDirectArtifact(database: Database.Database, row: DirectArtifactRow): void {
+  database.prepare(`
+    INSERT INTO artifacts (
+      run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
+      byte_length, origin, captured_at, response_status, response_url, request_json,
+      producer, created_at, sealed
+    ) VALUES (
+      @run_id, @artifact_id, @source_id, @role, @url, @media_type, @sha256, @bytes,
+      @byte_length, @origin, @captured_at, @response_status, @response_url, @request_json,
+      @producer, @created_at, @sealed
+    )
+  `).run(row);
+}
+
 describe("database schema preflight", () => {
+  test("installs the exact live or administrative artifact discriminator", () => {
+    // Break caught: a weaker SQL shape accepting mixed HTTP and administrative provenance.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const artifactSql = database.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'artifacts'",
+    ).pluck().get() as string;
+
+    expect(artifactSql).toContain("CHECK (origin IN ('live', 'administrative'))");
+    expect(artifactSql).toContain(
+      "CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599)",
+    );
+    expect(artifactSql).toContain(CURRENT_ARTIFACT_ORIGIN_CHECK);
+    expect(database.prepare("PRAGMA table_info(artifacts)").all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "url", notnull: 0 }),
+        expect.objectContaining({ name: "captured_at", notnull: 0 }),
+        expect.objectContaining({ name: "response_status", notnull: 0 }),
+        expect.objectContaining({ name: "response_url", notnull: 0 }),
+        expect.objectContaining({ name: "request_json", notnull: 0 }),
+        expect.objectContaining({ name: "producer", notnull: 0 }),
+        expect.objectContaining({ name: "created_at", notnull: 0 }),
+      ]),
+    );
+
+    expect(() => insertDirectArtifact(
+      database,
+      directArtifactRow("valid-live", "live"),
+    )).not.toThrow();
+    expect(() => insertDirectArtifact(
+      database,
+      directArtifactRow("valid-administrative", "administrative"),
+    )).not.toThrow();
+  });
+
+  test.each([
+    ["NULL origin", "live", { origin: null }],
+    ["unknown origin", "live", { origin: "imported" }],
+    ["live NULL url", "live", { url: null }],
+    ["live NULL captured_at", "live", { captured_at: null }],
+    ["live NULL response_status", "live", { response_status: null }],
+    ["live NULL response_url", "live", { response_url: null }],
+    ["live NULL request_json", "live", { request_json: null }],
+    ["live administrative producer", "live", { producer: "mixed" }],
+    ["live administrative created_at", "live", { created_at: "2026-08-24T10:00:00.000Z" }],
+    ["live response status below HTTP range", "live", { response_status: 99 }],
+    ["live response status above HTTP range", "live", { response_status: 600 }],
+    ["administrative live url", "administrative", { url: "https://mixed.example" }],
+    ["administrative live captured_at", "administrative", {
+      captured_at: "2026-08-24T10:00:00.000Z",
+    }],
+    ["administrative live response_status", "administrative", { response_status: 200 }],
+    ["administrative live response_url", "administrative", {
+      response_url: "https://mixed.example",
+    }],
+    ["administrative live request_json", "administrative", { request_json: "{}" }],
+    ["administrative NULL producer", "administrative", { producer: null }],
+    ["administrative empty producer", "administrative", { producer: "" }],
+    ["administrative NULL created_at", "administrative", { created_at: null }],
+    ["administrative empty created_at", "administrative", { created_at: "" }],
+    ["NULL common run_id", "live", { run_id: null }],
+    ["NULL common artifact_id", "live", { artifact_id: null }],
+    ["NULL common source_id", "administrative", { source_id: null }],
+    ["NULL common role", "live", { role: null }],
+    ["NULL common media_type", "administrative", { media_type: null }],
+    ["NULL common sha256", "live", { sha256: null }],
+    ["NULL common bytes", "administrative", { bytes: null }],
+    ["NULL common byte_length", "live", { byte_length: null }],
+    ["invalid sealed discriminator", "live", { sealed: 2 }],
+  ] as const)("rejects direct SQL %s", (_name, origin, overrides) => {
+    // Break caught: relying on adapter validation while direct SQL admits an invalid union row.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const row = directArtifactRow(
+      `invalid-${_name.replaceAll(" ", "-")}`,
+      origin,
+      overrides as Partial<DirectArtifactRow>,
+    );
+    expect(() => insertDirectArtifact(database, row)).toThrow();
+  });
+
+  test("rejects the prior live-only artifact table before any schema execution and preserves it", () => {
+    // Break caught: CREATE IF NOT EXISTS silently accepting or automatically resetting old evidence.
+    const path = temporaryDatabasePath();
+    const legacy = track(new Database(path));
+    legacy.exec(`
+      CREATE TABLE artifacts (
+        run_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        url TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        bytes BLOB NOT NULL,
+        byte_length INTEGER NOT NULL,
+        origin TEXT NOT NULL CHECK (origin = 'live'),
+        captured_at TEXT NOT NULL,
+        response_status INTEGER NOT NULL,
+        response_url TEXT NOT NULL,
+        request_json TEXT NOT NULL,
+        sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+        PRIMARY KEY (run_id, artifact_id)
+      )
+    `);
+    legacy.prepare(`
+      INSERT INTO artifacts (
+        run_id, artifact_id, source_id, role, url, media_type, sha256, bytes,
+        byte_length, origin, captured_at, response_status, response_url, request_json, sealed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?, 0)
+    `).run(
+      "legacy-run",
+      "legacy-artifact",
+      "legacy-source",
+      "official-document",
+      "https://official.example/legacy",
+      "application/octet-stream",
+      "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+      Uint8Array.of(1),
+      1,
+      "2026-08-24T10:00:00.000Z",
+      200,
+      "https://official.example/legacy",
+      '{"method":"GET","url":"https://official.example/legacy"}',
+    );
+    const before = storedSchema(legacy);
+    legacy.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+    expect(verification.prepare(
+      "SELECT artifact_id, bytes FROM artifacts",
+    ).get()).toEqual({ artifact_id: "legacy-artifact", bytes: Buffer.from([1]) });
+    expect(verification.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all()).toEqual([{ name: "artifacts" }]);
+  });
+
+  test("rejects a new-column artifact table with a weakened discriminator without changing it", () => {
+    // Break caught: preflighting columns while accepting a missing producer/created-time constraint.
+    const path = temporaryDatabasePath();
+    const weakened = track(new Database(path));
+    weakened.exec(`
+      CREATE TABLE artifacts (
+        run_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        url TEXT,
+        media_type TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        bytes BLOB NOT NULL,
+        byte_length INTEGER NOT NULL,
+        origin TEXT NOT NULL CHECK (origin IN ('live', 'administrative')),
+        captured_at TEXT,
+        response_status INTEGER,
+        response_url TEXT,
+        request_json TEXT,
+        producer TEXT,
+        created_at TEXT,
+        sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+        CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599),
+        CHECK (
+          (origin = 'live' AND url IS NOT NULL AND captured_at IS NOT NULL
+            AND response_status IS NOT NULL AND response_url IS NOT NULL
+            AND request_json IS NOT NULL AND producer IS NULL AND created_at IS NULL)
+          OR
+          (origin = 'administrative' AND url IS NULL AND captured_at IS NULL
+            AND response_status IS NULL AND response_url IS NULL AND request_json IS NULL)
+        ),
+        PRIMARY KEY (run_id, artifact_id)
+      )
+    `);
+    const before = storedSchema(weakened);
+    weakened.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+    expect(verification.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all()).toEqual([{ name: "artifacts" }]);
+  });
+
   test("rejects an existing incompatible country Knowledge table before schema execution", () => {
     const path = temporaryDatabasePath();
     const incompatible = track(new Database(path));
@@ -354,12 +689,16 @@ describe("database schema preflight", () => {
     ).all()).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "city_catalog_revisions" },
       { name: "city_evidence_snapshots" },
+      { name: "city_knowledge_revisions" },
       { name: "country_knowledge_revisions" },
       { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
       { name: "dossier_versions_v2" },
       { name: "evidence_snapshots" },
+      { name: "installed_city_package_heads" },
+      { name: "installed_city_package_manifests" },
       { name: "onboarding_confirmations" },
       { name: "place_frontier_snapshots" },
       { name: "profile_snapshots" },
@@ -384,6 +723,209 @@ describe("database schema preflight", () => {
       { type: "table", name: "city_evidence_snapshots" },
       { type: "trigger", name: "city_evidence_snapshots_no_delete" },
       { type: "trigger", name: "city_evidence_snapshots_no_update" },
+    ]);
+
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'city_catalog_revisions'",
+    ).pluck().get()).toBe(CURRENT_CITY_CATALOG_SQL);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'city_knowledge_revisions'",
+    ).pluck().get()).toBe(CURRENT_CITY_KNOWLEDGE_SQL);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'installed_city_package_manifests'",
+    ).pluck().get()).toBe(CURRENT_INSTALLED_CITY_PACKAGE_MANIFESTS_SQL);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'installed_city_package_heads'",
+    ).pluck().get()).toBe(CURRENT_INSTALLED_CITY_PACKAGE_HEADS_SQL);
+    expect(reopened.prepare("PRAGMA table_info(city_catalog_revisions)").all()
+      .map((column) => (column as { readonly name: string }).name)).toEqual([
+      "id", "registry_revision_id", "country_code", "package_id", "package_schema_version",
+      "registry_evidence_snapshot_id", "catalog_evidence_snapshot_id", "rules_version",
+      "created_at", "payload_json", "payload_hash", "hmac",
+    ]);
+    expect(reopened.prepare("PRAGMA foreign_key_list(city_catalog_revisions)").all()).toEqual([]);
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE tbl_name = 'city_catalog_revisions' AND name NOT LIKE 'sqlite_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "table", name: "city_catalog_revisions" },
+      { type: "trigger", name: "city_catalog_revisions_no_delete" },
+      { type: "trigger", name: "city_catalog_revisions_no_update" },
+    ]);
+
+    expect(reopened.prepare("PRAGMA table_info(city_knowledge_revisions)").all()
+      .map((column) => (column as { readonly name: string }).name)).toEqual([
+      "id", "city_id", "country_code", "package_id", "package_schema_version", "rules_version",
+      "predecessor_id", "evidence_snapshot_id", "last_checked_at", "knowledge_updated_at",
+      "created_at", "payload_json", "payload_hash", "hmac",
+    ]);
+    expect((reopened.prepare("PRAGMA foreign_key_list(city_knowledge_revisions)").all() as Array<{
+      readonly table: string;
+      readonly from: string;
+      readonly to: string;
+    }>).map(({ table, from, to }) => ({ table, from, to })).sort((left, right) =>
+      left.from.localeCompare(right.from))).toEqual([
+      { table: "city_evidence_snapshots", from: "evidence_snapshot_id", to: "id" },
+      { table: "city_knowledge_revisions", from: "predecessor_id", to: "id" },
+    ]);
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE tbl_name = 'city_knowledge_revisions' AND name NOT LIKE 'sqlite_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "index", name: "city_knowledge_one_root" },
+      { type: "index", name: "city_knowledge_one_successor" },
+      { type: "table", name: "city_knowledge_revisions" },
+      { type: "trigger", name: "city_knowledge_revisions_no_delete" },
+      { type: "trigger", name: "city_knowledge_revisions_no_update" },
+    ]);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_knowledge_one_root'",
+    ).pluck().get()).toBe(`CREATE UNIQUE INDEX city_knowledge_one_root
+ON city_knowledge_revisions (city_id)
+WHERE predecessor_id IS NULL`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_knowledge_one_successor'",
+    ).pluck().get()).toBe(`CREATE UNIQUE INDEX city_knowledge_one_successor
+ON city_knowledge_revisions (predecessor_id)
+WHERE predecessor_id IS NOT NULL`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_catalog_revisions_no_update'",
+    ).pluck().get()).toBe(`CREATE TRIGGER city_catalog_revisions_no_update
+BEFORE UPDATE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_catalog_revisions_no_delete'",
+    ).pluck().get()).toBe(`CREATE TRIGGER city_catalog_revisions_no_delete
+BEFORE DELETE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_knowledge_revisions_no_update'",
+    ).pluck().get()).toBe(`CREATE TRIGGER city_knowledge_revisions_no_update
+BEFORE UPDATE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END`);
+    expect(reopened.prepare(
+      "SELECT sql FROM sqlite_master WHERE name = 'city_knowledge_revisions_no_delete'",
+    ).pluck().get()).toBe(`CREATE TRIGGER city_knowledge_revisions_no_delete
+BEFORE DELETE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END`);
+
+    expect(reopened.prepare("PRAGMA table_info(installed_city_package_manifests)").all()
+      .map((column) => (column as { readonly name: string }).name)).toEqual([
+      "id", "country_code", "package_id", "package_schema_version", "catalog_revision_id",
+      "evidence_rules_version", "predecessor_manifest_id",
+      "administrative_evidence_snapshot_id", "installed_at", "payload_json", "payload_hash", "hmac",
+    ]);
+    expect((reopened.prepare(
+      "PRAGMA foreign_key_list(installed_city_package_manifests)",
+    ).all() as Array<{ readonly table: string; readonly from: string; readonly to: string }>).map(
+      ({ table, from, to }) => ({ table, from, to }),
+    ).sort((left, right) => left.from.localeCompare(right.from))).toEqual([
+      { table: "evidence_snapshots", from: "administrative_evidence_snapshot_id", to: "id" },
+      { table: "city_catalog_revisions", from: "catalog_revision_id", to: "id" },
+      { table: "installed_city_package_manifests", from: "predecessor_manifest_id", to: "id" },
+    ]);
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE tbl_name = 'installed_city_package_manifests' AND name NOT LIKE 'sqlite_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "index", name: "installed_city_package_manifest_country_id" },
+      { type: "index", name: "installed_city_package_manifest_exact_key" },
+      { type: "index", name: "installed_city_package_manifest_one_root" },
+      { type: "index", name: "installed_city_package_manifest_one_successor" },
+      { type: "table", name: "installed_city_package_manifests" },
+      { type: "trigger", name: "installed_city_package_manifests_no_delete" },
+      { type: "trigger", name: "installed_city_package_manifests_no_update" },
+    ]);
+    expect(reopened.prepare(`
+      SELECT name, sql FROM sqlite_master
+      WHERE name IN (
+        'installed_city_package_manifest_country_id',
+        'installed_city_package_manifest_exact_key',
+        'installed_city_package_manifest_one_root',
+        'installed_city_package_manifest_one_successor',
+        'installed_city_package_manifests_no_delete',
+        'installed_city_package_manifests_no_update'
+      ) ORDER BY name
+    `).all()).toEqual([
+      {
+        name: "installed_city_package_manifest_country_id",
+        sql: `CREATE UNIQUE INDEX installed_city_package_manifest_country_id
+ON installed_city_package_manifests (country_code, id)`,
+      },
+      {
+        name: "installed_city_package_manifest_exact_key",
+        sql: `CREATE UNIQUE INDEX installed_city_package_manifest_exact_key
+ON installed_city_package_manifests (
+  country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+)`,
+      },
+      {
+        name: "installed_city_package_manifest_one_root",
+        sql: `CREATE UNIQUE INDEX installed_city_package_manifest_one_root
+ON installed_city_package_manifests (country_code)
+WHERE predecessor_manifest_id IS NULL`,
+      },
+      {
+        name: "installed_city_package_manifest_one_successor",
+        sql: `CREATE UNIQUE INDEX installed_city_package_manifest_one_successor
+ON installed_city_package_manifests (predecessor_manifest_id)
+WHERE predecessor_manifest_id IS NOT NULL`,
+      },
+      {
+        name: "installed_city_package_manifests_no_delete",
+        sql: `CREATE TRIGGER installed_city_package_manifests_no_delete
+BEFORE DELETE ON installed_city_package_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable');
+END`,
+      },
+      {
+        name: "installed_city_package_manifests_no_update",
+        sql: `CREATE TRIGGER installed_city_package_manifests_no_update
+BEFORE UPDATE ON installed_city_package_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable');
+END`,
+      },
+    ]);
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE tbl_name = 'installed_city_package_heads' AND name NOT LIKE 'sqlite_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "table", name: "installed_city_package_heads" },
+    ]);
+    expect((reopened.prepare(
+      "PRAGMA foreign_key_list(installed_city_package_heads)",
+    ).all() as Array<{ readonly id: number; readonly seq: number; readonly table: string;
+      readonly from: string; readonly to: string }>).map(
+      ({ id, seq, table, from, to }) => ({ id, seq, table, from, to }),
+    )).toEqual([
+      {
+        id: 0,
+        seq: 0,
+        table: "installed_city_package_manifests",
+        from: "country_code",
+        to: "country_code",
+      },
+      {
+        id: 0,
+        seq: 1,
+        table: "installed_city_package_manifests",
+        from: "current_manifest_id",
+        to: "id",
+      },
     ]);
 
     const onboardingColumns = reopened.prepare(
@@ -682,6 +1224,369 @@ END`,
     ).get()).toEqual({
       sql: "CREATE TABLE city_evidence_snapshots (id TEXT PRIMARY KEY, rules_version TEXT)",
     });
+  });
+
+  test.each([
+    ["Catalog", "city_catalog_revisions"],
+    ["Knowledge", "city_knowledge_revisions"],
+  ])("rejects an incompatible existing City %s table before schema execution", (_label, table) => {
+    // Break caught: CREATE IF NOT EXISTS accepting a partial structural persistence boundary.
+    const path = temporaryDatabasePath();
+    const incompatible = track(new Database(path));
+    incompatible.exec(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`);
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(verification.prepare(
+      `SELECT sql FROM sqlite_master WHERE name = '${table}'`,
+    ).pluck().get()).toBe(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`);
+    expect(verification.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all()).toEqual([{ name: table }]);
+  });
+
+  test.each([
+    ["missing Catalog table", "DROP TABLE city_catalog_revisions"],
+    ["missing Catalog trigger", "DROP TRIGGER city_catalog_revisions_no_delete"],
+    ["altered Catalog trigger", `
+      DROP TRIGGER city_catalog_revisions_no_update;
+      CREATE TRIGGER city_catalog_revisions_no_update BEFORE UPDATE ON city_catalog_revisions
+      BEGIN SELECT RAISE(ABORT, 'weakened'); END
+    `],
+    ["arbitrarily named extra Catalog object", `
+      CREATE TRIGGER evil_catalog_guard BEFORE UPDATE ON city_catalog_revisions
+      BEGIN SELECT RAISE(ABORT, 'unexpected'); END
+    `],
+    ["missing Knowledge table", "DROP TABLE city_knowledge_revisions"],
+    ["missing Knowledge index", "DROP INDEX city_knowledge_one_successor"],
+    ["altered Knowledge index", `
+      DROP INDEX city_knowledge_one_root;
+      CREATE INDEX city_knowledge_one_root ON city_knowledge_revisions (city_id)
+    `],
+    ["arbitrarily named extra Knowledge object", `
+      CREATE INDEX evil_knowledge_idx ON city_knowledge_revisions (created_at)
+    `],
+  ])("rejects a %s on reopen without repairing or changing stored objects", (_label, mutation) => {
+    // Break caught: schema execution silently repairing a partial or weakened installed object set.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const incompatible = track(new Database(path));
+    incompatible.exec(mutation);
+    const before = storedSchema(incompatible);
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("installs Task 3 tables additively only when both object families are wholly absent", () => {
+    // Break caught: rejecting an exact pre-Task-3 database or accepting only one partially installed family.
+    const path = temporaryDatabasePath();
+    const legacy = track(openEvidenceDatabase(path));
+    legacy.pragma("foreign_keys = OFF");
+    legacy.exec(`
+      DROP TABLE installed_city_package_heads;
+      DROP TABLE installed_city_package_manifests;
+      DROP TABLE city_catalog_revisions;
+      DROP TABLE city_knowledge_revisions;
+    `);
+    legacy.close();
+
+    const upgraded = track(openEvidenceDatabase(path));
+    expect(upgraded.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE name IN ('city_catalog_revisions', 'city_knowledge_revisions')
+      ORDER BY name
+    `).all()).toEqual([
+      { name: "city_catalog_revisions" },
+      { name: "city_knowledge_revisions" },
+    ]);
+  });
+
+  test.each([
+    ["trigger", `
+      CREATE TRIGGER city_catalog_revisions_no_update BEFORE UPDATE ON unrelated
+      BEGIN SELECT RAISE(ABORT, 'reserved'); END
+    `],
+    ["index", "CREATE INDEX city_knowledge_one_root ON unrelated (id)"],
+  ])("rejects a reserved Task 3 %s name attached to another table", (_label, objectSql) => {
+    // Break caught: IF NOT EXISTS accepting a reserved guard/index name owned by an unrelated table.
+    const path = temporaryDatabasePath();
+    const legacy = track(openEvidenceDatabase(path));
+    legacy.exec(`
+      DROP TABLE city_catalog_revisions;
+      DROP TABLE city_knowledge_revisions;
+      CREATE TABLE unrelated (id TEXT PRIMARY KEY);
+      ${objectSql}
+    `);
+    const before = storedSchema(legacy);
+    legacy.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("enforces direct-SQL City roots, successors, and immutable rows", () => {
+    // Break caught: relying on store checks while leaving the append-only topology mutable in SQLite.
+    const db = track(openEvidenceDatabase(":memory:"));
+    db.prepare(`
+      INSERT INTO city_catalog_revisions (
+        id, registry_revision_id, country_code, package_id, package_schema_version,
+        registry_evidence_snapshot_id, catalog_evidence_snapshot_id, rules_version,
+        created_at, payload_json, payload_hash, hmac
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "catalog-1", "registry-1", "SI", "si-cities", "si-cities@1", "opaque-evidence",
+      "opaque-evidence", "city-catalog@2", "2026-08-24T00:00:00.000Z", "{}",
+      "a".repeat(64), "b".repeat(64),
+    );
+    expect(() => db.prepare(
+      "UPDATE city_catalog_revisions SET payload_json = payload_json WHERE id = 'catalog-1'",
+    ).run()).toThrow("city_catalog_revision_is_immutable");
+    expect(() => db.prepare(
+      "DELETE FROM city_catalog_revisions WHERE id = 'catalog-1'",
+    ).run()).toThrow("city_catalog_revision_is_immutable");
+
+    db.pragma("foreign_keys = OFF");
+    const insertKnowledge = db.prepare(`
+      INSERT INTO city_knowledge_revisions (
+        id, city_id, country_code, package_id, package_schema_version, rules_version,
+        predecessor_id, evidence_snapshot_id, last_checked_at, knowledge_updated_at,
+        created_at, payload_json, payload_hash, hmac
+      ) VALUES (?, 'ljubljana', 'SI', 'si-cities', 'si-cities@1', 'si-city-evidence@1',
+        ?, ?, '2026-08-24T00:00:00.000Z', '2026-08-24T00:00:00.000Z',
+        '2026-08-24T00:00:01.000Z', '{}', ?, ?)
+    `);
+    insertKnowledge.run("knowledge-root", null, "evidence-root", "c".repeat(64), "d".repeat(64));
+    expect(() => insertKnowledge.run(
+      "knowledge-second-root", null, "evidence-second-root", "c".repeat(64), "d".repeat(64),
+    )).toThrow(/UNIQUE constraint failed/);
+    insertKnowledge.run(
+      "knowledge-child", "knowledge-root", "evidence-child", "c".repeat(64), "d".repeat(64),
+    );
+    expect(() => insertKnowledge.run(
+      "knowledge-fork", "knowledge-root", "evidence-fork", "c".repeat(64), "d".repeat(64),
+    )).toThrow(/UNIQUE constraint failed/);
+    expect(() => db.prepare(
+      "UPDATE city_knowledge_revisions SET payload_json = payload_json WHERE id = 'knowledge-root'",
+    ).run()).toThrow("city_knowledge_revision_is_immutable");
+    expect(() => db.prepare(
+      "DELETE FROM city_knowledge_revisions WHERE id = 'knowledge-root'",
+    ).run()).toThrow("city_knowledge_revision_is_immutable");
+  });
+
+  test.each([
+    ["manifest", "installed_city_package_manifests"],
+    ["head", "installed_city_package_heads"],
+  ])("rejects an incompatible installed-package %s table before schema execution", (_label, table) => {
+    // Break caught: CREATE IF NOT EXISTS accepting a partial Task 4 authority.
+    const path = temporaryDatabasePath();
+    const incompatible = track(new Database(path));
+    incompatible.exec(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`);
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(verification.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all()).toEqual([{ name: table }]);
+  });
+
+  test("rejects an isolated Task 4 family when prerequisite Evidence and Catalog authorities are absent", () => {
+    // Break caught: schema.sql silently heals a package authority built over no prerequisite authorities.
+    const path = temporaryDatabasePath();
+    const incompatible = track(new Database(path));
+    incompatible.exec(`
+      ${CURRENT_INSTALLED_CITY_PACKAGE_MANIFESTS_SQL};
+      CREATE UNIQUE INDEX installed_city_package_manifest_country_id
+      ON installed_city_package_manifests (country_code, id);
+      CREATE UNIQUE INDEX installed_city_package_manifest_exact_key
+      ON installed_city_package_manifests (
+        country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+      );
+      CREATE UNIQUE INDEX installed_city_package_manifest_one_root
+      ON installed_city_package_manifests (country_code)
+      WHERE predecessor_manifest_id IS NULL;
+      CREATE UNIQUE INDEX installed_city_package_manifest_one_successor
+      ON installed_city_package_manifests (predecessor_manifest_id)
+      WHERE predecessor_manifest_id IS NOT NULL;
+      CREATE TRIGGER installed_city_package_manifests_no_update
+      BEFORE UPDATE ON installed_city_package_manifests
+      BEGIN SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable'); END;
+      CREATE TRIGGER installed_city_package_manifests_no_delete
+      BEFORE DELETE ON installed_city_package_manifests
+      BEGIN SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable'); END;
+      ${CURRENT_INSTALLED_CITY_PACKAGE_HEADS_SQL};
+    `);
+    const before = storedSchema(incompatible);
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test.each([
+    ["missing manifest table", "DROP TABLE installed_city_package_manifests"],
+    ["missing head table", "DROP TABLE installed_city_package_heads"],
+    ["missing exact-key index", "DROP INDEX installed_city_package_manifest_exact_key"],
+    ["missing country-id support index", "DROP INDEX installed_city_package_manifest_country_id"],
+    ["weakened root index", `
+      DROP INDEX installed_city_package_manifest_one_root;
+      CREATE INDEX installed_city_package_manifest_one_root
+      ON installed_city_package_manifests (country_code)
+    `],
+    ["missing immutable trigger", "DROP TRIGGER installed_city_package_manifests_no_delete"],
+    ["weakened successor index", `
+      DROP INDEX installed_city_package_manifest_one_successor;
+      CREATE INDEX installed_city_package_manifest_one_successor
+      ON installed_city_package_manifests (predecessor_manifest_id)
+    `],
+    ["weakened update trigger", `
+      DROP TRIGGER installed_city_package_manifests_no_update;
+      CREATE TRIGGER installed_city_package_manifests_no_update
+      BEFORE UPDATE ON installed_city_package_manifests
+      BEGIN SELECT RAISE(ABORT, 'weakened'); END
+    `],
+    ["head without composite FK or UNIQUE", `
+      DROP TABLE installed_city_package_heads;
+      CREATE TABLE installed_city_package_heads (
+        country_code TEXT PRIMARY KEY,
+        current_manifest_id TEXT NOT NULL REFERENCES installed_city_package_manifests(id)
+      )
+    `],
+    ["extra manifest object", `
+      CREATE INDEX evil_installed_package_index ON installed_city_package_manifests (installed_at)
+    `],
+  ])("rejects a %s without repairing stored Task 4 objects", (_label, mutation) => {
+    // Break caught: a partial/weakened package authority is silently repaired on reopen.
+    const path = temporaryDatabasePath();
+    track(openEvidenceDatabase(path)).close();
+    const incompatible = track(new Database(path));
+    incompatible.pragma("foreign_keys = OFF");
+    incompatible.exec(mutation);
+    const before = storedSchema(incompatible);
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("installs Task 4 objects additively only when both families and all reserved names are absent", () => {
+    // Break caught: rejecting an exact pre-Task-4 database or accepting an orphan reserved object.
+    const path = temporaryDatabasePath();
+    const legacy = track(openEvidenceDatabase(path));
+    legacy.pragma("foreign_keys = OFF");
+    legacy.exec("DROP TABLE installed_city_package_heads; DROP TABLE installed_city_package_manifests");
+    legacy.close();
+
+    const upgraded = track(openEvidenceDatabase(path));
+    expect(upgraded.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE name IN ('installed_city_package_heads', 'installed_city_package_manifests')
+      ORDER BY name
+    `).all()).toEqual([
+      { name: "installed_city_package_heads" },
+      { name: "installed_city_package_manifests" },
+    ]);
+    upgraded.close();
+
+    const orphaned = track(new Database(path));
+    orphaned.pragma("foreign_keys = OFF");
+    orphaned.exec(`
+      DROP TABLE installed_city_package_heads;
+      DROP TABLE installed_city_package_manifests;
+      CREATE TABLE unrelated (id TEXT PRIMARY KEY);
+      CREATE INDEX installed_city_package_manifest_exact_key ON unrelated (id);
+    `);
+    const before = storedSchema(orphaned);
+    orphaned.close();
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const verification = track(new Database(path, { readonly: true }));
+    expect(storedSchema(verification)).toEqual(before);
+  });
+
+  test("enforces direct-SQL installed-package exact keys, linear history, country-bound heads, and immutability", () => {
+    // Break caught: relying on adapter checks for uniqueness, topology, country binding, or append-only rows.
+    const db = track(openEvidenceDatabase(":memory:"));
+    db.prepare(`
+      INSERT INTO city_catalog_revisions (
+        id, registry_revision_id, country_code, package_id, package_schema_version,
+        registry_evidence_snapshot_id, catalog_evidence_snapshot_id, rules_version,
+        created_at, payload_json, payload_hash, hmac
+      ) VALUES ('catalog-a', 'registry-a', 'SI', 'si-cities', 'si-cities@1',
+        'catalog-evidence', 'catalog-evidence', 'city-catalog@2',
+        '2026-08-24T00:00:00.000Z', '{}', ?, ?)
+    `).run("a".repeat(64), "b".repeat(64));
+    db.prepare(`
+      INSERT INTO city_catalog_revisions
+      SELECT 'catalog-b', registry_revision_id, country_code, package_id, package_schema_version,
+             registry_evidence_snapshot_id, catalog_evidence_snapshot_id, rules_version,
+             created_at, payload_json, payload_hash, hmac
+      FROM city_catalog_revisions WHERE id = 'catalog-a'
+    `).run();
+    db.prepare(`
+      INSERT INTO city_catalog_revisions
+      SELECT 'catalog-c', registry_revision_id, country_code, package_id, package_schema_version,
+             registry_evidence_snapshot_id, catalog_evidence_snapshot_id, rules_version,
+             created_at, payload_json, payload_hash, hmac
+      FROM city_catalog_revisions WHERE id = 'catalog-a'
+    `).run();
+    db.prepare(`
+      INSERT INTO evidence_snapshots (
+        id, assessment_date, snapshot_json, manifest_json, manifest_hash, hmac,
+        parser_versions_json, rules_version
+      ) VALUES ('administrative-a', '2026-08-24', '{}', '{}', ?, ?, '{}', 'admin@1')
+    `).run("c".repeat(64), "d".repeat(64));
+    const insertManifest = db.prepare(`
+      INSERT INTO installed_city_package_manifests (
+        id, country_code, package_id, package_schema_version, catalog_revision_id,
+        evidence_rules_version, predecessor_manifest_id, administrative_evidence_snapshot_id,
+        installed_at, payload_json, payload_hash, hmac
+      ) VALUES (?, 'SI', 'si-cities', 'si-cities@1', ?, 'si-city-evidence@1',
+        ?, 'administrative-a', ?, '{}', ?, ?)
+    `);
+    insertManifest.run(
+      "manifest-root", "catalog-a", null, "2026-08-24T00:00:00.000Z",
+      "e".repeat(64), "f".repeat(64),
+    );
+    expect(() => insertManifest.run(
+      "manifest-duplicate-key", "catalog-a", null, "2026-08-25T00:00:00.000Z",
+      "e".repeat(64), "f".repeat(64),
+    )).toThrow(/UNIQUE constraint failed/);
+    expect(() => insertManifest.run(
+      "manifest-second-root", "catalog-b", null, "2026-08-25T00:00:00.000Z",
+      "e".repeat(64), "f".repeat(64),
+    )).toThrow(/UNIQUE constraint failed/);
+    insertManifest.run(
+      "manifest-child", "catalog-b", "manifest-root", "2026-08-25T00:00:00.000Z",
+      "e".repeat(64), "f".repeat(64),
+    );
+    expect(() => insertManifest.run(
+      "manifest-fork", "catalog-c", "manifest-root", "2026-08-26T00:00:00.000Z",
+      "e".repeat(64), "f".repeat(64),
+    )).toThrow(/UNIQUE constraint failed/);
+    expect(() => db.prepare(`
+      INSERT INTO installed_city_package_heads (country_code, current_manifest_id)
+      VALUES ('ZZ', 'manifest-child')
+    `).run()).toThrow(/FOREIGN KEY constraint failed/);
+    db.prepare(`
+      INSERT INTO installed_city_package_heads (country_code, current_manifest_id)
+      VALUES ('SI', 'manifest-child')
+    `).run();
+    expect(() => db.prepare(`
+      UPDATE installed_city_package_manifests SET payload_json = payload_json
+      WHERE id = 'manifest-root'
+    `).run()).toThrow("installed_city_package_manifest_is_immutable");
+    expect(() => db.prepare(`
+      DELETE FROM installed_city_package_manifests WHERE id = 'manifest-root'
+    `).run()).toThrow("installed_city_package_manifest_is_immutable");
   });
 
   test("rejects an incompatible existing onboarding confirmation table before schema execution", () => {

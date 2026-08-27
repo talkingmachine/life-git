@@ -4,6 +4,8 @@ import type {
 import {
   CITY_CRITERION_IDS,
   type CityCriterionId,
+  type InstalledCityCriteriaDefaults,
+  type InstalledCityCriterionDefinitionTuple,
 } from "../decision/city-criteria";
 import type { CityDecisionIntegrity } from "../decision/city-integrity";
 import type {
@@ -27,12 +29,17 @@ import type {
 } from "../research/city-safety-source-plan";
 import type {
   CityResearchPackageDefinition,
+  CityResearchPackageReadyCandidate,
   InstalledCityPackageExactKey,
+  InstalledCityPackageManifest,
+  InstalledCityResearchPackage,
 } from "../research/city-package";
+import type { SealedCityPackageAdministrativeEvidence } from "../research/city-package-artifact-set";
 import type {
   EvidenceManifest,
   SealedEvidence,
 } from "../research/research-plan";
+import type { CityKnowledgeRevision } from "../research/city-knowledge";
 
 export interface CityEvidenceContext {
   readonly schemaVersion: "city-evidence-context@1";
@@ -129,6 +136,41 @@ export interface CityEvidencePackageReplayPort {
   ): CityPackageEvidenceReplayContract | undefined;
 }
 
+export interface InstalledCityPackageManifestAppendInput {
+  readonly ready: CityResearchPackageReadyCandidate;
+  readonly catalog: VerifiedCityCatalogBundle;
+  readonly administrativeEvidence: SealedCityPackageAdministrativeEvidence;
+  readonly fixedPlansByCityId: Readonly<Record<string, readonly [
+    CityFixedSourcePlan<"si-city-long-term-rent">,
+    CityFixedSourcePlan<"si-city-urban-transit">,
+    CityFixedSourcePlan<"si-city-fixed-broadband">,
+  ]>>;
+  readonly safetySourcePlan: CitySafetySourcePlan;
+  readonly officialAuthorityDirectory: OfficialAuthorityDirectory;
+  readonly criteriaDefaults: InstalledCityCriteriaDefaults;
+  readonly criterionDefinitions: InstalledCityCriterionDefinitionTuple;
+  readonly installedAt: string;
+}
+
+export interface InstalledCityPackageManifestAppendPort {
+  appendPrepared(input: InstalledCityPackageManifestAppendInput): InstalledCityPackageManifest;
+}
+
+export interface InstalledCityPackageManifestStorePort
+  extends InstalledCityPackageManifestAppendPort {
+  loadVerified(key: InstalledCityPackageExactKey): InstalledCityPackageManifest | undefined;
+  latestVerified(countryCode: string): InstalledCityPackageManifest | undefined;
+}
+
+export interface InstalledCityPackageLookupPort {
+  findReady(countryCode: string): InstalledCityResearchPackage | undefined;
+  findExact(key: InstalledCityPackageExactKey): InstalledCityResearchPackage | undefined;
+}
+
+export interface InstalledCityCatalogReadPort {
+  latestInstalledVerified(countryCode: string): VerifiedCityCatalogBundle | undefined;
+}
+
 export interface CityEvidenceReplayPorts {
   readonly read: CityEvidenceReadPort;
   readonly integrity: CityEvidenceReplayIntegrity;
@@ -137,6 +179,20 @@ export interface CityEvidenceReplayPorts {
 
 export interface CityEvidenceStorePort extends CityEvidenceReadPort {
   seal(input: CityEvidenceSealInput): CityEvidenceSnapshot;
+}
+
+export type VerifiedCityCatalogBundle = CityCatalogProjection;
+
+export interface CityCatalogStorePort {
+  appendVerified(input: CityCatalogProjection): VerifiedCityCatalogBundle;
+  loadVerified(id: string): VerifiedCityCatalogBundle;
+}
+
+export interface CityKnowledgeStorePort {
+  publishFromEvidence(evidenceSnapshotId: string, createdAt: string): CityKnowledgeRevision;
+  latestVerified(cityId: string): CityKnowledgeRevision | undefined;
+  loadVerified(id: string): CityKnowledgeRevision;
+  findByEvidenceVerified(evidenceSnapshotId: string): CityKnowledgeRevision | undefined;
 }
 
 const CONTEXT_KEYS = [

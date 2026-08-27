@@ -1874,6 +1874,13 @@ git commit -m "feat: build full city knowledge"
 
 ### Task 9: Persist Catalog and City Knowledge and install the official catalog
 
+> **Superseded 2026-08-24:** Do not execute this monolithic task. The approved offline boundary and
+> six independently reviewable replacement tasks live in
+> [`2026-08-24-vs-4a-city-package-offline-installation.md`](2026-08-24-vs-4a-city-package-offline-installation.md).
+> That plan implements persistence, synthetic administrative installation and replay while keeping
+> production Slovenia `not_ready`. Official Catalog Evidence publication is a separate pending data
+> task and is not implied by Task 9 completion.
+
 **Requirements:** REQ-CF-01, REQ-CF-05; SCN-CF-01, SCN-CF-05, SCN-CF-06
 
 **Files:**
@@ -3187,6 +3194,11 @@ git commit -m "feat: persist city knowledge"
 ---
 
 ### Task 10: Prove sealed City Evidence replay without network
+
+> **Superseded 2026-08-24:** Execute Task 6 of
+> [`2026-08-24-vs-4a-city-package-offline-installation.md`](2026-08-24-vs-4a-city-package-offline-installation.md)
+> instead. The replacement adds the exact closed-input ruling, full offline gates and proof-only
+> composition ownership.
 
 **Requirements:** REQ-CF-04, REQ-CF-05; SCN-CF-10
 

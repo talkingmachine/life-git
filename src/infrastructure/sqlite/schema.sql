@@ -3,17 +3,32 @@ CREATE TABLE IF NOT EXISTS artifacts (
   artifact_id TEXT NOT NULL,
   source_id TEXT NOT NULL,
   role TEXT NOT NULL,
-  url TEXT NOT NULL,
+  url TEXT,
   media_type TEXT NOT NULL,
   sha256 TEXT NOT NULL,
   bytes BLOB NOT NULL,
   byte_length INTEGER NOT NULL,
-  origin TEXT NOT NULL CHECK (origin = 'live'),
-  captured_at TEXT NOT NULL,
-  response_status INTEGER NOT NULL,
-  response_url TEXT NOT NULL,
-  request_json TEXT NOT NULL,
+  origin TEXT NOT NULL CHECK (origin IN ('live', 'administrative')),
+  captured_at TEXT,
+  response_status INTEGER,
+  response_url TEXT,
+  request_json TEXT,
+  producer TEXT,
+  created_at TEXT,
   sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+  CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599),
+  CHECK (
+    (origin = 'live'
+      AND url IS NOT NULL AND captured_at IS NOT NULL AND response_status IS NOT NULL
+      AND response_url IS NOT NULL AND request_json IS NOT NULL
+      AND producer IS NULL AND created_at IS NULL)
+    OR
+    (origin = 'administrative'
+      AND url IS NULL AND captured_at IS NULL AND response_status IS NULL
+      AND response_url IS NULL AND request_json IS NULL
+      AND producer IS NOT NULL AND length(producer) > 0
+      AND created_at IS NOT NULL AND length(created_at) > 0)
+  ),
   PRIMARY KEY (run_id, artifact_id)
 );
 
@@ -46,6 +61,105 @@ CREATE TABLE IF NOT EXISTS city_evidence_snapshots (
   canonical_payload TEXT NOT NULL,
   payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
   hmac TEXT NOT NULL CHECK (length(hmac) = 64)
+);
+
+CREATE TABLE IF NOT EXISTS city_catalog_revisions (
+  id TEXT PRIMARY KEY,
+  registry_revision_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  registry_evidence_snapshot_id TEXT NOT NULL,
+  catalog_evidence_snapshot_id TEXT NOT NULL,
+  rules_version TEXT NOT NULL CHECK (
+    rules_version IN ('city-catalog@1', 'city-catalog@2')
+  ),
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64)
+);
+
+CREATE TABLE IF NOT EXISTS city_knowledge_revisions (
+  id TEXT PRIMARY KEY,
+  city_id TEXT NOT NULL,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  rules_version TEXT NOT NULL,
+  predecessor_id TEXT REFERENCES city_knowledge_revisions(id),
+  evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+  last_checked_at TEXT NOT NULL,
+  knowledge_updated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (city_id, evidence_snapshot_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_knowledge_one_root
+ON city_knowledge_revisions (city_id)
+WHERE predecessor_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS city_knowledge_one_successor
+ON city_knowledge_revisions (predecessor_id)
+WHERE predecessor_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS installed_city_package_manifests (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  package_id TEXT NOT NULL,
+  package_schema_version TEXT NOT NULL,
+  catalog_revision_id TEXT NOT NULL REFERENCES city_catalog_revisions(id),
+  evidence_rules_version TEXT NOT NULL,
+  predecessor_manifest_id TEXT REFERENCES installed_city_package_manifests(id),
+  administrative_evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  installed_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  CHECK (predecessor_manifest_id IS NULL OR predecessor_manifest_id <> id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_country_id
+ON installed_city_package_manifests (country_code, id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_exact_key
+ON installed_city_package_manifests (
+  country_code, package_id, package_schema_version, catalog_revision_id, evidence_rules_version
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_one_root
+ON installed_city_package_manifests (country_code)
+WHERE predecessor_manifest_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS installed_city_package_manifest_one_successor
+ON installed_city_package_manifests (predecessor_manifest_id)
+WHERE predecessor_manifest_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS installed_city_package_heads (
+  country_code TEXT PRIMARY KEY CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  current_manifest_id TEXT NOT NULL UNIQUE,
+  FOREIGN KEY (country_code, current_manifest_id)
+    REFERENCES installed_city_package_manifests(country_code, id)
 );
 
 CREATE TABLE IF NOT EXISTS country_knowledge_revisions (
@@ -292,6 +406,42 @@ CREATE TRIGGER IF NOT EXISTS city_evidence_snapshots_no_delete
 BEFORE DELETE ON city_evidence_snapshots
 BEGIN
   SELECT RAISE(ABORT, 'city_evidence_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_catalog_revisions_no_update
+BEFORE UPDATE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_catalog_revisions_no_delete
+BEFORE DELETE ON city_catalog_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_catalog_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_knowledge_revisions_no_update
+BEFORE UPDATE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS city_knowledge_revisions_no_delete
+BEFORE DELETE ON city_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'city_knowledge_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS installed_city_package_manifests_no_update
+BEFORE UPDATE ON installed_city_package_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS installed_city_package_manifests_no_delete
+BEFORE DELETE ON installed_city_package_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'installed_city_package_manifest_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS country_knowledge_revisions_no_update

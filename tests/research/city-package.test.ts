@@ -1,8 +1,15 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 import {
   assertCityPackageReady,
+  getCityResearchPackageAvailability,
   getCityResearchPackageCandidate,
+  type CityResearchPackageAvailability,
+  type CityResearchPackageCandidate,
+  type CityResearchPackageReadyCandidate,
+  type InstalledCityPackageManifest,
+  type InstalledCityPackageManifestPayload,
+  type InstalledCityResearchPackage,
 } from "../../src/research/city-package";
 import {
   SLOVENIA_CITY_FACT_SOURCE_IDS,
@@ -158,6 +165,131 @@ describe("Slovenia city research package candidate", () => {
     // Break caught: a candidate-only definition is accepted as an installable package.
     const candidate = getCityResearchPackageCandidate("SI")!;
     expect(() => assertCityPackageReady(candidate)).toThrow("city_package_not_ready");
+  });
+
+  test("keeps production SI not-ready while accepting a closed synthetic ready candidate", () => {
+    // Break caught: Task 4 either fabricates production readiness or cannot express test-only readiness.
+    const current = getCityResearchPackageAvailability("SI");
+    expect(current).toEqual(getCityResearchPackageCandidate("SI"));
+    expect(current?.readiness).toEqual({ status: "not_ready", issues: EXPECTED_ISSUES });
+
+    const ready: CityResearchPackageReadyCandidate = {
+      definition: {
+        packageId: "synthetic-city-package",
+        packageSchemaVersion: "synthetic-city-package@1",
+        countryCode: "ZZ",
+        evidenceRulesVersion: "synthetic-city-evidence@1",
+        sourceIds: [...SLOVENIA_CITY_FACT_SOURCE_IDS],
+      },
+      sourceContractStatus: "bounded_verified_or_unknown",
+      readiness: { status: "ready", issues: [] },
+    };
+    const result = assertCityPackageReady(ready);
+
+    expect(result).toEqual(ready);
+    expect(result).not.toBe(ready);
+    expect(result.definition).not.toBe(ready.definition);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.definition.sourceIds)).toBe(true);
+    expectTypeOf<CityResearchPackageAvailability>().toMatchTypeOf<
+      CityResearchPackageReadyCandidate | CityResearchPackageCandidate
+    >();
+  });
+
+  test("rejects malformed and hostile ready candidates without invoking accessors", () => {
+    // Break caught: a ready discriminant bypasses exact package-definition and source-order validation.
+    const ready = (): CityResearchPackageReadyCandidate => ({
+      definition: {
+        packageId: "synthetic-city-package",
+        packageSchemaVersion: "synthetic-city-package@1",
+        countryCode: "ZZ",
+        evidenceRulesVersion: "synthetic-city-evidence@1",
+        sourceIds: [...SLOVENIA_CITY_FACT_SOURCE_IDS],
+      },
+      sourceContractStatus: "bounded_verified_or_unknown",
+      readiness: { status: "ready", issues: [] },
+    });
+    const malformed: unknown[] = [
+      { ...ready(), extra: true },
+      { ...ready(), readiness: { status: "ready", issues: ["criteria_policy_unapproved"] } },
+      { ...ready(), readiness: { status: "ready" } },
+      { ...ready(), definition: { ...ready().definition, countryCode: "zz" } },
+      { ...ready(), definition: { ...ready().definition, packageId: " bad " } },
+      { ...ready(), definition: { ...ready().definition, sourceIds: [] } },
+      { ...ready(), definition: {
+        ...ready().definition,
+        sourceIds: [...SLOVENIA_CITY_FACT_SOURCE_IDS].reverse(),
+      } },
+      { ...ready(), definition: {
+        ...ready().definition,
+        sourceIds: [
+          SLOVENIA_CITY_FACT_SOURCE_IDS[0],
+          SLOVENIA_CITY_FACT_SOURCE_IDS[0],
+          ...SLOVENIA_CITY_FACT_SOURCE_IDS.slice(2),
+        ],
+      } },
+      Object.assign(ready(), { [Symbol("extra")]: true }),
+      Object.assign(Object.create({}), ready()),
+      { ...ready(), definition: Object.assign(Object.create({}), ready().definition) },
+      { ...ready(), definition: { ...ready().definition, sourceIds: (() => {
+        const sparse = new Array(SLOVENIA_CITY_FACT_SOURCE_IDS.length);
+        sparse[0] = SLOVENIA_CITY_FACT_SOURCE_IDS[0];
+        return sparse;
+      })() } },
+      { ...ready(), definition: { ...ready().definition, sourceIds: (() => {
+        const sparse = [...SLOVENIA_CITY_FACT_SOURCE_IDS] as string[] & { extra?: string };
+        delete sparse[1];
+        sparse.extra = "compensating-own-name";
+        return sparse;
+      })() } },
+    ];
+    let getterCalls = 0;
+    const accessor = ready();
+    Object.defineProperty(accessor.definition, "packageId", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return "synthetic-city-package";
+      },
+    });
+    malformed.push(accessor);
+
+    for (const value of malformed) {
+      expect(() => assertCityPackageReady(value as CityResearchPackageAvailability))
+        .toThrow("integrity_mismatch");
+    }
+    expect(getterCalls).toBe(0);
+    expect(getCityResearchPackageAvailability("ZZ")).toBeUndefined();
+  });
+
+  test("keeps manifest and installed-package serialization types inward and closed", () => {
+    // Break caught: the signed payload loses one of its thirteen fields or embeds executable behavior.
+    expectTypeOf<keyof InstalledCityPackageManifestPayload>().toEqualTypeOf<
+      | "schemaVersion"
+      | "key"
+      | "definition"
+      | "sourceContractStatus"
+      | "readiness"
+      | "catalogRoot"
+      | "fixedPlansByCityId"
+      | "safety"
+      | "criteria"
+      | "valueValidatorVersionId"
+      | "sourcePeriodValidatorVersionId"
+      | "predecessorManifestId"
+      | "installedAt"
+    >();
+    expectTypeOf<InstalledCityPackageManifest>().toMatchTypeOf<
+      InstalledCityPackageManifestPayload & {
+        readonly id: string;
+        readonly payloadHash: string;
+        readonly hmac: string;
+      }
+    >();
+    expectTypeOf<InstalledCityResearchPackage["installedPackageManifest"]>().toEqualTypeOf<{
+      readonly id: string;
+      readonly key: import("../../src/research/city-package").InstalledCityPackageExactKey;
+    }>();
   });
 
   test("exports no installation, evaluator, target, defaults, or normalizer surface", async () => {

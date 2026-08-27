@@ -1,8 +1,13 @@
+import { types } from "node:util";
+
 import type {
+  AdministrativeCapturedArtifact,
+  CapturedArtifactForOrigin,
   CaptureFailureKind,
   CaptureResult,
   Claim,
   EvidenceBlocker,
+  EvidenceOrigin,
   EvidenceSnapshot,
   LiveCapturedArtifact,
   OfficialSourcePort,
@@ -10,6 +15,28 @@ import type {
   RequestStep,
   SourceId,
 } from "./contracts";
+
+const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype) as object;
+const TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  Symbol.toStringTag,
+)!.get!;
+const TYPED_ARRAY_BUFFER_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "buffer",
+)!.get!;
+const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "byteLength",
+)!.get!;
+const TYPED_ARRAY_BYTE_OFFSET_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "byteOffset",
+)!.get!;
+const ARRAY_BUFFER_SLICE = ArrayBuffer.prototype.slice;
+const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER = typeof SharedArrayBuffer === "undefined"
+  ? undefined
+  : Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength")!.get!;
 
 export interface VerifiedEvidenceEntry<
   S extends string = SourceId,
@@ -33,55 +60,94 @@ export type TerminalEvidenceEntry<
   C extends Claim<unknown, S> = Claim<unknown, S>,
 > = VerifiedEvidenceEntry<S, C> | UnavailableEvidenceEntry<S>;
 
+export interface AdministrativeTerminalEvidenceEntry<
+  S extends string,
+  C extends Claim<unknown, S>,
+> {
+  readonly sourceId: S;
+  readonly origin: "administrative";
+  readonly artifacts: readonly AdministrativeCapturedArtifact<S>[];
+  readonly coverage: "verified";
+  readonly claims: readonly C[];
+}
+
+export type TerminalEvidenceEntryForOrigin<
+  S extends string,
+  C extends Claim<unknown, S>,
+  O extends EvidenceOrigin = "live",
+> = O extends "live"
+  ? TerminalEvidenceEntry<S, C>
+  : AdministrativeTerminalEvidenceEntry<S, C>;
+
+export interface LiveEvidenceManifestEntry<S extends string> {
+  readonly sourceId: S;
+  readonly navigationUrl: string;
+  readonly indexedSourceUrl?: string;
+  readonly resolvedEvidenceUrl: string;
+  readonly artifactIds: readonly string[];
+  readonly versionHint?: string;
+}
+
+export interface AdministrativeEvidenceManifestEntry<S extends string> {
+  readonly sourceId: S;
+  readonly origin: "administrative";
+  readonly artifactIds: readonly string[];
+}
+
+export type EvidenceManifestEntryForOrigin<
+  S extends string,
+  O extends EvidenceOrigin = "live",
+> = O extends "live" ? LiveEvidenceManifestEntry<S> : AdministrativeEvidenceManifestEntry<S>;
+
+export type LiveArtifactProvenance<S extends string = SourceId> =
+  Omit<LiveCapturedArtifact<S>, "bytes"> & { readonly byteLength: number };
+
+export interface AdministrativeArtifactProvenance<S extends string = SourceId> {
+  readonly artifactId: string;
+  readonly runId: string;
+  readonly sourceId: S;
+  readonly role: string;
+  readonly mediaType: string;
+  readonly sha256: string;
+  readonly byteLength: number;
+  readonly origin: "administrative";
+  readonly producer: string;
+  readonly createdAt: string;
+}
+
+export type EvidenceArtifactProvenance<
+  S extends string = SourceId,
+  O extends EvidenceOrigin = "live",
+> = O extends "live" ? LiveArtifactProvenance<S> : AdministrativeArtifactProvenance<S>;
+
 export interface EvidenceManifest<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
+  O extends EvidenceOrigin = "live",
 > {
   readonly snapshot: Omit<EvidenceSnapshot<S, C>, "manifestHash" | "hmac">;
-  readonly entries: readonly {
-    readonly sourceId: S;
-    readonly navigationUrl: string;
-    readonly indexedSourceUrl?: string;
-    readonly resolvedEvidenceUrl: string;
-    readonly artifactIds: readonly string[];
-    readonly versionHint?: string;
-  }[];
-  readonly artifacts: readonly {
-    readonly artifactId: string;
-    readonly runId: string;
-    readonly sourceId: S;
-    readonly role: string;
-    readonly request: LiveCapturedArtifact<S>["request"];
-    readonly url: string;
-    readonly responseUrl: string;
-    readonly capturedAt: string;
-    readonly responseStatus: number;
-    readonly mediaType: string;
-    readonly origin: "live";
-    readonly byteLength: number;
-    readonly sha256: string;
-  }[];
+  readonly entries: readonly EvidenceManifestEntryForOrigin<S, O>[];
+  readonly artifacts: readonly EvidenceArtifactProvenance<S, O>[];
 }
-
-export type EvidenceArtifactProvenance<S extends string = SourceId> =
-  EvidenceManifest<S>["artifacts"][number];
 
 export interface SealedEvidence<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
+  O extends EvidenceOrigin = "live",
 > {
   readonly snapshot: EvidenceSnapshot<S, C>;
-  readonly manifest: EvidenceManifest<S, C>;
+  readonly manifest: EvidenceManifest<S, C, O>;
   readonly canonicalManifest: string;
 }
 
 export interface SealEvidenceInput<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
+  O extends EvidenceOrigin = "live",
 > {
   readonly id: string;
   readonly assessmentDate: string;
-  readonly entries: readonly TerminalEvidenceEntry<S, C>[];
+  readonly entries: readonly TerminalEvidenceEntryForOrigin<S, C, O>[];
   readonly sourceIds: readonly S[];
   readonly parserVersions: Readonly<Record<S, string>>;
   readonly rulesVersion: string;
@@ -120,9 +186,10 @@ export function evidenceCanonicalEqual(
 export interface EvidenceWriteStore<
   S extends string = SourceId,
   C extends Claim<unknown, S> = Claim<unknown, S>,
+  O extends EvidenceOrigin = "live",
 > {
-  appendArtifact(artifact: LiveCapturedArtifact<S>): Promise<void>;
-  seal(sealed: SealedEvidence<S, C>): Promise<void>;
+  appendArtifact(artifact: CapturedArtifactForOrigin<S, O>): Promise<void>;
+  seal(sealed: SealedEvidence<S, C, O>): Promise<void>;
 }
 
 export interface ResearchSourceLineage {
@@ -180,50 +247,324 @@ interface PrepareEvidencePorts<S extends string, C extends Claim<unknown, S>> {
   readonly onProgress?: (event: EvidenceProgress<S, C>) => void | Promise<void>;
 }
 
+function invalidTerminalEvidence(): never {
+  throw new Error("invalid_terminal_evidence");
+}
+
+function isSharedArrayBuffer(buffer: ArrayBufferLike): boolean {
+  if (SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER === undefined) return false;
+  try {
+    Reflect.apply(SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER, buffer, []);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function strictUint8ArraySnapshot(value: object): Uint8Array | undefined {
+  let brand: unknown;
+  let buffer: ArrayBufferLike;
+  let byteLength: number;
+  let byteOffset: number;
+  try {
+    brand = Reflect.apply(TYPED_ARRAY_TAG_GETTER, value, []);
+    if (brand === undefined) return undefined;
+    if (brand !== "Uint8Array") invalidTerminalEvidence();
+    buffer = Reflect.apply(TYPED_ARRAY_BUFFER_GETTER, value, []) as ArrayBufferLike;
+    byteLength = Reflect.apply(TYPED_ARRAY_BYTE_LENGTH_GETTER, value, []) as number;
+    byteOffset = Reflect.apply(TYPED_ARRAY_BYTE_OFFSET_GETTER, value, []) as number;
+  } catch {
+    return invalidTerminalEvidence();
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const expectedKeys = Array.from({ length: byteLength }, (_, index) => String(index)).sort();
+  const actualKeys = Object.keys(descriptors).sort();
+  if (
+    !Number.isSafeInteger(byteLength) || byteLength < 0 ||
+    !Number.isSafeInteger(byteOffset) || byteOffset < 0 ||
+    isSharedArrayBuffer(buffer) || Object.getOwnPropertySymbols(descriptors).length !== 0 ||
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key, index) => key !== expectedKeys[index]) ||
+    Object.values(descriptors).some((descriptor) =>
+      !("value" in descriptor) || !descriptor.enumerable
+    ) ||
+    Object.getPrototypeOf(value) !== Uint8Array.prototype
+  ) invalidTerminalEvidence();
+  try {
+    const copy = Reflect.apply(
+      ARRAY_BUFFER_SLICE,
+      buffer,
+      [byteOffset, byteOffset + byteLength],
+    ) as ArrayBuffer;
+    return new Uint8Array(copy);
+  } catch {
+    return invalidTerminalEvidence();
+  }
+}
+
+function strictOwnedEvidenceValue<T>(borrowed: T): T {
+  const active = new Set<object>();
+  const visit = (value: unknown): unknown => {
+    if (
+      value === null || value === undefined || typeof value === "string" ||
+      typeof value === "boolean"
+    ) return value;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) invalidTerminalEvidence();
+      return value;
+    }
+    if (typeof value !== "object" || types.isProxy(value)) invalidTerminalEvidence();
+    if (active.has(value)) invalidTerminalEvidence();
+
+    const copiedBytes = strictUint8ArraySnapshot(value);
+    if (copiedBytes !== undefined) return copiedBytes;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    if (Object.getOwnPropertySymbols(descriptors).length !== 0) invalidTerminalEvidence();
+
+    active.add(value);
+    try {
+      if (Array.isArray(value)) {
+        if (Object.getPrototypeOf(value) !== Array.prototype) invalidTerminalEvidence();
+        const lengthDescriptor = descriptors.length;
+        if (lengthDescriptor === undefined || !("value" in lengthDescriptor)) {
+          invalidTerminalEvidence();
+        }
+        const length = lengthDescriptor.value;
+        if (!Number.isSafeInteger(length) || length < 0) invalidTerminalEvidence();
+        const expectedKeys = [
+          ...Array.from({ length }, (_, index) => String(index)),
+          "length",
+        ].sort();
+        const actualKeys = Object.keys(descriptors).sort();
+        if (
+          actualKeys.length !== expectedKeys.length ||
+          actualKeys.some((key, index) => key !== expectedKeys[index])
+        ) invalidTerminalEvidence();
+        const copy: unknown[] = [];
+        for (let index = 0; index < length; index += 1) {
+          const descriptor = descriptors[String(index)];
+          if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+            invalidTerminalEvidence();
+          }
+          copy.push(visit(descriptor.value));
+        }
+        return copy;
+      }
+
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) invalidTerminalEvidence();
+      const copy: Record<string, unknown> = {};
+      for (const [key, descriptor] of Object.entries(descriptors)) {
+        if (key === "__proto__" || !("value" in descriptor) || !descriptor.enumerable) {
+          invalidTerminalEvidence();
+        }
+        copy[key] = visit(descriptor.value);
+      }
+      return copy;
+    } finally {
+      active.delete(value);
+    }
+  };
+  return visit(borrowed) as T;
+}
+
+function exactOwnKeys(value: object, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index]);
+}
+
+function nonemptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function canonicalUtcMilliseconds(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    return false;
+  }
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) && new Date(milliseconds).toISOString() === value;
+}
+
+function validClaim<S extends string, C extends Claim<unknown, S>>(
+  value: unknown,
+  sourceId: S,
+  artifactIds: ReadonlySet<string>,
+): value is C {
+  if (!isRecord(value)) return false;
+  const anchor = value.anchor;
+  return nonemptyString(value.claimId) && value.sourceId === sourceId &&
+    Object.prototype.hasOwnProperty.call(value, "value") &&
+    nonemptyString(value.scope) && nonemptyString(value.sourcePeriod) && value.status === "verified" &&
+    isRecord(anchor) && exactOwnKeys(anchor, ["artifactId", "locator", "excerptSha256"]) &&
+    nonemptyString(anchor.artifactId) && nonemptyString(anchor.locator) &&
+    typeof anchor.excerptSha256 === "string" && artifactIds.has(anchor.artifactId);
+}
+
+const EVIDENCE_BLOCKER_KINDS: ReadonlySet<EvidenceBlocker["kind"]> = new Set([
+  "timeout",
+  "rate_limited",
+  "server_error",
+  "http_error",
+  "wrong_media_type",
+  "too_large",
+  "navigation_mismatch",
+  "country_not_installed",
+  "integrity_mismatch",
+  "semantic_mismatch",
+  "not_found",
+  "not_comparable",
+  "source_unavailable",
+  "stale",
+  "conflict",
+  "deadline",
+]);
+
+function validBlocker<S extends string>(
+  value: unknown,
+  sourceId: S,
+  artifactIds: ReadonlySet<string>,
+): value is EvidenceBlocker<S> {
+  if (!isRecord(value)) return false;
+  const expectedKeys = [
+    "sourceId", "kind", "navigationUrl", "artifactIds",
+    ...(Object.prototype.hasOwnProperty.call(value, "resolvedUrl") ? ["resolvedUrl"] : []),
+  ];
+  if (
+    !exactOwnKeys(value, expectedKeys) || value.sourceId !== sourceId ||
+    typeof value.kind !== "string" ||
+    !EVIDENCE_BLOCKER_KINDS.has(value.kind as EvidenceBlocker["kind"]) ||
+    !nonemptyString(value.navigationUrl) ||
+    (Object.prototype.hasOwnProperty.call(value, "resolvedUrl") &&
+      !nonemptyString(value.resolvedUrl)) ||
+    !denseArray(value.artifactIds)
+  ) return false;
+  const blockerArtifactIds = value.artifactIds;
+  return blockerArtifactIds.every((artifactId) =>
+    nonemptyString(artifactId) && artifactIds.has(artifactId)
+  ) && new Set(blockerArtifactIds).size === blockerArtifactIds.length;
+}
+
+const LIVE_ARTIFACT_KEYS = [
+  "artifactId", "runId", "sourceId", "role", "url", "mediaType", "sha256", "bytes",
+  "origin", "capturedAt", "responseStatus", "responseUrl", "request",
+] as const;
+const ADMINISTRATIVE_ARTIFACT_KEYS = [
+  "artifactId", "runId", "sourceId", "role", "mediaType", "sha256", "bytes",
+  "origin", "producer", "createdAt",
+] as const;
+
+function validLiveArtifact<S extends string>(
+  value: unknown,
+  sourceId: S,
+): value is LiveCapturedArtifact<S> {
+  if (!isRecord(value) || !exactOwnKeys(value, LIVE_ARTIFACT_KEYS)) return false;
+  const request = value.request;
+  if (!isRecord(request)) return false;
+  const requestKeys = [
+    "method",
+    "url",
+    ...(Object.prototype.hasOwnProperty.call(request, "bodyMediaType") ? ["bodyMediaType"] : []),
+    ...(Object.prototype.hasOwnProperty.call(request, "bodySha256") ? ["bodySha256"] : []),
+  ];
+  return exactOwnKeys(request, requestKeys) &&
+    (request.method === "GET" || request.method === "POST") && nonemptyString(request.url) &&
+    nonemptyString(value.artifactId) && nonemptyString(value.runId) && value.sourceId === sourceId &&
+    nonemptyString(value.role) && nonemptyString(value.url) && nonemptyString(value.mediaType) &&
+    typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) &&
+    value.bytes instanceof Uint8Array && value.origin === "live" &&
+    nonemptyString(value.capturedAt) && typeof value.responseStatus === "number" &&
+    Number.isInteger(value.responseStatus) &&
+    value.responseStatus >= 100 && value.responseStatus <= 599 && nonemptyString(value.responseUrl);
+}
+
+function validAdministrativeArtifact<S extends string>(
+  value: unknown,
+  sourceId: S,
+): value is AdministrativeCapturedArtifact<S> {
+  return isRecord(value) && exactOwnKeys(value, ADMINISTRATIVE_ARTIFACT_KEYS) &&
+    nonemptyString(value.artifactId) && nonemptyString(value.runId) && value.sourceId === sourceId &&
+    nonemptyString(value.role) && nonemptyString(value.mediaType) &&
+    typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) &&
+    value.bytes instanceof Uint8Array && value.origin === "administrative" &&
+    nonemptyString(value.producer) && canonicalUtcMilliseconds(value.createdAt);
+}
+
 function validateTerminalEntries<S extends string, C extends Claim<unknown, S>>(
   sourceIds: readonly S[],
-  entries: readonly TerminalEvidenceEntry<S, C>[],
-): void {
+  entries: readonly (
+    TerminalEvidenceEntry<S, C> | AdministrativeTerminalEvidenceEntry<S, C>
+  )[],
+): EvidenceOrigin {
   if (
     !denseArray(sourceIds) || !denseArray(entries) ||
     entries.some((entry) => !containsOnlyDenseArrays(entry)) ||
+    sourceIds.length === 0 || new Set(sourceIds).size !== sourceIds.length ||
+    sourceIds.some((sourceId) => !nonemptyString(sourceId)) ||
     entries.length !== sourceIds.length ||
     sourceIds.some((sourceId) => entries.filter((entry) => entry.sourceId === sourceId).length !== 1)
   ) {
     throw new Error("non_terminal_evidence");
   }
 
+  let selectedOrigin: EvidenceOrigin | undefined;
   for (const entry of entries) {
-    const artifactIds = new Set(entry.parserEntry.artifacts.map((artifact) => artifact.artifactId));
-    if (entry.parserEntry.sourceId !== entry.sourceId) throw new Error("invalid_terminal_evidence");
-    if (entry.parserEntry.artifacts.some((artifact) => {
-      const captured = artifact as Partial<LiveCapturedArtifact<S>>;
-      return captured.origin !== "live" ||
-        typeof captured.runId !== "string" ||
-        captured.runId.length === 0 ||
-        captured.sourceId !== entry.sourceId;
-    })) {
-      throw new Error("invalid_terminal_evidence");
+    if ("origin" in entry) {
+      if (
+        selectedOrigin === "live" ||
+        !exactOwnKeys(entry, ["sourceId", "origin", "artifacts", "coverage", "claims"]) ||
+        entry.origin !== "administrative" || entry.coverage !== "verified" ||
+        !denseArray(entry.artifacts) || entry.artifacts.length === 0 ||
+        entry.artifacts.some((artifact) => !validAdministrativeArtifact(artifact, entry.sourceId))
+      ) invalidTerminalEvidence();
+      const artifactIds = new Set(entry.artifacts.map((artifact) => artifact.artifactId));
+      if (
+        artifactIds.size !== entry.artifacts.length || !denseArray(entry.claims) ||
+        entry.claims.length === 0 ||
+        entry.claims.some((claim) => !validClaim(claim, entry.sourceId, artifactIds))
+      ) invalidTerminalEvidence();
+      selectedOrigin = "administrative";
+      continue;
     }
+
+    if (selectedOrigin === "administrative") invalidTerminalEvidence();
+    selectedOrigin = "live";
+    const expectedEntryKeys = entry.coverage === "verified"
+      ? ["sourceId", "parserEntry", "coverage", "claims"]
+      : ["sourceId", "parserEntry", "coverage", "blocker"];
+    if (!exactOwnKeys(entry, expectedEntryKeys) || !isRecord(entry.parserEntry)) {
+      invalidTerminalEvidence();
+    }
+    const parserEntryKeys = [
+      "sourceId", "navigationUrl", "resolvedEvidenceUrl", "artifacts",
+      ...(Object.prototype.hasOwnProperty.call(entry.parserEntry, "indexedSourceUrl")
+        ? ["indexedSourceUrl"]
+        : []),
+      ...(Object.prototype.hasOwnProperty.call(entry.parserEntry, "versionHint")
+        ? ["versionHint"]
+        : []),
+    ];
+    if (
+      !exactOwnKeys(entry.parserEntry, parserEntryKeys) ||
+      entry.parserEntry.sourceId !== entry.sourceId ||
+      !nonemptyString(entry.parserEntry.navigationUrl) ||
+      !nonemptyString(entry.parserEntry.resolvedEvidenceUrl) ||
+      !denseArray(entry.parserEntry.artifacts) ||
+      entry.parserEntry.artifacts.some((artifact) => !validLiveArtifact(artifact, entry.sourceId))
+    ) invalidTerminalEvidence();
+    const artifactIds = new Set(entry.parserEntry.artifacts.map((artifact) => artifact.artifactId));
+    if (artifactIds.size !== entry.parserEntry.artifacts.length) invalidTerminalEvidence();
     if (entry.coverage === "verified") {
       if (
-        entry.claims.length === 0 ||
-        entry.claims.some((claim) =>
-          claim.sourceId !== entry.sourceId ||
-          claim.status !== "verified" ||
-          !artifactIds.has(claim.anchor.artifactId)
-        )
-      ) {
-        throw new Error("invalid_terminal_evidence");
-      }
-    } else if (
-      "claims" in entry ||
-      entry.blocker.sourceId !== entry.sourceId ||
-      entry.blocker.artifactIds.some((artifactId) => !artifactIds.has(artifactId))
-    ) {
-      throw new Error("invalid_terminal_evidence");
+        !denseArray(entry.claims) || entry.claims.length === 0 ||
+        entry.claims.some((claim) => !validClaim(claim, entry.sourceId, artifactIds))
+      ) invalidTerminalEvidence();
+    } else if (!validBlocker(entry.blocker, entry.sourceId, artifactIds)) {
+      invalidTerminalEvidence();
     }
   }
+  return selectedOrigin!;
 }
 
 function denseArray(value: unknown): value is readonly unknown[] {
@@ -331,19 +672,70 @@ function hasExactEvidenceSnapshotKeys(value: object, includeSignatureFields: boo
   return sameOrderedStrings(Object.keys(value).sort(), expected);
 }
 
+const LIVE_PROVENANCE_KEYS = [
+  "artifactId", "runId", "sourceId", "role", "request", "url", "responseUrl",
+  "capturedAt", "responseStatus", "mediaType", "origin", "byteLength", "sha256",
+] as const;
+const ADMINISTRATIVE_PROVENANCE_KEYS = [
+  "artifactId", "runId", "sourceId", "role", "mediaType", "sha256", "byteLength",
+  "origin", "producer", "createdAt",
+] as const;
+
+function validLiveProvenance<S extends string>(
+  value: unknown,
+  sourceId: S,
+): value is LiveArtifactProvenance<S> {
+  if (!isRecord(value) || !exactOwnKeys(value, LIVE_PROVENANCE_KEYS)) return false;
+  const request = value.request;
+  if (!isRecord(request)) return false;
+  const requestKeys = [
+    "method",
+    "url",
+    ...(Object.prototype.hasOwnProperty.call(request, "bodyMediaType") ? ["bodyMediaType"] : []),
+    ...(Object.prototype.hasOwnProperty.call(request, "bodySha256") ? ["bodySha256"] : []),
+  ];
+  return exactOwnKeys(request, requestKeys) &&
+    (request.method === "GET" || request.method === "POST") && nonemptyString(request.url) &&
+    nonemptyString(value.artifactId) && nonemptyString(value.runId) && value.sourceId === sourceId &&
+    nonemptyString(value.role) && nonemptyString(value.url) && nonemptyString(value.responseUrl) &&
+    nonemptyString(value.capturedAt) && typeof value.responseStatus === "number" &&
+    Number.isInteger(value.responseStatus) &&
+    value.responseStatus >= 100 && value.responseStatus <= 599 && nonemptyString(value.mediaType) &&
+    value.origin === "live" && typeof value.byteLength === "number" &&
+    Number.isSafeInteger(value.byteLength) && value.byteLength >= 0 &&
+    typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256);
+}
+
+function validAdministrativeProvenance<S extends string>(
+  value: unknown,
+  sourceId: S,
+): value is AdministrativeArtifactProvenance<S> {
+  return isRecord(value) && exactOwnKeys(value, ADMINISTRATIVE_PROVENANCE_KEYS) &&
+    nonemptyString(value.artifactId) && nonemptyString(value.runId) && value.sourceId === sourceId &&
+    nonemptyString(value.role) && nonemptyString(value.mediaType) &&
+    typeof value.sha256 === "string" && /^[0-9a-f]{64}$/.test(value.sha256) &&
+    typeof value.byteLength === "number" &&
+    Number.isSafeInteger(value.byteLength) && value.byteLength >= 0 &&
+    value.origin === "administrative" && nonemptyString(value.producer) &&
+    canonicalUtcMilliseconds(value.createdAt);
+}
+
 export function assertSealedEvidenceStructure<
   S extends string,
   C extends Claim<unknown, S>,
+  O extends EvidenceOrigin = "live",
 >(
-  sealed: Pick<SealedEvidence<S, C>, "snapshot" | "manifest">,
+  sealed: Pick<SealedEvidence<S, C, O>, "snapshot" | "manifest">,
   sourceIds: readonly S[],
-): void {
+): EvidenceOrigin {
   const { snapshot, manifest } = sealed;
   const fail = (): never => {
     throw new Error("integrity_mismatch");
   };
   if (
-    !isRecord(snapshot) || !isRecord(manifest) || !isRecord(manifest.snapshot) ||
+    !isRecord(snapshot) || !isRecord(manifest) ||
+    !exactOwnKeys(manifest, ["snapshot", "entries", "artifacts"]) ||
+    !isRecord(manifest.snapshot) ||
     !isRecord(snapshot.coverage) || !isRecord(snapshot.parserVersions) ||
     !Array.isArray(snapshot.artifactIds) || !Array.isArray(snapshot.claims) ||
     !Array.isArray(snapshot.blockers) ||
@@ -365,6 +757,41 @@ export function assertSealedEvidenceStructure<
     (manifest.snapshot.knowledgeBaselineRevisionId !== undefined &&
       typeof manifest.snapshot.knowledgeBaselineRevisionId !== "string")
   ) fail();
+
+  const entriesAreAdministrative = manifest.entries.every((entry) =>
+    Object.prototype.hasOwnProperty.call(entry, "origin"));
+  const entriesAreLive = manifest.entries.every((entry) =>
+    !Object.prototype.hasOwnProperty.call(entry, "origin"));
+  if (entriesAreAdministrative === entriesAreLive) fail();
+  const origin: EvidenceOrigin = entriesAreAdministrative ? "administrative" : "live";
+  for (const entry of manifest.entries) {
+    const entryRecord = entry as unknown as Record<string, unknown>;
+    if (origin === "administrative") {
+      if (
+        !exactOwnKeys(entryRecord, ["sourceId", "origin", "artifactIds"]) ||
+        entryRecord.origin !== "administrative" || !denseArray(entryRecord.artifactIds)
+      ) fail();
+    } else {
+      const expectedEntryKeys = [
+        "sourceId", "navigationUrl", "resolvedEvidenceUrl", "artifactIds",
+        ...(Object.prototype.hasOwnProperty.call(entryRecord, "indexedSourceUrl")
+          ? ["indexedSourceUrl"]
+          : []),
+        ...(Object.prototype.hasOwnProperty.call(entryRecord, "versionHint") ? ["versionHint"] : []),
+      ];
+      if (
+        !exactOwnKeys(entryRecord, expectedEntryKeys) ||
+        !nonemptyString(entryRecord.navigationUrl) ||
+        !nonemptyString(entryRecord.resolvedEvidenceUrl) || !denseArray(entryRecord.artifactIds)
+      ) fail();
+    }
+  }
+  for (const artifact of manifest.artifacts) {
+    if (origin === "administrative") {
+      if (!validAdministrativeProvenance(artifact, artifact.sourceId)) fail();
+    } else if (!validLiveProvenance(artifact, artifact.sourceId)) fail();
+  }
+  if (new Set(manifest.artifacts.map((artifact) => artifact.runId)).size > 1) fail();
   if (
     sourceIds.length === 0 || new Set(sourceIds).size !== sourceIds.length ||
     manifest.entries.length !== sourceIds.length ||
@@ -412,7 +839,8 @@ export function assertSealedEvidenceStructure<
   for (const claim of snapshot.claims) {
     const entry = manifest.entries.find((candidate) => candidate.sourceId === claim.sourceId);
     if (
-      entry === undefined || claim.status !== "verified" ||
+      entry === undefined ||
+      !validClaim(claim, entry.sourceId, new Set(entry.artifactIds)) ||
       snapshot.coverage[claim.sourceId] !== "verified" ||
       !entry.artifactIds.includes(claim.anchor.artifactId)
     ) fail();
@@ -425,49 +853,112 @@ export function assertSealedEvidenceStructure<
     const coverage = snapshot.coverage[sourceId];
     if (
       (coverage !== "verified" && coverage !== "unavailable") ||
+      (origin === "administrative" && coverage !== "verified") ||
       (coverage === "verified" && (blockers.length !== 0 || claims.length === 0)) ||
       (coverage === "unavailable" && blockers.length !== 1) ||
       blockers.some((blocker) =>
-        blocker.artifactIds.some((artifactId) => !entry.artifactIds.includes(artifactId))
+        !validBlocker(blocker, sourceId, new Set(entry.artifactIds))
       )
     ) fail();
   }
+  if (origin === "administrative" && snapshot.blockers.length !== 0) fail();
+  return origin;
 }
 
-export function evidenceArtifactProvenance<S extends string>(
-  artifact: LiveCapturedArtifact<S>,
-): EvidenceArtifactProvenance<S> {
+export function evidenceArtifactProvenance<
+  S extends string,
+  O extends EvidenceOrigin = "live",
+>(
+  artifact: CapturedArtifactForOrigin<S, O>,
+): EvidenceArtifactProvenance<S, O> {
+  if (artifact.origin === "administrative") {
+    const administrative = artifact as AdministrativeCapturedArtifact<S>;
+    return {
+      artifactId: administrative.artifactId,
+      runId: administrative.runId,
+      sourceId: administrative.sourceId,
+      role: administrative.role,
+      mediaType: administrative.mediaType,
+      sha256: administrative.sha256,
+      byteLength: administrative.bytes.byteLength,
+      origin: "administrative",
+      producer: administrative.producer,
+      createdAt: administrative.createdAt,
+    } as EvidenceArtifactProvenance<S, O>;
+  }
+  const live = artifact as LiveCapturedArtifact<S>;
   return {
-    artifactId: artifact.artifactId,
-    runId: artifact.runId,
-    sourceId: artifact.sourceId,
-    role: artifact.role,
-    request: artifact.request,
-    url: artifact.url,
-    responseUrl: artifact.responseUrl,
-    capturedAt: artifact.capturedAt,
-    responseStatus: artifact.responseStatus,
-    mediaType: artifact.mediaType,
-    origin: artifact.origin,
-    byteLength: artifact.bytes.byteLength,
-    sha256: artifact.sha256,
-  };
+    artifactId: live.artifactId,
+    runId: live.runId,
+    sourceId: live.sourceId,
+    role: live.role,
+    request: live.request,
+    url: live.url,
+    responseUrl: live.responseUrl,
+    capturedAt: live.capturedAt,
+    responseStatus: live.responseStatus,
+    mediaType: live.mediaType,
+    origin: "live",
+    byteLength: live.bytes.byteLength,
+    sha256: live.sha256,
+  } as EvidenceArtifactProvenance<S, O>;
 }
 
-export async function sealEvidencePlan<S extends string, C extends Claim<unknown, S>>(
-  input: SealEvidenceInput<S, C>,
+function terminalArtifacts<S extends string, C extends Claim<unknown, S>>(
+  entry: TerminalEvidenceEntry<S, C> | AdministrativeTerminalEvidenceEntry<S, C>,
+): readonly (LiveCapturedArtifact<S> | AdministrativeCapturedArtifact<S>)[] {
+  return "origin" in entry ? entry.artifacts : entry.parserEntry.artifacts as
+    readonly LiveCapturedArtifact<S>[];
+}
+
+export async function sealEvidencePlan<
+  S extends string,
+  C extends Claim<unknown, S>,
+  O extends EvidenceOrigin = "live",
+>(
+  input: SealEvidenceInput<S, C, O>,
   integrity: EvidenceIntegrity,
-): Promise<SealedEvidence<S, C>> {
-  validateTerminalEntries(input.sourceIds, input.entries);
-  const orderedEntries = input.sourceIds.map(
-    (sourceId) => input.entries.find((entry) => entry.sourceId === sourceId)!,
+): Promise<SealedEvidence<S, C, O>> {
+  let ownedInput: SealEvidenceInput<S, C, O>;
+  try {
+    ownedInput = strictOwnedEvidenceValue(input);
+  } catch {
+    invalidTerminalEvidence();
+  }
+  const inputRecord = ownedInput as unknown as Record<string, unknown>;
+  const expectedInputKeys = [
+    "id", "assessmentDate", "entries", "sourceIds", "parserVersions", "rulesVersion",
+    ...(Object.prototype.hasOwnProperty.call(inputRecord, "contextHash") ? ["contextHash"] : []),
+    ...(Object.prototype.hasOwnProperty.call(inputRecord, "knowledgeBaselineRevisionId")
+      ? ["knowledgeBaselineRevisionId"]
+      : []),
+  ];
+  if (
+    !exactOwnKeys(inputRecord, expectedInputKeys) || !nonemptyString(ownedInput.id) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(ownedInput.assessmentDate) ||
+    !nonemptyString(ownedInput.rulesVersion) || !isRecord(ownedInput.parserVersions) ||
+    (ownedInput.contextHash !== undefined && !nonemptyString(ownedInput.contextHash)) ||
+    (ownedInput.knowledgeBaselineRevisionId !== undefined &&
+      !nonemptyString(ownedInput.knowledgeBaselineRevisionId))
+  ) invalidTerminalEvidence();
+  const terminalEntries = ownedInput.entries as readonly (
+    TerminalEvidenceEntry<S, C> | AdministrativeTerminalEvidenceEntry<S, C>
+  )[];
+  const origin = validateTerminalEntries(ownedInput.sourceIds, terminalEntries);
+  if (
+    origin === "administrative" &&
+    (!exactRecordKeys(ownedInput.parserVersions, ownedInput.sourceIds) ||
+      ownedInput.sourceIds.some((sourceId) => !nonemptyString(ownedInput.parserVersions[sourceId])))
+  ) invalidTerminalEvidence();
+  const orderedEntries = ownedInput.sourceIds.map(
+    (sourceId) => terminalEntries.find((entry) => entry.sourceId === sourceId)!,
   );
   const artifactIds = orderedEntries.flatMap((entry) =>
-    entry.parserEntry.artifacts.map((artifact) => artifact.artifactId),
+    terminalArtifacts(entry).map((artifact) => artifact.artifactId),
   );
   if (new Set(artifactIds).size !== artifactIds.length) throw new Error("invalid_terminal_evidence");
   const artifactRunIds = new Set(orderedEntries.flatMap((entry) =>
-    entry.parserEntry.artifacts.map((artifact) => (artifact as LiveCapturedArtifact<S>).runId),
+    terminalArtifacts(entry).map((artifact) => artifact.runId),
   ));
   if (artifactRunIds.size > 1) throw new Error("invalid_terminal_evidence");
 
@@ -475,8 +966,8 @@ export async function sealEvidencePlan<S extends string, C extends Claim<unknown
     orderedEntries.map((entry) => [entry.sourceId, entry.coverage]),
   ) as Record<S, "verified" | "unavailable">;
   const snapshotPayload: Omit<EvidenceSnapshot<S, C>, "manifestHash" | "hmac"> = {
-    id: input.id,
-    assessmentDate: input.assessmentDate,
+    id: ownedInput.id,
+    assessmentDate: ownedInput.assessmentDate,
     artifactIds,
     claims: orderedEntries.flatMap((entry) =>
       entry.coverage === "verified" ? [...entry.claims] : [],
@@ -485,16 +976,22 @@ export async function sealEvidencePlan<S extends string, C extends Claim<unknown
       entry.coverage === "unavailable" ? [entry.blocker] : [],
     ),
     coverage,
-    parserVersions: input.parserVersions,
-    rulesVersion: input.rulesVersion,
-    ...(input.contextHash === undefined ? {} : { contextHash: input.contextHash }),
-    ...(input.knowledgeBaselineRevisionId === undefined
+    parserVersions: ownedInput.parserVersions,
+    rulesVersion: ownedInput.rulesVersion,
+    ...(ownedInput.contextHash === undefined ? {} : { contextHash: ownedInput.contextHash }),
+    ...(ownedInput.knowledgeBaselineRevisionId === undefined
       ? {}
-      : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
+      : { knowledgeBaselineRevisionId: ownedInput.knowledgeBaselineRevisionId }),
   };
-  const manifest: EvidenceManifest<S, C> = {
-    snapshot: snapshotPayload,
-    entries: orderedEntries.map((entry) => ({
+  const manifestEntries = orderedEntries.map((entry) => {
+    if ("origin" in entry) {
+      return {
+        sourceId: entry.sourceId,
+        origin: "administrative" as const,
+        artifactIds: entry.artifacts.map((artifact) => artifact.artifactId),
+      };
+    }
+    return {
       sourceId: entry.sourceId,
       navigationUrl: entry.parserEntry.navigationUrl,
       ...(entry.parserEntry.indexedSourceUrl === undefined
@@ -505,13 +1002,23 @@ export async function sealEvidencePlan<S extends string, C extends Claim<unknown
       ...(entry.parserEntry.versionHint === undefined
         ? {}
         : { versionHint: entry.parserEntry.versionHint }),
-    })),
-    artifacts: orderedEntries.flatMap((entry) =>
-      entry.parserEntry.artifacts.map((artifact) =>
-        evidenceArtifactProvenance(artifact as LiveCapturedArtifact<S>),
-      ),
-    ),
+    };
+  }) as unknown as readonly EvidenceManifestEntryForOrigin<S, O>[];
+  const manifestArtifacts = orderedEntries.flatMap((entry) =>
+    terminalArtifacts(entry).map((artifact) =>
+      evidenceArtifactProvenance(
+        artifact as CapturedArtifactForOrigin<S, O>,
+      )
+    )
+  );
+  const manifest: EvidenceManifest<S, C, O> = {
+    snapshot: snapshotPayload,
+    entries: manifestEntries,
+    artifacts: manifestArtifacts,
   };
+  if (origin === "administrative" && manifest.entries.some((entry) => !("origin" in entry))) {
+    invalidTerminalEvidence();
+  }
   const canonicalManifest = integrity.canonical(manifest);
   const manifestHash = integrity.hash(canonicalManifest);
   const hmac = integrity.sign(canonicalManifest);
