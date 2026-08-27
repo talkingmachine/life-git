@@ -26,7 +26,7 @@ import {
 } from "../decision/onboarding-session";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const FOLLOW_UP_QUESTION = "Please complete the highlighted fields.";
+const FOLLOW_UP_QUESTION = "Заполните выделенные поля.";
 
 export function reconstructExtractOnboardingMessageCommand(
   value: unknown,

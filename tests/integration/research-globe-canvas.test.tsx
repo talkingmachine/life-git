@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Vector3 as ThreeVector3 } from "three";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -14,6 +14,18 @@ import type { PlaceFrontierEventState } from "../../src/experience/place-frontie
 const lifecycle = vi.hoisted(() => ({
   startJourney: vi.fn(),
   stopJourney: vi.fn(),
+}));
+
+const globeHarness = vi.hoisted(() => ({
+  airlinerLoad: vi.fn(),
+  controls: {
+    autoRotate: false,
+    autoRotateSpeed: 2,
+    enableDamping: false,
+    maxDistance: 0,
+    minDistance: 0,
+  },
+  render: vi.fn(),
 }));
 
 vi.mock("../../src/experience/research-map/globe-journey", () => ({
@@ -61,9 +73,10 @@ vi.mock("three/examples/jsm/loaders/GLTFLoader.js", async () => {
   return {
     GLTFLoader: class GLTFLoader {
       load(
-        _url: string,
+        url: string,
         onLoad: (value: { scene: InstanceType<typeof Object3D> }) => void,
       ) {
+        globeHarness.airlinerLoad(url);
         onLoad({ scene: new Object3D() });
       }
     },
@@ -74,6 +87,7 @@ vi.mock("react-globe.gl", async () => {
   const React = await import("react");
   const { Vector3 } = await import("three");
   interface GlobeMockProps {
+    readonly customLayerData?: readonly object[];
     readonly htmlElement?: (datum: object) => HTMLElement;
     readonly htmlElementsData?: readonly object[];
   }
@@ -82,6 +96,7 @@ vi.mock("react-globe.gl", async () => {
       props: GlobeMockProps,
       ref: React.ForwardedRef<object>,
     ) {
+      globeHarness.render(props);
       const labels = React.useRef<HTMLDivElement>(null);
       const methods = React.useMemo(() => {
         const canvas = document.createElement("canvas");
@@ -91,12 +106,7 @@ vi.mock("react-globe.gl", async () => {
           getContext: () => ({ isContextLost: () => false }),
         };
         return {
-          controls: () => ({
-            autoRotate: false,
-            enableDamping: false,
-            maxDistance: 0,
-            minDistance: 0,
-          }),
+          controls: () => globeHarness.controls,
           getCoords: () => new Vector3(1, 0, 0),
           getGlobeRadius: () => 100,
           lights: () => undefined,
@@ -170,11 +180,111 @@ function route(key: string, status: GlobeRoute["status"]): GlobeRoute {
   };
 }
 
-afterEach(cleanup);
+function installMotionPreference(initiallyReduced = false): {
+  readonly setReduced: (reduced: boolean) => void;
+} {
+  let reduced = initiallyReduced;
+  const listeners = new Set<EventListener>();
+  const query = {
+    addEventListener: vi.fn((_type: string, listener: EventListener) => listeners.add(listener)),
+    dispatchEvent: vi.fn(),
+    get matches() {
+      return reduced;
+    },
+    media: "(prefers-reduced-motion: reduce)",
+    onchange: null,
+    removeEventListener: vi.fn((_type: string, listener: EventListener) => listeners.delete(listener)),
+  } as unknown as MediaQueryList;
+  vi.stubGlobal("matchMedia", vi.fn(() => query));
+
+  return {
+    setReduced(nextReduced) {
+      reduced = nextReduced;
+      act(() => {
+        const event = { matches: reduced, media: query.media } as MediaQueryListEvent;
+        listeners.forEach((listener) => listener(event));
+      });
+    },
+  };
+}
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
+  globeHarness.controls.autoRotate = false;
+  globeHarness.controls.autoRotateSpeed = 2;
+  globeHarness.controls.enableDamping = false;
+  globeHarness.controls.maxDistance = 0;
+  globeHarness.controls.minDistance = 0;
   lifecycle.startJourney.mockImplementation(() => lifecycle.stopJourney);
+});
+
+it("renders a neutral globe without routed assets and stops idle rotation reactively", async () => {
+  const motion = installMotionPreference();
+  const onReady = vi.fn();
+
+  render(
+    <ResearchGlobeCanvas
+      idleRotation
+      onFlightComplete={() => undefined}
+      onReady={onReady}
+      onUnavailable={() => undefined}
+      overview={{ coordinates: [], key: -1 }}
+      routes={[]}
+    />,
+  );
+
+  await waitFor(() => expect(onReady).toHaveBeenCalledOnce());
+  await nextRendererFrame();
+
+  expect(globeHarness.airlinerLoad).not.toHaveBeenCalled();
+  expect(lifecycle.startJourney).not.toHaveBeenCalled();
+  expect(screen.getByTestId("globe-labels").children).toHaveLength(0);
+  const renderedGlobe = globeHarness.render.mock.lastCall?.[0] as {
+    readonly customLayerData?: readonly object[];
+    readonly htmlElementsData?: readonly object[];
+  };
+  expect(renderedGlobe.customLayerData).toEqual([]);
+  expect(renderedGlobe.htmlElementsData).toEqual([]);
+  expect(globeHarness.controls.autoRotate).toBe(true);
+  expect(globeHarness.controls.autoRotateSpeed).toBe(0.25);
+
+  motion.setReduced(true);
+
+  await waitFor(() => expect(globeHarness.controls.autoRotate).toBe(false));
+
+  motion.setReduced(false);
+
+  await waitFor(() => expect(globeHarness.controls.autoRotate).toBe(true));
+  expect(globeHarness.controls.autoRotateSpeed).toBe(0.25);
+});
+
+it("keeps routed airliner loading and disables idle rotation by default", async () => {
+  installMotionPreference();
+  const activeFlight = route("run-routed:tirana", "green");
+  const onReady = vi.fn();
+
+  render(
+    <ResearchGlobeCanvas
+      activeFlight={activeFlight}
+      onFlightComplete={() => undefined}
+      onReady={onReady}
+      onUnavailable={() => undefined}
+      origin={origin}
+      overview={{ coordinates: [activeFlight.from, activeFlight.to], key: 0 }}
+      routes={[activeFlight]}
+    />,
+  );
+
+  await waitFor(() => expect(onReady).toHaveBeenCalledOnce());
+  expect(globeHarness.airlinerLoad).toHaveBeenCalledOnce();
+  expect(globeHarness.airlinerLoad).toHaveBeenCalledWith("/models/research-airliner.glb");
+  expect(globeHarness.controls.autoRotate).toBe(false);
+  expect(globeHarness.controls.autoRotateSpeed).toBe(2);
 });
 
 it("keeps five rapid frontier activations and a red replacement visible as planet markers", async () => {

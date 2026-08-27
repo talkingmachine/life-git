@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ProductShell,
   type CommandCenterStatus,
 } from "../../src/experience/components/ProductShell";
+import {
+  NEUTRAL_WORKSPACE_GLOBE_PRESENTATION,
+  WorkspaceGlobe,
+} from "../../src/experience/components/WorkspaceGlobe";
+import type {
+  ResearchGlobeCanvasProps,
+} from "../../src/experience/research-map/ResearchGlobeCanvas";
 
 afterEach(cleanup);
 
@@ -22,6 +30,98 @@ const statusCases = [
 }[];
 
 describe("responsive product shell", () => {
+  it("renders one explicit neutral globe during setup without inventing route context", () => {
+    const shell = render(
+      <ProductShell
+        activeDestination="overview"
+        globe={NEUTRAL_WORKSPACE_GLOBE_PRESENTATION}
+        globeMode="onboarding"
+        onDestinationChange={() => undefined}
+        setup
+      >
+        <p>Анкета и чат</p>
+      </ProductShell>,
+    );
+
+    const workspace = shell.container.querySelector(".product-shell__workspace");
+    const globe = screen.getByRole("region", {
+      name: "3D Земля без выбранного маршрута",
+    });
+    expect(screen.queryByRole("navigation", { name: /основная навигация/i })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(workspace?.getAttribute("data-globe-mode")).toBe("onboarding");
+    expect(workspace?.querySelectorAll(".workspace-globe")).toHaveLength(1);
+    expect(workspace?.firstElementChild).toBe(globe);
+    expect(globe.getAttribute("data-mode")).toBe("onboarding");
+    expect(within(workspace!.querySelector("main")!).getByText("Анкета и чат")).toBeTruthy();
+    expect(shell.container.textContent).not.toMatch(
+      /Идёт проверка|Подтверждено в scope|Нужно уточнить|Не подходит/,
+    );
+  });
+
+  it("keeps legacy setup shells globe-free when no presentation is explicit", () => {
+    const shell = render(
+      <ProductShell activeDestination="overview" onDestinationChange={() => undefined} setup>
+        <p>Legacy setup</p>
+      </ProductShell>,
+    );
+
+    expect(shell.container.querySelector(".workspace-globe")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: /основная навигация/i })).toBeNull();
+    expect(screen.getByRole("main").textContent).toContain("Legacy setup");
+  });
+
+  it("projects the closed neutral scene to the shared canvas without routed inputs", () => {
+    const renderGlobe = vi.fn<(props: ResearchGlobeCanvasProps) => ReactNode>(() => (
+      <div data-testid="neutral-globe-engine" />
+    ));
+    render(
+      <WorkspaceGlobe
+        presentation={NEUTRAL_WORKSPACE_GLOBE_PRESENTATION}
+        renderGlobe={renderGlobe}
+      />,
+    );
+
+    expect(screen.getByTestId("neutral-globe-engine")).toBeTruthy();
+    expect(renderGlobe).toHaveBeenCalled();
+    const props = renderGlobe.mock.calls[renderGlobe.mock.calls.length - 1]![0];
+    expect(props).toEqual(expect.objectContaining({
+      backgroundColor: "#061014",
+      idleRotation: true,
+      overview: { coordinates: [], key: -1 },
+      routes: [],
+    }));
+    expect(props.activeFlight).toBeUndefined();
+    expect(props.origin).toBeUndefined();
+    expect(Object.isFrozen(NEUTRAL_WORKSPACE_GLOBE_PRESENTATION)).toBe(true);
+    expect(Object.isFrozen(NEUTRAL_WORKSPACE_GLOBE_PRESENTATION.overview)).toBe(true);
+    expect(Object.isFrozen(NEUTRAL_WORKSPACE_GLOBE_PRESENTATION.overview.coordinates)).toBe(true);
+    expect(Object.isFrozen(NEUTRAL_WORKSPACE_GLOBE_PRESENTATION.routes)).toBe(true);
+  });
+
+  it("does not widen the routed canvas input shape with neutral-only controls", () => {
+    const renderGlobe = vi.fn<(props: ResearchGlobeCanvasProps) => ReactNode>(() => (
+      <div data-testid="routed-globe-engine" />
+    ));
+    render(<WorkspaceGlobe renderGlobe={renderGlobe} status="green" />);
+
+    const props = renderGlobe.mock.calls[0]![0];
+    expect(Object.keys(props).sort()).toEqual([
+      "activeFlight",
+      "backgroundColor",
+      "onFlightComplete",
+      "onReady",
+      "onUnavailable",
+      "origin",
+      "overview",
+      "routes",
+    ]);
+    expect(props.origin).toEqual(expect.objectContaining({ city: "Москва", country: "Россия" }));
+    expect(props.routes).toEqual([
+      expect.objectContaining({ city: "Тирана", country: "Албания" }),
+    ]);
+  });
+
   it.each(statusCases)("renders the exact $status context status semantics", ({ icon, label, status }) => {
     render(
       <ProductShell

@@ -1,3 +1,5 @@
+import { types } from "node:util";
+
 import type Database from "better-sqlite3";
 
 import type {
@@ -7,6 +9,8 @@ import type {
   OnboardingReceipt,
   VerifiedOnboardingConfirmation,
 } from "../../application/onboarding-contracts";
+import { reconstructOnboardingModelVersions } from
+  "../../application/onboarding-model-versions";
 import {
   confirmOnboardingValues,
   materializeOnboardingSnapshots,
@@ -64,22 +68,6 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const RECEIPT_ID = /^onboarding-receipt:[0-9a-f]{64}$/;
 const FRONTIER_RUN_ID = /^onboarding-frontier:[0-9a-f]{64}$/;
 const CANONICAL_MILLISECOND_INSTANT = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/;
-const VERSION_KEYS = [
-  "invocation",
-  "cliVersion",
-  "extractionPrompt",
-  "reviewPrompt",
-  "extractionSchema",
-  "reviewSchema",
-] as const;
-const FIXED_VERSIONS: OnboardingModelVersions = Object.freeze({
-  invocation: "codex-cli-invocation@1",
-  cliVersion: "codex-cli 0.148.0-alpha.15",
-  extractionPrompt: "onboarding-extract@1",
-  reviewPrompt: "onboarding-review@1",
-  extractionSchema: "onboarding-model-output@1",
-  reviewSchema: "onboarding-review-output@1",
-});
 
 export class SqliteOnboardingStore implements OnboardingStore {
   private readonly clock: () => Date;
@@ -450,11 +438,11 @@ function receiptWithoutDigest(
 }
 
 function reconstructVersions(value: unknown): OnboardingModelVersions {
-  const record = exactOwnedRecord(value, VERSION_KEYS);
-  for (const key of VERSION_KEYS) {
-    if (record[key] !== FIXED_VERSIONS[key]) throw invalidCompletion();
+  try {
+    return reconstructOnboardingModelVersions(value);
+  } catch {
+    throw invalidCompletion();
   }
-  return deepFreeze({ ...FIXED_VERSIONS });
 }
 
 function reconstructCanonicalJson<T>(
@@ -494,6 +482,7 @@ function descriptorSafeCopy<T>(borrowed: T): T {
 
   const copy = (value: unknown, depth = 0): unknown => {
     if (value === null || typeof value !== "object") return value;
+    if (types.isProxy(value)) throw invalidCompletion();
     copiedObjects += 1;
     if (
       depth > 64 ||

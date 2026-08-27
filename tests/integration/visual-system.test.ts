@@ -118,6 +118,66 @@ describe("calm command center visual contracts", () => {
     expect(declaration(content, "z-index")).toBe("2");
   });
 
+  it("gives onboarding one desktop viewport with a two-thirds form and one-third globe", () => {
+    const workspace = rule(
+      css,
+      '.product-shell__workspace[data-globe-mode="onboarding"]',
+    );
+    const globe = rule(
+      css,
+      '.product-shell__workspace[data-globe-mode="onboarding"] .workspace-globe--onboarding',
+    );
+    const content = rule(
+      css,
+      '.product-shell__workspace[data-globe-mode="onboarding"] .product-shell__content',
+    );
+
+    expect(declaration(workspace, "display")).toBe("grid");
+    expect(declaration(workspace, "grid-template-columns"))
+      .toBe("minmax(0, 2fr) minmax(0, 1fr)");
+    expect(declaration(workspace, "height")).toBe("100svh");
+    expect(declaration(workspace, "overflow")).toBe("hidden");
+    expect(declaration(globe, "position")).toBe("relative");
+    expect(declaration(globe, "inset")).toBe("auto");
+    expect(declaration(globe, "grid-column")).toBe("2");
+    expect(declaration(globe, "grid-row")).toBe("1");
+    expect(declaration(globe, "height")).toBe("100svh");
+    expect(declaration(content, "grid-column")).toBe("1");
+    expect(declaration(content, "grid-row")).toBe("1");
+    expect(declaration(content, "width")).toBe("100%");
+    expect(declaration(content, "height")).toBe("100svh");
+    expect(declaration(content, "overflow-y")).toBe("auto");
+  });
+
+  it("puts the compact onboarding globe before the form and chat on mobile", () => {
+    const mobile = atRule(css, "@media (max-width: 719px)");
+    const workspace = rule(
+      mobile,
+      '.product-shell__workspace[data-globe-mode="onboarding"]',
+    );
+    const globe = rule(
+      mobile,
+      '.product-shell__workspace[data-globe-mode="onboarding"] .workspace-globe--onboarding',
+    );
+    const content = rule(
+      mobile,
+      '.product-shell__workspace[data-globe-mode="onboarding"] .product-shell__content',
+    );
+
+    expect(declaration(workspace, "grid-template-columns")).toBe("minmax(0, 1fr)");
+    expect(declaration(workspace, "grid-template-rows")).toBe("auto auto");
+    expect(declaration(workspace, "height")).toBe("auto");
+    expect(declaration(workspace, "overflow-x")).toBe("clip");
+    expect(declaration(workspace, "overflow-y")).toBe("visible");
+    expect(declaration(globe, "grid-column")).toBe("1");
+    expect(declaration(globe, "grid-row")).toBe("1");
+    expect(declaration(globe, "height")).toBe("clamp(160px, 24svh, 220px)");
+    expect(declaration(content, "grid-column")).toBe("1");
+    expect(declaration(content, "grid-row")).toBe("2");
+    expect(declaration(content, "height")).toBe("auto");
+    expect(declaration(content, "overflow-y")).toBe("visible");
+  });
+
   it("keeps the full-workspace Overview canvas transparent above the globe", () => {
     const overview = rule(css, ".overview-workspace--orbit");
 

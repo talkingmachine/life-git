@@ -10,7 +10,7 @@ import {
   WorkspaceGlobe,
   type WorkspaceGlobeMode,
 } from "./WorkspaceGlobe";
-import type { WorkspaceGlobePresentation } from "../research-map/contracts";
+import type { WorkspaceGlobeScene } from "../research-map/contracts";
 
 export type { CommandCenterDestination } from "./NavigationRail";
 export type { CommandCenterContext, CommandCenterStatus } from "./ContextBar";
@@ -19,7 +19,7 @@ export interface ProductShellProps {
   readonly activeDestination: CommandCenterDestination;
   readonly children: ReactNode;
   readonly context?: CommandCenterContext;
-  readonly globe?: WorkspaceGlobePresentation;
+  readonly globe?: WorkspaceGlobeScene;
   readonly globeMode?: WorkspaceGlobeMode;
   readonly onDestinationChange: (destination: CommandCenterDestination) => void;
   readonly setup?: boolean;
@@ -35,6 +35,7 @@ export function ProductShell({
   setup = false,
 }: ProductShellProps) {
   const [railExpanded, setRailExpanded] = useState(false);
+  const showGlobe = globe !== undefined || (!setup && context !== undefined);
 
   return (
     <div
@@ -51,13 +52,13 @@ export function ProductShell({
         />
       )}
       <div className="product-shell__workspace" data-globe-mode={globeMode}>
-        {setup || context === undefined ? null : (
+        {showGlobe ? (
           <WorkspaceGlobe
             mode={globeMode}
             presentation={globe}
-            status={context.status}
+            status={context?.status}
           />
-        )}
+        ) : null}
         {context === undefined ? null : <ContextBar context={context} />}
         <main className="product-shell__content">{children}</main>
       </div>

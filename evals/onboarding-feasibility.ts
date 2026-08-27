@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { chmod, open, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { types } from "node:util";
 
 import {
   OnboardingModelError,
@@ -9,6 +10,11 @@ import {
   type OnboardingModelPort,
   type OnboardingRuntimeErrorCode,
 } from "../src/application/onboarding-contracts";
+import {
+  ONBOARDING_MODEL_VERSIONS_V3,
+  reconstructOnboardingModelVersions,
+  type OnboardingModelVersionsV3,
+} from "../src/application/onboarding-model-versions";
 import {
   PARTICIPANT_LEAF_IDS,
   PARTICIPANT_RELATIONSHIPS,
@@ -39,17 +45,12 @@ import {
   type QuestionnaireIssue,
 } from "../src/decision/onboarding-questionnaire";
 import { registerNodeCodexRuntime } from "../src/instrumentation-node";
-import {
-  CODEX_CLI_VERSION,
-  CODEX_INVOCATION_VERSION,
-} from "../src/infrastructure/codex-cli/contracts";
 import { getCodexCliModelAdapter } from "../src/infrastructure/codex-cli/runtime";
 import { snapshotOwnedJson, type JsonObject, type JsonValue } from "../src/infrastructure/codex-cli/owned-json";
 import {
   createCodexOnboardingModel,
   ONBOARDING_EXTRACTION_LIMITS,
   ONBOARDING_EXTRACTION_PROMPT_TEMPLATE,
-  ONBOARDING_MODEL_VERSIONS,
   ONBOARDING_REVIEW_LIMITS,
   ONBOARDING_REVIEW_PROMPT_TEMPLATE,
 } from "../src/infrastructure/codex-cli/onboarding-model";
@@ -60,8 +61,10 @@ import {
 
 const FIXTURE_VERSION = "onboarding-cases@1" as const;
 const SESSION_SEED_VERSION = "onboarding-feasibility-session-seed@1" as const;
-const ARTIFACT_VERSION = "onboarding-model-feasibility@1" as const;
-const DIAGNOSTIC_VERSION = "onboarding-model-feasibility-diagnostic@1" as const;
+const ARTIFACT_VERSION = "onboarding-model-feasibility@3" as const;
+const DIAGNOSTIC_VERSION = "onboarding-model-feasibility-diagnostic@3" as const;
+const FEASIBILITY_FIXTURE_URL = new URL("./fixtures/onboarding/cases.json", import.meta.url);
+const FEASIBILITY_FIXTURE_PATH = resolve(fileURLToPath(FEASIBILITY_FIXTURE_URL));
 const CASE_IDS = [
   "extract_self_ru",
   "extract_companion",
@@ -81,6 +84,9 @@ const MAX_CASES = CASE_IDS.length;
 const MAX_CHANGES = 172;
 const MAX_EXPECTED_VALUES = 172;
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
+const FINAL_PROJECT_LIVE_MODEL_GATE_FLAG = "--final-project-live-model-gate";
+const LIVE_MODEL_GATE_DEFERRED = "onboarding_live_model_gate_deferred\n";
+const FEASIBILITY_FAILURE = "onboarding_model_feasibility_failed\n";
 
 interface SessionSeed {
   readonly schemaVersion: typeof SESSION_SEED_VERSION;
@@ -116,12 +122,12 @@ export interface OnboardingModelFeasibilityArtifact {
   readonly schemaVersion: typeof ARTIFACT_VERSION;
   readonly fixtureVersion: typeof FIXTURE_VERSION;
   readonly fixtureDigest: string;
-  readonly invocationVersion: typeof CODEX_INVOCATION_VERSION;
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
-  readonly extractionPromptVersion: typeof ONBOARDING_MODEL_VERSIONS.extractionPrompt;
-  readonly reviewPromptVersion: typeof ONBOARDING_MODEL_VERSIONS.reviewPrompt;
-  readonly extractionSchemaVersion: typeof ONBOARDING_MODEL_VERSIONS.extractionSchema;
-  readonly reviewSchemaVersion: typeof ONBOARDING_MODEL_VERSIONS.reviewSchema;
+  readonly invocationVersion: OnboardingModelVersionsV3["invocation"];
+  readonly cliVersion: OnboardingModelVersionsV3["cliVersion"];
+  readonly extractionPromptVersion: OnboardingModelVersionsV3["extractionPrompt"];
+  readonly reviewPromptVersion: OnboardingModelVersionsV3["reviewPrompt"];
+  readonly extractionSchemaVersion: OnboardingModelVersionsV3["extractionSchema"];
+  readonly reviewSchemaVersion: OnboardingModelVersionsV3["reviewSchema"];
   readonly extractionPromptDigest: string;
   readonly reviewPromptDigest: string;
   readonly extractionSchemaDigest: string;
@@ -167,6 +173,42 @@ export class OnboardingFeasibilityError extends Error {
   }
 }
 
+export type OnboardingFeasibilityLaunchMode =
+  | "deferred"
+  | "final-project-live-model-gate";
+
+export interface OnboardingFeasibilityLaunchArguments {
+  readonly mode: OnboardingFeasibilityLaunchMode;
+  readonly artifactPath: string;
+  readonly diagnosticPath: string;
+}
+
+export type OnboardingFeasibilityEntrypointResult =
+  | Readonly<{ exitCode: 0; stdout: ""; stderr: "" }>
+  | Readonly<{
+      exitCode: 1;
+      stdout: "";
+      stderr:
+        | "onboarding_live_model_gate_deferred\n"
+        | "onboarding_model_feasibility_failed\n";
+    }>;
+
+const FEASIBILITY_SUCCESS_RESULT: OnboardingFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 0,
+  stdout: "",
+  stderr: "",
+});
+const FEASIBILITY_DEFERRED_RESULT: OnboardingFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: LIVE_MODEL_GATE_DEFERRED,
+});
+const FEASIBILITY_FAILURE_RESULT: OnboardingFeasibilityEntrypointResult = Object.freeze({
+  exitCode: 1,
+  stdout: "",
+  stderr: FEASIBILITY_FAILURE,
+});
+
 export function readOnboardingFeasibilityFixture(value: unknown): OnboardingFeasibilityFixture {
   try {
     const owned = snapshotOwnedJson(value);
@@ -190,10 +232,10 @@ export async function runOnboardingFeasibilityForTest(input: {
   readonly signal: AbortSignal;
   readonly clock?: () => number;
 }): Promise<OnboardingModelFeasibilityArtifact> {
-  const artifactPath = requireArtifactPath(input.artifactPath);
-  const diagnosticPath = input.diagnosticPath === undefined
-    ? undefined
-    : requireDistinctDiagnosticPath(input.diagnosticPath, artifactPath);
+  const { artifactPath, diagnosticPath } = await requireOutputPaths(
+    input.artifactPath,
+    input.diagnosticPath,
+  );
   await rm(artifactPath, { force: true });
   if (diagnosticPath !== undefined) await rm(diagnosticPath, { force: true });
   let stage: OnboardingFeasibilityStage = "input_validation";
@@ -204,6 +246,7 @@ export async function runOnboardingFeasibilityForTest(input: {
     const fixtureBytes = Uint8Array.from(input.fixtureBytes);
     const fixtureText = new TextDecoder("utf-8", { fatal: true }).decode(fixtureBytes);
     const fixture = readOnboardingFeasibilityFixture(JSON.parse(fixtureText) as unknown);
+    const modelVersions = requireCurrentModelVersions(input.model.versions);
     const clock = input.clock ?? Date.now;
     const results: { caseId: string; status: "passed"; elapsedMs: number }[] = [];
 
@@ -224,12 +267,12 @@ export async function runOnboardingFeasibilityForTest(input: {
       schemaVersion: ARTIFACT_VERSION,
       fixtureVersion: FIXTURE_VERSION,
       fixtureDigest: sha256(fixtureBytes),
-      invocationVersion: CODEX_INVOCATION_VERSION,
-      cliVersion: CODEX_CLI_VERSION,
-      extractionPromptVersion: ONBOARDING_MODEL_VERSIONS.extractionPrompt,
-      reviewPromptVersion: ONBOARDING_MODEL_VERSIONS.reviewPrompt,
-      extractionSchemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
-      reviewSchemaVersion: ONBOARDING_MODEL_VERSIONS.reviewSchema,
+      invocationVersion: modelVersions.invocation,
+      cliVersion: modelVersions.cliVersion,
+      extractionPromptVersion: modelVersions.extractionPrompt,
+      reviewPromptVersion: modelVersions.reviewPrompt,
+      extractionSchemaVersion: modelVersions.extractionSchema,
+      reviewSchemaVersion: modelVersions.reviewSchema,
       extractionPromptDigest: digestText(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE),
       reviewPromptDigest: digestText(ONBOARDING_REVIEW_PROMPT_TEMPLATE),
       extractionSchemaDigest: digestJson(ONBOARDING_EXTRACTION_SCHEMA),
@@ -255,6 +298,13 @@ export async function runOnboardingFeasibilityForTest(input: {
     }
     throw failed();
   }
+}
+
+export async function removeStaleOnboardingFeasibilityArtifact(
+  borrowedArtifactPath: string,
+): Promise<void> {
+  const { artifactPath } = await requireOutputPaths(borrowedArtifactPath, undefined);
+  await rm(artifactPath, { force: true });
 }
 
 async function runCase(
@@ -509,10 +559,109 @@ function requireArtifactPath(value: unknown): string {
   return path;
 }
 
+async function requireOutputPaths(
+  artifactValue: unknown,
+  diagnosticValue: unknown,
+): Promise<{
+  readonly artifactPath: string;
+  readonly diagnosticPath?: string;
+}> {
+  const artifactPath = requireArtifactPath(artifactValue);
+  const diagnosticPath = diagnosticValue === undefined
+    ? undefined
+    : requireDistinctDiagnosticPath(diagnosticValue, artifactPath);
+  const [fixtureIdentity, artifactIdentity, diagnosticIdentity] = await Promise.all([
+    readPathIdentity(FEASIBILITY_FIXTURE_PATH),
+    readPathIdentity(artifactPath),
+    diagnosticPath === undefined ? undefined : readPathIdentity(diagnosticPath),
+  ]);
+  if (
+    pathsAlias(fixtureIdentity, artifactIdentity) ||
+    (diagnosticIdentity !== undefined && (
+      pathsAlias(fixtureIdentity, diagnosticIdentity) ||
+      pathsAlias(artifactIdentity, diagnosticIdentity)
+    ))
+  ) throw failed();
+  return Object.freeze({
+    artifactPath,
+    ...(diagnosticPath === undefined ? {} : { diagnosticPath }),
+  });
+}
+
+interface PathIdentity {
+  readonly realPath: string;
+  readonly existing?: {
+    readonly dev: number | bigint;
+    readonly ino: number | bigint;
+  };
+}
+
+async function readPathIdentity(path: string): Promise<PathIdentity> {
+  const [realPath, identity] = await Promise.all([
+    resolveRealPathThroughExistingPrefix(path),
+    statIfPresent(path),
+  ]);
+  return Object.freeze({
+    realPath,
+    ...(identity === undefined
+      ? {}
+      : { existing: Object.freeze({ dev: identity.dev, ino: identity.ino }) }),
+  });
+}
+
+function pathsAlias(left: PathIdentity, right: PathIdentity): boolean {
+  return left.realPath === right.realPath || (
+    left.existing !== undefined &&
+    right.existing !== undefined &&
+    left.existing.dev === right.existing.dev &&
+    left.existing.ino === right.existing.ino
+  );
+}
+
+async function resolveRealPathThroughExistingPrefix(path: string): Promise<string> {
+  let existingPrefix = path;
+  const missingSuffix: string[] = [];
+  while (true) {
+    try {
+      return resolve(await realpath(existingPrefix), ...missingSuffix);
+    } catch (error) {
+      if (!isMissingPathError(error)) throw error;
+      const parent = dirname(existingPrefix);
+      if (parent === existingPrefix) throw error;
+      missingSuffix.unshift(basename(existingPrefix));
+      existingPrefix = parent;
+    }
+  }
+}
+
+async function statIfPresent(path: string): Promise<Awaited<ReturnType<typeof stat>> | undefined> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (isMissingPathError(error)) return undefined;
+    throw error;
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (error === null || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "ENOENT" || error.code === "ENOTDIR";
+}
+
 function requireDistinctDiagnosticPath(value: unknown, artifactPath: string): string {
   const diagnosticPath = requireArtifactPath(value);
   if (diagnosticPath === artifactPath) throw failed();
   return diagnosticPath;
+}
+
+function requireCurrentModelVersions(value: unknown): OnboardingModelVersionsV3 {
+  try {
+    const versions = reconstructOnboardingModelVersions(value);
+    if (versions !== ONBOARDING_MODEL_VERSIONS_V3) throw failed();
+    return versions;
+  } catch {
+    throw failed();
+  }
 }
 
 function requireActiveSignal(value: AbortSignal): void {
@@ -624,41 +773,112 @@ function failed(): OnboardingFeasibilityError {
   return new OnboardingFeasibilityError();
 }
 
-export function parseOnboardingFeasibilityArguments(args: readonly string[]): {
-  readonly artifactPath: string;
-  readonly diagnosticPath?: string;
-} {
-  if (args[0] !== "--artifact" || args[1] === undefined) throw failed();
-  if (args.length === 2) return { artifactPath: args[1] };
-  if (args.length !== 4 || args[2] !== "--diagnostic" || args[3] === undefined) throw failed();
-  return { artifactPath: args[1], diagnosticPath: args[3] };
+function readOwnedStringArguments(value: unknown, maximumLength: number): readonly string[] {
+  if (
+    types.isProxy(value) ||
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    Object.getOwnPropertySymbols(value).length !== 0 ||
+    value.length > maximumLength
+  ) throw failed();
+
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const allowed = new Set([
+    ...Array.from({ length: value.length }, (_, index) => String(index)),
+    "length",
+  ]);
+  if (Object.keys(descriptors).some((key) => !allowed.has(key))) throw failed();
+
+  const copy: string[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (
+      descriptor === undefined ||
+      !("value" in descriptor) ||
+      descriptor.enumerable !== true ||
+      typeof descriptor.value !== "string"
+    ) throw failed();
+    copy.push(descriptor.value);
+  }
+  return Object.freeze(copy);
 }
 
-async function main(): Promise<void> {
-  const parsed = parseOnboardingFeasibilityArguments(process.argv.slice(2));
-  const artifactPath = requireArtifactPath(parsed.artifactPath);
-  const diagnosticPath = parsed.diagnosticPath === undefined
-    ? undefined
-    : requireDistinctDiagnosticPath(parsed.diagnosticPath, artifactPath);
-  await rm(artifactPath, { force: true });
-  if (diagnosticPath !== undefined) await rm(diagnosticPath, { force: true });
+export function parseOnboardingFeasibilityArguments(
+  input: unknown,
+): OnboardingFeasibilityLaunchArguments {
+  const args = readOwnedStringArguments(input, 5);
+  if (args.length === 4 && args[0] === "--artifact" && args[2] === "--diagnostic") {
+    return Object.freeze({
+      mode: "deferred",
+      artifactPath: args[1]!,
+      diagnosticPath: args[3]!,
+    });
+  }
+  if (
+    args.length === 5 &&
+    args[0] === FINAL_PROJECT_LIVE_MODEL_GATE_FLAG &&
+    args[1] === "--artifact" &&
+    args[3] === "--diagnostic"
+  ) return Object.freeze({
+    mode: "final-project-live-model-gate",
+    artifactPath: args[2]!,
+    diagnosticPath: args[4]!,
+  });
+  throw failed();
+}
+
+export async function runOnboardingFeasibilityEntrypointForTest(input: {
+  readonly rawArguments: unknown;
+  readonly runFinalProjectLiveModelGate: (paths: Readonly<{
+    artifactPath: string;
+    diagnosticPath: string;
+  }>) => Promise<void>;
+}): Promise<OnboardingFeasibilityEntrypointResult> {
+  let parsed: OnboardingFeasibilityLaunchArguments;
+  try {
+    parsed = parseOnboardingFeasibilityArguments(input.rawArguments);
+  } catch {
+    return FEASIBILITY_DEFERRED_RESULT;
+  }
+
+  try {
+    const paths = await requireOutputPaths(parsed.artifactPath, parsed.diagnosticPath);
+    if (paths.diagnosticPath === undefined) throw failed();
+    await removeStaleOnboardingFeasibilityArtifact(paths.artifactPath);
+    if (parsed.mode === "deferred") return FEASIBILITY_DEFERRED_RESULT;
+    await rm(paths.diagnosticPath, { force: true });
+    await input.runFinalProjectLiveModelGate(Object.freeze({
+      artifactPath: paths.artifactPath,
+      diagnosticPath: paths.diagnosticPath,
+    }));
+    return FEASIBILITY_SUCCESS_RESULT;
+  } catch {
+    return parsed.mode === "deferred"
+      ? FEASIBILITY_DEFERRED_RESULT
+      : FEASIBILITY_FAILURE_RESULT;
+  }
+}
+
+async function runFinalProjectLiveModelGate(paths: Readonly<{
+  artifactPath: string;
+  diagnosticPath: string;
+}>): Promise<void> {
   let runnerStarted = false;
   try {
-    const fixtureUrl = new URL("./fixtures/onboarding/cases.json", import.meta.url);
-    const fixtureBytes = new Uint8Array(await readFile(fixtureUrl));
+    const fixtureBytes = new Uint8Array(await readFile(FEASIBILITY_FIXTURE_URL));
     await registerNodeCodexRuntime();
     runnerStarted = true;
     await runOnboardingFeasibilityForTest({
-      artifactPath,
-      ...(diagnosticPath === undefined ? {} : { diagnosticPath }),
+      artifactPath: paths.artifactPath,
+      diagnosticPath: paths.diagnosticPath,
       fixtureBytes,
       model: createCodexOnboardingModel(getCodexCliModelAdapter()),
       signal: new AbortController().signal,
     });
   } catch (error) {
-    await rm(artifactPath, { force: true });
-    if (!runnerStarted && diagnosticPath !== undefined) {
-      await writeFailureDiagnostic(diagnosticPath, {
+    await rm(paths.artifactPath, { force: true });
+    if (!runnerStarted) {
+      await writeFailureDiagnostic(paths.diagnosticPath, {
         caseId: null,
         stage: "runtime_initialization",
         error,
@@ -668,9 +888,19 @@ async function main(): Promise<void> {
   }
 }
 
+async function main(): Promise<void> {
+  const result = await runOnboardingFeasibilityEntrypointForTest({
+    rawArguments: process.argv.slice(2),
+    runFinalProjectLiveModelGate,
+  });
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  process.exitCode = result.exitCode;
+}
+
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch(() => {
-    process.stderr.write("onboarding_model_feasibility_failed\n");
+    process.stderr.write(FEASIBILITY_FAILURE);
     process.exitCode = 1;
   });
 }

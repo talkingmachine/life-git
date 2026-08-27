@@ -302,7 +302,7 @@ describe("onboarding HTTP routes", () => {
         kind: "blocked",
         session: command.session,
         issues: [{ fieldId: "current_location", reasonCode: "required_empty" }],
-        followUpQuestion: "Please complete the highlighted fields.",
+        followUpQuestion: "Заполните выделенные поля.",
       })),
       runPlaceFrontier: vi.fn(),
       preparePlaceFrontier: vi.fn(),
@@ -436,7 +436,7 @@ describe("onboarding HTTP routes", () => {
       kind: "blocked",
       session: session(),
       issues: [{ fieldId: "current_location", reasonCode: "required_empty" }],
-      followUpQuestion: "Please complete the highlighted fields.",
+      followUpQuestion: "Заполните выделенные поля.",
     };
     const composed = application({ completeOnboarding: vi.fn(async () => blocked) });
     const streamResponse = vi.fn();

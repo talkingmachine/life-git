@@ -1163,6 +1163,14 @@ git commit -m "feat: launch frontier from onboarding"
 
 ### Task 8: Deliver the questionnaire/chat workspace as the default route
 
+**Live-model gate deferral (2026-08-23):** The confirmed design in
+`docs/superpowers/specs/2026-08-23-onboarding-live-model-gate-deferral-design.md`
+supersedes only the immediate execution timing and prior authorization for the real V3 gates.
+After V3 fake/static GREEN and independent Critical 0 / Important 0 review, Task 8 resumes offline
+Steps 5, 7 and 8. Step 6 is not executed here: it moves to the final-project live-model gate with
+unchanged V3 acceptance semantics and the mandatory `--final-project-live-model-gate` launch flag.
+The missing real `@3` artifacts do not block Task 8 implementation completion.
+
 **Files:**
 - Create: `src/experience/components/OnboardingStart.tsx`
 - Create: `src/experience/components/OnboardingQuestionnaire.tsx`
@@ -1198,10 +1206,10 @@ git commit -m "feat: launch frontier from onboarding"
 export const ONBOARDING_CANONICAL_JOURNEY_LIMIT_MS = 35_000;
 
 export interface OnboardingJourneyTimingArtifact {
-  readonly schemaVersion: "onboarding-journey-timing@1";
+  readonly schemaVersion: "onboarding-journey-timing@2";
   readonly fixtureVersion: "onboarding-canonical-journey@1";
   readonly fixtureDigest: string;
-  readonly cliVersion: "codex-cli 0.148.0-alpha.15";
+  readonly modelVersions: OnboardingModelVersionsV2;
   readonly elapsedMs: number;
   readonly limitMs: 35_000;
   readonly acceptedFrontierHandoff: true;
@@ -1234,6 +1242,7 @@ export async function runOnboardingJourneyTimingForTest(input: {
   readonly runCanonicalJourney: () => Promise<{
     readonly acceptedFrontierHandoff: boolean;
     readonly modelInvocationCount: number;
+    readonly modelVersions: unknown;
   }>;
   readonly monotonicNowMs: () => number;
 }): Promise<OnboardingJourneyTimingArtifact>;
@@ -1291,7 +1300,9 @@ action; it never auto-repeats either request. Model/request failures retain edit
 only the ordinary action again; there is no separate retry control. The globe's renderer-load
 fallback remains an unrelated visual recovery control.
 
-The timing artifact is bound to the lowercase SHA-256 of the exact tracked fixture bytes. Elapsed
+The timing artifact is bound to the lowercase SHA-256 of the exact tracked fixture bytes and carries
+the complete exact V2 model-version tuple instead of an unbound CLI-only label. It retains exactly
+twelve top-level keys. Elapsed
 time is `ceil(end - start)` from a monotonic clock; only exactly one extraction plus one final review
 (`modelInvocationCount === 2`) may pass. The real run uses a fresh in-memory SQLite database so a
 durable replay cannot shorten the gate. It derives handoff acceptance through the production strict
@@ -1318,8 +1329,10 @@ tracked file; there is no fixture CLI override, stdin fixture or environment sub
 - [ ] **Step 2: Run RED, implement, and run GREEN.** Run `pnpm exec vitest run tests/integration/onboarding-experience.test.tsx tests/integration/product-shell.test.tsx tests/integration/research-globe-canvas.test.tsx tests/integration/visual-system.test.ts`; expect the onboarding components and neutral globe seam to be absent, implement them, and re-run it.
 - [ ] **Step 3: Write the timing-gate RED contract.** With an injected monotonic clock and fake journey, require exact count `2` and `35_000` ms to pass; `35_000.0001` (ceiled to `35_001`), clock rollback/non-finite values, any other count or an unaccepted handoff fails without a passing artifact. Pin the exact closed keys, fixture/digest bindings, stale-target removal, `0600` atomic final-LF write, fixed content-free failure, no retry and zero prompt/output/transcript content.
 - [ ] **Step 4: Run timing RED.** Run `pnpm exec vitest run tests/integration/onboarding-journey-timing-contract.test.ts`; expect the eval module to be absent.
-- [ ] **Step 5: Implement and run fake GREEN.** Add `"eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts"`. The real script uses only the closed `onboarding-canonical-journey@1` fixture, starts its monotonic timer immediately before the first extraction call, and stops when the production strict opener/single-use handoff accepts an inert Frontier envelope constructed from the exact launched receipt/prepared identities. It never calls `runPlaceFrontier` and writes only the closed artifact. Re-run the timing contract test.
-- [ ] **Step 6: Obtain explicit authorization for the prepared-Mac OpenAI calls, then run the timing gate.** Run `pnpm run eval:onboarding-journey-timing -- --artifact data/evals/onboarding-journey-timing.json`; require an accepted handoff and `elapsedMs <= 35_000`. Missing authorization, model/runtime failure, an unobserved handoff, or `35_001+` ms writes no passing artifact and blocks completion.
+- [ ] **Step 5: Implement and run fake GREEN.** Add `"eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts"`. The real script uses only the closed `onboarding-canonical-journey@1` fixture, requires the full exact V3 model-version tuple, starts its monotonic timer immediately before the first extraction call, and stops when the production strict opener/single-use handoff accepts an inert Frontier envelope constructed from the exact launched receipt/prepared identities. It never calls `runPlaceFrontier` and writes only the closed `onboarding-journey-timing@3` artifact. Re-run the timing contract test.
+- [ ] **Step 6: Deferred final-project live-model gate — do not execute during Task 8.** The exact
+  feasibility-first/conditional-timing protocol is owned by the final-project gate. Earlier chat
+  authorization is revoked; a fresh explicit authorization is required immediately before that gate.
 - [ ] **Step 7: Run `pnpm test`, `pnpm run typecheck`, `pnpm run lint`, `pnpm run build`, and `git diff --check`.**
 - [ ] **Step 8: Commit.**
 
@@ -1540,13 +1553,222 @@ git add src/application/onboarding-correction.ts src/app/api/onboarding/correcti
 git commit -m "feat: bind onboarding to city criteria"
 ```
 
-## Completion Gate
+---
 
-Onboarding is complete when the authorized real Codex extraction/review eval passes and the reviewed
-prepared-Mac `onboarding-journey-timing@1` artifact records an accepted Frontier handoff in no more
-than `35_000` ms; `/` shows the approved
-questionnaire/chat/globe layout; manual edits and reversible yellow overwrite work; unusable required
+### Task 10: Compact the extraction wire without changing onboarding semantics
+
+> **V3 successor amendment (2026-08-23):** Task 10 below remains the exact historical V2 build and
+> diagnostic record. Current execution continues through
+> `docs/superpowers/specs/2026-08-23-onboarding-extraction-code-algebra-design.md` and
+> `docs/superpowers/plans/2026-08-23-onboarding-extraction-code-algebra.md`. They authorize one
+> catalog-generated `onboarding-extract@3` prompt candidate over the unchanged
+> `onboarding-extraction-wire@2`; no prompt sweep, retry, fallback, timeout increase, model pin,
+> sharding, prefill, or alternate fixture is authorized.
+
+**Files:**
+- Create: `src/application/onboarding-model-versions.ts`
+- Create: `src/infrastructure/codex-cli/onboarding-extraction-wire.ts`
+- Create: `tests/infrastructure/onboarding-extraction-wire.test.ts`
+- Modify: `src/application/onboarding-contracts.ts`
+- Modify: `src/infrastructure/codex-cli/onboarding-schema.ts`
+- Modify: `src/infrastructure/codex-cli/onboarding-model.ts`
+- Modify: `src/infrastructure/sqlite/onboarding-store.ts`
+- Modify: `src/application/place-frontier.ts`
+- Modify: `evals/onboarding-feasibility.ts`
+- Modify: `evals/onboarding-journey-timing.ts`
+- Modify: `tests/domain/onboarding-schema.test.ts`
+- Modify: `tests/integration/codex-onboarding-model.test.ts`
+- Modify: `tests/integration/onboarding-store.test.ts`
+- Modify: `tests/integration/place-frontier.test.ts`
+- Modify: `tests/integration/onboarding-feasibility-contract.test.ts`
+- Modify: `tests/integration/onboarding-journey-timing-contract.test.ts`
+- Modify: `tests/integration/onboarding-composition.test.ts`
+
+**Interfaces:**
+- Consumes: the completed Task 3 `LocalExtractionResult@1`, Task 5 confirmation HMAC, Task 7
+  receipt-to-Frontier handoff, and the Task 8 Steps 1–4 canonical timing fixture/runner scaffold.
+- Produces: a compact external extraction protocol whose decoded result is byte-equivalent to the
+  existing internal model result, plus exact historical/current lineage reconstruction.
+
+```ts
+export interface OnboardingModelVersionsV1 {
+  readonly invocation: "codex-cli-invocation@1";
+  readonly cliVersion: "codex-cli 0.148.0-alpha.15";
+  readonly extractionPrompt: "onboarding-extract@1";
+  readonly reviewPrompt: "onboarding-review@1";
+  readonly extractionSchema: "onboarding-model-output@1";
+  readonly reviewSchema: "onboarding-review-output@1";
+}
+
+export interface OnboardingModelVersionsV2 {
+  readonly invocation: "codex-cli-invocation@1";
+  readonly cliVersion: "codex-cli 0.148.0-alpha.15";
+  readonly extractionPrompt: "onboarding-extract@2";
+  readonly reviewPrompt: "onboarding-review@1";
+  readonly extractionSchema: "onboarding-extraction-wire@2";
+  readonly reviewSchema: "onboarding-review-output@1";
+}
+
+export type OnboardingModelVersions =
+  | OnboardingModelVersionsV1
+  | OnboardingModelVersionsV2;
+
+export const ONBOARDING_MODEL_VERSIONS_V1: OnboardingModelVersionsV1;
+export const ONBOARDING_MODEL_VERSIONS_V2: OnboardingModelVersionsV2;
+export function reconstructOnboardingModelVersions(
+  value: unknown,
+): OnboardingModelVersions;
+
+export function decodeOnboardingExtractionWire(input: {
+  readonly value: unknown;
+  readonly messageId: string;
+}): LocalExtractionResult;
+```
+
+The external exact root is
+`{schemaVersion:"onboarding-extraction-wire@2",proposals:[...],nextQuestion}` and every proposal is
+exactly `{f,v,s,e}`. `s` and `e` are non-negative integer UTF-16 offsets; the unchanged guard remains
+the sole owner of evidence-range, surrogate-boundary and placeholder semantics. `v` uses the exact
+existing typed-value schema, including the full descriptor-bearing participant roster. The wire and
+prompt contain no message UUID. The adapter validates the current user message first, requires exact
+V2 runtime metadata, stamps that UUID onto every decoded proposal, expands it to
+`onboarding-model-output@1`, and calls the existing strict parser. It preserves proposal order and
+rejects unknown/duplicate decoded fields rather than sorting or taking a last value.
+
+The injective address grammar is derived from the existing ordered catalog tuples and contains 172
+possible field addresses: `b0..b4` are the five base fields; `pD.L` uses participant ordinal `D=0`
+for `self` and `D=1..19` for `companion.(D-1)`, with leaf ordinal `L=0..6`; `kC.P` uses country
+criterion ordinal `C=0..4` and part ordinal `P=0..2`; `cC.P` uses city criterion ordinal `C=0..3`
+and the same part ordinals. Leading zeroes, `p20.*`, unknown ordinals and full `@1` field IDs are not
+aliases. The schema retains eighteen paired `f`/`v` branches and `maxItems:100`; it never weakens to
+an independent union of addresses and values. Catalog order is wire meaning and therefore any future
+reorder requires a new wire version.
+
+The extraction prompt contains the compact algebraic codebook generated from those same catalog
+tuples; it does not hand-maintain 172 duplicate literals. Its payload is exactly
+`{currentUserMessage:{text},questionnaire}`: the full reconstructed questionnaire projection remains
+unchanged, while message role/UUID and every durable ID remain absent. The decoder independently
+requires the stamped `messageId` to be a lowercase RFC-variant UUID version 1–8, accepts the
+null-prototype owned JSON returned by the runtime, and rejects Proxy/accessor/symbol/non-enumerable/
+custom-prototype/sparse/cyclic wire graphs without invoking borrowed accessors.
+
+Production exports `ONBOARDING_MODEL_VERSIONS_V2` as `ONBOARDING_MODEL_VERSIONS`. Historical storage
+and Frontier verification accept only the two whole canonical tuples and reject every mixed tuple,
+extra/missing key, accessor, symbol, custom prototype or Proxy before using values. Existing
+`versions_json`, `onboarding-confirmation-binding@1`, receipt IDs and SQLite schema do not change;
+the complete tuple remains HMAC-bound. A V1/V2 repeat of the same completion command remains a
+conflict and performs no clock/materialization/write work.
+
+`onboarding-model-feasibility@2` reuses the exact `onboarding-cases@1` fixture and unchanged semantic
+oracles, but binds the V2 prompt/schema labels and digests and rejects a model whose exact tuple is
+not V2 before case one. Its diagnostic becomes `@2`. Artifact and diagnostic paths are validated
+against the tracked fixture by lexical path, deepest-existing-parent realpath and existing inode
+before any removal, so direct, symlink-parent and hard-link aliases cannot erase the fixture or one
+another. The old `@1` passing artifact is not current evidence.
+
+`onboarding-journey-timing@2` keeps the unchanged dense
+`onboarding-canonical-journey@1` bytes and exactly twelve top-level artifact keys, replacing
+`cliVersion` with the complete nested V2 `modelVersions`. Its fake seam returns that tuple and the
+runner reconstructs it rather than asserting a production constant. The production oracle requires
+all 44 applicable canonical self-plus-spouse values with model origin plus the two exact
+not-applicable remote-continuation fields before final review. Extraction, review and total limits
+remain `30_000`, `15_000` and `35_000` ms. Prefill, manual seed, hybrid journey, alternate fixture,
+model pin, service-tier pin, higher limit, replay, retry, fallback, official research and browser use
+remain forbidden.
+
+- [ ] **Step 1: Write the version-lineage and codec REDs.** Pin both whole tuples, hostile tuple
+  reconstruction and every hybrid. Pin all 172 unique code/address pairs, participant boundaries,
+  exact root/proposal keys, all typed families, full roster preservation, UUID stamping, output
+  ordering/freezing, duplicate decoded fields and hostile/invalid values. Run the new codec and
+  existing schema/model tests and require failures only for the absent V2 seams.
+- [ ] **Step 2: Implement the minimal version registry, codebook, schema and decoder.** Generate
+  mapping/schema branches from the existing ordered catalog tuples, keep Decision files unchanged,
+  switch only the production model alias/prompt/result decode to V2, and make the focused suites
+  green. Re-run the existing model-contract/session UTF-16 and roster-order suites unchanged.
+- [ ] **Step 3: Write persistence and Frontier REDs.** Cover historical V1 reopen/verified handoff,
+  V2 write/load/handoff, full HMAC binding, signed and unsigned tamper, both hybrids, extra/missing
+  tuple keys, same-command cross-version conflict before issuance, and current composition V2.
+  Implement only shared exact-tuple reconstruction; do not migrate or rewrite rows.
+- [ ] **Step 4: Upgrade sanitized eval evidence under RED.** Bump feasibility/timing artifacts and
+  diagnostics, bind exact V2 input model versions, port the protected path/alias checks, pin stale
+  syntactically valid V1 removal, and enforce the complete 44-value canonical oracle. Keep both
+  tracked fixture byte formats unchanged.
+- [ ] **Step 5: Run fake/static GREEN and independent review.** Run all codec, schema, model,
+  model-contract/session, store, Frontier, feasibility and timing suites; then `pnpm test`,
+  `pnpm run typecheck`, `pnpm run lint`, `pnpm run build`, and `git diff --check`. Review the frozen
+  diff for exact lineage, Decision isolation, privacy and artifact safety.
+- [ ] **Step 6: Run the authorized real gates in order.** Run the seven-case feasibility gate once
+  and require an exact `onboarding-model-feasibility@2` artifact. Only then run the canonical timing
+  command once and require exact nested V2 versions, `modelInvocationCount:2`, strict handoff and
+  `elapsedMs <= 35_000`. Any failure removes its passing target and blocks completion without a
+  prompt variant, retry or fallback.
+- [ ] **Step 7: Commit the compact-wire slice without the still-uncommitted UI slice.** Stage only
+  the exact Task 10 production/tests/eval files; never stage the protected brainstorm directories.
+  The approved documentation amendment is committed before production work, while the remaining
+  Task 8 UI files stay unstaged for their final exact commit.
+
+```bash
+git add src/application/onboarding-model-versions.ts \
+  src/application/onboarding-contracts.ts \
+  src/infrastructure/codex-cli/onboarding-extraction-wire.ts \
+  src/infrastructure/codex-cli/onboarding-schema.ts \
+  src/infrastructure/codex-cli/onboarding-model.ts \
+  src/infrastructure/sqlite/onboarding-store.ts src/application/place-frontier.ts \
+  evals/onboarding-feasibility.ts evals/onboarding-journey-timing.ts \
+  tests/infrastructure/onboarding-extraction-wire.test.ts \
+  tests/domain/onboarding-schema.test.ts \
+  tests/integration/codex-onboarding-model.test.ts \
+  tests/integration/onboarding-store.test.ts tests/integration/place-frontier.test.ts \
+  tests/integration/onboarding-feasibility-contract.test.ts \
+  tests/integration/onboarding-journey-timing-contract.test.ts \
+  tests/integration/onboarding-composition.test.ts
+git commit -m "feat: compact onboarding extraction wire"
+```
+
+### Task 11: Replace the expanded prompt table with the approved V3 algebra
+
+**Authority:**
+`docs/superpowers/specs/2026-08-23-onboarding-extraction-code-algebra-design.md` and
+`docs/superpowers/plans/2026-08-23-onboarding-extraction-code-algebra.md`.
+
+Task 11 preserves the completed Task 10 `onboarding-extraction-wire@2`, schema, decoder and Decision
+semantics. It adds exact V3 lineage whose only V2→V3 change is
+`extractionPrompt:"onboarding-extract@3"`, replaces the prompt's 172 expanded pairs with the exact
+catalog-generated 785-byte algebra, advances sanitized feasibility/diagnostic/timing evidence to
+`@3`, and keeps V1/V2 verification byte-exact.
+
+Task 11 authorizes the single V3 prompt candidate and offline implementation only. It does not
+authorize an external call. Earlier diagnostic authorization is revoked; the final-project gate
+requires fresh explicit user authorization.
+
+- [ ] Commit the tracked successor documentation before production RED.
+- [ ] Complete the V3 lineage, algebra and evidence RED→GREEN commits without Task 8 files.
+- [ ] Require full static GREEN and independent Critical 0 / Important 0 review before the static
+  implementation handoff.
+- [ ] Record the static V3 handoff without an external call:
+  - External Codex/OpenAI calls made: 0
+  - V3 static/review evidence: PASS
+  - Real feasibility artifact: absent — deferred to final project live-model gate
+  - Real timing artifact: absent — deferred to final project live-model gate
+  - Ready to resume Task 8 offline Steps 5, 7 and 8: yes
+  - Task 8 live Step 6: relocated to final project live-model gate
+  - Project completion gate: pending
+
+## Implementation Completion Gate
+
+Onboarding implementation is complete when the approved UI/product behavior, fake/static contracts,
+full offline suite, typecheck, lint, production build, diff checks and independent Critical 0 /
+Important 0 review pass. Real feasibility/timing artifacts are not required for this state. `/` shows
+the approved questionnaire/chat/globe layout; manual edits and reversible yellow overwrite work; unusable required
 values block on server review; one successful Continue atomically stores only structured `@2`
 snapshots/provenance and enters V2-capable Country Frontier in the same action; transcript/raw model
 content is purged; replay makes zero Codex calls; and the eventual resolved-country mapping persists
 all four City Criteria without a second confirmation screen.
+
+## Project Completion Gate
+
+The project is complete only after all implementation work is finished, fresh explicit user
+authorization is obtained, and exactly one `onboarding-model-feasibility@3` run passes 7/7 followed
+by exactly one conditional `onboarding-journey-timing@3` run with the exact V3 tuple, two model calls,
+an accepted strict handoff and `elapsedMs <= 35_000`. Both commands require
+`--final-project-live-model-gate`; failure stops without retry or debugging.

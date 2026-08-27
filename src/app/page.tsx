@@ -2,6 +2,7 @@ import { ColdStartJourney } from "../experience/components/ColdStartJourney";
 import { ColdStartStart } from "../experience/components/ColdStartStart";
 import { PlaceFrontierJourney } from "../experience/components/PlaceFrontierJourney";
 import { PlaceFrontierStart } from "../experience/components/PlaceFrontierStart";
+import { OnboardingStart } from "../experience/components/OnboardingStart";
 import { Vs1Journey } from "../experience/components/Vs1Journey";
 import { Vs1Start } from "../experience/components/Vs1Start";
 
@@ -77,9 +78,11 @@ export default async function Page({ searchParams }: PageProps) {
     }
   }
 
-  if (runId === undefined) {
-    return <Vs1Start />;
+  if (flow === undefined && runId === undefined && profileId === undefined) {
+    return <OnboardingStart />;
   }
+
+  if (runId === undefined) return <Vs1Start />;
 
   try {
     const { getConfirmedLifeApplication } = await import("../infrastructure/composition-root");

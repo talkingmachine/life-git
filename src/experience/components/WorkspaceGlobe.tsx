@@ -6,8 +6,10 @@ import type { ComponentType, ReactNode } from "react";
 
 import type { ResearchGlobeCanvasProps } from "../research-map/ResearchGlobeCanvas";
 import type {
+  NeutralWorkspaceGlobePresentation,
   ResearchCandidate,
   WorkspaceGlobePresentation,
+  WorkspaceGlobeScene,
 } from "../research-map/contracts";
 import {
   MOSCOW_ORIGIN,
@@ -15,8 +17,12 @@ import {
 } from "../research-map/product-route";
 import type { CommandCenterStatus } from "./ProductShell";
 
-export type WorkspaceGlobeMode = "full" | "background" | "collapsed";
-export type { WorkspaceGlobePresentation } from "../research-map/contracts";
+export type WorkspaceGlobeMode = "full" | "background" | "collapsed" | "onboarding";
+export type {
+  NeutralWorkspaceGlobePresentation,
+  WorkspaceGlobePresentation,
+  WorkspaceGlobeScene,
+} from "../research-map/contracts";
 
 interface ResearchGlobeModule {
   readonly ResearchGlobeCanvas: ComponentType<ResearchGlobeCanvasProps>;
@@ -24,9 +30,9 @@ interface ResearchGlobeModule {
 
 interface WorkspaceGlobeProps {
   readonly mode?: WorkspaceGlobeMode;
-  readonly presentation?: WorkspaceGlobePresentation;
+  readonly presentation?: WorkspaceGlobeScene;
   readonly renderGlobe?: (props: ResearchGlobeCanvasProps) => ReactNode;
-  readonly status: CommandCenterStatus;
+  readonly status?: CommandCenterStatus;
 }
 
 interface GlobeLoadBoundaryProps {
@@ -83,6 +89,25 @@ function supportsWebGL(): boolean {
 }
 
 const ignoreGlobeEvent = () => undefined;
+const NEUTRAL_COORDINATES = Object.freeze([]) as readonly [];
+const NEUTRAL_ROUTES = Object.freeze([]) as readonly [];
+
+export const NEUTRAL_WORKSPACE_GLOBE_PRESENTATION: NeutralWorkspaceGlobePresentation =
+  Object.freeze({
+    scene: "neutral",
+    ariaLabel: "3D Земля без выбранного маршрута",
+    overview: Object.freeze({
+      key: -1,
+      coordinates: NEUTRAL_COORDINATES,
+    }),
+    routes: NEUTRAL_ROUTES,
+  });
+
+function isNeutralPresentation(
+  presentation: WorkspaceGlobeScene,
+): presentation is NeutralWorkspaceGlobePresentation {
+  return "scene" in presentation && presentation.scene === "neutral";
+}
 
 function defaultPresentation(status: CommandCenterStatus): WorkspaceGlobePresentation {
   const candidate: ResearchCandidate = {
@@ -128,19 +153,35 @@ export function WorkspaceGlobe({
   const [DynamicResearchGlobe, setDynamicResearchGlobe] = useState(
     () => createDynamicResearchGlobe(),
   );
-  const fallbackPresentation = useMemo(() => defaultPresentation(status), [status]);
-  const activePresentation = presentation ?? fallbackPresentation;
+  const activePresentation = useMemo<WorkspaceGlobeScene>(
+    () => presentation ?? defaultPresentation(status ?? "pending"),
+    [presentation, status],
+  );
   const handleUnavailable = useCallback(() => setUnavailable(true), []);
-  const globeProps = useMemo<ResearchGlobeCanvasProps>(() => ({
-    activeFlight: activePresentation.activeFlight,
-    backgroundColor: activePresentation.backgroundColor ?? "#061014",
-    onFlightComplete: ignoreGlobeEvent,
-    onReady: ignoreGlobeEvent,
-    onUnavailable: handleUnavailable,
-    origin: activePresentation.origin,
-    overview: activePresentation.overview,
-    routes: activePresentation.routes,
-  }), [activePresentation, handleUnavailable]);
+  const globeProps = useMemo<ResearchGlobeCanvasProps>(() => {
+    if (isNeutralPresentation(activePresentation)) {
+      return {
+        backgroundColor: activePresentation.backgroundColor ?? "#061014",
+        idleRotation: true,
+        onFlightComplete: ignoreGlobeEvent,
+        onReady: ignoreGlobeEvent,
+        onUnavailable: handleUnavailable,
+        overview: activePresentation.overview,
+        routes: activePresentation.routes,
+      };
+    }
+
+    return {
+      activeFlight: activePresentation.activeFlight,
+      backgroundColor: activePresentation.backgroundColor ?? "#061014",
+      onFlightComplete: ignoreGlobeEvent,
+      onReady: ignoreGlobeEvent,
+      onUnavailable: handleUnavailable,
+      origin: activePresentation.origin,
+      overview: activePresentation.overview,
+      routes: activePresentation.routes,
+    };
+  }, [activePresentation, handleUnavailable]);
   const retry = useCallback(() => {
     setUnavailable(false);
     setImportFailed(false);

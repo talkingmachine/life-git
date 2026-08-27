@@ -7,6 +7,11 @@ import Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { OnboardingModelVersions } from "../../src/application/onboarding-contracts";
+import {
+  ONBOARDING_MODEL_VERSIONS_V1,
+  ONBOARDING_MODEL_VERSIONS_V2,
+  ONBOARDING_MODEL_VERSIONS_V3,
+} from "../../src/application/onboarding-model-versions";
 import { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from
   "../../src/decision/onboarding-catalog";
 import {
@@ -28,14 +33,25 @@ const COMMAND_2 = "00000000-0000-4000-8000-000000000011";
 const COMMAND_3 = "00000000-0000-4000-8000-000000000012";
 const NOW = "2026-08-22T10:00:00.000Z";
 const HMAC_KEY = "onboarding-test-key";
-const VERSIONS: OnboardingModelVersions = Object.freeze({
-  invocation: "codex-cli-invocation@1",
-  cliVersion: "codex-cli 0.148.0-alpha.15",
-  extractionPrompt: "onboarding-extract@1",
-  reviewPrompt: "onboarding-review@1",
-  extractionSchema: "onboarding-model-output@1",
-  reviewSchema: "onboarding-review-output@1",
-});
+const VERSIONS: OnboardingModelVersions = ONBOARDING_MODEL_VERSIONS_V1;
+const V1_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli 0.148.0-alpha.15","extractionPrompt":"onboarding-extract@1",' +
+  '"extractionSchema":"onboarding-model-output@1","invocation":"codex-cli-invocation@1",' +
+  '"reviewPrompt":"onboarding-review@1","reviewSchema":"onboarding-review-output@1"}';
+const V2_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli 0.148.0-alpha.15","extractionPrompt":"onboarding-extract@2",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@1",' +
+  '"reviewPrompt":"onboarding-review@1","reviewSchema":"onboarding-review-output@1"}';
+const V3_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli 0.148.0-alpha.15","extractionPrompt":"onboarding-extract@3",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@1",' +
+  '"reviewPrompt":"onboarding-review@1","reviewSchema":"onboarding-review-output@1"}';
+const V1_CONFIRMATION_DIGEST =
+  "f1714bd3354b4a05f2f6ebee7ad6d28d2fd1d6f1702aa21d7856fa3e15e5ff32";
+const V2_CONFIRMATION_DIGEST =
+  "55e1bcc2b73c1f7b09dcf46f7be2065b957eb494eebd5a3b1dae61a2887485df";
+const V3_CONFIRMATION_DIGEST =
+  "b7bccce0fbec4090df4296afb3ef2d4fcefe1df6e8e1012efe0870873063e525";
 
 const databases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
@@ -176,6 +192,7 @@ describe("SQLite onboarding confirmation persistence", () => {
     }), HMAC_KEY);
 
     expect(receipt).toEqual({ ...unsignedReceipt, confirmationDigest: expectedDigest });
+    expect(receipt.confirmationDigest).toBe(V1_CONFIRMATION_DIGEST);
     expect(verified).toEqual({
       receipt,
       profile: snapshots.profile,
@@ -189,12 +206,59 @@ describe("SQLite onboarding confirmation persistence", () => {
       .toEqual({ count: 2 });
     expect(database.prepare("SELECT COUNT(*) AS count FROM onboarding_confirmations").get())
       .toEqual({ count: 1 });
+    expect(database.prepare(`
+      SELECT versions_json, confirmation_digest FROM onboarding_confirmations
+    `).get()).toEqual({
+      versions_json: V1_VERSIONS_JSON,
+      confirmation_digest: V1_CONFIRMATION_DIGEST,
+    });
     const storedText = canonicalJson(database.prepare(
       "SELECT * FROM onboarding_confirmations",
     ).get());
     expect(storedText).not.toMatch(/rawInput|sourceSpan|message|chat|rawOutput|"prompt":/i);
     expect(Object.isFrozen(receipt)).toBe(true);
     expect(Object.isFrozen(verified.profile.profile.participants[0]?.monthlyIncome)).toBe(true);
+  });
+
+  test.each([
+    ["historical V1", ONBOARDING_MODEL_VERSIONS_V1, V1_VERSIONS_JSON, V1_CONFIRMATION_DIGEST],
+    ["current V2", ONBOARDING_MODEL_VERSIONS_V2, V2_VERSIONS_JSON, V2_CONFIRMATION_DIGEST],
+    ["current V3", ONBOARDING_MODEL_VERSIONS_V3, V3_VERSIONS_JSON, V3_CONFIRMATION_DIGEST],
+  ] as const)("persists and reopens the exact %s tuple without rewriting its row", async (
+    _lineage,
+    versions,
+    expectedVersionsJson,
+    expectedConfirmationDigest,
+  ) => {
+    // Break caught: migrating historical rows or failing to persist the current whole tuple.
+    const path = temporaryDatabasePath("onboarding-lineage-");
+    const database = track(openEvidenceDatabase(path));
+    const receipt = await commit(createStore(database), COMMAND_1, confirmedValues(), versions);
+    const rowBefore = database.prepare(`
+      SELECT * FROM onboarding_confirmations WHERE receipt_id = ?
+    `).get(receipt.receiptId);
+    database.close();
+
+    const reopened = track(openEvidenceDatabase(path));
+    const store = createStore(reopened);
+    const changesBefore = reopened.prepare("SELECT total_changes() AS count").get();
+    const verified = await store.loadBySnapshotBindingsVerified({
+      profileId: receipt.profileId,
+      preferenceProfileId: receipt.preferenceProfileId,
+    });
+
+    expect(verified.versions).toBe(versions);
+    expect(receipt.confirmationDigest).toBe(expectedConfirmationDigest);
+    expect(reopened.prepare(`
+      SELECT versions_json, confirmation_digest FROM onboarding_confirmations WHERE receipt_id = ?
+    `).get(receipt.receiptId)).toEqual({
+      versions_json: expectedVersionsJson,
+      confirmation_digest: expectedConfirmationDigest,
+    });
+    expect(reopened.prepare(`
+      SELECT * FROM onboarding_confirmations WHERE receipt_id = ?
+    `).get(receipt.receiptId)).toEqual(rowBefore);
+    expect(reopened.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
   });
 
   test("replays an ambiguous successful submission without another clock, materializer, or write", async () => {
@@ -385,6 +449,41 @@ describe("SQLite onboarding confirmation persistence", () => {
       .toEqual({ count: 1 });
   });
 
+  test.each([
+    ["V1 then V2", ONBOARDING_MODEL_VERSIONS_V1, ONBOARDING_MODEL_VERSIONS_V2],
+    ["V1 then V3", ONBOARDING_MODEL_VERSIONS_V1, ONBOARDING_MODEL_VERSIONS_V3],
+    ["V2 then V1", ONBOARDING_MODEL_VERSIONS_V2, ONBOARDING_MODEL_VERSIONS_V1],
+    ["V2 then V3", ONBOARDING_MODEL_VERSIONS_V2, ONBOARDING_MODEL_VERSIONS_V3],
+    ["V3 then V1", ONBOARDING_MODEL_VERSIONS_V3, ONBOARDING_MODEL_VERSIONS_V1],
+    ["V3 then V2", ONBOARDING_MODEL_VERSIONS_V3, ONBOARDING_MODEL_VERSIONS_V2],
+  ] as const)("classifies a same-command %s replay as conflict before issuance or writes", async (
+    _direction,
+    committedVersions,
+    replayedVersions,
+  ) => {
+    // Break caught: treating a lineage change as a new command or invalid caller tuple.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const clock = vi.fn(() => new Date(NOW));
+    const materialize = vi.fn(materializeOnboardingSnapshots);
+    const store = createStore(database, { clock, materialize });
+    const confirmed = confirmedValues();
+    await commit(store, COMMAND_1, confirmed, committedVersions);
+    clock.mockClear();
+    materialize.mockClear();
+    const changesBefore = database.prepare("SELECT total_changes() AS count").get();
+
+    await expect(replay(store, COMMAND_1, structuredClone(confirmed), replayedVersions))
+      .rejects.toThrow("onboarding_completion_conflict");
+    await expect(commit(store, COMMAND_1, structuredClone(confirmed), replayedVersions))
+      .rejects.toThrow("onboarding_completion_conflict");
+
+    expect(clock).not.toHaveBeenCalled();
+    expect(materialize).not.toHaveBeenCalled();
+    expect(database.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM onboarding_confirmations").get())
+      .toEqual({ count: 1 });
+  });
+
   test("issues monotonic milliseconds and distinct pairs for different commands at one wall-clock tick", async () => {
     // Break caught: ambiguous identical snapshot pairs or a latest-wins pair loader.
     const database = track(openEvidenceDatabase(":memory:"));
@@ -445,6 +544,88 @@ describe("SQLite onboarding confirmation persistence", () => {
     expect(materialize).not.toHaveBeenCalled();
     expect(database.prepare("SELECT COUNT(*) AS count FROM profile_snapshots").get())
       .toEqual({ count: 0 });
+    expect(database.prepare("SELECT COUNT(*) AS count FROM onboarding_confirmations").get())
+      .toEqual({ count: 0 });
+  });
+
+  test("rejects a nested versions Proxy without invoking any Proxy trap", async () => {
+    // Break caught: reflecting on a borrowed nested Proxy before proving it is an ordinary object.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const clock = vi.fn(() => new Date(NOW));
+    const materialize = vi.fn(materializeOnboardingSnapshots);
+    const store = createStore(database, { clock, materialize });
+    let trapCalls = 0;
+    const trap = (): never => {
+      trapCalls += 1;
+      throw new Error("versions_proxy_trap");
+    };
+    const versions = new Proxy({ ...ONBOARDING_MODEL_VERSIONS_V2 }, {
+      get: trap,
+      getOwnPropertyDescriptor: trap,
+      getPrototypeOf: trap,
+      ownKeys: trap,
+    }) as OnboardingModelVersions;
+
+    await expect(commit(store, COMMAND_1, confirmedValues(), versions))
+      .rejects.toThrow("Invalid onboarding completion");
+
+    expect(trapCalls).toBe(0);
+    expect(clock).not.toHaveBeenCalled();
+    expect(materialize).not.toHaveBeenCalled();
+    expect(database.prepare("SELECT COUNT(*) AS count FROM onboarding_confirmations").get())
+      .toEqual({ count: 0 });
+  });
+
+  test("rejects every hybrid and decorated tuple before issuance work", async () => {
+    // Break caught: accepting labels independently or normalizing hostile tuple ownership.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const clock = vi.fn(() => new Date(NOW));
+    const materialize = vi.fn(materializeOnboardingSnapshots);
+    const store = createStore(database, { clock, materialize });
+    let accessorReads = 0;
+    const accessor = { ...ONBOARDING_MODEL_VERSIONS_V2 } as Record<string, unknown>;
+    Object.defineProperty(accessor, "extractionPrompt", {
+      enumerable: true,
+      get: () => {
+        accessorReads += 1;
+        return ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt;
+      },
+    });
+    const missing = { ...ONBOARDING_MODEL_VERSIONS_V2 } as Record<string, unknown>;
+    delete missing.reviewSchema;
+    const symbol = Symbol("decorated");
+    const customPrototype = Object.assign(
+      Object.create({ inherited: true }) as Record<string, unknown>,
+      ONBOARDING_MODEL_VERSIONS_V2,
+    );
+    const invalidTuples: readonly unknown[] = [
+      {
+        ...ONBOARDING_MODEL_VERSIONS_V1,
+        extractionPrompt: ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt,
+      },
+      {
+        ...ONBOARDING_MODEL_VERSIONS_V1,
+        extractionSchema: ONBOARDING_MODEL_VERSIONS_V2.extractionSchema,
+      },
+      { ...ONBOARDING_MODEL_VERSIONS_V2, unexpected: true },
+      missing,
+      accessor,
+      { ...ONBOARDING_MODEL_VERSIONS_V2, [symbol]: true },
+      customPrototype,
+    ];
+
+    for (const versions of invalidTuples) {
+      await expect(commit(
+        store,
+        COMMAND_1,
+        confirmedValues(),
+        versions as OnboardingModelVersions,
+      )).rejects.toThrow(TypeError);
+    }
+
+    expect(accessorReads).toBe(0);
+    expect(clock).not.toHaveBeenCalled();
+    expect(materialize).not.toHaveBeenCalled();
     expect(database.prepare("SELECT COUNT(*) AS count FROM onboarding_confirmations").get())
       .toEqual({ count: 0 });
   });
@@ -573,6 +754,65 @@ describe("SQLite onboarding confirmation persistence", () => {
       .toEqual([{ id: snapshots.preferences.id }]);
     expect(database.prepare("SELECT COUNT(*) AS count FROM onboarding_confirmations").get())
       .toEqual({ count: 0 });
+  });
+
+  test("rejects an unsigned change from one exact tuple to the other", async () => {
+    // Break caught: treating versions_json as valid metadata outside the confirmation HMAC.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const store = createStore(database);
+    const receipt = await commit(store, COMMAND_1, confirmedValues(), ONBOARDING_MODEL_VERSIONS_V1);
+    database.exec("DROP TRIGGER onboarding_confirmations_no_update");
+    database.prepare(`
+      UPDATE onboarding_confirmations SET versions_json = ? WHERE receipt_id = ?
+    `).run(V2_VERSIONS_JSON, receipt.receiptId);
+
+    await expect(store.loadBySnapshotBindingsVerified({
+      profileId: receipt.profileId,
+      preferenceProfileId: receipt.preferenceProfileId,
+    })).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("rejects a fully re-signed prompt/schema hybrid tuple", async () => {
+    // Break caught: verifying the signature before enforcing the application-owned whole-tuple set.
+    const database = track(openEvidenceDatabase(":memory:"));
+    const store = createStore(database);
+    const receipt = await commit(store, COMMAND_1, confirmedValues(), ONBOARDING_MODEL_VERSIONS_V1);
+    const verified = await store.loadBySnapshotBindingsVerified({
+      profileId: receipt.profileId,
+      preferenceProfileId: receipt.preferenceProfileId,
+    });
+    const hybrid = {
+      ...ONBOARDING_MODEL_VERSIONS_V1,
+      extractionPrompt: ONBOARDING_MODEL_VERSIONS_V2.extractionPrompt,
+    };
+    const unsignedReceipt = {
+      schemaVersion: verified.receipt.schemaVersion,
+      receiptId: verified.receipt.receiptId,
+      completionCommandId: verified.receipt.completionCommandId,
+      profileId: verified.receipt.profileId,
+      preferenceProfileId: verified.receipt.preferenceProfileId,
+      frontierRunId: verified.receipt.frontierRunId,
+      confirmedAt: verified.receipt.confirmedAt,
+    };
+    const resignedDigest = hmacSha256(canonicalJson({
+      schemaVersion: "onboarding-confirmation-binding@1",
+      receipt: unsignedReceipt,
+      profile: verified.profile,
+      preferences: verified.preferences,
+      provenance: verified.provenance,
+      versions: hybrid,
+    }), HMAC_KEY);
+    database.exec("DROP TRIGGER onboarding_confirmations_no_update");
+    database.prepare(`
+      UPDATE onboarding_confirmations
+      SET versions_json = ?, confirmation_digest = ?
+      WHERE receipt_id = ?
+    `).run(canonicalJson(hybrid), resignedDigest, receipt.receiptId);
+
+    await expect(store.loadBySnapshotBindingsVerified({
+      profileId: receipt.profileId,
+      preferenceProfileId: receipt.preferenceProfileId,
+    })).rejects.toThrow("integrity_mismatch");
   });
 
   test.each([
