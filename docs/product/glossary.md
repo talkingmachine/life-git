@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-12 |
 | Область ответственности | однозначные продуктовые термины Stage 1 |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13 |
 
 Термины относятся к продуктовой семантике. Технические entities и schemas определяются позже и не
 обязаны повторять эти названия буквально.
@@ -56,6 +56,15 @@
 | **Resolution revision** | append-only canonical snapshot текущей Yellow Resolution: решения, replacement markers, cursor, queue и effective slots, проверяемые из immutable source graph |
 | **Resolved Country Shortlist Snapshot** | terminal Resolution revision с до пятью effective green странами без unresolved formal yellow; единственный future City Frontier input, если результат non-empty |
 | **Shortlist Snapshot** | historical VS-3 название Automatic Shortlist Snapshot; в forward product flow это не final country choice и не City Frontier input |
+| **City Catalog Revision** | immutable установленный каталог official city/municipal centers одной страны: каждый center с latest comparable official population `>= 20 000`, national и explicitly typed regional capitals независимо от population, затем largest comparable centers до top-10 при наличии; больше десяти не обрезаются, missing population не угадывается |
+| **City Criteria Snapshot** | immutable подтверждённый набор ровно четырёх criteria — safety, long-term rent, urban transit и fixed broadband — с mode `required | weighted`, exact target, importance и versioned definition каждого criterion |
+| **City Knowledge Revision** | append-only evidence-backed projection ровно четырёх city facts/statuses одной завершённой проверки; successor не переносит старое value, а fresh revision не меняет frozen ranking текущего run |
+| **City frontier** | полный frozen City Catalog ranking и очередь кандидатов, проверяемых по одному в rank order; terminal condition — `three_selectable` или `catalog_exhausted` |
+| **Selectable city** | city без fresh comparable verified required mismatch; unknown не снимает selectability, а показывается green с amber warning ring и explicit warning list |
+| **City Selection Snapshot** | immutable snapshot terminal entry, exact Knowledge/Evidence lineage и server-derived displayed unknown-warning basis выбранного города |
+| **PreCityBranchCommit** | общий immutable Life Git parent, который City Frontier фиксирует до city choice; terminal shortlist не заменяет этот parent |
+| **City Branch Commit** | атомарный commit выбора города; альтернативы из одного terminal являются sibling commits с `parentId = forkedFrom = preCityBranchCommitId` |
+| **`city-unknown-risk@1`** | версия warning-copy, которую client передаёт только при фактически показанном non-empty server-derived warning basis; она фиксирует принятие ровно этих unknown risks, а не меняет facts |
 | **Формально доступная страна / green** | подтверждён хотя бы один viable long-term ResidenceRoute; это не гарантия approval или city fit |
 | **Неопределённая страна / yellow** | green не найден, но официальный пробел или incomplete catalog не позволяет доказать невозможность |
 | **Исключённая страна / red** | complete applicable route catalog проверен, и каждый маршрут доказанно невозможен для profile; marker остаётся в истории |

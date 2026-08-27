@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "slovenia-city-catalog-summary@1",
+  "referenceDate": "2026-01-01",
+  "releaseDate": "2026-06-11",
+  "sourceRows": 6253,
+  "municipalityRows": 212,
+  "settlementRows": 6040,
+  "nonNullSettlementPopulationRows": 6035,
+  "missingSettlementPopulationRows": 5,
+  "threshold": 20000,
+  "thresholdSettlements": [
+    {"code": "061011", "name": "Ljubljana", "population": 293244},
+    {"code": "070020", "name": "Maribor", "population": 98097},
+    {"code": "011003", "name": "Celje", "population": 38175},
+    {"code": "052014", "name": "Kranj", "population": 38089},
+    {"code": "050041", "name": "Koper/Capodistria", "population": 26579},
+    {"code": "133024", "name": "Velenje", "population": 25617},
+    {"code": "085132", "name": "Novo mesto", "population": 24741}
+  ],
+  "topTenByPopulation": [
+    {"code": "061011", "name": "Ljubljana", "population": 293244},
+    {"code": "070020", "name": "Maribor", "population": 98097},
+    {"code": "011003", "name": "Celje", "population": 38175},
+    {"code": "052014", "name": "Kranj", "population": 38089},
+    {"code": "050041", "name": "Koper/Capodistria", "population": 26579},
+    {"code": "133024", "name": "Velenje", "population": 25617},
+    {"code": "085132", "name": "Novo mesto", "population": 24741},
+    {"code": "096016", "name": "Ptuj", "population": 18247},
+    {"code": "043023", "name": "Kamnik", "population": 13745},
+    {"code": "041007", "name": "Jesenice", "population": 13740}
+  ],
+  "missingPopulationCodes": ["059003", "070016", "103004", "129012", "194037"],
+  "tieBreaker": "population descending, then six-digit source code ascending",
+  "coverageNote": "Threshold and population-order vectors only. The complete 104-centre universe is bound in the companion catalog fixture; current regional-capital overrides are empty, and point coordinates remain derived from GURS polygons."
+}

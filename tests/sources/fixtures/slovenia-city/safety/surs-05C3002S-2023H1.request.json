@@ -1,0 +1,35 @@
+{
+  "query": [
+    {
+      "code": "SPOL",
+      "selection": {
+        "filter": "item",
+        "values": ["0"]
+      }
+    },
+    {
+      "code": "UPRAVNA ENOTA",
+      "selection": {
+        "filter": "item",
+        "values": ["17", "24", "64"]
+      }
+    },
+    {
+      "code": "POLLETJE",
+      "selection": {
+        "filter": "item",
+        "values": ["2023H1"]
+      }
+    },
+    {
+      "code": "STAROST",
+      "selection": {
+        "filter": "item",
+        "values": ["0"]
+      }
+    }
+  ],
+  "response": {
+    "format": "json-stat2"
+  }
+}

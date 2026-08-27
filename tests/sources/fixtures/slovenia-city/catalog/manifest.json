@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "slovenia-city-source-fixture@1",
+  "sourceId": "si-city-catalog",
+  "status": "catalog_source_feasibility_proven",
+  "captureDate": "2026-08-13",
+  "authority": "Statistični urad Republike Slovenije and Geodetska uprava Republike Slovenije",
+  "populationRequest": "POST https://pxweb.stat.si/SiStatData/api/v1/sl/Data/05C5003S.px",
+  "populationMetadataSha256": "662c9490a0f7e23ed6a6b93bf34b7e70fc2282bd1c07620d7abb631e4446be15",
+  "rawRequestSha256": "4ff1555c7c8342777f518e5dc5f2dc86e1246e224b6c1ec25cd626577e2c970f",
+  "rawResponseBytes": 291272,
+  "rawResponseSha256": "237dc3b72da65d580ee84f3b3ec6c2cbd13de71d22b77572f76d83b41585bb0c",
+  "fixtureClasses": {
+    "surs-05C5003S-2026.request.json": "generated-request",
+    "surs-05C5003S-2026.expected-summary.json": "redacted-derived aggregate",
+    "smn-2022-central-urban-settlements.expected.json": "redacted-derived complete considered-universe projection"
+  },
+  "urbanClassification": {
+    "name": "SMN 2022",
+    "effectiveFrom": "2022-11-17",
+    "status": "VELJAVNA",
+    "detailsUrl": "https://www.stat.si/Klasje/Klasje/Details/1601",
+    "tableUrl": "https://www.stat.si/Klasje/Klasje/Tabela/17599",
+    "xlsxSha256": "76c961045ab3189551254ee42795f13a94330218a7cbcf4e7a742faa9219fbd6",
+    "pdfSha256": "145adb974258642c9f84c747ea74b45b77410df88cfad6bb578557bced503477",
+    "centralUrbanSettlementRows": 104,
+    "settlementLeafRows": 6034
+  },
+  "regionalCapitalRule": {
+    "status": "not_applicable_currently",
+    "officialStatusUrl": "https://www.gov.si/en/news/2026-06-05-monika-kirbis-rojs-assumes-office-as-minister-of-local-self-government-cohesion-and-regional-development/",
+    "officialStatusCaptureSha256": "0893c5f1ace1d41e370d42df33b668ad31fef66a252fc13322b2be3b50645d0a",
+    "reason": "The Government states that Slovenia is still advancing the process of establishing self-governing provinces. ReSPR50 second-level centres are not relabelled as regional capitals."
+  },
+  "catalogResult": {
+    "consideredUniverseRows": 104,
+    "rowsWithComparablePopulation": 104,
+    "populationThresholdMembers": 7,
+    "nationalCapitalMembers": 1,
+    "regionalCapitalMembers": 0,
+    "topTenFillMembers": 3,
+    "distinctMembers": 10,
+    "topTenFillApplied": true
+  },
+  "identityBoundary": "Six-digit SURS/SMN codes and GURS EID values are versioned source identities. Stable internal cityId is separate; no source proved EID continuity through split, merge or reclassification.",
+  "coordinateBoundary": "GURS publishes official settlement polygons. A marker point may be a versioned derived point-on-surface, but must not be called an official point coordinate.",
+  "blockingReason": null,
+  "installationNote": "The automatic universe is the 104 SMN 2022 level-2 central urban settlements. A 212-municipality seat crosswalk is outside this approved universe and is not required. Package installation must seal the full projections, derive all 104 marker points from GURS polygons, and assign an opaque stable cityId; later source reclassification requires an explicit identity migration."
+}

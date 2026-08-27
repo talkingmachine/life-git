@@ -1,0 +1,7 @@
+{
+  "label": "Fiksna širokopasovna pokritost",
+  "status": "Aktualni podatki",
+  "updateCadence": "daily",
+  "source": "https://gis.akos-rs.si/StanjePodatkov?lang=slo",
+  "capturedResponseSha256": "15e1142f9ff7f828a3c22262b768ba8aeba5c6487400a9e51013812bab8c898b"
+}

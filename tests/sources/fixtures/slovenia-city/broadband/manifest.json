@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "slovenia-city-source-fixture@1",
+  "sourceId": "si-city-fixed-broadband",
+  "status": "definition_and_current_portal_status_proven_reference_period_and_license_unproved",
+  "captureDate": "2026-08-13",
+  "authority": "Agencija za komunikacijska omrežja in storitve Republike Slovenije",
+  "navigationUrl": "https://gis.akos-rs.si/Index?force_desktop=true",
+  "userGuideUrl": "https://gis.akos-rs.si/AKOS_uporabni%C5%A1ka_navodila.pdf",
+  "userGuideSha256": "1896bc591bdc6747685c0c9e61cb9524017e2040687275fa60401f75607423fe",
+  "layerDiscoveryRequest": "GET https://gis.akos-rs.si/api/Akos/GetLayers?lang=sl",
+  "dataStatusRequest": "GET https://gis.akos-rs.si/StanjePodatkov?lang=slo",
+  "wmsServerRequest": "GET https://gis.akos-rs.si/api/AKOS/GetWMSServer",
+  "wmsCapabilitiesRequest": "GET https://gis.akos-rs.si/geoserver/wms?service=WMS&version=1.3.0&request=GetCapabilities",
+  "getFeatureInfoRequest": "GET https://gis.akos-rs.si/geoserver/wms?service=WMS&version=1.3.0&request=GetFeatureInfo&layers=pregledovalnik%3Apokritost_na&query_layers=pregledovalnik%3Apokritost_na&styles=naselja_vsaj_100mbits_delez&crs=EPSG%3A4326&bbox=46.03,14.45,46.09,14.57&width=800&height=600&i=333&j=334&info_format=application%2Fjson&feature_count=10&propertyName=eid_naselj%2Cnaziv%2Ceid_obcina%2Cgosp_vsaj_100_delez",
+  "rawArtifacts": [
+    {
+      "role": "layer-index",
+      "sha256": "084b3e28ffb5c4ac33c5b48c083bbec371f2756da216541c154cc290d18ac0e3",
+      "committed": false
+    },
+    {
+      "role": "wms-capabilities",
+      "sha256": "f2621896bbd4bed45f952ccd49473fd8ee1e5795f2af6b01fa1b2a4ebcc59fb2",
+      "committed": false
+    },
+    {
+      "role": "get-feature-info-with-geometry",
+      "sha256": "ab1f626abe867b4a889a7d70e2f08031f99c51da27c5894eded2e162248d16d8",
+      "committed": false
+    },
+    {
+      "role": "minimal-get-feature-info",
+      "bytes": 348,
+      "sha256": "653d38dd17080833f56aec90e46ed5c2f458054a2baa87880d6a683ebf15bd64",
+      "committed": false
+    },
+    {
+      "role": "data-status",
+      "bytes": 2335,
+      "sha256": "15e1142f9ff7f828a3c22262b768ba8aeba5c6487400a9e51013812bab8c898b",
+      "meaning": "Fiksna širokopasovna pokritost = Aktualni podatki",
+      "committed": false
+    }
+  ],
+  "fixtureClasses": {
+    "akos-ljubljana-properties.json": "redacted-derived semantic projection",
+    "akos-data-status.expected.json": "redacted-derived semantic projection",
+    "akos-validator-vectors.synthetic.json": "synthetic boundary vectors"
+  },
+  "fixture": {
+    "path": "akos-ljubljana-properties.json",
+    "class": "redacted-derived",
+    "transformation": "The minimal official propertyName response is projected to stable semantic properties; dynamic feature ID and response-time timestamp are omitted. The 18-digit external area identifiers are serialized as decimal strings to preserve exact values in JavaScript."
+  },
+  "boundaryFixture": {
+    "path": "akos-validator-vectors.synthetic.json",
+    "class": "synthetic",
+    "covers": ["below", "equal", "above", "missing value", "missing current portal status"]
+  },
+  "definitionCandidate": {
+    "geoScope": "settlement",
+    "officialAreaIdentifier": "eid_naselj, stored as a versioned external crosswalk value and never reused as stable internal cityId",
+    "field": "gosp_vsaj_100_delez",
+    "meaning": "share of households with fixed broadband capacity of at least 100 Mbit/s",
+    "unit": "percent",
+    "denominator": "households in the settlement",
+    "direction": "at_least",
+    "updateCadence": "daily",
+    "currentStatusCheck": "the same bounded check must receive an official Aktualni podatki status and a successful GetFeatureInfo response; this does not establish the underlying source reference period or age",
+    "referencePeriod": "unproved; response time is only capture time and must not be relabelled as source time"
+  },
+  "blockingReason": "Technical semantics and current portal status are proven, but the underlying source reference period/age and the license for intended production reuse are not. The capture therefore cannot become an evergreen verified fact."
+}

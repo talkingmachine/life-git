@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "slovenia-city-source-fixture@1",
+  "sourceId": "si-city-urban-transit",
+  "status": "captured_source_universe_incomplete",
+  "captureDate": "2026-08-13",
+  "authority": "Družba za upravljanje javnega potniškega prometa and National Access Point Slovenia",
+  "navigationUrl": "https://www.nap.si/sl/datasets_details?id=8db7cc40-3770-d834-5e15-81a0a7763f58",
+  "resolvedEvidenceUrl": "https://dujpp.si/gtfs/dujpp-ijpp.zip",
+  "http": {
+    "status": 200,
+    "contentType": "application/zip",
+    "contentLength": 41195555,
+    "lastModified": "Thu, 13 Aug 2026 12:52:43 GMT",
+    "authentication": "none"
+  },
+  "rawArtifactSha256": "e5458f9dff5ae2ccf08079dfaabb80524706fc3759f638bba81c5d8a73371f34",
+  "headersSha256": "13bd42418ad685b65e2e4573d2f45e890342bf2632458b4f391d02ea8fe28804",
+  "zipIntegrity": "all 11 members passed CRC checks",
+  "license": "CC BY-SA 4.0",
+  "fixture": {
+    "path": "dujpp-coverage-projection.json",
+    "class": "redacted-derived",
+    "derivation": "Exact selected trip fields and measured coverage counts from the complete captured feed."
+  },
+  "fixtureClasses": {
+    "dujpp-coverage-projection.json": "redacted-derived aggregate and selected public-service rows"
+  },
+  "trustedAlternative": {
+    "source": "National Access Point Slovenia NeTEx timetable dataset",
+    "navigationUrl": "https://www.nap.si/en/datasets_details?id=31f7e52b-90e6-6cee-e281-e305511b2a02",
+    "access": "registration and approval required",
+    "nextEvidence": "one authorized feasibility capture must prove actual municipal-operator and catalog-city coverage before installation"
+  },
+  "rejectedAlternative": "Official SURS urban-transport tables have no city dimension or cover only Ljubljana and Maribor, so they cannot provide one comparable wide-catalog fact.",
+  "blockingReason": "The captured DUJPP source has five agencies and only 37 LPP line codes, with zero Marprom agency matches. Those are exact properties of this feed, not proof that unlisted municipal service is absent. A complete official source-universe and city attribution remain unproved; missing feed rows must never be interpreted as zero service."
+}

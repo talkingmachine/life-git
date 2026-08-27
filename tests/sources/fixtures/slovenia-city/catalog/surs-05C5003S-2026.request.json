@@ -1,0 +1,17 @@
+{
+  "query": [
+    {
+      "code": "OBČINA/NASELJE",
+      "selection": {"filter": "all", "values": ["*"]}
+    },
+    {
+      "code": "LETO",
+      "selection": {"filter": "item", "values": ["2026"]}
+    },
+    {
+      "code": "MERITVE",
+      "selection": {"filter": "item", "values": ["0"]}
+    }
+  ],
+  "response": {"format": "json-stat2"}
+}

@@ -1,0 +1,10 @@
+{
+  "type": "Feature",
+  "properties": {
+    "eid_naselj": "110300000101100844",
+    "eid_obcina": "110200000110278491",
+    "naziv": "Ljubljana",
+    "gosp_vsaj_100_delez": 99.26
+  },
+  "geometryOmitted": true
+}
