@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 
 import type { CityCatalogStorePort } from "../../application/city-data-contracts";
 import {
+  reconstructCityRankingSnapshot,
   reconstructCitySelectionSnapshot,
   reconstructCitySelectionWithBranch,
   type CityBranchReadPort,
@@ -69,6 +70,33 @@ interface BranchRow {
   readonly forked_from: string | null;
   readonly selection_snapshot_id: string | null;
   readonly schema_version: string;
+  readonly payload_json: string;
+  readonly payload_hash: string;
+  readonly hmac: string;
+  readonly created_at: string;
+}
+
+interface RankingGateRow {
+  readonly id: string;
+  readonly run_id: string;
+  readonly resolved_country_shortlist_revision_id: string;
+  readonly country_code: string;
+  readonly package_id: string;
+  readonly package_schema_version: string;
+  readonly registry_revision_id: string;
+  readonly catalog_revision_id: string;
+  readonly criteria_snapshot_id: string;
+  readonly pre_city_branch_commit_id: string;
+  readonly profile_snapshot_id: string;
+  readonly preference_profile_snapshot_id: string;
+  readonly evidence_rules_version: string;
+  readonly installed_package_context_json: string;
+  readonly live_city_candidate_limit: number;
+  readonly target_selectable_cities: number;
+  readonly budget_rules_version: string;
+  readonly schema_version: string;
+  readonly rules_version: string;
+  readonly assessment_at: string;
   readonly payload_json: string;
   readonly payload_hash: string;
   readonly hmac: string;
@@ -476,14 +504,66 @@ export class SqliteCitySelectionWriter implements CitySelectionWriterPort {
   }
 
   private requireCurrentCatalog(rankingSnapshotId: string): void {
-    const locator = this.database.prepare(`
-      SELECT catalog_revision_id FROM city_ranking_snapshots WHERE id = ?
-    `).get(identifier(rankingSnapshotId)) as {
-      readonly catalog_revision_id: string;
-    } | undefined;
-    if (locator === undefined) mismatch();
-    const catalog = this.dependencies.catalogs.loadVerified(locator.catalog_revision_id);
-    if (catalog.catalog.id !== locator.catalog_revision_id) mismatch();
+    const row = this.database.prepare(`
+      SELECT id, run_id, resolved_country_shortlist_revision_id, country_code,
+             package_id, package_schema_version, registry_revision_id,
+             catalog_revision_id, criteria_snapshot_id, pre_city_branch_commit_id,
+             profile_snapshot_id, preference_profile_snapshot_id,
+             evidence_rules_version, installed_package_context_json,
+             live_city_candidate_limit, target_selectable_cities,
+             budget_rules_version, schema_version, rules_version, assessment_at,
+             payload_json, payload_hash, hmac, created_at
+      FROM city_ranking_snapshots WHERE id = ?
+    `).get(identifier(rankingSnapshotId)) as RankingGateRow | undefined;
+    if (row === undefined) mismatch();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.payload_json) as unknown;
+    } catch {
+      mismatch();
+    }
+    if (this.integrity.canonical(parsed) !== row.payload_json ||
+      !LOWERCASE_DIGEST.test(row.payload_hash) ||
+      !secureHexEqual(this.integrity.hash(row.payload_json), row.payload_hash) ||
+      !LOWERCASE_DIGEST.test(row.hmac) ||
+      !secureHexEqual(this.integrity.sign(row.payload_json), row.hmac)) mismatch();
+    const ranking = reconstructCityRankingSnapshot(
+      parsed,
+      createCityDecisionIntegrityView(this.integrity),
+    );
+    if (row.id !== ranking.id || row.run_id !== ranking.runId ||
+      row.resolved_country_shortlist_revision_id !==
+        ranking.resolvedCountryShortlistRevisionId ||
+      row.country_code !== ranking.countryCode || row.package_id !== ranking.packageId ||
+      row.package_schema_version !== ranking.packageSchemaVersion ||
+      row.registry_revision_id !== ranking.registryRevisionId ||
+      row.catalog_revision_id !== ranking.catalogRevisionId ||
+      row.criteria_snapshot_id !== ranking.criteriaSnapshotId ||
+      row.pre_city_branch_commit_id !== ranking.preCityBranchCommitId ||
+      row.profile_snapshot_id !== ranking.profileSnapshotId ||
+      row.preference_profile_snapshot_id !== ranking.preferenceProfileSnapshotId ||
+      row.evidence_rules_version !== ranking.installedPackageContext.evidenceRulesVersion ||
+      row.installed_package_context_json !==
+        this.integrity.canonical(ranking.installedPackageContext) ||
+      row.live_city_candidate_limit !== ranking.verificationBudget.liveCityCandidateLimit ||
+      row.target_selectable_cities !== ranking.verificationBudget.targetSelectableCities ||
+      row.budget_rules_version !== ranking.verificationBudget.rulesVersion ||
+      row.schema_version !== ranking.schemaVersion || row.rules_version !== ranking.rulesVersion ||
+      row.assessment_at !== ranking.assessmentAt || row.created_at !== ranking.createdAt) mismatch();
+    const catalog = this.dependencies.catalogs.loadVerified(ranking.catalogRevisionId);
+    if (catalog.catalog.id !== ranking.catalogRevisionId ||
+      catalog.registry.id !== ranking.registryRevisionId ||
+      catalog.catalog.registryRevisionId !== catalog.registry.id ||
+      catalog.registry.countryCode !== ranking.countryCode ||
+      catalog.catalog.countryCode !== ranking.countryCode ||
+      catalog.registry.packageId !== ranking.packageId ||
+      catalog.catalog.packageId !== ranking.packageId ||
+      catalog.registry.packageSchemaVersion !== ranking.packageSchemaVersion ||
+      catalog.catalog.packageSchemaVersion !== ranking.packageSchemaVersion ||
+      ranking.installedPackageContext.countryCode !== ranking.countryCode ||
+      ranking.installedPackageContext.packageId !== ranking.packageId ||
+      ranking.installedPackageContext.packageSchemaVersion !== ranking.packageSchemaVersion ||
+      ranking.installedPackageContext.catalogRevisionId !== ranking.catalogRevisionId) mismatch();
     if (catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) {
       if (catalog.catalog.rulesVersion === "city-catalog@1") {
         throw new Error("city_catalog_upgrade_required");

@@ -182,9 +182,18 @@ interface PairFixture {
     createdAt: string,
   ) => CitySelectionWithBranch;
   readonly catalogBundle: {
-    readonly registry: { readonly id: string };
+    readonly registry: {
+      readonly id: string;
+      readonly countryCode: string;
+      readonly packageId: string;
+      readonly packageSchemaVersion: string;
+    };
     readonly catalog: {
       readonly id: string;
+      readonly registryRevisionId: string;
+      readonly countryCode: string;
+      readonly packageId: string;
+      readonly packageSchemaVersion: string;
       readonly rulesVersion: "city-catalog@1" | "city-catalog@2";
     };
   };
@@ -412,8 +421,20 @@ function pairFixture(
       }, integrity);
     },
     catalogBundle: {
-      registry: { id: ranking.registryRevisionId },
-      catalog: { id: ranking.catalogRevisionId, rulesVersion },
+      registry: {
+        id: ranking.registryRevisionId,
+        countryCode: ranking.countryCode,
+        packageId: ranking.packageId,
+        packageSchemaVersion: ranking.packageSchemaVersion,
+      },
+      catalog: {
+        id: ranking.catalogRevisionId,
+        registryRevisionId: ranking.registryRevisionId,
+        countryCode: ranking.countryCode,
+        packageId: ranking.packageId,
+        packageSchemaVersion: ranking.packageSchemaVersion,
+        rulesVersion,
+      },
     },
   };
 }
@@ -850,6 +871,51 @@ describe("SQLite City Selection writer boundary", () => {
     await expect(current.writer.publishSelection(structuredClone(currentInput)))
       .rejects.toThrowError("city_catalog_upgrade_required");
     expect(rowCounts(current.database)).toEqual({ selections: 1, branches: 1 });
+  });
+
+  test.each([
+    ["command miss", "locator drift"],
+    ["exact stored hit", "locator drift"],
+    ["command miss", "package binding drift"],
+    ["exact stored hit", "package binding drift"],
+  ] as const)("rejects %s with %s before classifying Catalog @1", async (path, drift) => {
+    // Break caught: an unauthenticated Ranking/Catalog binding being misclassified as an upgrade.
+    const { database, fixture, writer } = writerFixture();
+    const input = publication(
+      fixture,
+      "alpha",
+      `command:catalog-auth:${path === "command miss" ? "miss" : "hit"}:${
+        drift === "locator drift" ? "locator" : "package"
+      }`,
+      "2026-01-07T00:00:00.000Z",
+    );
+    if (path === "exact stored hit") await writer.publishSelection(input);
+
+    const mutableCatalog = fixture.catalogBundle.catalog as {
+      id: string;
+      packageId: string;
+      rulesVersion: string;
+    };
+    mutableCatalog.rulesVersion = "city-catalog@1";
+    if (drift === "locator drift") {
+      database.exec("DROP TRIGGER city_ranking_snapshots_no_update");
+      database.prepare(`
+        UPDATE city_ranking_snapshots
+        SET catalog_revision_id = 'catalog:other@1'
+        WHERE id = ?
+      `).run(fixture.ranking.id);
+      mutableCatalog.id = "catalog:other@1";
+    } else {
+      mutableCatalog.packageId = "other-city-package";
+      (fixture.catalogBundle.registry as { packageId: string }).packageId =
+        "other-city-package";
+    }
+
+    await expect(writer.publishSelection(structuredClone(input)))
+      .rejects.toThrowError("integrity_mismatch");
+    expect(rowCounts(database)).toEqual(path === "exact stored hit"
+      ? { selections: 1, branches: 1 }
+      : { selections: 0, branches: 0 });
   });
 
   test.each([
