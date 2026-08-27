@@ -2,9 +2,9 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `approved — implementation pending` |
+| Статус | `implementation in progress — beta core verified` |
 | Владелец решения | пользователь проекта |
-| Последняя проверка | 2026-08-16 |
+| Последняя проверка | 2026-08-27 |
 | Область ответственности | установленный City Catalog, four-criterion city fit, frozen frontier, terminal shortlist и первый выбор городской Life Git ветви |
 | Supersedes | только forward обещание «1–3 города»; historical VS-3/VS-3R artifacts не изменяются |
 | Зависимости | [`VS-3R Yellow Resolution`](../vs-3r-yellow-resolution/change.md), [approved design](../../../superpowers/specs/2026-08-13-vs-4a-city-frontier-design.md), [plan index](../../../superpowers/plans/2026-08-13-vs-4a-city-frontier.md) |
@@ -85,8 +85,19 @@ shortlist, working resolution, empty/tampered terminal или effective-red coun
 - `SCN-CF-09 Alternative branch` — A и B одного terminal создают sibling branches от одного `PreCityBranchCommit`.
 - `SCN-CF-10 Offline replay` — reload воспроизводит cursor, markers, terminal и selections без official HTTP; accepted-yellow country остаётся formal yellow/effective green.
 
-## 5. Traceability и boundary
+## 5. Beta implementation state и boundary
 
-`REQ-CF-01..07` и `SCN-CF-01..10` реализуют `GOAL-CF-01` по approved design и пяти linked plans.
-Этот forward-only change package канонизирует product contract перед implementation; он не создаёт
-production schema, source package, test, runtime flow или City Frontier implementation.
+`REQ-CF-01..07` и `SCN-CF-01..10` остаются утверждённым forward product contract для `GOAL-CF-01`.
+На 2026-08-27 подтверждён beta core: Setup; Start и Present; Prepare и один успешный Continue;
+durable Evidence → Knowledge → Frontier; events и composition; abort, recovery и concurrency; lineage
+и history replay. Полные результаты и границы приведены в
+[implementation evidence](implementation-evidence.md).
+
+Beta core не означает полный статус VS4A `implemented`. Не заработаны public write use case
+`SelectCity`, City HTTP transport, City UI, browser walkthrough и live-source/model evidence.
+Оставшиеся legacy/history/edge matrices, а также nonblocking hardening
+`CITY-EVIDENCE-SCHEMA-CLOSURE`, `CODEX-PROCESS-TREE-OWNERSHIP`,
+`CODEX-IO-TARGET-OWNERSHIP` и `DECIMAL-ORDER-BOUNDS`, не входят в earned beta scope.
+
+Существующие live-only базы данных автоматически не мигрируются: до любой мутации они должны
+fail closed с `database_schema_reset_required`.
