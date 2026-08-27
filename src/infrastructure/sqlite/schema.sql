@@ -28,6 +28,32 @@ CREATE TABLE IF NOT EXISTS evidence_snapshots (
   rules_version TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS country_knowledge_revisions (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (
+    length(country_code) = 2
+    AND country_code = upper(country_code)
+    AND country_code GLOB '[A-Z][A-Z]'
+  ),
+  predecessor_id TEXT REFERENCES country_knowledge_revisions(id),
+  trigger_evidence_snapshot_id TEXT NOT NULL REFERENCES evidence_snapshots(id),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'country-knowledge@1'),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  created_at TEXT NOT NULL,
+  CHECK (predecessor_id IS NULL OR predecessor_id <> id),
+  UNIQUE (country_code, trigger_evidence_snapshot_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS country_knowledge_one_root
+ON country_knowledge_revisions (country_code)
+WHERE predecessor_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS country_knowledge_one_successor
+ON country_knowledge_revisions (predecessor_id)
+WHERE predecessor_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS dossier_versions (
   id TEXT PRIMARY KEY,
   country_code TEXT NOT NULL CHECK (length(country_code) = 2 AND country_code = upper(country_code)),
@@ -56,6 +82,20 @@ CREATE TABLE IF NOT EXISTS profile_snapshots (
   confirmed_at TEXT NOT NULL,
   snapshot_json TEXT NOT NULL,
   snapshot_hash TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS place_frontier_snapshots (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('ranking', 'shortlist')),
+  schema_version TEXT NOT NULL CHECK (
+    schema_version IN ('place-ranking@1', 'place-shortlist@1')
+  ),
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64),
+  created_at TEXT NOT NULL,
+  UNIQUE (run_id, kind)
 );
 
 CREATE TABLE IF NOT EXISTS run_revisions (
@@ -142,6 +182,18 @@ BEGIN
   SELECT RAISE(ABORT, 'sealed_snapshot_is_immutable');
 END;
 
+CREATE TRIGGER IF NOT EXISTS country_knowledge_revisions_no_update
+BEFORE UPDATE ON country_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'country_knowledge_revision_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS country_knowledge_revisions_no_delete
+BEFORE DELETE ON country_knowledge_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'country_knowledge_revision_is_immutable');
+END;
+
 CREATE TRIGGER IF NOT EXISTS dossier_versions_no_update
 BEFORE UPDATE ON dossier_versions
 BEGIN
@@ -164,6 +216,18 @@ CREATE TRIGGER IF NOT EXISTS profile_snapshots_no_delete
 BEFORE DELETE ON profile_snapshots
 BEGIN
   SELECT RAISE(ABORT, 'profile_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS place_frontier_snapshots_no_update
+BEFORE UPDATE ON place_frontier_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'place_frontier_snapshot_is_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS place_frontier_snapshots_no_delete
+BEFORE DELETE ON place_frontier_snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'place_frontier_snapshot_is_immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS run_revisions_no_update

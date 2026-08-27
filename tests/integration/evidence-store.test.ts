@@ -178,6 +178,7 @@ describe("append-only evidence persistence", () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_snapshots").get()).toEqual({ count: 1 });
     expect(db.prepare("SELECT COUNT(*) AS count FROM artifacts WHERE sealed = 1").get()).toEqual({ count: 5 });
     await expect(store.loadVerified("snapshot-complete", KEY)).resolves.toEqual(sealed.snapshot);
+    expect("knowledgeBaselineRevisionId" in sealed.snapshot).toBe(false);
   });
 
   test("requires exactly one typed blocker and no claim for each unavailable source", async () => {
@@ -286,6 +287,63 @@ describe("verified evidence load", () => {
       "snapshot-context-bound",
     );
     await expect(store.loadVerified("snapshot-context-bound", KEY)).rejects.toThrow(
+      "integrity_mismatch",
+    );
+  });
+
+  test("signs the optional Knowledge baseline in both canonical Evidence payloads", async () => {
+    const db = database();
+    const store = new SqliteEvidenceStore(db);
+    const entries = completeEntries();
+    for (const entry of entries) {
+      await store.appendArtifact(entry.parserEntry.artifacts[0]! as LiveCapturedArtifact);
+    }
+    const knowledgeBaselineRevisionId = "country-knowledge:SI:baseline:evidence";
+    const sealed = await sealEvidence({
+      id: "snapshot-knowledge-bound",
+      assessmentDate: ASSESSMENT_DATE,
+      entries,
+      parserVersions: EVIDENCE_PARSER_VERSIONS,
+      rulesVersion: EVIDENCE_RULES_VERSION,
+      knowledgeBaselineRevisionId,
+    }, INTEGRITY);
+    await store.seal(sealed);
+
+    await expect(store.loadVerified("snapshot-knowledge-bound", KEY)).resolves.toEqual(
+      expect.objectContaining({ knowledgeBaselineRevisionId }),
+    );
+    expect(sealed.manifest.snapshot).toEqual(
+      expect.objectContaining({ knowledgeBaselineRevisionId }),
+    );
+
+    db.exec("DROP TRIGGER evidence_snapshots_no_update");
+    const row = db.prepare(`
+      SELECT snapshot_json AS snapshotJson, manifest_json AS manifestJson
+      FROM evidence_snapshots WHERE id = ?
+    `).get("snapshot-knowledge-bound") as {
+      readonly snapshotJson: string;
+      readonly manifestJson: string;
+    };
+    const snapshot = JSON.parse(row.snapshotJson) as Record<string, unknown>;
+    const manifest = JSON.parse(row.manifestJson) as {
+      readonly snapshot: Record<string, unknown>;
+    };
+    snapshot.knowledgeBaselineRevisionId = "country-knowledge:SI:other:evidence";
+    manifest.snapshot.knowledgeBaselineRevisionId = "country-knowledge:SI:other:evidence";
+    const canonicalManifest = INTEGRITY.canonical(manifest);
+    snapshot.manifestHash = INTEGRITY.hash(canonicalManifest);
+    db.prepare(`
+      UPDATE evidence_snapshots
+      SET snapshot_json = ?, manifest_json = ?, manifest_hash = ?
+      WHERE id = ?
+    `).run(
+      INTEGRITY.canonical(snapshot),
+      canonicalManifest,
+      snapshot.manifestHash,
+      "snapshot-knowledge-bound",
+    );
+
+    await expect(store.loadVerified("snapshot-knowledge-bound", KEY)).rejects.toThrow(
       "integrity_mismatch",
     );
   });

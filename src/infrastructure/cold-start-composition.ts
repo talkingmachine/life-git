@@ -19,6 +19,7 @@ import { createInstalledCountrySourceIndex } from "./sources/country-source-inde
 import { captureHttpOnce } from "./sources/gateway";
 import { createSloveniaResearch } from "./sources/slovenia-source-adapter";
 import { SqliteDossierStore } from "./sqlite/dossier-store";
+import { SqliteCountryKnowledgeStore } from "./sqlite/country-knowledge-store";
 import { SqliteEvidenceStore } from "./sqlite/evidence-store";
 import { SqliteProfileStore } from "./sqlite/profile-store";
 
@@ -38,6 +39,7 @@ export function createColdStartComposition(
     options.database,
   );
   const dossierStore = new SqliteDossierStore(options.database, options.hmacKey);
+  const knowledgeStore = new SqliteCountryKnowledgeStore(options.database, options.hmacKey);
   const profileStore = new SqliteProfileStore(options.database);
   const integrity = createEvidenceIntegrity(options.hmacKey);
   const requestStep = options.requestStep ?? captureHttpOnce;
@@ -55,6 +57,9 @@ export function createColdStartComposition(
           deadlineAt: input.deadlineAt,
           signal: input.signal,
           contextHash: input.contextHash,
+          ...(input.knowledgeBaselineRevisionId === undefined
+            ? {}
+            : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
         }, research.plan, {
           source: research.source,
           requestStep,
@@ -73,6 +78,21 @@ export function createColdStartComposition(
       ),
     },
     dossiers: dossierStore,
+    knowledge: {
+      publishCurrent: async ({ evidenceSnapshotId, lastCheckedAt }) => {
+        const evidence = await evidenceStore.loadVerifiedCountryEvidence(
+          evidenceSnapshotId,
+          options.hmacKey,
+        );
+        if (evidence.snapshot.assessmentDate !== lastCheckedAt) {
+          throw new Error("integrity_mismatch");
+        }
+        return knowledgeStore.publishCurrentFromEvidence(evidenceSnapshotId);
+      },
+      latest: async (countryCode) => knowledgeStore.latest(countryCode),
+      resolveForEvidence: async (evidenceSnapshotId) =>
+        knowledgeStore.resolveForEvidence(evidenceSnapshotId),
+    },
     integrity,
     clock: options.clock ?? (() => new Date()),
     nextRunId: options.nextRunId ?? (() => `cold-run-${randomUUID()}`),

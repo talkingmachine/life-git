@@ -5,6 +5,11 @@ import type { Vector3 as ThreeVector3 } from "three";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type { GlobeRoute } from "../../src/experience/research-map/contracts";
+import { projectPlaceFrontierView, type PlaceFrontierScreenState } from
+  "../../src/experience/place-frontier-view-model";
+import type { FrontierMarker } from "../../src/application/place-frontier";
+import { assessFormalResidence } from "../../src/decision/formal-residence-verdict";
+import type { PlaceFrontierEventState } from "../../src/experience/place-frontier-stream";
 
 const lifecycle = vi.hoisted(() => ({
   startJourney: vi.fn(),
@@ -170,6 +175,100 @@ afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
   lifecycle.startJourney.mockImplementation(() => lifecycle.stopJourney);
+});
+
+it("keeps five rapid frontier activations and a red replacement visible as planet markers", async () => {
+  const countries: PlaceFrontierEventState["countries"] = ["AA", "BB", "CC", "DD", "EE", "FF"]
+    .map((code, index) => ({
+      country: {
+        countryCode: code,
+        label: `Country ${code}`,
+        flag: `flag-${code}`,
+        coordinate: { lat: 40 + index, lng: 10 + index },
+      },
+      rank: index + 1,
+    }));
+  const runningState = (activated: PlaceFrontierEventState["countries"]): PlaceFrontierScreenState => ({
+    kind: "running",
+    runId: "frontier-run-rapid",
+    stream: {
+      events: [],
+      lastSequence: 1 + activated.length,
+      runId: "frontier-run-rapid",
+      countries: activated,
+    },
+  });
+  const firstFive = projectPlaceFrontierView(runningState(countries.slice(0, 5)));
+  const props = {
+    onFlightComplete: () => undefined,
+    onReady: () => undefined,
+    onUnavailable: () => undefined,
+  };
+  const globe = render(<ResearchGlobeCanvas {...props} {...firstFive.globe} />);
+
+  await nextRendererFrame();
+  for (const code of ["AA", "BB", "CC", "DD", "EE"]) {
+    expect(screen.getByRole("note", { name: new RegExp(`Country ${code}.*провер`) })).toBeTruthy();
+  }
+
+  const evidenceSnapshotId = "evidence-AA";
+  const evidence = {
+    evidenceSnapshotId,
+    artifactId: "artifact-AA",
+    sourceId: "source-AA",
+    navigationUrl: "https://evidence.test/AA",
+    resolvedEvidenceUrl: "https://evidence.test/AA.pdf",
+    sourcePeriod: "2026-08",
+    locator: "section-AA",
+    excerptSha256: "a".repeat(64),
+    validatorVersion: "fixture-validator@1",
+  };
+  const rejectedMarker: FrontierMarker = {
+    country: countries[0]!.country,
+    rank: 1,
+    countryCheckRunId: `frontier-country:${"1".repeat(64)}`,
+    sourceAssessmentRulesVersion: "cold-start-assessment@1",
+    lastCheckedAt: "2026-08-12",
+    evidenceSnapshotId,
+    formalVerdict: assessFormalResidence({
+      profileSnapshotId: "profile-AA",
+      verdictAsOf: "2026-08-12",
+      routes: [],
+      completeness: {
+        catalogRevisionId: "catalog-AA",
+        jurisdiction: "AA",
+        authority: "Authority AA",
+        scopeKind: "all_long_term_residence_routes_for_profile",
+        profileSnapshotId: "profile-AA",
+        catalogRoutes: [{
+          routeId: "excluded-AA",
+          applicability: "excluded",
+          exclusionCode: "profile_not_eligible",
+          claimIds: ["claim-AA"],
+          evidence: [evidence],
+        }],
+        validatorVersion: "catalog-validator@1",
+        effectiveFrom: "2026-01-01",
+        evidenceSnapshotId,
+        catalogEvidence: [evidence],
+      },
+    }),
+  };
+  const rejectedFirst = {
+    ...countries[0]!,
+    completed: rejectedMarker,
+  };
+  const withReplacement = projectPlaceFrontierView(runningState([
+    rejectedFirst,
+    ...countries.slice(1),
+  ]));
+  globe.rerender(<ResearchGlobeCanvas {...props} {...withReplacement.globe} />);
+
+  await nextRendererFrame();
+  expect(screen.getByRole("button", { name: "Открыть страну Country AA" })).toBeTruthy();
+  for (const code of ["BB", "CC", "DD", "EE", "FF"]) {
+    expect(screen.getByRole("note", { name: new RegExp(`Country ${code}.*провер`) })).toBeTruthy();
+  }
 });
 
 it("does not restart an active flight when rerenders replace its route object with the same key", async () => {
@@ -401,4 +500,85 @@ it("returns focus to a cloned marker when a new overview clears its details", as
   await nextRendererFrame();
   const marker = screen.getByRole("button", { name: "Открыть страну Словения" });
   await waitFor(() => expect(document.activeElement).toBe(marker));
+});
+
+it("makes only red and yellow frontier markers interactive and closes a selected route that becomes green", async () => {
+  lifecycle.startJourney.mockImplementation((options: { onDestinationReveal: () => void }) => {
+    options.onDestinationReveal();
+    return lifecycle.stopJourney;
+  });
+  const countryOrigin = {
+    coordinate: origin.coordinate,
+    country: "Россия",
+    flag: "🇷🇺",
+    kind: "country" as const,
+    label: "Россия",
+  };
+  const frontierRoute = (
+    key: string,
+    label: string,
+    status: GlobeRoute["status"],
+    latitude: number,
+  ): GlobeRoute => ({
+    country: label,
+    description: `Проверка: ${label}`,
+    flag: "🌐",
+    from: countryOrigin.coordinate,
+    key,
+    kind: "country",
+    label,
+    routeLabel: `Россия → ${label}`,
+    status,
+    to: { lat: latitude, lng: 15 },
+  });
+  const pending = frontierRoute("run-1:pending", "Ожидание", "pending", 44);
+  const green = frontierRoute("run-1:green", "Доступно", "green", 45);
+  const yellow = {
+    ...frontierRoute("run-1:yellow", "Уточнить", "yellow", 46),
+    rejectionReason: "Нужна ручная проверка",
+    officialUrl: "https://evidence.test/one",
+    officialUrls: ["https://evidence.test/one", "https://evidence.test/two"],
+    manualCheckLinks: [{ label: "Навигация", url: "https://manual.test/one" }],
+  };
+  const red = frontierRoute("run-1:red", "Недоступно", "red", 47);
+  const props = {
+    activeFlight: pending,
+    onFlightComplete: () => undefined,
+    onReady: () => undefined,
+    onUnavailable: () => undefined,
+    origin: countryOrigin,
+    overview: {
+      coordinates: [countryOrigin.coordinate, pending.to, green.to, yellow.to, red.to],
+      key: 20,
+    },
+  };
+  const globe = render(
+    <ResearchGlobeCanvas {...props} routes={[pending, green, yellow, red]} />,
+  );
+
+  expect(await screen.findByRole("button", { name: "Открыть страну Уточнить" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Открыть страну Недоступно" })).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: /Открыть страну/ })).toHaveLength(2);
+  expect(screen.getByRole("note", { name: /Ожидание.*провер/i })).toBeTruthy();
+  expect(screen.getByRole("note", { name: /Доступно.*формально доступно/i })).toBeTruthy();
+
+  const yellowMarker = screen.getByRole("button", { name: "Открыть страну Уточнить" });
+  fireEvent.keyDown(yellowMarker, { key: "Enter" });
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Evidence" })).toBeTruthy();
+  expect(screen.getAllByRole("link", { name: /официальный источник/i })).toHaveLength(2);
+  expect(screen.getByRole("heading", { name: "Проверьте вручную" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Навигация" })).toBeTruthy();
+
+  globe.rerender(
+    <ResearchGlobeCanvas
+      {...props}
+      routes={[pending, green, { ...yellow, status: "green" }, red]}
+    />,
+  );
+  await nextRendererFrame();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: "Открыть страну Недоступно" }),
+  ));
 });

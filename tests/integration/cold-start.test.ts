@@ -1,18 +1,22 @@
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { Worker } from "node:worker_threads";
+import { join } from "node:path";
 
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+import {
+  sqlitePublicationWorker,
+  type SqlitePublicationWorkerHandle,
+} from "../support/sqlite-publication-worker";
 
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { createConfirmedLifeComposition } from "../../src/infrastructure/composition-root";
 import { createColdStartComposition } from "../../src/infrastructure/cold-start-composition";
 import { coldStartEventSchema } from "../../src/experience/cold-start-stream";
 import { SqliteDossierStore } from "../../src/infrastructure/sqlite/dossier-store";
+import { SqliteCountryKnowledgeStore } from "../../src/infrastructure/sqlite/country-knowledge-store";
 import { SqliteEvidenceStore } from "../../src/infrastructure/sqlite/evidence-store";
 import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-store";
 import {
@@ -36,6 +40,7 @@ import {
   type RelocationProfileDraft,
 } from "../../src/decision/relocation-profile";
 import { REQUIRED_CLAIM_KINDS } from "../../src/research/country-registry";
+import { buildSloveniaKnowledgeRevision } from "../../src/research/country-knowledge";
 import type {
   ClaimKind,
   ClaimValueByKind,
@@ -149,6 +154,7 @@ const databases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const database of databases.splice(0)) database.close();
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { force: true, recursive: true });
@@ -434,86 +440,24 @@ const MALFORMED_STORED_SHAPES: readonly [string, StoredShapeMutation][] = [
   }],
 ];
 
-interface PublishWorkerHandle {
-  readonly ready: Promise<void>;
-  readonly result: Promise<DossierPublishResult>;
-}
-
 function publishWorker(input: {
   readonly path: string;
   readonly preparedEvidence: SloveniaPrepared;
   readonly publishedAt: string;
   readonly start: SharedArrayBuffer;
-}): PublishWorkerHandle {
-  const source = String.raw`
-    const { parentPort, workerData } = require("node:worker_threads");
-    (async () => {
-      let database;
-      try {
-        const { tsImport } = await import("tsx/esm/api");
-        const { SqliteDossierStore } = await tsImport(
-          workerData.storeModule,
-          workerData.parentModule,
-        );
-        const Database = (await import("better-sqlite3")).default;
-        database = new Database(workerData.path);
-        database.pragma("foreign_keys = ON");
-        database.pragma("busy_timeout = 3000");
-        parentPort.postMessage({ type: "ready" });
-        const start = new Int32Array(workerData.start);
-        Atomics.wait(start, 0, 0);
-        const value = new SqliteDossierStore(database, workerData.key).publishWithEvidence({
-          preparedEvidence: workerData.preparedEvidence,
-          publishedAt: workerData.publishedAt,
-        });
-        database.close();
-        database = undefined;
-        parentPort.postMessage({ type: "result", value });
-      } catch (error) {
-        parentPort.postMessage({
-          type: "error",
-          message: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        if (database?.open) database.close();
-      }
-    })();
-  `;
-  const worker = new Worker(source, {
-    eval: true,
-    workerData: {
-      ...input,
-      key: KEY,
-      storeModule: pathToFileURL(resolve("src/infrastructure/sqlite/dossier-store.ts")).href,
-      parentModule: pathToFileURL(resolve("tests/integration/cold-start.test.ts")).href,
-    },
+}): SqlitePublicationWorkerHandle<DossierPublishResult> {
+  return sqlitePublicationWorker({
+    path: input.path,
+    key: KEY,
+    start: input.start,
+    storeModulePath: "src/infrastructure/sqlite/dossier-store.ts",
+    storeExportName: "SqliteDossierStore",
+    methodName: "publishWithEvidence",
+    args: [{
+      preparedEvidence: input.preparedEvidence,
+      publishedAt: input.publishedAt,
+    }],
   });
-  let readyResolve!: () => void;
-  let resultResolve!: (value: DossierPublishResult) => void;
-  let resultReject!: (error: Error) => void;
-  const ready = new Promise<void>((resolveReady) => {
-    readyResolve = resolveReady;
-  });
-  const result = new Promise<DossierPublishResult>((resolveResult, rejectResult) => {
-    resultResolve = resolveResult;
-    resultReject = rejectResult;
-  });
-  void result.catch(() => undefined);
-  const reject = (error: Error): void => {
-    readyResolve();
-    resultReject(error);
-  };
-  worker.on("message", (message: {
-    readonly type: "ready" | "result" | "error";
-    readonly value?: DossierPublishResult;
-    readonly message?: string;
-  }) => {
-    if (message.type === "ready") readyResolve();
-    if (message.type === "result") resultResolve(message.value!);
-    if (message.type === "error") reject(new Error(message.message ?? "worker_failed"));
-  });
-  worker.on("error", (error) => reject(error));
-  return { ready, result };
 }
 
 const RELOCATION_DRAFT: RelocationProfileDraft = {
@@ -654,7 +598,7 @@ function confirmedRelocation(
 }
 
 describe("pure VS-2 cold-start comparator", () => {
-  test("returns a lineage-backed red formula using unrounded Decimal income", async () => {
+  test("keeps a lineage-backed failed route yellow when the national catalog is unproven", async () => {
     const { fixture, dossier } = await publishedAssessmentFixture({ cbrRate: "90" });
     const profile = confirmedRelocation({
       passportValidUntil: "unknown",
@@ -667,37 +611,39 @@ describe("pure VS-2 cold-start comparator", () => {
       evidence: fixture.prepared.snapshot,
       dossier,
       sourceNavigation: SOURCE_URLS,
+      sourceResolvedEvidence: {
+        ...SOURCE_URLS,
+        "cbr-eur": "https://www.cbr.ru/resolved/XML_daily.asp",
+      },
     });
 
-    expect(result).toEqual({
-      marker: "red",
-      personalFit: "verified_veto",
-      cityScope: "not_checked",
-      reasons: [{
-        code: "income_below_verified_threshold",
-        summary: "Подтверждённого чистого дохода недостаточно для порога маршрута.",
-        claimIds: ["si-income-threshold:income:si-income@2", "cbr-eur-facts-1"],
-        officialUrls: [
-          "https://pisrs.si/api/rezultat/neuradno-precisceno-besedilo/613486752/details",
-          SISTAT_API_URL,
-          SOURCE_URLS["cbr-eur"],
-        ],
-      }],
-      formula: {
-        formulaId: "FORMULA-VS2-INCOME-01",
-        formulaVersion: "1",
-        expression: "monthlyIncomeRub / eurRub < thresholdEur",
-        monthlyIncomeRub: "210000",
-        eurRub: "90",
-        incomeEur: "2333.33",
-        thresholdEur: "3361.60",
-        rounding: "UNROUNDED_THEN_HALF_UP_2DP",
-        sourceClaimIds: ["si-income-threshold:income:si-income@2", "cbr-eur-facts-1"],
-      },
+    expect(result.marker).toBe("yellow");
+    expect(result.personalFit).toBe("route_blocked_catalog_incomplete");
+    expect(result.formalVerdict.routeOutcomes).toEqual([
+      expect.objectContaining({
+        routeId: "si-temporary-residence-digital-nomad",
+        status: "impossible",
+      }),
+    ]);
+    expect(result.formalVerdict.catalogCompleteness.status).toBe("unproven");
+    expect(result.formalVerdict.reasons.map(({ code }) => code)).toContain(
+      "catalog_completeness_unprovable",
+    );
+    expect(result.formalVerdict.reasons.flatMap(({ evidence }) => evidence)).toContainEqual(
+      expect.objectContaining({
+        sourceId: "cbr-eur",
+        resolvedEvidenceUrl: "https://www.cbr.ru/resolved/XML_daily.asp",
+      }),
+    );
+    expect(result.formula).toMatchObject({
+      monthlyIncomeRub: "210000",
+      eurRub: "90",
+      incomeEur: "2333.33",
+      thresholdEur: "3361.60",
     });
   });
 
-  test("changes the decision when verified FX or threshold changes and never returns green", async () => {
+  test("makes a compatible route green while insurance remains a procedural action", async () => {
     const compatible = await publishedAssessmentFixture({ cbrRate: "60" });
     const thresholdVeto = await publishedAssessmentFixture({
       cbrRate: "60",
@@ -705,7 +651,7 @@ describe("pure VS-2 cold-start comparator", () => {
         ? { ...claim, value: { ...claim.value as ClaimValueByKind["income"], thresholdEur: "3600.00" } }
         : claim,
     });
-    const profile = confirmedRelocation();
+    const profile = confirmedRelocation({ healthInsurance: "unknown" });
 
     const compatibleResult = assessColdStart({
       assessmentAt: ASSESSMENT_DATE,
@@ -713,6 +659,7 @@ describe("pure VS-2 cold-start comparator", () => {
       evidence: compatible.fixture.prepared.snapshot,
       dossier: compatible.dossier,
       sourceNavigation: SOURCE_URLS,
+      sourceResolvedEvidence: SOURCE_URLS,
     });
     const thresholdResult = assessColdStart({
       assessmentAt: ASSESSMENT_DATE,
@@ -720,14 +667,104 @@ describe("pure VS-2 cold-start comparator", () => {
       evidence: thresholdVeto.fixture.prepared.snapshot,
       dossier: thresholdVeto.dossier,
       sourceNavigation: SOURCE_URLS,
+      sourceResolvedEvidence: SOURCE_URLS,
     });
 
-    expect(compatibleResult.marker).toBe("yellow");
-    expect(compatibleResult.personalFit).toBe("route_compatible_city_unverified");
+    expect(compatibleResult.marker).toBe("green");
+    expect(compatibleResult.personalFit).toBe("verified_route_available");
     expect(compatibleResult.cityScope).toBe("not_checked");
+    expect(compatibleResult.formalVerdict.routeOutcomes[0]?.proceduralActions).toContainEqual({
+      kind: "insurance",
+      completed: false,
+    });
+    const viableReason = compatibleResult.formalVerdict.routeOutcomes[0]?.reasons.find(
+      ({ code }) => code === "route_requirements_verified",
+    );
+    expect(viableReason?.claimIds).toContain("cbr-eur-facts-1");
+    expect(viableReason?.evidence).toContainEqual(expect.objectContaining({
+      sourceId: "cbr-eur",
+      artifactId: expect.stringMatching(/^cbr-eur:/),
+      evidenceSnapshotId: compatible.fixture.prepared.snapshot.id,
+    }));
     expect(compatibleResult.formula?.incomeEur).toBe("3500.00");
-    expect(thresholdResult.marker).toBe("red");
+    expect(thresholdResult.marker).toBe("yellow");
     expect(thresholdResult.formula?.thresholdEur).toBe("3600.00");
+  });
+
+  test("does not promote CBR navigation into verified Evidence when resolved metadata is absent", async () => {
+    const compatible = await publishedAssessmentFixture({ cbrRate: "60" });
+
+    const result = assessColdStart({
+      assessmentAt: ASSESSMENT_DATE,
+      profile: confirmedRelocation(),
+      evidence: compatible.fixture.prepared.snapshot,
+      dossier: compatible.dossier,
+      sourceNavigation: SOURCE_URLS,
+    });
+
+    expect(result.marker).toBe("yellow");
+    expect(result.personalFit).toBe("personal_evidence_missing");
+    expect(result.formalVerdict.routeOutcomes[0]?.status).toBe("unknown");
+    expect(result.formalVerdict.reasons).toContainEqual(expect.objectContaining({
+      code: "fx_rate_unavailable",
+      evidence: [],
+      navigation: [{
+        sourceId: "cbr-eur",
+        url: SOURCE_URLS["cbr-eur"],
+        label: "источник для ручной проверки",
+      }],
+    }));
+  });
+
+  test("keeps passport, remote-work legality and unavailable FX as separate yellow unknowns", async () => {
+    const current = await publishedAssessmentFixture({ cbrRate: "60" });
+    const unavailable = await preparedFixture();
+    const unavailableDb = database();
+    await appendArtifacts(unavailableDb, unavailable.artifacts);
+    const unavailableDossier = new SqliteDossierStore(unavailableDb, KEY).publishWithEvidence({
+      preparedEvidence: unavailable.prepared,
+      publishedAt: PUBLISHED_AT,
+    }).version;
+    const cases = [
+      {
+        expectedCode: "passport_validity_unknown",
+        result: assessColdStart({
+          assessmentAt: ASSESSMENT_DATE,
+          profile: confirmedRelocation({ passportValidUntil: "unknown" }),
+          evidence: current.fixture.prepared.snapshot,
+          dossier: current.dossier,
+          sourceNavigation: SOURCE_URLS,
+        }),
+      },
+      {
+        expectedCode: "remote_work_prerequisite_unknown",
+        result: assessColdStart({
+          assessmentAt: ASSESSMENT_DATE,
+          profile: confirmedRelocation({
+            remoteWork: { relation: "foreign_employment", legallyAllowed: "unknown" },
+          }),
+          evidence: current.fixture.prepared.snapshot,
+          dossier: current.dossier,
+          sourceNavigation: SOURCE_URLS,
+        }),
+      },
+      {
+        expectedCode: "fx_rate_unavailable",
+        result: assessColdStart({
+          assessmentAt: ASSESSMENT_DATE,
+          profile: confirmedRelocation(),
+          evidence: unavailable.prepared.snapshot,
+          dossier: unavailableDossier,
+          sourceNavigation: SOURCE_URLS,
+        }),
+      },
+    ];
+
+    for (const { expectedCode, result } of cases) {
+      expect(result.marker).toBe("yellow");
+      expect(result.personalFit).toBe("personal_evidence_missing");
+      expect(result.formalVerdict.reasons.map(({ code }) => code)).toContain(expectedCode);
+    }
   });
 
   test("keeps gross, unavailable or stale FX and unresolved prerequisites yellow", async () => {
@@ -816,7 +853,11 @@ describe("pure VS-2 cold-start comparator", () => {
 
     expect(blocked.marker).toBe("yellow");
     expect(blocked.personalFit).toBe("research_incomplete");
-    expect(blocked.reasons[0]?.officialUrls).toEqual([SOURCE_URLS["si-income-threshold"]]);
+    expect(blocked.formalVerdict.reasons[0]?.navigation).toEqual([{
+      sourceId: "si-income-threshold",
+      url: SOURCE_URLS["si-income-threshold"],
+      label: "источник для ручной проверки",
+    }]);
   });
 
   test.each([
@@ -849,7 +890,9 @@ describe("pure VS-2 cold-start comparator", () => {
     });
 
     expect(result.marker).toBe("yellow");
-    expect(result.reasons.some(({ code }) => code === "passport_validity_insufficient"))
+    expect(result.formalVerdict.reasons.some(
+      ({ code }) => code === "passport_validity_insufficient",
+    ))
       .toBe(false);
   });
 });
@@ -858,7 +901,11 @@ const installedIndexResult = createInstalledCountrySourceIndex().lookup("SI");
 if (!installedIndexResult.ok) throw new Error("Slovenia test index must be installed");
 const INSTALLED_CANDIDATES = installedIndexResult.candidates;
 
-async function blockedRunFixture(runId: string, contextHash: string) {
+async function blockedRunFixture(
+  runId: string,
+  contextHash: string,
+  knowledgeBaselineRevisionId?: string,
+) {
   const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] =
     SOURCE_IDS.map((sourceId) => ({
       sourceId,
@@ -884,6 +931,7 @@ async function blockedRunFixture(runId: string, contextHash: string) {
     parserVersions: PARSER_VERSIONS,
     rulesVersion: "vs2-si-evidence@2",
     contextHash,
+    ...(knowledgeBaselineRevisionId === undefined ? {} : { knowledgeBaselineRevisionId }),
   }, createEvidenceIntegrity(KEY));
 }
 
@@ -899,6 +947,7 @@ function coldStartHarness(options: {
   const profiles = new SqliteProfileStore(db);
   const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
   const dossierStore = new SqliteDossierStore(db, KEY);
+  const knowledgeStore = new SqliteCountryKnowledgeStore(db, KEY);
   const sourceIndexInputs: string[] = [];
   const researchInputs: unknown[] = [];
   let runCounter = 0;
@@ -921,13 +970,26 @@ function coldStartHarness(options: {
           assessmentDate: input.assessmentDate,
           deadlineAt: input.deadlineAt,
           contextHash: input.contextHash,
+          ...(input.knowledgeBaselineRevisionId === undefined
+            ? {}
+            : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
           candidates: structuredClone(input.candidates),
         });
         const fixture = options.countryInstalled === false
-          ? { prepared: await blockedRunFixture(input.runId, input.contextHash), artifacts: [] }
+          ? {
+              prepared: await blockedRunFixture(
+                input.runId,
+                input.contextHash,
+                input.knowledgeBaselineRevisionId,
+              ),
+              artifacts: [],
+            }
           : await replayableFixture({
               runId: input.runId,
               contextHash: input.contextHash,
+              ...(input.knowledgeBaselineRevisionId === undefined
+                ? {}
+                : { knowledgeBaselineRevisionId: input.knowledgeBaselineRevisionId }),
               cbrRate: "90",
               cbrEffectiveDate: "2026-08-10",
             });
@@ -972,6 +1034,18 @@ function coldStartHarness(options: {
       },
       findByPayload: (countryCode, schemaVersion, payloadHash) =>
         dossierStore.findByPayload(countryCode, schemaVersion, payloadHash),
+    },
+    knowledge: {
+      publishCurrent: async ({ evidenceSnapshotId, lastCheckedAt }) => {
+        const evidence = await evidenceStore.loadVerifiedCountryEvidence(evidenceSnapshotId, KEY);
+        if (evidence.snapshot.assessmentDate !== lastCheckedAt) {
+          throw new Error("integrity_mismatch");
+        }
+        return knowledgeStore.publishCurrentFromEvidence(evidenceSnapshotId);
+      },
+      latest: async (countryCode) => knowledgeStore.latest(countryCode),
+      resolveForEvidence: async (evidenceSnapshotId) =>
+        knowledgeStore.resolveForEvidence(evidenceSnapshotId),
     },
     integrity: (() => {
       const integrity = createEvidenceIntegrity(KEY);
@@ -1205,11 +1279,27 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(nonterminalJson).not.toContain("210000");
     expect(nonterminalJson).not.toContain(prepared.profileId);
     expect(nonterminalJson).not.toContain("contextHash");
-    expect(result.comparator.marker).toBe("red");
+    expect(result.comparator.marker).toBe("yellow");
+    expect(result.comparator.formalVerdict.routeOutcomes).toEqual([
+      expect.objectContaining({
+        routeId: "si-temporary-residence-digital-nomad",
+        status: "impossible",
+      }),
+    ]);
+    expect(result.comparator.formalVerdict.catalogCompleteness.status).toBe("unproven");
+    expect(result.comparator.formalVerdict.reasons.map(({ code }) => code)).toContain(
+      "catalog_completeness_unprovable",
+    );
     expect(result.coverage).toEqual({
       verified: 9,
       required: 9,
       claimKinds: REQUIRED_CLAIM_KINDS,
+    });
+    expect(result.knowledge).toEqual({
+      currentRevisionId: `country-knowledge:SI:${prepared.runId}:evidence`,
+      updatedRevisionId: `country-knowledge:SI:${prepared.runId}:evidence`,
+      lastCheckedAt: prepared.assessmentAt,
+      knowledgeUpdatedAt: "2026-08-11T10:00:00.000Z",
     });
     expect(result.sourceNavigation.map(({ url }) => url)).toEqual([
       "https://www.gov.si/en/news/2025-11-21-temporary-residence-permit-for-digital-nomads/",
@@ -1266,7 +1356,13 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     await harness.application.run(retry, () => undefined, new AbortController().signal);
     expect(harness.db.prepare("SELECT COUNT(*) FROM evidence_snapshots").pluck().get()).toBe(2);
     expect(harness.db.prepare("SELECT COUNT(*) FROM dossier_versions").pluck().get()).toBe(1);
+    expect(harness.db.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get())
+      .toBe(2);
     expect(harness.db.prepare("SELECT COUNT(*) FROM profile_snapshots").pluck().get()).toBe(1);
+    expect(canonicalJson(await harness.application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    }))).toBe(canonicalJson(result));
 
     const other = await harness.application.prepare({
       countryInput: "SI",
@@ -1279,6 +1375,168 @@ describe("cold-start orchestration, reload and commit boundary", () => {
       runId: prepared.runId,
       profileId: other.profileId,
     })).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("returns a green read model for one verified viable route before city research", async () => {
+    const harness = coldStartHarness();
+    const prepared = await harness.application.prepare({
+      countryInput: "SI",
+      profile: {
+        ...RELOCATION_DRAFT,
+        monthlyIncome: { amount: "400000", currency: "RUB", basis: "net" },
+        healthInsurance: "unknown",
+      },
+    });
+
+    const readModel = await harness.application.run(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    expect(readModel.comparator.marker).toBe("green");
+    expect(readModel.comparator.personalFit).toBe("verified_route_available");
+    expect(readModel.comparator.cityScope).toBe("not_checked");
+    expect(readModel.comparator.formalVerdict.routeOutcomes[0]?.proceduralActions).toContainEqual({
+      kind: "insurance",
+      completed: false,
+    });
+  });
+
+  test("publishes Knowledge only after the real composition seals verified Evidence", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T10:00:00.000Z"));
+    const db = database();
+    const runId = "knowledge-composition-run";
+    const fixture = await replayableFixture({ runId });
+    const requestStep = async (request: HttpStepRequest<SloveniaSourceId>) => {
+      const captured = fixture.artifacts.find((candidate) =>
+        candidate.sourceId === request.sourceId && candidate.role === request.role
+      );
+      if (captured === undefined) throw new Error(`missing fixture for ${request.role}`);
+      return captured;
+    };
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      requestStep,
+      clock: () => new Date("2026-08-11T10:00:00.000Z"),
+      nextRunId: () => runId,
+    });
+    const prepared = await application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+
+    const result = await application.run(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    expect(result.knowledge).toEqual({
+      currentRevisionId: `country-knowledge:SI:${runId}:evidence`,
+      updatedRevisionId: `country-knowledge:SI:${runId}:evidence`,
+      lastCheckedAt: "2026-08-11",
+      knowledgeUpdatedAt: "2026-08-11T10:00:00.000Z",
+    });
+    expect("rankingRevisionId" in result.knowledge).toBe(false);
+    expect(db.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get()).toBe(1);
+    expect(await application.present({
+      runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
+  });
+
+  test("retains the latest Knowledge head after an artifactless failed check", async () => {
+    const db = database();
+    const evidenceStore = new SqliteEvidenceStore<SloveniaSourceId, ColdStartEvidenceClaim>(db);
+    const original = await replayableFixture({ runId: "knowledge-existing-run" });
+    for (const sourceArtifact of original.artifacts) {
+      await evidenceStore.appendArtifact(sourceArtifact);
+    }
+    await evidenceStore.seal(original.prepared);
+    const evidence = await evidenceStore.loadVerifiedCountryEvidence(
+      original.prepared.snapshot.id,
+      KEY,
+    );
+    const existingRevision = buildSloveniaKnowledgeRevision({
+      evidence,
+      createdAt: "2026-08-11T10:00:00.000Z",
+    })!;
+    new SqliteCountryKnowledgeStore(db, KEY).publish(existingRevision);
+    const application = createColdStartComposition({
+      database: db,
+      hmacKey: KEY,
+      countrySourceIndex: {
+        lookup: () => ({
+          ok: false as const,
+          kind: "country_not_installed" as const,
+          candidates: [] as const,
+        }),
+      },
+      requestStep: async () => {
+        throw new Error("artifactless failed check must not capture");
+      },
+      clock: () => new Date("2026-08-12T09:00:00.000Z"),
+      nextRunId: () => "knowledge-failed-run",
+    });
+    const prepared = await application.prepare({
+      countryInput: "SI",
+      profile: RELOCATION_DRAFT,
+    });
+
+    const result = await application.run(
+      prepared,
+      () => undefined,
+      new AbortController().signal,
+    );
+
+    expect(result.knowledge).toEqual({
+      currentRevisionId: existingRevision.id,
+      lastCheckedAt: "2026-08-12",
+      knowledgeUpdatedAt: existingRevision.createdAt,
+    });
+    expect(db.prepare("SELECT COUNT(*) FROM country_knowledge_revisions").pluck().get()).toBe(1);
+    expect(await application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    })).toEqual(result);
+
+    const sealedFailedEvidence = db.prepare(`
+      SELECT snapshot_json AS snapshotJson, manifest_json AS manifestJson
+      FROM evidence_snapshots WHERE id = ?
+    `).get(`${prepared.runId}:evidence`) as {
+      readonly snapshotJson: string;
+      readonly manifestJson: string;
+    };
+    expect(JSON.parse(sealedFailedEvidence.snapshotJson)).toMatchObject({
+      knowledgeBaselineRevisionId: existingRevision.id,
+    });
+    expect(JSON.parse(sealedFailedEvidence.manifestJson)).toMatchObject({
+      snapshot: { knowledgeBaselineRevisionId: existingRevision.id },
+    });
+
+    const later = await replayableFixture({ runId: "knowledge-later-run" });
+    for (const sourceArtifact of later.artifacts) {
+      await evidenceStore.appendArtifact(sourceArtifact);
+    }
+    await evidenceStore.seal(later.prepared);
+    const laterEvidence = await evidenceStore.loadVerifiedCountryEvidence(
+      later.prepared.snapshot.id,
+      KEY,
+    );
+    const laterRevision = buildSloveniaKnowledgeRevision({
+      evidence: laterEvidence,
+      predecessor: existingRevision,
+      createdAt: "2026-08-13T10:00:00.000Z",
+    })!;
+    new SqliteCountryKnowledgeStore(db, KEY).publish(laterRevision);
+
+    expect(canonicalJson(await application.present({
+      runId: prepared.runId,
+      profileId: prepared.profileId,
+    }))).toBe(canonicalJson(result));
   });
 
   test.each([
@@ -1505,12 +1763,15 @@ describe("cold-start orchestration, reload and commit boundary", () => {
     expect(result.comparator).toMatchObject({
       marker: "yellow",
       personalFit: "research_incomplete",
-      reasons: [{
-        code: "country_not_installed",
-        summary: "Страна пока не установлена для проверки официальных данных.",
-        claimIds: [],
-        officialUrls: [],
-      }],
+      formalVerdict: {
+        reasons: [{
+          code: "country_not_installed",
+          summary: "Страна пока не установлена для проверки официальных данных.",
+          claimIds: [],
+          evidence: [],
+          navigation: [],
+        }, expect.objectContaining({ code: "catalog_completeness_unprovable" })],
+      },
     });
     expect(result.dossier).toBeUndefined();
     expect(harness.researchInputs).toHaveLength(0);
@@ -2262,6 +2523,7 @@ async function replayableFixture(options: {
   readonly parserVersions?: Readonly<Record<SloveniaSourceId, string>>;
   readonly runId?: string;
   readonly contextHash?: string;
+  readonly knowledgeBaselineRevisionId?: string;
   readonly cbrRate?: string;
   readonly cbrEffectiveDate?: string;
   readonly mutateClaim?: (claim: VerifiedCountryClaim) => VerifiedCountryClaim;
@@ -2409,6 +2671,9 @@ async function replayableFixture(options: {
     parserVersions: options.parserVersions ?? PARSER_VERSIONS,
     rulesVersion: options.rulesVersion ?? "vs2-si-evidence@2",
     contextHash: options.contextHash ?? "b".repeat(64),
+    ...(options.knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId: options.knowledgeBaselineRevisionId }),
   }, createEvidenceIntegrity(KEY));
   return { prepared, artifacts };
 }
@@ -2489,17 +2754,42 @@ describe("cold-start finite HTTP stream", () => {
     checkedAt: prepared.assessmentAt,
     evidenceSnapshotId: `${prepared.runId}:evidence`,
     assessmentRulesVersion: "cold-start-assessment@1",
+    knowledge: { lastCheckedAt: prepared.assessmentAt },
     coverage: { verified: 0, required: 9, claimKinds: [] },
     comparator: {
       marker: "yellow",
       personalFit: "research_incomplete",
       cityScope: "not_checked",
-      reasons: [{
-        code: "country_evidence_incomplete",
-        summary: "Официальные данные по стране подтверждены не полностью.",
-        claimIds: [],
-        officialUrls: [],
-      }],
+      formalVerdict: {
+        rulesVersion: "formal-residence@1",
+        marker: "yellow",
+        verdictAsOf: prepared.assessmentAt,
+        routeOutcomes: [{
+          routeId: "si-temporary-residence-digital-nomad",
+          reasons: [{
+            code: "country_evidence_incomplete",
+            summary: "Официальные данные по стране подтверждены не полностью.",
+            claimIds: [],
+            evidence: [],
+            navigation: [],
+          }],
+          evidenceSnapshotIds: [],
+          proceduralActions: [],
+          contingentActions: [],
+          status: "unknown",
+        }],
+        reasons: [{
+          code: "country_evidence_incomplete",
+          summary: "Официальные данные по стране подтверждены не полностью.",
+          claimIds: [],
+          evidence: [],
+          navigation: [],
+        }],
+        catalogCompleteness: {
+          status: "unproven",
+          reasonCode: "catalog_completeness_unprovable",
+        },
+      },
     },
     sourceNavigation: [],
   };
@@ -2686,12 +2976,12 @@ describe("cold-start finite HTTP stream", () => {
           comparator: {
             marker: "yellow",
             personalFit: "research_incomplete",
-            reasons: [{
-              code: "country_not_installed",
-              summary: "Страна пока не установлена для проверки официальных данных.",
-              claimIds: [],
-              officialUrls: [],
-            }],
+            formalVerdict: {
+              reasons: [
+                expect.objectContaining({ code: "country_not_installed" }),
+                expect.objectContaining({ code: "catalog_completeness_unprovable" }),
+              ],
+            },
           },
           sourceNavigation: [],
         },

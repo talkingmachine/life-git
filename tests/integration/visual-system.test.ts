@@ -131,7 +131,7 @@ describe("calm command center visual contracts", () => {
     );
     const controls = rule(
       css,
-      '.product-shell__workspace[data-globe-mode="collapsed"] :is(.cold-start-comparator, .cold-start-journey__transport, .research-workspace__candidate, .research-workspace__progress, .research-workspace__retry)',
+      '.product-shell__workspace[data-globe-mode="collapsed"] :is(.cold-start-comparator, .cold-start-journey__transport, .research-workspace__candidate, .research-workspace__progress, .research-workspace__retry, .place-frontier-summary, .place-frontier-cards, .place-frontier-journey__transport, .place-frontier-journey__retry)',
     );
 
     expect(declaration(content, "pointer-events")).toBe("none");
@@ -255,5 +255,11 @@ describe("calm command center visual contracts", () => {
     expect(declaration(marker, "translate")).toBe("0 calc(-50% - 0.34rem)");
     expect(marker).not.toMatch(/(?:^|;)\s*(?:bottom|left|transform)\s*:/);
     expect(declaration(origin, "pointer-events")).toBe("none");
+    expect(declaration(rule(researchGlobeCss, ".cityBalloonPending"), "pointer-events"))
+      .toBe("none");
+    expect(declaration(rule(researchGlobeCss, ".cityBalloonGreen"), "pointer-events"))
+      .toBe("none");
+    expect(rule(researchGlobeCss, ".cityBalloonYellow")).not.toContain("pointer-events: none");
+    expect(rule(researchGlobeCss, ".cityBalloonRed")).not.toContain("pointer-events: none");
   });
 });

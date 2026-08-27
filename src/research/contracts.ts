@@ -119,6 +119,7 @@ export interface EvidenceSnapshot<
   readonly parserVersions: Readonly<Record<S, string>>;
   readonly rulesVersion: string;
   readonly contextHash?: string;
+  readonly knowledgeBaselineRevisionId?: string;
   readonly manifestHash: string;
   readonly hmac: string;
 }

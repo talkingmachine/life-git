@@ -9,6 +9,11 @@ export interface GeoCoordinate {
 export interface ResearchReason {
   readonly summary: string;
   readonly officialUrl?: string;
+  readonly officialUrls?: readonly string[];
+  readonly manualCheckLinks?: readonly {
+    readonly label: string;
+    readonly url: string;
+  }[];
 }
 
 export interface ResearchCandidate {
@@ -47,6 +52,12 @@ export interface GlobeRoute {
   readonly photoUrl?: string;
   readonly rejectionReason?: string;
   readonly officialUrl?: string;
+  readonly officialUrls?: readonly string[];
+  readonly manualCheckLinks?: readonly {
+    readonly label: string;
+    readonly url: string;
+  }[];
+  readonly markerVisible?: boolean;
   readonly status: CandidateState;
   readonly to: GeoCoordinate;
 }

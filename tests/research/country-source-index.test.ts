@@ -2,8 +2,36 @@ import { describe, expect, test } from "vitest";
 
 import { createInstalledCountrySourceIndex } from
   "../../src/infrastructure/sources/country-source-index";
+import { createInstalledPlacePackages } from
+  "../../src/infrastructure/sources/installed-place-packages";
 
 describe("installed country source index", () => {
+  test("lists only the frozen Slovenia package without unsupported factor facts", () => {
+    const packages = createInstalledPlacePackages().list();
+
+    expect(packages).toEqual([{
+      countryCode: "SI",
+      label: "Slovenia",
+      flag: "🇸🇮",
+      coordinate: { lat: 46.1512, lng: 14.9955 },
+      supportedCriteria: [],
+      routeCatalog: {
+        revisionId: "si-routes@1",
+        routeIds: ["si-temporary-residence-digital-nomad"],
+        completeness: "unproven",
+      },
+    }]);
+    expect(Object.isFrozen(packages)).toBe(true);
+    expect(Object.isFrozen(packages[0])).toBe(true);
+    expect(Object.isFrozen(packages[0]?.coordinate)).toBe(true);
+    expect(Object.isFrozen(packages[0]?.supportedCriteria)).toBe(true);
+    expect(Object.isFrozen(packages[0]?.routeCatalog)).toBe(true);
+    expect(Object.isFrozen(packages[0]?.routeCatalog.routeIds)).toBe(true);
+    expect(JSON.stringify(packages)).not.toMatch(
+      /factorValue|threshold|sourceBytes|profile|salaryAmount|routeCount/i,
+    );
+  });
+
   test("returns the exact frozen Slovenia navigation set", () => {
     const result = createInstalledCountrySourceIndex().lookup("SI");
 

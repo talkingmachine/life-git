@@ -4,8 +4,12 @@ import type {
   ColdStartEvent,
   ColdStartReadModel,
 } from "../application/cold-start";
+import {
+  FINITE_NDJSON_MAX_LINE_BYTES,
+  readFiniteNdjson,
+} from "./finite-ndjson";
 
-export const COLD_START_MAX_LINE_BYTES = 256 * 1024;
+export const COLD_START_MAX_LINE_BYTES = FINITE_NDJSON_MAX_LINE_BYTES;
 
 export interface ColdStartStreamResponse {
   readonly profileId: string;
@@ -63,11 +67,106 @@ const countrySchema = z.object({
   }).strict(),
 }).strict();
 
-const reasonSchema = z.object({
+const formalEvidenceReferenceSchema = z.object({
+  evidenceSnapshotId: z.string().min(1),
+  artifactId: z.string().min(1),
+  sourceId: z.string().min(1),
+  navigationUrl: z.string().url(),
+  resolvedEvidenceUrl: z.string().url(),
+  sourcePeriod: z.string().min(1),
+  locator: z.string().min(1),
+  excerptSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  validatorVersion: z.string().min(1),
+}).strict();
+
+const formalReasonSchema = z.object({
   code: z.string().min(1),
   summary: z.string().min(1),
   claimIds: z.array(z.string().min(1)),
-  officialUrls: z.array(z.string().url()),
+  evidence: z.array(formalEvidenceReferenceSchema),
+  navigation: z.array(z.object({
+    sourceId: z.string().min(1),
+    url: z.string().url(),
+    label: z.string().min(1),
+  }).strict()),
+}).strict();
+
+const routeBase = {
+  routeId: z.string().min(1),
+  reasons: z.array(formalReasonSchema),
+  evidenceSnapshotIds: z.array(z.string().min(1)),
+  proceduralActions: z.array(z.object({
+    kind: z.enum(["insurance", "registration", "document_submission"]),
+    completed: z.literal(false),
+  }).strict()),
+  contingentActions: z.array(z.object({
+    kind: z.enum(["job_offer", "admission"]),
+    eligibility: z.literal("verified"),
+    acquired: z.literal(false),
+  }).strict()),
+};
+
+const residenceRouteOutcomeSchema = z.discriminatedUnion("status", [
+  z.object({
+    ...routeBase,
+    status: z.enum(["viable", "impossible"]),
+    ruleEffectiveFrom: z.iso.date(),
+    ruleEffectiveTo: z.iso.date().optional(),
+    evidenceSnapshotIds: z.array(z.string().min(1)).min(1),
+  }).strict(),
+  z.object({
+    ...routeBase,
+    status: z.literal("unknown"),
+    ruleEffectiveFrom: z.iso.date().optional(),
+    ruleEffectiveTo: z.iso.date().optional(),
+  }).strict(),
+]);
+
+const catalogRouteCoverageSchema = z.discriminatedUnion("applicability", [
+  z.object({
+    routeId: z.string().min(1),
+    applicability: z.literal("applicable"),
+    evidence: z.array(formalEvidenceReferenceSchema).min(1),
+  }).strict(),
+  z.object({
+    routeId: z.string().min(1),
+    applicability: z.literal("excluded"),
+    exclusionCode: z.string().min(1),
+    claimIds: z.array(z.string().min(1)).min(1),
+    evidence: z.array(formalEvidenceReferenceSchema).min(1),
+  }).strict(),
+]);
+
+const catalogCompletenessAttestationSchema = z.object({
+  catalogRevisionId: z.string().min(1),
+  jurisdiction: z.string().min(1),
+  authority: z.string().min(1),
+  scopeKind: z.literal("all_long_term_residence_routes_for_profile"),
+  profileSnapshotId: z.string().min(1),
+  catalogRoutes: z.array(catalogRouteCoverageSchema).min(1),
+  validatorVersion: z.string().min(1),
+  effectiveFrom: z.iso.date(),
+  effectiveTo: z.iso.date().optional(),
+  evidenceSnapshotId: z.string().min(1),
+  catalogEvidence: z.array(formalEvidenceReferenceSchema).min(1),
+}).strict();
+
+const formalResidenceVerdictSchema = z.object({
+  rulesVersion: z.literal("formal-residence@1"),
+  marker: z.enum(["green", "yellow", "red"]),
+  verdictAsOf: z.iso.date(),
+  routeOutcomes: z.array(residenceRouteOutcomeSchema),
+  reasons: z.array(formalReasonSchema),
+  catalogCompleteness: z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("verified"),
+      attestation: catalogCompletenessAttestationSchema,
+    }).strict(),
+    z.object({
+      status: z.literal("unproven"),
+      reasonCode: z.literal("catalog_completeness_unprovable"),
+    }).strict(),
+  ]),
 }).strict();
 
 const formulaSchema = z.object({
@@ -83,17 +182,26 @@ const formulaSchema = z.object({
 }).strict();
 
 const comparatorSchema = z.object({
-  marker: z.enum(["red", "yellow"]),
+  marker: z.enum(["green", "yellow", "red"]),
   personalFit: z.enum([
-    "verified_veto",
+    "verified_route_available",
+    "route_blocked_catalog_incomplete",
     "research_incomplete",
     "personal_evidence_missing",
-    "route_compatible_city_unverified",
+    "all_routes_impossible",
   ]),
   cityScope: z.literal("not_checked"),
-  reasons: z.array(reasonSchema),
+  formalVerdict: formalResidenceVerdictSchema,
   formula: formulaSchema.optional(),
-}).strict();
+}).strict().superRefine((comparator, context) => {
+  if (comparator.marker !== comparator.formalVerdict.marker) {
+    context.addIssue({
+      code: "custom",
+      message: "formal_marker_mismatch",
+      path: ["marker"],
+    });
+  }
+});
 
 const readModelSchema = z.object({
   runId: z.string().min(1),
@@ -101,6 +209,23 @@ const readModelSchema = z.object({
   checkedAt: z.iso.date(),
   evidenceSnapshotId: z.string().min(1),
   assessmentRulesVersion: z.literal("cold-start-assessment@1"),
+  knowledge: z.object({
+    rankingRevisionId: z.string().min(1).optional(),
+    currentRevisionId: z.string().min(1).optional(),
+    updatedRevisionId: z.string().min(1).optional(),
+    lastCheckedAt: z.iso.date(),
+    knowledgeUpdatedAt: z.iso.datetime().optional(),
+  }).strict().superRefine((knowledge, context) => {
+    if ((knowledge.currentRevisionId === undefined) !== (knowledge.knowledgeUpdatedAt === undefined)) {
+      context.addIssue({ code: "custom", message: "knowledge_head_metadata_mismatch" });
+    }
+    if (
+      knowledge.updatedRevisionId !== undefined &&
+      knowledge.updatedRevisionId !== knowledge.currentRevisionId
+    ) {
+      context.addIssue({ code: "custom", message: "knowledge_updated_revision_mismatch" });
+    }
+  }),
   dossier: z.object({
     id: z.string().min(1),
     label: z.string().min(1),
@@ -116,7 +241,15 @@ const readModelSchema = z.object({
     label: z.string().min(1),
     url: z.string().url(),
   }).strict()),
-}).strict();
+}).strict().superRefine((readModel, context) => {
+  if (readModel.knowledge.lastCheckedAt !== readModel.checkedAt) {
+    context.addIssue({
+      code: "custom",
+      message: "knowledge_last_checked_mismatch",
+      path: ["knowledge", "lastCheckedAt"],
+    });
+  }
+});
 
 const eventBase = {
   runId: z.string().min(1),
@@ -234,73 +367,16 @@ export async function* decodeColdStartStream(
   stream: ReadableStream<Uint8Array>,
   signal?: AbortSignal,
 ): AsyncGenerator<ColdStartEvent> {
-  const reader = stream.getReader();
-  let decoder = new TextDecoder("utf-8", { fatal: true });
-  let line = "";
-  let lineBytes = 0;
   let state = initialColdStartEventState();
   let pendingTerminal: ColdStartEvent | undefined;
-  let reachedEof = false;
-  let abortRequested = false;
-  const cancellationReason = () => signal?.reason
-    ?? new DOMException("The operation was aborted", "AbortError");
-  const cancelForAbort = () => {
-    abortRequested = true;
-    void reader.cancel(cancellationReason()).catch(() => undefined);
-  };
-  if (signal?.aborted === true) cancelForAbort();
-  else signal?.addEventListener("abort", cancelForAbort, { once: true });
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (abortRequested) throw cancellationReason();
-      if (done) {
-        reachedEof = true;
-        break;
-      }
-      let segmentStart = 0;
-      for (let index = 0; index < value.length; index += 1) {
-        if (value[index] !== 0x0a) continue;
-        const segment = value.subarray(segmentStart, index);
-        lineBytes += segment.byteLength;
-        if (lineBytes > COLD_START_MAX_LINE_BYTES) throw new Error("line_too_large");
-        line += decoder.decode(segment, { stream: true });
-        line += decoder.decode();
-        const event = coldStartEventSchema.parse(JSON.parse(line)) as ColdStartEvent;
-        state = reduceColdStartEvent(state, event);
-        if (event.type === "assessment_completed") pendingTerminal = event;
-        else yield event;
-        decoder = new TextDecoder("utf-8", { fatal: true });
-        line = "";
-        lineBytes = 0;
-        segmentStart = index + 1;
-      }
-      const remainder = value.subarray(segmentStart);
-      lineBytes += remainder.byteLength;
-      if (lineBytes > COLD_START_MAX_LINE_BYTES) throw new Error("line_too_large");
-      line += decoder.decode(remainder, { stream: true });
-    }
-
-    line += decoder.decode();
-    if (lineBytes > 0 || line.length > 0) throw new Error("trailing_partial_line");
-    if (state.terminal === undefined || pendingTerminal === undefined) {
-      throw new Error("missing_terminal_event");
-    }
-    yield pendingTerminal;
-  } finally {
-    signal?.removeEventListener("abort", cancelForAbort);
-    if (!reachedEof && !abortRequested) {
-      try {
-        await reader.cancel("cold_start_decoder_stopped");
-      } catch {
-        // Preserve the original stream or consumer error.
-      }
-    }
-    try {
-      reader.releaseLock();
-    } catch {
-      // Releasing an already invalidated reader must not mask the original error.
-    }
+  for await (const value of readFiniteNdjson(stream, signal)) {
+    const event = coldStartEventSchema.parse(value) as ColdStartEvent;
+    state = reduceColdStartEvent(state, event);
+    if (event.type === "assessment_completed") pendingTerminal = event;
+    else yield event;
   }
+  if (state.terminal === undefined || pendingTerminal === undefined) {
+    throw new Error("missing_terminal_event");
+  }
+  yield pendingTerminal;
 }

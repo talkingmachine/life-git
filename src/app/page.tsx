@@ -1,5 +1,7 @@
 import { ColdStartJourney } from "../experience/components/ColdStartJourney";
 import { ColdStartStart } from "../experience/components/ColdStartStart";
+import { PlaceFrontierJourney } from "../experience/components/PlaceFrontierJourney";
+import { PlaceFrontierStart } from "../experience/components/PlaceFrontierStart";
 import { Vs1Journey } from "../experience/components/Vs1Journey";
 import { Vs1Start } from "../experience/components/Vs1Start";
 
@@ -23,6 +25,20 @@ export default async function Page({ searchParams }: PageProps) {
   const flow = one(params.flow);
   const runId = one(params.run);
   const profileId = one(params.profile);
+
+  if (flow === "place-frontier") {
+    if (runId === undefined) return <PlaceFrontierStart />;
+    try {
+      const { getConfirmedLifeApplication } = await import("../infrastructure/composition-root");
+      const readModel = await getConfirmedLifeApplication().presentPlaceFrontier(runId);
+      return <PlaceFrontierJourney initialReadModel={readModel} mode="stored" runId={runId} />;
+    } catch (error) {
+      if (error instanceof Error && error.message === "snapshot_not_found") {
+        return <PlaceFrontierJourney mode="interrupted" runId={runId} />;
+      }
+      return <UnavailablePlaceFrontier />;
+    }
+  }
 
   if (flow === "cold-start") {
     if (runId === undefined && profileId === undefined) return <ColdStartStart />;
@@ -74,6 +90,18 @@ function UnavailableColdStart() {
         <p className="eyebrow">Запуск недоступен</p>
         <h1>Снимок не удалось открыть</h1>
         <p>Проверьте пару идентификаторов запуска и профиля. Доменный вывод не показан.</p>
+      </section>
+    </main>
+  );
+}
+
+function UnavailablePlaceFrontier() {
+  return (
+    <main className="landing landing--error">
+      <section className="landing__copy">
+        <p className="eyebrow">Запуск недоступен</p>
+        <h1>Снимок не удалось открыть</h1>
+        <p>Проверьте идентификатор запуска. Доменный вывод не показан.</p>
       </section>
     </main>
   );

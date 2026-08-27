@@ -38,6 +38,8 @@ export function createProductGlobeRoute(
     photoUrl: candidate.photoUrl,
     rejectionReason: candidate.reason?.summary,
     officialUrl: candidate.reason?.officialUrl,
+    officialUrls: candidate.reason?.officialUrls,
+    manualCheckLinks: candidate.reason?.manualCheckLinks,
     status: candidate.status,
     to: candidate.coordinate,
   };

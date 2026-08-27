@@ -28,6 +28,28 @@ import { ColdStartComparator } from "../../src/experience/components/ColdStartCo
 import { ColdStartJourney } from "../../src/experience/components/ColdStartJourney";
 import { ColdStartStart } from "../../src/experience/components/ColdStartStart";
 
+function formalEvidence(sourceId: string, artifactId: string) {
+  return {
+    evidenceSnapshotId: "cold-run-1:evidence",
+    artifactId,
+    sourceId,
+    navigationUrl: `https://example.test/${sourceId}`,
+    resolvedEvidenceUrl: `https://example.test/${sourceId}.pdf`,
+    sourcePeriod: "2026-08",
+    locator: `section-${sourceId}`,
+    excerptSha256: "a".repeat(64),
+    validatorVersion: "test-validator@1",
+  };
+}
+
+const countryNotInstalledReason = {
+  code: "country_not_installed",
+  summary: "Страна пока не установлена для проверки официальных данных.",
+  claimIds: [],
+  evidence: [],
+  navigation: [],
+};
+
 const terminalEvent = {
   runId: "cold-run-1",
   sequence: 1,
@@ -53,17 +75,30 @@ const terminalEvent = {
       checkedAt: "2026-08-11",
       evidenceSnapshotId: "cold-run-1:evidence",
       assessmentRulesVersion: "cold-start-assessment@1",
+      knowledge: { lastCheckedAt: "2026-08-11" },
       coverage: { verified: 0, required: 9, claimKinds: [] },
       comparator: {
         marker: "yellow",
         personalFit: "research_incomplete",
         cityScope: "not_checked",
-        reasons: [{
-          code: "country_not_installed",
-          summary: "Страна пока не установлена для проверки официальных данных.",
-          claimIds: [],
-          officialUrls: [],
-        }],
+        formalVerdict: {
+          rulesVersion: "formal-residence@1",
+          marker: "yellow",
+          verdictAsOf: "2026-08-11",
+          routeOutcomes: [{
+            routeId: "si-temporary-residence-digital-nomad",
+            status: "unknown",
+            reasons: [countryNotInstalledReason],
+            evidenceSnapshotIds: [],
+            proceduralActions: [],
+            contingentActions: [],
+          }],
+          reasons: [countryNotInstalledReason],
+          catalogCompleteness: {
+            status: "unproven",
+            reasonCode: "catalog_completeness_unprovable",
+          },
+        },
       },
       sourceNavigation: [],
     },
@@ -94,17 +129,60 @@ const redReadModel: ColdStartReadModel = {
   },
   comparator: {
     marker: "red",
-    personalFit: "verified_veto",
+    personalFit: "all_routes_impossible",
     cityScope: "not_checked",
-    reasons: [{
-      code: "income_below_verified_threshold",
-      summary: "Подтверждённого чистого дохода недостаточно для порога маршрута.",
-      claimIds: ["si-income-claim", "cbr-eur-claim"],
-      officialUrls: [
-        "https://pxweb.stat.si/SiStatData/pxweb/en/Data/",
-        "https://www.cbr.ru/scripts/XML_daily.asp",
-      ],
-    }],
+    formalVerdict: {
+      rulesVersion: "formal-residence@1",
+      marker: "red",
+      verdictAsOf: "2026-08-11",
+      routeOutcomes: [{
+        routeId: "si-temporary-residence-digital-nomad",
+        status: "impossible",
+        ruleEffectiveFrom: "2025-11-21",
+        reasons: [{
+          code: "income_below_verified_threshold",
+          summary: "Подтверждённого чистого дохода недостаточно для порога маршрута.",
+          claimIds: ["si-income-claim", "cbr-eur-claim"],
+          evidence: [
+            formalEvidence("si-income", "artifact-income"),
+            formalEvidence("cbr-eur", "artifact-cbr"),
+          ],
+          navigation: [],
+        }],
+        evidenceSnapshotIds: ["cold-run-1:evidence"],
+        proceduralActions: [],
+        contingentActions: [],
+      }],
+      reasons: [{
+        code: "income_below_verified_threshold",
+        summary: "Подтверждённого чистого дохода недостаточно для порога маршрута.",
+        claimIds: ["si-income-claim", "cbr-eur-claim"],
+        evidence: [
+          formalEvidence("si-income", "artifact-income"),
+          formalEvidence("cbr-eur", "artifact-cbr"),
+        ],
+        navigation: [],
+      }],
+      catalogCompleteness: {
+        status: "verified",
+        attestation: {
+          catalogRevisionId: "catalog-si-1",
+          jurisdiction: "SI",
+          authority: "Slovenian Ministry of the Interior",
+          scopeKind: "all_long_term_residence_routes_for_profile",
+          profileSnapshotId: "profile-1",
+          catalogRoutes: [{
+            routeId: "si-temporary-residence-digital-nomad",
+            applicability: "applicable",
+            evidence: [formalEvidence("catalog-route", "artifact-catalog-route")],
+          }],
+          validatorVersion: "catalog-validator@1",
+          effectiveFrom: "2026-01-01",
+          evidenceSnapshotId: "cold-run-1:evidence",
+          catalogEvidence: [formalEvidence("catalog", "artifact-catalog")],
+        },
+      },
+    },
     formula: {
       formulaId: "FORMULA-VS2-INCOME-01",
       formulaVersion: "1",
@@ -121,6 +199,46 @@ const redReadModel: ColdStartReadModel = {
     { label: "SiStat · порог дохода", url: "https://pxweb.stat.si/SiStatData/pxweb/en/Data/" },
     { label: "Банк России · EUR/RUB", url: "https://www.cbr.ru/scripts/XML_daily.asp" },
   ],
+};
+
+const greenReadModel: ColdStartReadModel = {
+  ...redReadModel,
+  comparator: {
+    marker: "green",
+    personalFit: "verified_route_available",
+    cityScope: "not_checked",
+    formalVerdict: {
+      rulesVersion: "formal-residence@1",
+      marker: "green",
+      verdictAsOf: "2026-08-11",
+      routeOutcomes: [{
+        routeId: "si-temporary-residence-digital-nomad",
+        status: "viable",
+        ruleEffectiveFrom: "2025-11-21",
+        reasons: [{
+          code: "route_requirements_verified",
+          summary: "Формальные требования маршрута подтверждены.",
+          claimIds: ["si-route-claim"],
+          evidence: [formalEvidence("si-route", "artifact-route")],
+          navigation: [],
+        }],
+        evidenceSnapshotIds: ["cold-run-1:evidence"],
+        proceduralActions: [{ kind: "insurance", completed: false }],
+        contingentActions: [],
+      }],
+      reasons: [{
+        code: "route_requirements_verified",
+        summary: "Формальные требования маршрута подтверждены.",
+        claimIds: ["si-route-claim"],
+        evidence: [formalEvidence("si-route", "artifact-route")],
+        navigation: [],
+      }],
+      catalogCompleteness: {
+        status: "unproven",
+        reasonCode: "catalog_completeness_unprovable",
+      },
+    },
+  },
 };
 
 afterEach(() => {
@@ -229,6 +347,34 @@ test("decodes a terminal NDJSON event split inside its UTF-8 country label", asy
 });
 
 describe("finite cold-start decoder and reducer", () => {
+  test("accepts the fixed formal verdict rules version and rejects a mutated version", () => {
+    const greenEvent = {
+      ...terminalEvent,
+      payload: { readModel: greenReadModel },
+    };
+    expect(coldStartEventSchema.safeParse(greenEvent).success).toBe(true);
+
+    const mutated = structuredClone(greenEvent) as Record<string, unknown>;
+    const readModel = (mutated.payload as { readModel: Record<string, unknown> }).readModel;
+    const comparator = readModel.comparator as Record<string, unknown>;
+    (comparator.formalVerdict as Record<string, unknown>).rulesVersion = "formal-residence@2";
+
+    expect(coldStartEventSchema.safeParse(mutated).success).toBe(false);
+  });
+
+  test("rejects a terminal payload whose outer marker contradicts the formal verdict", () => {
+    const contradictory = structuredClone({
+      ...terminalEvent,
+      payload: { readModel: greenReadModel },
+    }) as Record<string, unknown>;
+    const readModel = (contradictory.payload as {
+      readModel: Record<string, unknown>;
+    }).readModel;
+    (readModel.comparator as Record<string, unknown>).marker = "yellow";
+
+    expect(coldStartEventSchema.safeParse(contradictory).success).toBe(false);
+  });
+
   test("rejects normal EOF with a partial line or without one terminal event", async () => {
     const partial = new TextEncoder().encode(JSON.stringify(terminalEvent));
     await expect(collect(streamOf(partial))).rejects.toThrow("trailing_partial_line");
@@ -236,6 +382,11 @@ describe("finite cold-start decoder and reducer", () => {
     await expect(collect(streamOf(eventLine(sourceEvent(1))))).rejects.toThrow(
       "missing_terminal_event",
     );
+  });
+
+  test("retains fatal UTF-8 and empty-line rejection after framing extraction", async () => {
+    await expect(collect(streamOf(new Uint8Array([0xc3, 0x28, 0x0a])))).rejects.toThrow();
+    await expect(collect(streamOf(new Uint8Array([0x0a])))).rejects.toThrow();
   });
 
   test("bounds both pending and complete lines to 256 KiB of UTF-8 bytes excluding LF", async () => {
@@ -425,9 +576,29 @@ describe("honest cold-start view projection", () => {
 
     expect(failColdStartScreen(completed, "late_transport_error")).toBe(completed);
   });
+
+  test("projects a verified viable route as green while the city stays unchecked", () => {
+    const view = projectColdStartView(presentColdStartReadModel(greenReadModel));
+
+    expect(view.marker).toBe("green");
+    expect(view.candidate.status).toBe("green");
+    expect(view.readModel?.comparator.cityScope).toBe("not_checked");
+    expect(view.globe.activeFlight?.status).toBe("green");
+    expect(view.globe.routes).toEqual([]);
+  });
 });
 
 describe("cold-start comparator accessibility", () => {
+  test("shows a green formal route with procedural actions and the city disclaimer", () => {
+    const { container } = render(<ColdStartComparator readModel={greenReadModel} />);
+
+    expect(screen.getByRole("heading", { name: "Формальный маршрут доступен" })).toBeTruthy();
+    expect(container.querySelector('[data-icon="status-green"]')).toBeTruthy();
+    expect(screen.getByText(/медицинская страховка/i)).toBeTruthy();
+    expect(screen.getByText(/не гарантирует одобрение и не оценивает город/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /почему не подходит/i })).toBeNull();
+  });
+
   test("shows a sourced red veto and returns focus on Escape or close", () => {
     const { container } = render(<ColdStartComparator readModel={redReadModel} />);
 
@@ -437,8 +608,8 @@ describe("cold-start comparator accessibility", () => {
     expect(screen.getByText("Город не проверен")).toBeTruthy();
     expect(screen.getByText(/9 \/ 9/)).toBeTruthy();
     expect(screen.getByText("Словения · досье v1")).toBeTruthy();
-    expect(screen.getByText("Подтверждён обязательный запрет")).toBeTruthy();
-    expect(container.textContent).not.toContain("verified_veto");
+    expect(screen.getByText("Все формальные маршруты исключены")).toBeTruthy();
+    expect(container.textContent).not.toContain("all_routes_impossible");
     expect(screen.getByText("исследовано отдельно от top-5")).toBeTruthy();
     expect(screen.getByText("Проверенные официальные источники").closest("details")).toBeTruthy();
     expect(screen.getAllByRole("link", { name: /открыть официальный ресурс:/i }))

@@ -107,6 +107,12 @@ const statusLabels = {
   yellow: "Нет данных",
   red: "Не подходит",
 } as const;
+const frontierStatusLabels = {
+  pending: "Формальная проверка",
+  green: "Формально доступно",
+  yellow: "Требует формальной проверки",
+  red: "Формально недоступно",
+} as const;
 const cityBalloonStatusClasses: Record<GlobeRoute["status"], string> = {
   pending: styles.cityBalloonPending,
   green: styles.cityBalloonGreen,
@@ -344,7 +350,9 @@ export function ResearchGlobeCanvas({
   );
   const cityLabelData = useMemo<CityLabelDatum[]>(() => {
     const destinations = routes.flatMap((route) => (
-      route.status !== "pending" || destinationRevealCompleted.current.has(route.key)
+      route.markerVisible === true
+        || route.status !== "pending"
+        || destinationRevealCompleted.current.has(route.key)
         ? [{
           altitude: CITY_LABEL_ALTITUDE,
           flag: route.flag ?? "🌐",
@@ -377,7 +385,9 @@ export function ResearchGlobeCanvas({
   const selectedLongitude = selectedRoute?.to.lng;
   const createCityBalloon = useCallback((datum: object): HTMLElement => {
     const label = datum as CityLabelDatum;
-    const element = document.createElement(label.kind === "origin" ? "div" : "button");
+    const isInteractive = label.kind === "destination" &&
+      (label.status === "red" || label.status === "yellow");
+    const element = document.createElement(isInteractive ? "button" : "div");
     element.className = [
       styles.cityBalloon,
       cityBalloonStatusClasses[label.status],
@@ -394,11 +404,20 @@ export function ResearchGlobeCanvas({
       element.setAttribute("aria-controls", markerDetailId(label.key));
       element.setAttribute("aria-expanded", String(label.selected));
       element.dataset.routeKey = label.key;
-    } else {
+    } else if (label.kind === "origin") {
       element.setAttribute("role", "note");
       element.setAttribute(
         "aria-label",
         `${label.placeKind === "country" ? "Страна" : "Город"} отправления: ${label.label}`,
+      );
+    } else {
+      const status = label.placeKind === "country"
+        ? frontierStatusLabels[label.status]
+        : statusLabels[label.status];
+      element.setAttribute("role", "note");
+      element.setAttribute(
+        "aria-label",
+        `${label.placeKind === "country" ? "Страна" : "Город"} ${label.label}: ${status}`,
       );
     }
     const flag = document.createElement("span");
@@ -413,7 +432,8 @@ export function ResearchGlobeCanvas({
 
   const activateMarker = useEffectEvent((target: EventTarget | null): boolean => {
     const routeKey = markerRouteKey(size.container.current, target);
-    if (routeKey === undefined || !readRoutes().some((route) => route.key === routeKey)) {
+    if (routeKey === undefined || !readRoutes().some((route) =>
+      route.key === routeKey && (route.status === "red" || route.status === "yellow"))) {
       return false;
     }
     setSelectedRouteKey(routeKey);
@@ -666,7 +686,8 @@ export function ResearchGlobeCanvas({
   }, [overview.key]);
 
   useLayoutEffect(() => {
-    if (selectedRouteKey !== undefined && !routes.some((route) => route.key === selectedRouteKey)) {
+    if (selectedRouteKey !== undefined && !routes.some((route) =>
+      route.key === selectedRouteKey && (route.status === "red" || route.status === "yellow"))) {
       returnFocusKey.current = selectedRouteKey;
       setSelectedRouteKey(undefined);
     }
@@ -892,7 +913,11 @@ export function ResearchGlobeCanvas({
           >
             {selectedRoute.label}
           </h2>
-          <p className={styles.markerDetailsStatus}>{statusLabels[selectedRoute.status]}</p>
+          <p className={styles.markerDetailsStatus}>
+            {selectedRoute.kind === "country"
+              ? frontierStatusLabels[selectedRoute.status]
+              : statusLabels[selectedRoute.status]}
+          </p>
           {selectedRoute.status === "green" && selectedRoute.photoUrl !== undefined ? (
             <img
               alt={selectedRoute.label}
@@ -912,11 +937,24 @@ export function ResearchGlobeCanvas({
               </p>
             </>
           )}
-          {selectedRoute.officialUrl === undefined ? null : (
-            <a href={selectedRoute.officialUrl}>
-              Официальный источник: {selectedRoute.label}
-            </a>
+          {(selectedRoute.officialUrls ?? (
+            selectedRoute.officialUrl === undefined ? [] : [selectedRoute.officialUrl]
+          )).length === 0 ? null : (
+            <section aria-label="Evidence">
+              <h3>Evidence</h3>
+              {(selectedRoute.officialUrls ?? [selectedRoute.officialUrl!]).map((url, index) => (
+                <a href={url} key={url}>Официальный источник {index + 1}</a>
+              ))}
+            </section>
           )}
+          {selectedRoute.manualCheckLinks?.length ? (
+            <section aria-label="Проверьте вручную">
+              <h3>Проверьте вручную</h3>
+              {selectedRoute.manualCheckLinks.map((link) => (
+                <a href={link.url} key={`${link.label}:${link.url}`}>{link.label}</a>
+              ))}
+            </section>
+          ) : null}
         </aside>
       )}
     </div>

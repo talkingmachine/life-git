@@ -36,7 +36,7 @@ export interface ColdStartView {
   readonly candidate: ResearchCandidate;
   readonly globe: WorkspaceGlobePresentation;
   readonly globeMode: "full" | "collapsed";
-  readonly marker: "pending" | "red" | "yellow";
+  readonly marker: "pending" | "green" | "yellow" | "red";
   readonly progress: readonly ResearchProgressItem[];
   readonly readModel?: ColdStartReadModel;
   readonly transportError?: string;
@@ -205,17 +205,18 @@ export function presentColdStartReadModel(readModel: ColdStartReadModel): ColdSt
 export function projectColdStartView(state: ColdStartScreenState): ColdStartView {
   const terminal = state.kind === "completed" ? state.readModel : undefined;
   const status: CandidateState = terminal?.comparator.marker ?? "pending";
+  const firstReason = terminal?.comparator.formalVerdict.reasons[0];
   const candidate: ResearchCandidate = {
     ...SLOVENIA,
     status,
-    ...(terminal === undefined || terminal.comparator.reasons[0] === undefined
+    ...(status === "green" || firstReason === undefined
       ? {}
       : {
           reason: {
-            summary: terminal.comparator.reasons[0].summary,
-            ...(terminal.comparator.reasons[0].officialUrls[0] === undefined
+            summary: firstReason.summary,
+            ...(firstReason.evidence[0]?.navigationUrl === undefined
               ? {}
-              : { officialUrl: terminal.comparator.reasons[0].officialUrls[0] }),
+              : { officialUrl: firstReason.evidence[0].navigationUrl }),
           },
         }),
   };
@@ -237,7 +238,7 @@ export function projectColdStartView(state: ColdStartScreenState): ColdStartView
         coordinates: [RUSSIA_ORIGIN.coordinate, SLOVENIA.coordinate],
         key: numericRunKey(state.runId),
       },
-      routes: [route],
+      routes: status === "green" ? [] : [route],
     },
     globeMode: terminal === undefined ? "full" : "collapsed",
     marker: terminal?.comparator.marker ?? "pending",

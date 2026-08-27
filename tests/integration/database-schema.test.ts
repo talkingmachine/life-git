@@ -77,6 +77,20 @@ function createRunRevisionsSchema(
 }
 
 describe("database schema preflight", () => {
+  test("rejects an existing incompatible country Knowledge table before schema execution", () => {
+    const path = temporaryDatabasePath();
+    const incompatible = track(new Database(path));
+    incompatible.exec("CREATE TABLE country_knowledge_revisions (id TEXT PRIMARY KEY)");
+    incompatible.close();
+
+    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+
+    const verification = track(new Database(path, { readonly: true }));
+    expect(verification.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'country_knowledge_revisions'",
+    ).get()).toEqual({ sql: "CREATE TABLE country_knowledge_revisions (id TEXT PRIMARY KEY)" });
+  });
+
   test("rejects a representative e506 schema before its unsafe mixed row can be used", () => {
     const path = temporaryDatabasePath();
     const legacy = createRunRevisionsSchema(path, {
@@ -149,10 +163,24 @@ describe("database schema preflight", () => {
     ).all()).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "country_knowledge_revisions" },
       { name: "dossier_versions" },
       { name: "evidence_snapshots" },
+      { name: "place_frontier_snapshots" },
       { name: "profile_snapshots" },
       { name: "run_revisions" },
+    ]);
+
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE name LIKE 'country_knowledge_%'
+        AND type IN ('index', 'trigger')
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "index", name: "country_knowledge_one_root" },
+      { type: "index", name: "country_knowledge_one_successor" },
+      { type: "trigger", name: "country_knowledge_revisions_no_delete" },
+      { type: "trigger", name: "country_knowledge_revisions_no_update" },
     ]);
 
     expect(reopened.prepare(`
@@ -164,6 +192,30 @@ describe("database schema preflight", () => {
       { type: "index", name: "dossier_versions_one_successor" },
       { type: "trigger", name: "dossier_versions_no_delete" },
       { type: "trigger", name: "dossier_versions_no_update" },
+    ]);
+
+    expect(reopened.prepare(`
+      SELECT type, name FROM sqlite_master
+      WHERE name LIKE 'place_frontier_%'
+      ORDER BY type, name
+    `).all()).toEqual([
+      { type: "table", name: "place_frontier_snapshots" },
+      { type: "trigger", name: "place_frontier_snapshots_no_delete" },
+      { type: "trigger", name: "place_frontier_snapshots_no_update" },
+    ]);
+
+    const frontierColumns = reopened.prepare(
+      "PRAGMA table_info(place_frontier_snapshots)",
+    ).all() as { readonly name: string }[];
+    expect(frontierColumns.map(({ name }) => name)).toEqual([
+      "id",
+      "run_id",
+      "kind",
+      "schema_version",
+      "payload_json",
+      "payload_hash",
+      "hmac",
+      "created_at",
     ]);
   });
 });

@@ -21,6 +21,7 @@ import {
   resolveCountry,
 } from "../research/country-registry";
 import { isCompleteSloveniaSourceSet } from "../research/slovenia-source-set";
+import type { InstalledCountryKnowledgeRevision } from "../research/country-knowledge";
 import {
   buildCountryDossier,
   type DossierPublishResult,
@@ -70,6 +71,13 @@ export interface ColdStartReadModel {
   readonly checkedAt: string;
   readonly evidenceSnapshotId: string;
   readonly assessmentRulesVersion: "cold-start-assessment@1";
+  readonly knowledge: {
+    readonly rankingRevisionId?: string;
+    readonly currentRevisionId?: string;
+    readonly updatedRevisionId?: string;
+    readonly lastCheckedAt: string;
+    readonly knowledgeUpdatedAt?: string;
+  };
   readonly dossier?: {
     readonly id: string;
     readonly label: string;
@@ -153,6 +161,7 @@ export interface ColdStartResearchPrepareInput {
   readonly deadlineAt: string;
   readonly signal: AbortSignal;
   readonly contextHash: string;
+  readonly knowledgeBaselineRevisionId?: string;
   readonly candidates: readonly SourceCandidate[];
   readonly onProgress: (
     progress: EvidenceProgress<SloveniaSourceId, ColdStartEvidenceClaim>,
@@ -190,6 +199,20 @@ export interface ColdStartApplicationPorts {
       schemaVersion: "si-dossier@1",
       payloadHash: string,
     ): DossierVersion | undefined;
+  };
+  readonly knowledge: {
+    publishCurrent(input: {
+      readonly evidenceSnapshotId: string;
+      readonly lastCheckedAt: string;
+    }): Promise<{
+      readonly publishedRevision?: InstalledCountryKnowledgeRevision;
+      readonly currentRevision?: InstalledCountryKnowledgeRevision;
+    }>;
+    latest(countryCode: string): Promise<InstalledCountryKnowledgeRevision | undefined>;
+    resolveForEvidence(evidenceSnapshotId: string): Promise<{
+      readonly publishedRevision?: InstalledCountryKnowledgeRevision;
+      readonly currentRevision?: InstalledCountryKnowledgeRevision;
+    }>;
   };
   readonly integrity: EvidenceIntegrity;
   readonly clock: () => Date;
@@ -232,6 +255,9 @@ function snapshotPayload(
     parserVersions: snapshot.parserVersions,
     rulesVersion: snapshot.rulesVersion,
     ...(snapshot.contextHash === undefined ? {} : { contextHash: snapshot.contextHash }),
+    ...(snapshot.knowledgeBaselineRevisionId === undefined
+      ? {}
+      : { knowledgeBaselineRevisionId: snapshot.knowledgeBaselineRevisionId }),
   };
 }
 
@@ -241,6 +267,7 @@ function verifyPrepared(
     readonly runId: string;
     readonly assessmentAt: string;
     readonly contextHash: string;
+    readonly knowledgeBaselineRevisionId: string | undefined;
   },
   integrity: EvidenceIntegrity,
 ): void {
@@ -250,6 +277,7 @@ function verifyPrepared(
     prepared.snapshot.id !== `${expected.runId}:evidence` ||
     prepared.snapshot.assessmentDate !== expected.assessmentAt ||
     prepared.snapshot.contextHash !== expected.contextHash ||
+    prepared.snapshot.knowledgeBaselineRevisionId !== expected.knowledgeBaselineRevisionId ||
     prepared.snapshot.rulesVersion !== "vs2-si-evidence@2" ||
     prepared.canonicalManifest !== canonicalManifest ||
     integrity.canonical(prepared.manifest.snapshot) !==
@@ -272,6 +300,16 @@ function sourceNavigation(
     sourceId,
     bundle.entries.find((entry) => entry.sourceId === sourceId)!.navigationUrl,
   ])) as Record<SloveniaSourceId, string>;
+}
+
+function sourceResolvedEvidence(
+  bundle: ColdStartVerifiedBundle,
+): Readonly<Record<SloveniaSourceId, string>> {
+  return Object.fromEntries(SOURCE_IDS.map((sourceId) => {
+    const entry = bundle.entries.find((candidate) => candidate.sourceId === sourceId);
+    if (entry === undefined) integrityMismatch();
+    return [sourceId, entry.resolvedEvidenceUrl];
+  })) as Record<SloveniaSourceId, string>;
 }
 
 function terminalEntries(
@@ -316,6 +354,7 @@ function contextHash(
 function countryNotInstalledEvidence(
   prepared: ColdStartPrepared,
   expectedContextHash: string,
+  knowledgeBaselineRevisionId: string | undefined,
   integrity: EvidenceIntegrity,
 ): Promise<SealedEvidence<SloveniaSourceId, ColdStartEvidenceClaim>> {
   const entries: readonly TerminalEvidenceEntry<SloveniaSourceId, ColdStartEvidenceClaim>[] =
@@ -346,6 +385,7 @@ function countryNotInstalledEvidence(
     parserVersions: SLOVENIA_PARSER_VERSIONS,
     rulesVersion: "vs2-si-evidence@2",
     contextHash: expectedContextHash,
+    ...(knowledgeBaselineRevisionId === undefined ? {} : { knowledgeBaselineRevisionId }),
   }, integrity);
 }
 
@@ -435,6 +475,9 @@ export function createColdStartApplication(
       parserVersions: replayed.parserVersions,
       rulesVersion: replayed.rulesVersion,
       contextHash: expectedContextHash,
+      ...(replayed.knowledgeBaselineRevisionId === undefined
+        ? {}
+        : { knowledgeBaselineRevisionId: replayed.knowledgeBaselineRevisionId }),
     }, ports.integrity);
     if (ports.integrity.canonical(rebuilt.snapshot) !== ports.integrity.canonical(replayed)) {
       integrityMismatch();
@@ -457,16 +500,36 @@ export function createColdStartApplication(
       evidence: replayed,
       ...(dossier === undefined ? {} : { dossier }),
       sourceNavigation: navigation,
+      sourceResolvedEvidence: sourceResolvedEvidence(bundle),
     });
     const claimKinds = REQUIRED_CLAIM_KINDS.filter((kind) =>
       replayed.claims.some((claim) => "claimKind" in claim && claim.claimKind === kind)
     );
+    const knowledgePublication = await ports.knowledge.resolveForEvidence(replayed.id);
+    const currentKnowledge = knowledgePublication.currentRevision;
+    const updatedKnowledge = knowledgePublication.publishedRevision;
+    if (
+      updatedKnowledge !== undefined &&
+      (updatedKnowledge.triggerEvidenceSnapshotId !== replayed.id ||
+        currentKnowledge?.id !== updatedKnowledge.id)
+    ) integrityMismatch();
+    const knowledge = {
+      ...(currentKnowledge === undefined
+        ? {}
+        : {
+            currentRevisionId: currentKnowledge.id,
+            ...(updatedKnowledge === undefined ? {} : { updatedRevisionId: updatedKnowledge.id }),
+            knowledgeUpdatedAt: currentKnowledge.createdAt,
+          }),
+      lastCheckedAt: replayed.assessmentDate,
+    };
     return deepFreeze({
       runId,
       country: resolved.country,
       checkedAt: replayed.assessmentDate,
       evidenceSnapshotId: replayed.id,
       assessmentRulesVersion: COLD_START_ASSESSMENT_RULES_VERSION,
+      knowledge,
       ...(dossier === undefined
         ? {}
         : {
@@ -492,8 +555,11 @@ export function createColdStartApplication(
     });
   };
 
-  const application: ColdStartApplication = {
-    async prepare(input): Promise<ColdStartPrepared> {
+  const prepareCore = async (
+    input:
+      | { readonly countryInput: string; readonly profile: RelocationProfileDraft }
+      | { readonly countryInput: string; readonly profileId: string },
+  ): Promise<ColdStartPrepared> => {
       const resolved = resolveCountry(input.countryInput);
       if (!resolved.ok) throw new Error(resolved.kind);
       const now = ports.clock();
@@ -512,6 +578,11 @@ export function createColdStartApplication(
         assessmentAt: nowIso.slice(0, 10),
         deadlineAt: new Date(now.valueOf() + 60_000).toISOString(),
       });
+  };
+
+  const application: ColdStartApplication = {
+    prepare(input): Promise<ColdStartPrepared> {
+      return prepareCore(input);
     },
 
     async run(prepared, emit, signal): Promise<ColdStartReadModel> {
@@ -521,6 +592,12 @@ export function createColdStartApplication(
         !resolved.ok ||
         ports.integrity.canonical(resolved.country) !== ports.integrity.canonical(prepared.country)
       ) integrityMismatch();
+      await ports.profiles.loadRelocationVerified(prepared.profileId);
+      const knowledgeBaseline = await ports.knowledge.latest("SI");
+      if (knowledgeBaseline !== undefined && knowledgeBaseline.countryCode !== "SI") {
+        integrityMismatch();
+      }
+      const knowledgeBaselineRevisionId = knowledgeBaseline?.id;
       const events = eventEmitter(prepared, emit, ports.clock);
       const indexed = ports.countrySourceIndex.lookup(prepared.country.code);
       if (signal.aborted) abortReason(signal);
@@ -533,15 +610,21 @@ export function createColdStartApplication(
         const preparedEvidence = await countryNotInstalledEvidence(
           prepared,
           expectedContextHash,
+          knowledgeBaselineRevisionId,
           ports.integrity,
         );
         verifyPrepared(preparedEvidence, {
           runId: prepared.runId,
           assessmentAt: prepared.assessmentAt,
           contextHash: expectedContextHash,
+          knowledgeBaselineRevisionId,
         }, ports.integrity);
         if (signal.aborted) abortReason(signal);
         await ports.evidence.seal(preparedEvidence);
+        await ports.knowledge.publishCurrent({
+          evidenceSnapshotId: preparedEvidence.snapshot.id,
+          lastCheckedAt: preparedEvidence.snapshot.assessmentDate,
+        });
         const readModel = await loadReadModel(prepared.runId, prepared.profileId);
         await events.send({ type: "assessment_completed", payload: { readModel } });
         return readModel;
@@ -571,6 +654,7 @@ export function createColdStartApplication(
         deadlineAt: prepared.deadlineAt,
         signal,
         contextHash: expectedContextHash,
+        ...(knowledgeBaselineRevisionId === undefined ? {} : { knowledgeBaselineRevisionId }),
         candidates,
         onProgress: async (progress) => {
           await events.send(progressPayload(progress));
@@ -581,6 +665,7 @@ export function createColdStartApplication(
         runId: prepared.runId,
         assessmentAt: prepared.assessmentAt,
         contextHash: expectedContextHash,
+        knowledgeBaselineRevisionId,
       }, ports.integrity);
 
       const canPublish = publicationAllowed(preparedEvidence);
@@ -594,8 +679,16 @@ export function createColdStartApplication(
       } else {
         await ports.evidence.seal(preparedEvidence);
       }
+      const knowledgePublication = await ports.knowledge.publishCurrent({
+        evidenceSnapshotId: preparedEvidence.snapshot.id,
+        lastCheckedAt: preparedEvidence.snapshot.assessmentDate,
+      });
 
       const readModel = await loadReadModel(prepared.runId, prepared.profileId);
+      if (
+        readModel.knowledge.currentRevisionId !== knowledgePublication.currentRevision?.id ||
+        readModel.knowledge.updatedRevisionId !== knowledgePublication.publishedRevision?.id
+      ) integrityMismatch();
       if (publication !== undefined) {
         if (readModel.dossier?.id !== publication.version.id) integrityMismatch();
         await events.send({

@@ -4,11 +4,12 @@
 | --- | --- |
 | Статус | `approved` |
 | Владелец решения | пользователь проекта |
-| Последняя проверка | 2026-08-11 |
+| Последняя проверка | 2026-08-12 |
 | Область ответственности | JIT baseline одного schema-gated cold start, публикации country dossier и отдельного comparator |
 | Supersedes | нет |
 | Зависимости | [`CONSTITUTION`](../../../CONSTITUTION.md), [`Spec of Specs`](../../../architecture/spec-of-specs.md), [`ADR-001`](../../../decisions/ADR-001-modular-monolith.md), [`VS-1`](../vs-1-confirmed-life/change.md) |
 | Approval | пользователь проекта / 2026-08-11 / VS-2 exact-text baseline / approved |
+| Amended by | `VS-3 Place Frontier` — marker semantics, `REQ-VS2-03`, `SCN-VS2-01/04`, `INV-VS2-03` и marker eval wording |
 | Implementation evidence | [provider-free current-source walkthrough](./implementation-evidence.md) / пользователь подтвердил 2026-08-11 |
 | Provider-free runtime | `verified` |
 | Source verification | `earned` — provider-free current-source run подтвердил `9 / 9`, четыре verified coverage-группы, `blockers: []` и immutable Slovenia dossier v1 |
@@ -74,9 +75,10 @@ automatic free access, а conditional local employment. Remote-работа сп
   создаёт version.
 - `REQ-VS2-03` (`GOAL-VS2-01`; `SCN-VS2-01`, `SCN-VS2-04`): опубликованный dossier оценивается
   только относительно exact Profile/Evidence Snapshot и показывается отдельным comparator.
-  Acceptance: verified veto даёт red с формулой и official links; route-compatible без verified city
-  виден в comparator, но marker остаётся yellow до `VS-3`; неподтверждённый personal prerequisite
-  не превращается в pass.
+  Acceptance, amended by `VS-3`: comparator раскрывает route-specific outcome. Один verified viable
+  route разрешает green без city verification; blocker одного route не разрешает country red; при
+  no-green и incomplete/unknown catalog marker yellow. Red требует complete all-impossible catalog;
+  неподтверждённый personal prerequisite не превращается в pass.
 - `REQ-VS2-04` (`GOAL-VS2-01`; `SCN-VS2-01`, `SCN-VS2-02`): пользователь видит проверяемый журнал
   этапов, blockers и provenance, но не скрытые chain-of-thought модели.
   Acceptance: status понятен без цвета и с клавиатуры; source details доступны по red/yellow и card.
@@ -88,8 +90,10 @@ automatic free access, а conditional local employment. Remote-работа сп
 
 - `SCN-VS2-01 Slovenia cold start`: dossier отсутствует; пользователь вводит Словению; marker gray,
   UI последовательно показывает installed navigation, authority, capture, claims и publication. Полное coverage
-  публикует `SI v1`; текущий synthetic profile получает red, когда live official formula и current
-  CBR FX доказывают недостаточный доход. Карта сворачивается, отдельный comparator остаётся видим.
+  публикует `SI v1`; current synthetic profile получает formula-backed blocker digital-nomad route
+  в comparator. Пока complete residence-route catalog не доказан, formal country marker остаётся
+  yellow `catalog_completeness_unprovable`, а не red. Карта сворачивается, отдельный comparator
+  остаётся видим.
 - `SCN-VS2-02 Fail closed/retry`: unofficial redirect, semantic mismatch, stale source, conflict или
   исчерпанный budget завершают run yellow с кратким blocker и ссылкой, если она official. Dossier не
   публикуется; retry создаёт новый run/snapshot и не меняет предыдущий.
@@ -97,25 +101,28 @@ automatic free access, а conditional local employment. Remote-работа сп
   сети. Новый live run с тем же normalized dossier hash переиспользует version; изменившиеся
   verified claims публикуют следующую version с predecessor, старая остаётся читаемой.
 - `SCN-VS2-04 Route-compatible`: другой подтверждённый profile проходит country-level rules.
-  Comparator показывает `route-compatible`; marker остаётся yellow с причиной «город ещё не
-  проверен», а green не публикуется до `VS-3`.
+  Comparator показывает `route-compatible`; после применения `VS-3` formal projection verified
+  viable route разрешает green без проверки города. Green не утверждает city fit, application
+  readiness или гарантированное approval.
 
 ## 6. Dossier и marker semantics
 
-`DossierVersion` разрешено публиковать независимо от персонального результата: red означает
-verified несоответствие пользователя, а не провал исследования. Dossier содержит country facts,
-но не profile, personal verdict или FX conversion.
+`DossierVersion` публикуется независимо от персонального результата. Route-specific blocker в
+comparator сам по себе не означает country red; dossier не содержит profile, personal verdict или
+FX conversion.
 
 | State | Terminal meaning |
 | --- | --- |
-| `gray` | Проверка идёт; dossier/verdict ещё нет. |
-| `red` | Опубликованный evidence плюс confirmed profile доказывают country-level veto; причина, формула и official links раскрываются. |
-| `yellow` | Нет персонального verdict: critical evidence missing/stale/conflicting/invalid либо country route-compatible, но city ещё не verified. |
-| `green` | В `VS-2` недостижим: cross-slice invariant требует хотя бы один confirmed city. |
+| `gray` | Формальная проверка ещё выполняется; verdict отсутствует. |
+| `green` | Подтверждён хотя бы один formally viable long-term route; city verification не требуется. |
+| `yellow` | Green не найден, но unknown/conflict/stale или incomplete catalog не позволяют доказать невозможность. |
+| `red` | Complete applicable catalog проверен, и каждый route доказанно impossible для profile. |
 
 - `INV-VS2-01`: только full-coverage sealed Evidence Snapshot разрешает публикацию dossier.
 - `INV-VS2-02`: dossier не содержит profile/verdict, неизменяем и idempotent по country/schema/payload hash.
-- `INV-VS2-03`: verified personal veto даёт red; missing/conflict дают yellow; green требует confirmed city.
+- `INV-VS2-03`, amended by `VS-3`: verified viable route даёт green; complete effective
+  all-impossible catalog даёт red; no-green incomplete/unknown даёт yellow; city verification не
+  участвует в formal marker.
 - `INV-VS2-04`: Country Source Index не получает PII и не может опубликовать source, claim или verdict.
 - `INV-VS2-05`: UI progress следует только фактически полученным typed events, а не таймеру.
 
@@ -204,7 +211,8 @@ end-to-end; другая страна может закончиться explicit
 «источники найдены → официальность подтверждена → документы сохранены → факты проверены → dossier
 опубликован → применимость рассчитана». Они не симулируют прогресс таймерами.
 
-Red раскрывает краткий verified veto, formula lineage и official links; yellow — blocker/retry.
+Red раскрывает complete route outcomes, verified blockers и official links; yellow — exact
+unresolved fact, blocker/retry и manual-check guidance.
 Comparator всегда показывает country/city scope, dossier version, checkedAt, coverage и personal
 fit, а также пометку «исследовано отдельно от top-5». Цвет дублируется icon/text и live region.
 
@@ -214,13 +222,15 @@ fit, а также пометку «исследовано отдельно от
 Страны и layout-комбинации не образуют exhaustive matrix.
 
 - `EVAL-VS2-01 Live Slovenia`: no dossier -> complete listing/max applicable period -> sealed full
-  coverage -> `v1` -> formula-backed comparator/red, пока live threshold выше current income.
+  coverage -> `v1` -> formula-backed route blocker without false country-red while catalog
+  completeness remains unproven.
 - `EVAL-VS2-02 No false publication`: unofficial/semantic/conflict representative cases дают
   yellow, zero new dossier rows и понятный blocker.
 - `EVAL-VS2-03 Replay/immutability`: два zero-network replay совпадают; tamper rejected; same hash
   idempotent, changed verified claims create `v2` without modifying `v1`.
 - `EVAL-VS2-04 Privacy/visual truth`: installed index/event payloads не содержат profile/PII; один
-  provider-free browser E2E проверяет real event progress, icon/text states, red details и comparator.
+  provider-free browser E2E проверяет real event progress, accessible formal marker state, blocker
+  details и comparator.
 
 | REQ | SCN | INV/ADR | PORT | TEST/EVAL |
 | --- | --- | --- | --- | --- |

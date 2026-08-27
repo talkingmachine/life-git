@@ -362,8 +362,10 @@ describe("Life Git housing branch", () => {
     expect(tables).toEqual([
       { name: "artifacts" },
       { name: "branch_commits" },
+      { name: "country_knowledge_revisions" },
       { name: "dossier_versions" },
       { name: "evidence_snapshots" },
+      { name: "place_frontier_snapshots" },
       { name: "profile_snapshots" },
       { name: "run_revisions" },
     ]);
