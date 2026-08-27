@@ -69,7 +69,9 @@ coverage меньше пяти, результат называется prelimin
 
 - `NFR-PF-01 Official-only`: внешний fact и formal verdict требуют current official capture,
   validator и sealed lineage; installed navigation не является evidence.
-- `NFR-PF-02 Provider-free`: до защиты runtime model/API calls равны нулю.
+- `NFR-PF-02 Provider-free within Place Frontier`: сам VS-3 не вызывает LLM/API и не получает
+  provider SDK, credential или billing surface. Утверждённые Entry и VS-4 вызовы Codex CLI находятся
+  вне этого среза и регулируются `2026-08-20-codex-cli-runtime-design.md`.
 - `NFR-PF-03 Truthful ranking`: stale/future/incomparable fact становится unknown; unknown получает
   явную worst-case boundary `-1`, а coverage остаётся видимым.
 - `NFR-PF-04 Minimum sufficient complexity`: первый slice переиспользует VS-2 capture, Evidence,

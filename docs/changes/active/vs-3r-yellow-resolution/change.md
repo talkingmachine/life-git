@@ -62,8 +62,9 @@ replay и аудита.
   Evidence pipeline; пользовательское решение не становится Evidence и не хранит secret-bearing data.
 - `NFR-YR-02 Append-only` — automatic snapshots, decisions, revisions, Evidence и Knowledge не
   обновляются и не удаляются.
-- `NFR-YR-03 Provider-free` — runtime не получает external LLM/API/provider SDK, credential или
-  billing surface.
+- `NFR-YR-03 Provider-free within Yellow Resolution` — сам VS-3R не вызывает LLM/API и не получает
+  provider SDK, credential или billing surface. Утверждённые Entry и VS-4 вызовы Codex CLI находятся
+  вне этого среза и регулируются `2026-08-20-codex-cli-runtime-design.md`.
 - `NFR-YR-04 Bounded recovery` — replacement переиспользует bounded timeout/retry/cancellation и
   finite NDJSON; crawler, worker, polling и background workflow отсутствуют.
   Only explicit replacement continuation may invoke CountryVerifierPort or make network calls. Start, yellow decision, presentation, and reload must make zero network calls.

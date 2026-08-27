@@ -1,0 +1,463 @@
+# Country Assessment V2 Design
+
+| Поле | Значение |
+| --- | --- |
+| Статус | `approved` |
+| Владелец решения | пользователь проекта |
+| Дата | 2026-08-20 |
+| Область | formal country assessment для `relocation-profile@2` |
+| Зависимости | Local Conversational Onboarding, Country Evidence, Formal Residence Verdict |
+| Supersedes | только отсутствующую ветку `@2`; `cold-start-assessment@1` не изменяется |
+| Approval | пользователь проекта / 2026-08-20 / choices `1,1,1` / approved |
+
+## 1. Цель
+
+Новая onboarding-анкета сохраняет отдельные данные всех участников, но намеренно не спрашивает
+юридическую форму удалённой работы, route-specific legality, страховку и другие сведения выбранного
+маршрута. `Country Assessment V2` должен использовать известные данные без выдумывания
+недостающих фактов и передавать результат в существующий formal country verdict.
+
+Он не является новым поиском стран, legal engine или вторым marker pipeline. Он переводит один
+проверенный `relocation-profile@2` и одну sealed Country Evidence/Dossier revision в существующие
+`ResidenceRouteOutcome`, после чего вызывает существующий `assessFormalResidence`.
+
+## 2. Утверждённые решения
+
+1. Participant с `relationship: self` является основным заявителем.
+2. Маршрут оценивается для всей заявленной группы, а не только для `self`.
+3. Для каждого сопровождающего нужен официальный проверенный companion path. Непроверенный path
+   делает маршрут `unknown`; доказанная несовместимость обязательного участника делает его
+   `impossible`.
+4. Паспорт проверяется относительно всего interval переезда. Он `verified`, только когда его срока
+   достаточно для поздней границы; `impossible`, только когда срока не хватает даже для ранней;
+   пересечение интервала или открытая поздняя граница дают `unknown`.
+5. Явное текущее несоответствие проверенному требованию конкретного маршрута даёт `impossible`.
+   Будущая смена паспорта, работы или дохода не предполагается автоматически.
+6. Country marker остаётся красным только тогда, когда существующий `formal-residence@1` получил
+   полный применимый catalog и каждый маршрут доказанно `impossible`.
+
+## 3. Неизменяемые границы
+
+- `assessColdStart`, `COLD_START_ASSESSMENT_RULES_VERSION = "cold-start-assessment@1"`,
+  `relocation-profile@1` и их canonical replay bytes остаются неизменными.
+- Новая ветка использует `COLD_START_ASSESSMENT_V2_RULES_VERSION =
+  "cold-start-assessment@2"` и принимает только `relocation-profile@2`.
+- Обе assessment-версии используют существующий `formal-residence@1`; второй marker/verdict engine
+  не создаётся.
+- Dispatch выполняется только по exact profile schema version. Нет coercion `@2 -> @1`, runtime
+  registry, generic assessment graph или fallback.
+- Модель не создаёт citizenship class, employment relation, legal status, FX, income threshold,
+  companion eligibility, reason или marker.
+- `RankingSnapshot` остаётся `place-ranking@1`, а Country Frontier — `country-frontier@1`.
+
+## 4. Входной контракт
+
+```ts
+export interface CountryAssessmentInputV2 {
+  readonly schemaVersion: "country-assessment-input@2";
+  readonly profileSnapshotId: string;
+  readonly profile: RelocationProfileV2Snapshot;
+}
+
+export interface ColdStartAssessmentInputV2 {
+  readonly assessmentAt: string;
+  readonly profile: CountryAssessmentInputV2;
+  readonly evidence: EvidenceSnapshot<SloveniaSourceId, ColdStartEvidenceClaimV2>;
+  readonly dossier?: DossierVersionV2;
+  readonly completeness?: CatalogCompletenessAttestation;
+  readonly sourceNavigation: Readonly<Record<SloveniaSourceId, string>>;
+  readonly sourceResolvedEvidence?: Readonly<Record<SloveniaSourceId, string>>;
+}
+```
+
+`CountryAssessmentInputV2` является lossless descriptor-safe snapshot: все participants и их typed
+values сохраняются отдельно. Он ничего не агрегирует, не выбирает route и не содержит verdict.
+
+`profile.profileSnapshotId` обязан точно совпадать с `profile.profile.id`, а вложенный snapshot
+обязан иметь `schemaVersion: "relocation-profile@2"`.
+
+Assessment принимает только exact verified Profile/Evidence/Dossier bindings. Missing или
+incomplete official source остаётся существующим research-incomplete/unknown исходом; capability
+failure не маскируется под domain uncertainty.
+
+Optional completeness принимается только после exact reconstruction: `scopeKind`, jurisdiction,
+profile ID, effective interval, catalog routes and all sealed Evidence references должны
+соответствовать assessment profile/date/Evidence. Только этот объект передаётся в
+`assessFormalResidence`; отсутствие или mismatch не может привести к red.
+
+### Отдельные Evidence/Dossier V2
+
+Исторические `ColdStartEvidenceClaim`, `vs2-si-evidence@2` и `si-dossier@1` не расширяются. Для
+нового assessment создаются отдельные `ColdStartEvidenceClaimV2`, rules
+`vs2-si-evidence@3` и `DossierVersionV2` со schema `si-dossier@2`. Они могут ссылаться на те же
+retained official artifacts, но имеют отдельные parser/rules versions и canonical replay.
+
+Три значения, которых не было в V1, имеют закрытые shapes:
+
+```ts
+export interface CitizenshipApplicabilityV2 {
+  readonly classifications: readonly {
+    readonly countryCode: string;
+    readonly status: "eligible" | "excluded";
+  }[];
+}
+
+export interface CompanionEntryV2 {
+  readonly relationshipClassifications: readonly {
+    readonly relationship: "spouse" | "minor_child" | "other_family";
+    readonly status: "eligible" | "excluded";
+  }[];
+}
+
+export interface IncomeRequirementV2 {
+  readonly metric: "latest_official_average_monthly_net_salary";
+  readonly multiplier: "2";
+  readonly thresholdEur: string;
+  readonly currency: "EUR";
+  readonly basis: "net";
+  readonly appliesTo: "applicant";
+  readonly period: string;
+}
+```
+
+Every classification/value must reproduce retained official content and carry the claim's normal
+sealed Evidence references. Missing country/relationship classification means `unknown`, never
+implicit eligibility/exclusion. The competition V2 FX surface remains exactly direct EUR plus the
+existing sealed `cbr-eur` EUR/RUB claim; other ISO currencies are accepted by onboarding but remain
+`unknown` here. Adding another pair requires a separately sealed SourceId/claim, not a generic FX
+lookup.
+
+The remaining route-basis, remote-relation and qualification V2 claim values copy their V1
+semantic fields into the separate V2 union. Duration and statutory V2 values additionally require
+an exact scope:
+
+```ts
+export type ParticipantRequirementScopeV2 =
+  | { readonly kind: "applicant" }
+  | {
+      readonly kind: "companion";
+      readonly relationship: "spouse" | "minor_child" | "other_family";
+    };
+```
+
+The applicant digital-nomad duration/statutory claim uses `{ kind: "applicant" }`; it may not be
+reused for a companion. Companion passport evaluation requires separate official duration and
+statutory claims scoped to that companion relationship. These V2 values do not alias or rewrite V1 bytes.
+If official capture cannot prove any new typed classifier/scope, that V2 claim is unavailable and
+the corresponding assessment component is `unknown`.
+
+## 5. Participant assessment
+
+Для каждого route строится participant-scoped внутренний результат:
+
+```ts
+export interface ParticipantRouteAssessmentV2 {
+  readonly routeId: string;
+  readonly participantId: string;
+  readonly relationship: "self" | "spouse" | "minor_child" | "other_family";
+  readonly status: "verified" | "unknown" | "impossible";
+  readonly reasonCodes: readonly CountryAssessmentV2ReasonCode[];
+  readonly claimIds: readonly string[];
+}
+```
+
+- `self` проверяется по основному route.
+- Каждый companion проверяется только по sealed `companion_entry`/другому применимому official
+  claim. Relationship считается поддержанным только при точном official classifier; слово
+  `immediate family` без typed relationship mapping недостаточно для `verified`.
+- Для Slovenia V2 package отдельный `companion-entry-classifier@1` parser заполняет
+  `relationshipClassifications` только из retained official text. Он не изменяет V1 claim;
+  до доказанного V2 classifier companion path честно `unknown`.
+- `other_family` не приравнивается к spouse/minor child; без отдельного official rule это `unknown`.
+- Работа, доход и образование companion не влияют на основной route, если официальный claim явно
+  их не потребляет.
+- Participant IDs не входят в reason code и не раскрываются наружу как персональные данные;
+  participant detail хранится в assessment projection отдельно от `FormalReason`.
+
+Route aggregation имеет фиксированный порядок:
+
+1. хотя бы один доказанный participant mismatch -> `impossible`;
+2. иначе хотя бы один participant или route prerequisite `unknown` -> `unknown`;
+3. иначе route -> `viable`.
+
+Canonical projection order is the sealed dossier route order, then the exact participant order from
+`RelocationProfileV2Snapshot` within each route. Every `(routeId, participantId)` pair occurs
+exactly once; missing, duplicate or reordered pairs fail reconstruction.
+
+Hard mismatch является достаточным доказательством невозможности конкретного route и не
+понижается до `unknown` из-за другой недостающей информации. Поэтому formal `impossible` route
+содержит только decisive proved mismatch reasons с non-empty claim IDs/sealed Evidence. Остальные
+unknown сохраняются в route-bound `participantAssessments`, но не добавляются в determining
+`route.reasons`; это сохраняет существующую proof-normalization `formal-residence@1`.
+
+## 6. Citizenship
+
+- Каждая citizenship каждого participant передаётся в официальный exact classifier установленного
+  country package.
+- `impossible` допустим только когда official claim доказывает, что ни одна заявленная citizenship
+  не подходит для применимого participant path либо явно исключена.
+- `verified` допустим только когда official claim точно классифицирует хотя бы одну citizenship как
+  применимую и не оставляет конфликтующих необработанных условий.
+- Отсутствующий classifier, неполный catalog или неоднозначная multi-citizenship комбинация дают
+  `unknown`; код не содержит hard-coded `RU`, EU/CIS list или собственную nationality taxonomy.
+
+## 7. Passport и move horizon
+
+Move horizon переводится в inclusive calendar interval относительно `assessmentAt`:
+
+| Horizon | Ранняя граница | Поздняя граница |
+| --- | --- | --- |
+| `within_3_months` | `assessmentAt` | `assessmentAt + 3 months` |
+| `3_to_6_months` | `assessmentAt + 3 months` | `assessmentAt + 6 months` |
+| `6_to_12_months` | `assessmentAt + 6 months` | `assessmentAt + 12 months` |
+| `more_than_12_months` | `assessmentAt + 12 months` | open |
+
+Calendar addition использует существующее UTC month-clamping правило. Для `self` используются
+только applicant-scoped official `duration.maximumMonths` и
+`general_statutory_prerequisites.passportBeyondPermitMonths` образуют необходимый запас после
+предполагаемой даты переезда.
+
+Для companion используются только claims с `ParticipantRequirementScopeV2` для его exact
+relationship. Если companion path не имеет собственных scoped duration/statutory claims, его
+passport component и весь participant path остаются `unknown`; applicant terms не копируются.
+
+- `passport: absent` при доказанном passport requirement -> `passport_validity_insufficient` и
+  participant `impossible`.
+- Expiry раньше необходимой ранней даты -> `passport_validity_insufficient` и `impossible`.
+- Expiry не раньше необходимой поздней даты -> passport component `verified`.
+- Expiry внутри interval либо open late boundary при достаточности для ранней даты ->
+  `passport_validity_unknown` и `unknown`.
+- Невалидная дата является integrity error до assessment, а не formal outcome.
+
+## 8. Work, legality и insurance
+
+- `remote_continuation: yes` подтверждает только намерение/возможность продолжить текущую работу.
+  Оно не доказывает `foreign_employer`, `own_foreign_business`, `foreign_clients` или legal status.
+- `current_work.status` также не выводит employer/client jurisdiction. `employment` нельзя
+  превращать в `foreign_employment`, а `self_employment`/`contract_service` — в
+  `foreign_service`.
+- Если route требует remote work, `remote_continuation: no` является текущим доказанным mismatch:
+  reason `remote_continuation_unavailable`, route `impossible`.
+- Если route требует remote work, а `current_work.status: not_working`, неприменимый
+  `remote_continuation` не превращается в missing answer: это тот же текущий доказанный mismatch
+  `remote_continuation_unavailable`, route `impossible`.
+- При `remote_continuation: yes`, но без exact relation или legality, используются существующие
+  `remote_work_prerequisite_unknown` и route `unknown`.
+- Route-specific legality не собирается onboarding и всегда остаётся unknown до отдельного
+  route-specific подтверждения.
+- Не собранная health insurance не делает route impossible/unknown: при официальном требовании
+  она остаётся существующим procedural action `insurance`.
+
+## 9. Income и FX
+
+- Сравнение выполняется только для participant/scope, которые прямо названы official income
+  claim. Значения разных участников не суммируются без отдельного официального household rule.
+- `net` сравнивается только с `net`, `gross` — только с `gross`; basis mismatch даёт
+  `income_basis_not_comparable`, а не приблизительный расчёт.
+- EUR сравнивается напрямую по `FORMULA-VS2-INCOME-EUR-01`.
+- RUB переводится в EUR только по свежему sealed CBR EUR/RUB claim с существующей
+  `FORMULA-VS2-INCOME-01`.
+- Любая другая currency в competition V2 даёт `fx_rate_unavailable` и `unknown`; никакой иной FX
+  SourceId в этом contract не установлен.
+- Сопоставимый текущий доход ниже подтверждённого threshold даёт
+  `income_below_verified_threshold` и route `impossible`; будущий рост дохода не предполагается.
+- Ноль остаётся обычным подтверждённым числом, а не missing value.
+
+## 10. Qualification, experience и savings
+
+Education, experience, savings и current location сохраняются в profile/replay, но не влияют на
+formal route outcome без sealed official claim, который явно их потребляет. Код не создаёт
+qualification, wealth или location eligibility самостоятельно.
+
+## 11. Выход и reason codes
+
+```ts
+export const COLD_START_ASSESSMENT_V2_RULES_VERSION =
+  "cold-start-assessment@2" as const;
+
+export type CountryAssessmentV2ReasonCode =
+  | "citizenship_excluded"
+  | "citizenship_applicability_unknown"
+  | "companion_route_unverified"
+  | "companion_route_impossible"
+  | "passport_validity_insufficient"
+  | "passport_validity_unknown"
+  | "remote_continuation_unavailable"
+  | "remote_work_prerequisite_unknown"
+  | "income_below_verified_threshold"
+  | "income_basis_not_comparable"
+  | "fx_rate_unavailable"
+  | "fx_rate_stale"
+  | "country_evidence_incomplete"
+  | "country_not_installed"
+  | "route_requirements_verified";
+
+export interface ColdStartFormulaEurV2 {
+  readonly formulaId: "FORMULA-VS2-INCOME-EUR-01";
+  readonly formulaVersion: "1";
+  readonly expression: "monthlyIncomeEur < thresholdEur";
+  readonly monthlyIncomeEur: string;
+  readonly thresholdEur: string;
+  readonly rounding: "UNROUNDED_THEN_HALF_UP_2DP";
+  readonly sourceClaimIds: readonly string[];
+}
+
+export type ColdStartComparatorV2 = Omit<ColdStartComparator, "formula"> & {
+  readonly participantAssessments: readonly ParticipantRouteAssessmentV2[];
+  readonly formula?: ColdStartFormula | ColdStartFormulaEurV2;
+};
+
+export function assessColdStartV2(
+  input: ColdStartAssessmentInputV2,
+): ColdStartComparatorV2;
+```
+
+Every `viable`/`impossible` route must retain current effective interval, non-empty sealed Evidence,
+claim IDs and exact Evidence Snapshot binding. Otherwise existing `assessFormalResidence` lowers it
+to `unknown`. `ColdStartComparatorV2.marker` must equal `formalVerdict.marker`.
+
+The participant projection is part of assessment replay and UI explanation, but formal marker is
+still derived only from existing `ResidenceRouteOutcome[]` and
+`CatalogCompletenessAttestation`.
+
+## 12. Application, persistence и wire compatibility
+
+Only these consumers widen the assessment-version union to
+`"cold-start-assessment@1" | "cold-start-assessment@2"`:
+
+- `ColdStartReadModel.assessmentRulesVersion`;
+- `CountryVerificationResult.sourceAssessmentRulesVersion`;
+- `FrontierMarker.sourceAssessmentRulesVersion`;
+- Country verification replay expectations and marker reconstruction;
+- cold-start/place-frontier stream schemas and view-model normalization.
+
+The read-model/comparator contract becomes an exact discriminated union: an `@1` rules version may
+contain only the existing `ColdStartComparator`/formula schema, while `@2` must contain only
+`ColdStartComparatorV2`, route-bound participant assessments and the V2 formula union. Mixed
+version/comparator pairs and extra/missing fields fail reconstruction.
+
+The existing `CountryVerifierPort` remains ID-based. `PlaceFrontierApplication` and
+`CountryResolutionApplication` continue to pass the profile ID already sealed into their
+ranking/revision. `createCountryVerifierAdapter` transfers that opaque ID to Cold Start and never
+loads the profile or guesses its schema.
+
+Cold Start adds one dedicated verified union loader while the existing V1 loader remains unchanged
+for Place Frontier and historical callers:
+
+```ts
+loadRelocationAnyVerified(
+  id: string,
+): Promise<RelocationProfileSnapshot | RelocationProfileV2Snapshot>;
+```
+
+Cold Start alone owns and consumes that exact verified union load. Its `prepareAny`, `runAny` and
+`presentAny` ID paths bind the loaded snapshot ID to the requested/sealed profile ID and dispatch directly by the reconstructed
+`schemaVersion`: `relocation-profile@1 -> assessColdStart`,
+`relocation-profile@2 -> assessColdStartV2`. The direct `{ profile: RelocationProfileDraft }` path
+and the inherited V1 `prepare`, `run` and `present` methods remain strictly `@1`. There is no adapter dispatch, registry, coercion or fallback. Onboarding
+reaches `@2` only through its persisted receipt/profile ID. This preserves the current
+`CountryVerifierPort` surface and keeps schema ownership inside the use case that already loads and
+assesses the profile.
+
+Participant explanations remain in the canonical Country Frontier result instead of disappearing
+after `assessColdStartV2`. Cold Start constructs this projection while it still owns both the
+verified profile participant order and reconstructed dossier route order; the outer adapter only
+copies the already checked projection and does not attempt to infer either order from opaque IDs:
+
+```ts
+export interface CountryAssessmentProjectionV2 {
+  readonly schemaVersion: "country-assessment-projection@2";
+  readonly profileSnapshotId: string;
+  readonly evidenceSnapshotId: string;
+  readonly participantAssessments: readonly ParticipantRouteAssessmentV2[];
+}
+
+export type CountryVerificationResult =
+  | (CountryVerificationResultCommon & {
+      readonly sourceAssessmentRulesVersion: "cold-start-assessment@1";
+      readonly assessmentProjection?: never;
+    })
+  | (CountryVerificationResultCommon & {
+      readonly sourceAssessmentRulesVersion: "cold-start-assessment@2";
+      readonly assessmentProjection: CountryAssessmentProjectionV2;
+    });
+
+export type CountryVerificationPresentation =
+  | Omit<Extract<CountryVerificationResult, {
+      sourceAssessmentRulesVersion: "cold-start-assessment@1";
+    }>, "countryCheckRunId">
+  | Omit<Extract<CountryVerificationResult, {
+      sourceAssessmentRulesVersion: "cold-start-assessment@2";
+    }>, "countryCheckRunId">;
+
+export type FrontierMarker =
+  | (FrontierMarkerCommon & {
+      readonly sourceAssessmentRulesVersion: "cold-start-assessment@1";
+      readonly assessmentProjection?: never;
+    })
+  | (FrontierMarkerCommon & {
+      readonly sourceAssessmentRulesVersion: "cold-start-assessment@2";
+      readonly assessmentProjection: CountryAssessmentProjectionV2;
+    });
+```
+
+`CountryVerificationResultCommon` and `FrontierMarkerCommon` are the existing non-version fields;
+they do not create another persisted envelope. `CountryVerifierPort.present` returns
+`CountryVerificationPresentation`, not a non-distributive `Omit` over the whole union.
+
+Cold Start derives the dense dossier-route × verified-profile-participant order and reconstructs the
+projection from `comparator.participantAssessments` without aggregation or relabeling before it
+returns the `@2` read model. The adapter only checks the same profile and Evidence Snapshot IDs and
+copies that already verified projection; it never infers order from opaque IDs.
+`materializeFrontierMarker`, `countryVerificationReplayExpectation`, marker persistence, stream
+normalization and view-model reconstruction retain that exact dense ordered projection. A pure
+`reconstructCountryAssessmentProjectionV2` checks exact keys, both ID bindings, closed reason codes,
+unique `(routeId, participantId)` pairs and canonical participant order before returning a private
+frozen copy. `@1` result/marker bytes have no `assessmentProjection` key. Missing/extra projection
+data, mixed rules versions, changed participant/route/status/reason/claim IDs or reordered entries
+fail reconstruction as `integrity_mismatch`. The projection explains a verdict; it never
+participates in marker calculation a second time.
+
+`SqliteProfileStore` has separate `@1` and `@2` reconstruction branches. `@1` hashes/bytes are
+unchanged. `@2` assessment and participant projections are canonical, immutable and replayed with
+exact profile/evidence/dossier/assessment-date bindings.
+
+## 13. Acceptance scenarios
+
+1. Canonical `self + spouse` never drops or merges participant data.
+2. A verified self route plus verified spouse companion path can be `viable`.
+3. The same self route with an unclassified spouse path is `unknown`, not green.
+4. A proven companion exclusion makes that route `impossible`.
+5. A passport valid through the late interval passes; one expiring before the early interval fails;
+   one expiring inside the interval is unknown.
+6. `passport: absent`, `remote_continuation: no` or comparable income below threshold makes the
+   exact requiring route impossible.
+7. `remote_continuation: yes` without relation/legality remains unknown and never becomes foreign
+   employment/service.
+8. EUR uses direct comparison; fresh CBR supports RUB; unsupported/unsealed FX remains unknown.
+9. Missing insurance appears only as a procedural action.
+10. Any viable route produces green; an unknown route produces yellow; all impossible produce red
+    only with verified complete catalog.
+11. Historical `@1` fixtures, hashes, stream bytes and replay remain unchanged.
+12. Cold Start rejects a requested/sealed profile ID mismatch before research calls; the
+    Infrastructure adapter transfers only the opaque ID and never schema-dispatches it.
+13. An `@2` participant projection survives check, marker persistence, stream transport and replay
+    byte-for-byte; any mutation or `@1`/`@2` projection mismatch is rejected.
+
+## 14. Не-цели
+
+- Legal advice, legal probability or prediction of future user actions.
+- Automatic route selection, automatic Yellow Resolution or silent acceptance of risk.
+- Hard-coded country/citizenship lists, inferred employer jurisdiction or household-income sum.
+- New formal marker engine, generic assessment registry, decision graph, fallback or retry loop.
+- Collecting route-specific form fields in onboarding.
+
+## 15. Approval record
+
+Пользователь последовательно выбрал:
+
+1. whole-group route viability;
+2. interval passport evaluation;
+3. current-facts mismatch semantics.
+
+Затем пользователь утвердил объединённый дизайн отдельным ответом `да` 2026-08-20.

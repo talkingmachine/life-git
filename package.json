@@ -6,7 +6,10 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "audit:codex-runtime": "node --import tsx scripts/audit-codex-runtime.ts",
     "eval:live": "node --import tsx evals/live.ts",
+    "eval:codex-network-privacy": "node --import tsx evals/codex-cli-network-privacy.ts",
+    "eval:codex-runtime-feasibility": "node --import tsx evals/codex-cli-feasibility.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."

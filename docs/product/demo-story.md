@@ -4,10 +4,10 @@
 | --- | --- |
 | Статус | `approved` |
 | Владелец решения | пользователь проекта |
-| Последняя проверка | 2026-08-12 |
+| Последняя проверка | 2026-08-20 |
 | Область ответственности | конкурсная драматургия и наблюдаемый end-to-end результат |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12; VS-4A city-frontier semantic amendment / approved 2026-08-13; local onboarding + VS-4 Full Life amendment / approved 2026-08-20; Codex CLI runtime amendment / approved 2026-08-20 |
 
 ## 1. Цель демо
 
@@ -20,14 +20,16 @@
 
 ## 2. Канонический профиль
 
-Демо использует один заранее подготовленный, но честно обрабатываемый профиль:
+Демо использует один заранее подготовленный, но честно обрабатываемый `onboarding-fields@1`
+fixture; bullets ниже являются human-readable summary:
 
 - текущее место — Москва, Россия;
 - гражданство РФ и действующие загранпаспорта у двух участников;
 - основной пользователь — программист без высшего образования;
 - сопровождающая — супруга, тоже программист, сейчас не работает;
 - чистый доход основного пользователя — 210 000 рублей в месяц;
-- удалённая официальная работа из-за рубежа возможна, точная форма договора неизвестна;
+- основной пользователь официально работает и может продолжить удалённо; точная legal/route form
+  остаётся evidence unknown, а не пустым обязательным questionnaire field;
 - накопления — диапазон 200 000–500 000 рублей;
 - цель — сохранить уровень комфорта, получить развитую инфраструктуру, максимальную безопасность,
   спокойную обстановку и по возможности жить в Европе вне СНГ.
@@ -42,10 +44,14 @@
 
 ### 0:00–0:35 — «Это я»
 
-На экране появляется карточка человека. Пользователь вводит цель естественным языком. Система
-выделяет профиль, сопровождающего, жёсткие ограничения, предпочтения и неизвестные значения.
+Слева видна компактная анкета сверху и local chat снизу; справа медленно вращается планета без
+меток. Пользователь вводит цель естественным языком. Установленный Codex CLI переносит только явно
+сообщённые participant-scoped данные и country/universal-city preferences. Пропуски остаются
+пустыми, а анкета остаётся source of truth.
 
-Пользователь подтверждает карточку. Это `Input` AI workflow.
+Пользователь нажимает одно `Продолжить`. Closed review принимает необычные валидные значения,
+возвращает unusable fields и при успехе подтверждает Profile/Preference snapshots, удаляет session
+transcript и запускает Country Frontier. Это `Input` AI workflow.
 
 Что должен понять зритель: продукт начинает с конкретного человека, а не со списка популярных
 стран.
@@ -97,7 +103,9 @@ Knowledge revision, использованную для ranking, от verified u
 кандидатов доступно здесь, а не в popover карты.
 
 Пользователь выбирает effective green страну только из non-empty Resolved Country Shortlist
-Snapshot. Только после этого отдельный City Frontier показывает полный installed
+Snapshot. Exact installed mapping создаёт City Criteria Snapshot из уже подтверждённых universal
+city preferences без второго confirmation screen; unmappable target возвращает к конкретному полю.
+Только после этого отдельный City Frontier показывает полный installed
 `City Catalog Revision` из максимум 100 городов: national capital, все explicitly typed first-level regional
 capitals, затем largest comparable official urban centers до лимита с ordinal `cityId` tie-break.
 Он показывает frozen `rank/score на момент старта`, а explicit Continue проверяет следующий city и
@@ -114,20 +122,26 @@ candidates остались. При `1..3` entries выбор
 
 ### 2:15–3:20 — «Собираем жизнь»
 
-Система предлагает небольшой набор применимых решений:
+Первый шаг `VS-4` — route selector. Для formal-green country пользователь сам выбирает verified
+available route. Для accepted formal-yellow UI показывает отдельный unresolved route basis и не
+называет route-dependent unknown подтверждёнными.
+
+Затем единый constructor предлагает небольшой набор применимых решений:
 
 - сохранить текущую удалённую работу или выбрать подходящую профессию;
 - увидеть официальный сигнал дохода для профессии и города;
 - выбрать жильё;
 - учесть обязательные и разовые расходы;
-- проверить запас накоплений.
+- проверить запас накоплений в destination currency по dated official FX.
 
 Каждый выбор изменяет один общий сценарий. Интерфейс не рассчитывает пятнадцать полных ветвей
 заранее и не выдаёт независимые фильтры за цельную жизнь.
 
 ### 3:20–4:15 — «Фильм о возможном будущем»
 
-Ветка раскрывается визуально:
+Deterministic calculations и guarded Codex CLI invocation используют одну closed structured branch.
+Codex CLI создаёт только versioned film projection; official facts, verdict и budget он не
+меняет. Ветка раскрывается визуально:
 
 - поток месячного бюджета;
 - типичный день;
@@ -136,7 +150,9 @@ candidates остались. При `1..3` entries выбор
 - факторы риска выгорания без псевдоточной вероятности.
 
 Evidence Passport разделяет пользовательские факты, официальные факты, расчёты, projections,
-допущения и unknown. Рядом компактный eval artifact показывает результат последнего golden run:
+допущения и unknown. Пользователь может отредактировать film; правка становится assumption, а
+original projection сохраняется. Branch, film, lineage и Passport фиксируются одним commit только
+после generation/schema guard и optional edits. Рядом компактный eval artifact показывает результат последнего golden run:
 проверку provenance, hard constraints, fail-closed и воспроизводимости snapshot. Пользователь может
 открыть evidence и перейти к первоисточнику.
 
@@ -147,8 +163,9 @@ Evidence Passport разделяет пользовательские факты
 Пользователь возвращается к выбору города, работы или жилья и меняет его. История не стирается:
 Life Git создаёт fork и показывает visual diff.
 
-Зритель видит не только новые цифры, но и причинную связь: какое решение изменилось, какие расходы,
-распорядок и риски пересчитались, какое evidence осталось общим.
+Зритель видит не только новые цифры, но и причинную связь: какое решение изменилось, какие расходы
+и deterministic outputs пересчитались, какое evidence осталось общим. Новый narrative всегда
+маркируется отдельной projection и сам по себе causal не называется.
 
 Финальная реплика:
 
@@ -159,10 +176,10 @@ Life Git создаёт fork и показывает visual diff.
 
 | Часть | Что показывается в демо |
 | --- | --- |
-| Input | профиль, сопровождающие, цель, ограничения, предпочтения и unknown |
-| Process | frozen place ranking, current-run official verification, mandatory Yellow Resolution, derived effective status, persistent marker history, replacement, Country Knowledge write-back, frozen City Catalog ranking, fresh four-fact city verification и terminal city selection |
-| Evals | отдельный eval artifact с результатами provenance, constraint, fail-closed и reproducibility checks |
-| Output | Resolved Country Shortlist Snapshot с effective green composition, terminal City Shortlist Snapshot, atomic city selection/branch, визуальная ветвь, Evidence Passport и Life Git diff |
+| Input | guarded conversational onboarding, participant-scoped профиль, цель, ограничения, country/universal-city preferences и unknown |
+| Process | Codex-backed extraction/review with local deterministic guards, frozen place ranking, current-run official verification, Yellow Resolution, City Criteria mapping, fresh City Frontier, route selector, deterministic calculations и guarded Codex film generation |
+| Evals | provenance/constraint/fail-closed, model schema/lineage, allowlisted Codex CLI → OpenAI traffic, zero other provider/telemetry traffic, semantic regression и snapshot replay checks |
+| Output | confirmed Profile/Preference, Resolved Country Shortlist, terminal City Shortlist, route-bound atomic life branch, saved film projection, Evidence Passport и Life Git diff |
 
 ## 5. Demo readiness gate
 
@@ -170,8 +187,11 @@ Life Git создаёт fork и показывает visual diff.
 - Итоговая репетиция должна укладываться в 3–5 минут.
 - Пользовательски значимый результат должен появиться не позднее 90-й секунды.
 - Перед выступлением выполняется preflight доступности нужных официальных источников.
-- Записанный fallback допустим только с явной маркировкой записи и времени evidence snapshot.
-- Fallback страхует выступление, но не заменяет работающий end-to-end MVP при проверке готовности.
+- Preflight подтверждает, что Codex CLI установлен и авторизован личным ChatGPT/Codex login;
+  приложение не запрашивает API key и не скачивает модели.
+- Отдельно маркированная запись всего demo допустима только как presentation backup.
+- Приложение никогда не подставляет recorded model response или recorded evidence как runtime
+  fallback; готовность требует работающий end-to-end MVP.
 
 Точные runtime thresholds и содержимое eval artifact подтверждаются feasibility spike и после
 этого переносятся в evaluation spec.

@@ -53,7 +53,8 @@ Charter и MVP baseline подтверждены 2026-08-06; архитекту�
 | --- | --- | --- |
 | [`architecture/spec-of-specs.md`](architecture/spec-of-specs.md) | `approved` | срезы, cross-slice ownership, зависимости и acceptance intent |
 | [`decisions/ADR-001-modular-monolith.md`](decisions/ADR-001-modular-monolith.md) | `accepted` | deployment boundary и модульная изоляция MVP |
-| [`superpowers/specs/2026-08-11-pre-defense-llm-free-runtime-design.md`](superpowers/specs/2026-08-11-pre-defense-llm-free-runtime-design.md) | `approved` | pre-defense zero-provider boundary, installed navigation и `BACKLOG-EXT-LLM-01` |
+| [`superpowers/specs/2026-08-20-codex-cli-runtime-design.md`](superpowers/specs/2026-08-20-codex-cli-runtime-design.md) | `approved` | competition Codex CLI boundary для onboarding и VS-4 film |
+| [`superpowers/specs/2026-08-11-pre-defense-llm-free-runtime-design.md`](superpowers/specs/2026-08-11-pre-defense-llm-free-runtime-design.md) | `superseded` | историческая provider-free граница; official-only Evidence clauses сохраняются |
 
 Точная редакция Stage 2 и ADR-001 подтверждена пользователем 2026-08-06.
 
@@ -165,8 +166,10 @@ walking skeleton реализован, а live source, offline replay, fail-clos
 
 Реализация не начинается из устного контекста. Первый вертикальный срез допускается к реализации
 только после собственных approved requirements, design, acceptance/eval criteria и задач. До защиты
-`VS-1..VS-5` не используют runtime LLM/API: Country Source Index даёт только установленную
-навигацию, а current-run official HTTPS capture остаётся единственным источником evidence.
+`Entry` и bounded `VS-4` film используют только установленный Codex CLI через личный ChatGPT/Codex
+login; приложение не вызывает LLM API напрямую и не скачивает model weights. Country Source Index
+даёт только установленную навигацию, а current-run official HTTPS capture остаётся единственным
+источником evidence.
 
 ## Локальная проверка VS-1
 

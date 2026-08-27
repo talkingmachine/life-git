@@ -944,16 +944,32 @@ git commit -m "feat: run city frontier"
 **Interfaces:**
 
 ```ts
+export interface SelectCityInput {
+  readonly terminalCityShortlistSnapshotId: string;
+  readonly cityId: string;
+  readonly commandId: string;
+  readonly warningCopyVersion?: "city-unknown-risk@1";
+}
+
 export function selectCity(input: SelectCityInput): Promise<{
   readonly selection: CitySelectionSnapshot;
   readonly commit: CityBranchCommit;
   readonly readModel: CityFrontierReadModel;
 }>;
+
+export interface CitySelectionReadPort {
+  loadSelectionWithBranchVerified(
+    citySelectionSnapshotId: string,
+  ): Promise<CitySelectionWithBranch>;
+  listSelectionsWithBranchesVerified(
+    runId: string,
+  ): Promise<readonly CitySelectionWithBranch[]>;
+}
 ```
 
 - [ ] **Step 1: Write selection/atomicity RED tests**
 
-Accept exact terminal selectable city with 0 or nonzero warnings; reject working/empty/missing/excluded/tampered city, wrong copy-version presence and client extra basis/parent fields. Inject failure before either insert and verify neither row exists. Retry same command must return both prior rows; altered payload conflicts; returned/presented read models contain verified sibling selection/branch history.
+Accept only the exact `SelectCityInput` keys; accept a terminal selectable city with 0 or nonzero warnings; reject working/empty/missing/excluded/tampered city, wrong copy-version presence/value and client `runId`, basis or parent fields. Derive `runId` from the verified terminal snapshot before command lookup. Assert idempotency is keyed by that derived `runId + commandId`: an identical canonical remainder `{ terminalCityShortlistSnapshotId, cityId, warningCopyVersion? }` returns both prior rows, while the same key with any changed remainder conflicts. Inject failure before either insert and verify neither row exists. Returned/presented read models contain verified sibling selection/branch history. Cover `loadSelectionWithBranchVerified(citySelectionSnapshotId)` success, missing ID, duplicate or mismatched selection/commit rows, tampered root/context bindings and fresh frozen copies; the lookup must not accept `runId` or browser-supplied context as authority.
 
 - [ ] **Step 2: Run RED**
 
@@ -967,7 +983,12 @@ Use the Task 13 `city_selection_snapshots` and `city_branch_commits` schemas. Ve
 
 - [ ] **Step 4: Implement one atomic writer transaction**
 
-Load/verify terminal and source graph inside the transaction, derive yellow warning basis, accepted/reviewed link binding and branch parent server-side, construct both pure values, insert both, reload/verify both, then commit. Source links never affect selectability by themselves. Add `listSelectionsWithBranchesVerified(runId)` to the inward writer port; Select and `presentCityFrontier` return the complete verified history. A second city from the same terminal reuses the same pre-city parent and creates a sibling commit.
+Load/verify terminal and source graph inside the transaction, derive yellow warning basis, accepted/reviewed link binding and branch parent server-side, construct both pure values, insert both, reload/verify both, then commit. Source links never affect selectability by themselves. Add both `loadSelectionWithBranchVerified(citySelectionSnapshotId)` and `listSelectionsWithBranchesVerified(runId)` to the inward writer port and implement them in `city-selection-writer.ts`. The by-ID method loads the exact selection/commit pair in one read transaction; verifies `selection.id === commit.citySelectionSnapshotId`, `selection.preCityBranchCommitId === commit.parentId`, `selection.preCityBranchCommitId === commit.forkedFrom` and the stored country/profile/source context; rejects missing, duplicate, mismatched or tampered rows; and returns a fresh frozen `CitySelectionWithBranch`. Select and `presentCityFrontier` return the complete verified history. A second city from the same terminal reuses the same pre-city parent and creates a sibling commit.
+
+`selectCity` never accepts a client `runId`: it verified-loads `terminalCityShortlistSnapshotId`, derives
+the run ID from that terminal, and passes only `(derived runId, commandId, canonical remaining payload)`
+to the atomic writer. The writer exact-replays only when the canonical remainder is unchanged and
+returns `integrity_mismatch` for the same derived key with a different remainder.
 
 - [ ] **Step 5: Run the core gate and commit**
 
