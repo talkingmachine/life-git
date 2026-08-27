@@ -131,7 +131,7 @@ describe("calm command center visual contracts", () => {
     );
     const controls = rule(
       css,
-      '.product-shell__workspace[data-globe-mode="collapsed"] :is(.cold-start-comparator, .cold-start-journey__transport, .research-workspace__candidate, .research-workspace__progress, .research-workspace__retry, .place-frontier-summary, .place-frontier-cards, .place-frontier-journey__transport, .place-frontier-journey__retry)',
+      '.product-shell__workspace[data-globe-mode="collapsed"] :is(.cold-start-comparator, .cold-start-journey__transport, .research-workspace__candidate, .research-workspace__progress, .research-workspace__retry, .place-frontier-summary, .place-frontier-cards, .place-frontier-journey__transport, .place-frontier-journey__retry, .country-resolution-panel, .country-resolution-summary, .country-resolution-card)',
     );
 
     expect(declaration(content, "pointer-events")).toBe("none");

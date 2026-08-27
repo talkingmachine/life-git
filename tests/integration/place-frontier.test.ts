@@ -12,10 +12,12 @@ import {
   type CountryVerifierPort,
   type FrontierMarker,
   type PlaceFrontierApplicationPorts,
+  type PlaceFrontierEvent,
   type RankingSnapshot,
   type ShortlistSnapshot,
 } from "../../src/application/place-frontier";
 import type { ColdStartEvent } from "../../src/application/cold-start";
+import type { CountryVerificationProgress } from "../../src/application/country-verifier";
 import type { FormalEvidenceReference, FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
 import { assessFormalResidence } from "../../src/decision/formal-residence-verdict";
@@ -33,6 +35,12 @@ import * as coldStartCompositionExports from
 import * as coldStartApplicationExports from "../../src/application/cold-start";
 import { createPlaceFrontierComposition } from
   "../../src/infrastructure/place-frontier-composition";
+import { normalizeCountryVerificationProgress } from
+  "../../src/infrastructure/country-verifier-adapter";
+import {
+  initialPlaceFrontierEventState,
+  reducePlaceFrontierEvent,
+} from "../../src/experience/place-frontier-stream";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqlitePlaceFrontierStore } from
   "../../src/infrastructure/sqlite/place-frontier-store";
@@ -231,7 +239,7 @@ interface HarnessOptions {
   readonly markerByCountry?: Readonly<Record<string, "green" | "yellow" | "red">>;
   readonly knowledgeRevisionIds?: Readonly<Record<string, string | null>>;
   readonly failCheckFor?: string;
-  readonly progressEvents?: readonly Exclude<ColdStartEvent, { readonly type: "assessment_completed" }>[];
+  readonly progressEvents?: readonly CountryVerificationProgress[];
   readonly mutateCheckResult?: (result: Awaited<ReturnType<CountryVerifierPort["check"]>>) => unknown;
   readonly publishKnowledgeDuringCheck?: boolean;
   readonly abortDuringCheck?: AbortController;
@@ -239,6 +247,7 @@ interface HarnessOptions {
   readonly preferenceProfile?: PreferenceProfileDraft;
   readonly rankingPlaces?: readonly RankablePlace[];
   readonly useCanonicalRanking?: boolean;
+  readonly clock?: () => Date;
 }
 
 function harness(options: HarnessOptions) {
@@ -326,7 +335,7 @@ function harness(options: HarnessOptions) {
           knowledgeOwners.set(publishedKnowledgeId, country.countryCode);
         }
         const result = {
-          countryCheckRunId: countryCheckRunId(parentRunId, country.countryCode),
+          countryCheckRunId: countryCheckRunId(parentRunId, country.countryCode, integrity),
           sourceAssessmentRulesVersion: "cold-start-assessment@1" as const,
           verdict,
           evidenceSnapshotId,
@@ -347,7 +356,7 @@ function harness(options: HarnessOptions) {
       },
       present: async ({ parentRunId, countryCode, countryCheckRunId: childRunId }) => {
         presentCalls += 1;
-        if (childRunId !== countryCheckRunId(parentRunId, countryCode)) {
+        if (childRunId !== countryCheckRunId(parentRunId, countryCode, integrity)) {
           throw new Error("integrity_mismatch");
         }
         const result = verifierResults.get(countryCode);
@@ -370,7 +379,7 @@ function harness(options: HarnessOptions) {
       },
     },
     integrity,
-    clock: () => new Date(NOW),
+    clock: options.clock ?? (() => new Date(NOW)),
     nextRunId: () => "frontier-run-1",
   };
   const application = createPlaceFrontierApplication(ports);
@@ -397,7 +406,7 @@ function harness(options: HarnessOptions) {
     },
     async run() {
       const prepared = await this.prepare();
-      const events: unknown[] = [];
+      const events: PlaceFrontierEvent[] = [];
       const result = await application.runPlaceFrontier(
         prepared,
         (event) => { events.push(event); },
@@ -468,10 +477,7 @@ function resignShortlist(
   resignSnapshot(database, "shortlist", mutate);
 }
 
-function nonTerminalProgressEvents(): readonly Exclude<
-  ColdStartEvent,
-  { readonly type: "assessment_completed" }
->[] {
+function nonTerminalProgressEvents(): readonly CountryVerificationProgress[] {
   const base = {
     runId: "child-run",
     sequence: 1,
@@ -484,13 +490,17 @@ function nonTerminalProgressEvents(): readonly Exclude<
       coordinate: { lat: 46.1512 as const, lng: 14.9955 as const },
     },
   };
-  return [
+  const events: readonly Exclude<
+    ColdStartEvent,
+    { readonly type: "assessment_completed" }
+  >[] = [
     { ...base, type: "source_discovered", payload: { candidateId: "candidate-1", url: "https://gov.test/source", claimKinds: ["income"] } },
     { ...base, sequence: 2, type: "authority_verified", payload: { candidateId: "candidate-1", authorityRoot: "https://gov.test" } },
     { ...base, sequence: 3, type: "artifact_captured", payload: { sourceId: "si-income-threshold", role: "official rule", resolvedUrl: "https://gov.test/rule.pdf", sha256: "b".repeat(64) } },
     { ...base, sequence: 4, type: "claim_verified", payload: { claimId: "claim-1", claimKind: "income", sourceIds: ["si-income-threshold"] } },
     { ...base, sequence: 5, type: "dossier_published", payload: { dossierVersionId: "dossier-1", label: "Slovenia dossier", created: true } },
   ];
+  return events.map(normalizeCountryVerificationProgress);
 }
 
 async function concurrentStoreWrites(input: {
@@ -660,6 +670,33 @@ describe("frozen CountryFrontier", () => {
     expect(replay).toEqual(result);
     expect(requestStep).toHaveBeenCalledTimes(callsBeforeReplay);
     expect(generatedIds).toBe(1);
+  });
+
+  test("presents the same fully replayed frontier by exact shortlist ID or run ID", async () => {
+    const fixture = harness({ rankedCountries: ["SI"] });
+    const { prepared, result } = await fixture.run();
+
+    await expect(fixture.application.presentPlaceFrontierByShortlistId(
+      result.shortlistSnapshot.id,
+    )).resolves.toEqual(await fixture.application.presentPlaceFrontier(prepared.runId));
+  });
+
+  test("accepts a terminal shortlist sealed after its ranking assessment", async () => {
+    let seconds = 0;
+    const fixture = harness({
+      rankedCountries: ["SI"],
+      clock: () => new Date(Date.parse(NOW) + seconds++ * 1_000),
+    });
+    const { result, events } = await fixture.run();
+    let state = initialPlaceFrontierEventState();
+
+    for (const event of events) {
+      state = reducePlaceFrontierEvent(state, event);
+    }
+
+    expect(Date.parse(result.shortlistSnapshot.createdAt))
+      .toBeGreaterThan(Date.parse(result.assessmentAt));
+    expect(state.terminal).toEqual(result);
   });
 
   test("isolates completed event payloads from persisted and returned frontier state", async () => {

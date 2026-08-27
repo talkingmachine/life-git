@@ -84,6 +84,8 @@ Discovery-вход может содержать сильную идею или 
 | --- | --- |
 | [`vs-1-confirmed-life`](changes/active/vs-1-confirmed-life/change.md) | Baseline `approved`; [source/replay evidence](changes/active/vs-1-confirmed-life/implementation-evidence.md) пройдено; visual `demo-verified` pending |
 | [`vs-2-honest-cold-start`](changes/active/vs-2-honest-cold-start/change.md) | Baseline `approved`; remaining gate — provider-free current-source walkthrough и implementation evidence |
+| [`vs-3-place-frontier`](changes/active/vs-3-place-frontier/change.md) | `implemented`; historical automatic Country Frontier snapshots remain the immutable preliminary source for VS-3R |
+| [`vs-3r-yellow-resolution`](changes/active/vs-3r-yellow-resolution/change.md) | `implemented` — verified 2026-08-13; [implementation evidence](changes/active/vs-3r-yellow-resolution/implementation-evidence.md) approved; mandatory Yellow Resolution now gates future City Frontier |
 
 ## Архив change-пакетов
 

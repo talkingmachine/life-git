@@ -455,6 +455,15 @@ function testHarness(options: { readonly unavailableSource?: SourceId } = {}) {
 }
 
 describe("confirmed-life orchestration", () => {
+  test("production composition exposes the verified resolved-country City guard", () => {
+    const application = createConfirmedLifeComposition({
+      database: database(),
+      hmacKey: KEY,
+    });
+
+    expect(application.requireResolvedCountryShortlistForCity).toBeTypeOf("function");
+  });
+
   test("appends a confirmed profile, seals one current evidence run, assesses once, and appends one bound revision", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
@@ -714,6 +723,7 @@ describe("confirmed-life orchestration", () => {
       { name: "artifacts" },
       { name: "branch_commits" },
       { name: "country_knowledge_revisions" },
+      { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
       { name: "evidence_snapshots" },
       { name: "place_frontier_snapshots" },

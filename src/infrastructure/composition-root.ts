@@ -16,12 +16,14 @@ import type {
   OfficialSourcePort,
   RequestStep,
 } from "../research/contracts";
+import type { SloveniaSourceId } from "../research/cold-start-contracts";
 import {
   runCurrentEvidence,
   type EvidenceParsers,
 } from "../research/run";
 import { createEvidenceIntegrity } from "./integrity";
 import { createColdStartComposition } from "./cold-start-composition";
+import { createCountryResolutionComposition } from "./country-resolution-composition";
 import { createPlaceFrontierComposition } from "./place-frontier-composition";
 import { captureHttpOnce } from "./sources/gateway";
 import { OfficialSourceAdapter } from "./sources/official-source-adapter";
@@ -99,6 +101,15 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     ...(options.clock === undefined ? {} : { clock: options.clock }),
     nextRunId: () => nextId("run"),
   });
+  const countryResolution = createCountryResolutionComposition({
+    database: options.database,
+    hmacKey: options.hmacKey,
+    ...(options.clock === undefined ? {} : { clock: options.clock }),
+    ...(options.requestStep === undefined ? {} : {
+      requestStep: options.requestStep as unknown as RequestStep<SloveniaSourceId>,
+    }),
+    nextRunId: () => nextId("run"),
+  });
   const housingBranch = createHousingBranchApplication({
     profileStore,
     runStore,
@@ -142,6 +153,14 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     preparePlaceFrontier: placeFrontier.preparePlaceFrontier,
     runPlaceFrontier: placeFrontier.runPlaceFrontier,
     presentPlaceFrontier: placeFrontier.presentPlaceFrontier,
+    startCountryResolution: countryResolution.startCountryResolution,
+    decideYellow: countryResolution.decideYellow,
+    prepareCountryResolutionContinuation:
+      countryResolution.prepareCountryResolutionContinuation,
+    continueCountryResolution: countryResolution.continueCountryResolution,
+    presentCountryResolution: countryResolution.presentCountryResolution,
+    requireResolvedCountryShortlistForCity:
+      countryResolution.requireResolvedCountryShortlistForCity,
   });
 }
 

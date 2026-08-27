@@ -446,6 +446,24 @@ describe("strict finite frontier protocol", () => {
     expect(Object.isFrozen(state.events)).toBe(true);
   });
 
+  test("rejects a shortlist sealed before an expanded-year assessment", async () => {
+    const fixture = validFixture();
+    const terminal = fixture.events.at(-1) as
+      Extract<PlaceFrontierEvent, { type: "frontier_completed" }>;
+    const readModel = terminal.payload.readModel;
+    (readModel as { assessmentAt: string }).assessmentAt =
+      "+010000-01-01T00:00:00.000Z";
+    (readModel.rankingSnapshot as { assessmentAt: string; createdAt: string }).assessmentAt =
+      "+010000-01-01T00:00:00.000Z";
+    (readModel.rankingSnapshot as { assessmentAt: string; createdAt: string }).createdAt =
+      "+010000-01-01T00:00:00.000Z";
+    (readModel.shortlistSnapshot as { createdAt: string }).createdAt =
+      "9999-12-31T23:59:59.999Z";
+
+    await expect(collectEvents(streamOf(...encodedEvents(fixture.events))))
+      .rejects.toThrow("terminal_shortlist_mismatch");
+  });
+
   test.each([
     ["wrong first type", (events: PlaceFrontierEvent[]) => events.slice(1)],
     ["wrong first sequence", (events: PlaceFrontierEvent[]) => {
@@ -613,6 +631,8 @@ describe("place-frontier browser boundary", () => {
     const entryFiles = [
       "../../src/experience/place-frontier-stream.ts",
       "../../src/experience/place-frontier-view-model.ts",
+      "../../src/experience/country-resolution-stream.ts",
+      "../../src/experience/country-resolution-view-model.ts",
     ];
     const forbiddenRuntimeImports: string[] = [];
     for (const relativePath of entryFiles) {

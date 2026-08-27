@@ -6,6 +6,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { openPlaceFrontierStreamResponse } from
   "../../src/experience/place-frontier-stream";
+import { openCountryResolutionStreamResponse } from
+  "../../src/experience/country-resolution-stream";
 import { PlaceFrontierStart } from
   "../../src/experience/components/PlaceFrontierStart";
 import { replacePlaceFrontierRunUrl } from "../../src/experience/run-url";
@@ -19,6 +21,8 @@ import type {
   PlaceFrontierReadModel,
   RankingSnapshot,
 } from "../../src/application/place-frontier";
+import type { CountryResolutionReadModel } from
+  "../../src/application/country-resolution";
 import type { FormalResidenceVerdict } from
   "../../src/decision/formal-residence-verdict";
 import { PlaceFrontierJourney } from
@@ -182,6 +186,50 @@ function terminalFixture(runId = "frontier-run-1") {
   return { events, readModel };
 }
 
+function resolvedCountryResolution(
+  automaticFrontier: PlaceFrontierReadModel,
+): CountryResolutionReadModel {
+  const resolutionRunId = `resolution:${automaticFrontier.runId}`;
+  return {
+    resolutionRunId,
+    assessmentAt: automaticFrontier.assessmentAt,
+    automaticFrontier,
+    revision: {
+      schemaVersion: "country-resolution@1",
+      rulesVersion: "country-resolution@1",
+      id: `${resolutionRunId}:resolved`,
+      resolutionRunId,
+      automaticShortlistSnapshotId: automaticFrontier.shortlistSnapshot.id,
+      rankingSnapshotId: automaticFrontier.rankingSnapshot.id,
+      profileSnapshotId: automaticFrontier.rankingSnapshot.profileSnapshotId,
+      preferenceProfileSnapshotId:
+        automaticFrontier.rankingSnapshot.preferenceProfileSnapshotId,
+      decisions: [],
+      replacementMarkers: [],
+      nextUncheckedRank: automaticFrontier.shortlistSnapshot.markers.length + 1,
+      unresolvedCountryCodes: [],
+      slotCountryCodes: automaticFrontier.shortlistSnapshot.markers.map(
+        ({ country }) => country.countryCode,
+      ),
+      contextHash: "e".repeat(64),
+      createdAt: NOW,
+      kind: "resolved",
+      resolvedEntries: automaticFrontier.shortlistSnapshot.markers.map((candidate) => ({
+        countryCode: candidate.country.countryCode,
+        rank: candidate.rank,
+        formalMarkerDigest: String(candidate.rank).repeat(64),
+      })),
+      stopCondition: "ranking_exhausted",
+    },
+  };
+}
+
+function resolutionStartResponse(automaticFrontier: PlaceFrontierReadModel): Response {
+  return new Response(JSON.stringify(resolvedCountryResolution(automaticFrontier)), {
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -298,6 +346,26 @@ describe("place-frontier response boundary", () => {
   test("replaces the URL with only encoded flow and run", () => {
     replacePlaceFrontierRunUrl("run / one");
     expect(window.location.search).toBe("?flow=place-frontier&run=run%20%2F%20one");
+  });
+});
+
+describe("shared finite response cancellation", () => {
+  test("keeps country-resolution validation primary for hanging, sync and rejected cancellation", async () => {
+    const cancellations = [
+      () => new Promise<never>(() => undefined),
+      () => { throw new Error("cancel_failed_sync"); },
+      () => Promise.reject(new Error("cancel_failed_async")),
+    ];
+    for (const cancelResponse of cancellations) {
+      const body = pendingStream();
+      const cancel = vi.spyOn(body, "cancel").mockImplementation(cancelResponse);
+      const response = new Response(body, { headers: { "content-type": "application/json" } });
+
+      expect(() => openCountryResolutionStreamResponse(response))
+        .toThrow("invalid_country_resolution_content_type");
+      expect(cancel).toHaveBeenCalledOnce();
+      await Promise.resolve();
+    }
   });
 });
 
@@ -511,6 +579,7 @@ describe("place-frontier setup", () => {
 describe("place-frontier journey lifecycle", () => {
   test("reaches a terminal result through a one-shot stream under StrictMode replay", async () => {
     const fixture = terminalFixture();
+    vi.stubGlobal("fetch", vi.fn(async () => resolutionStartResponse(fixture.readModel)));
 
     render(
       <StrictMode>
@@ -521,7 +590,7 @@ describe("place-frontier journey lifecycle", () => {
     );
 
     expect(await screen.findByText(`${fixture.readModel.runId}:shortlist`)).toBeTruthy();
-    expect(screen.queryByRole("alert")).toBeNull();
+    await vi.waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
   test("reports a one-shot transport failure with retained history under StrictMode replay", async () => {
@@ -556,31 +625,30 @@ describe("place-frontier journey lifecycle", () => {
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
   });
 
-  test("renders a stored terminal projection without timeline or flight and shows full projected card truth", async () => {
+  test("starts resolution for a stored terminal without synthetic timeline or flight", async () => {
     const fixture = terminalFixture();
-    const fetch = vi.fn();
+    const fetch = vi.fn(async () => resolutionStartResponse(fixture.readModel));
     vi.stubGlobal("fetch", fetch);
     const journey = render(
       <PlaceFrontierJourney initialReadModel={fixture.readModel} mode="stored"
         runId={fixture.readModel.runId} />,
     );
 
-    expect(fetch).not.toHaveBeenCalled();
-    expect(screen.getByText("Предварительный результат")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "1 формально доступны / 0 требуют проверки" }))
+    expect(await screen.findByRole("heading", { name: "1 стран доступны для выбора" }))
       .toBeTruthy();
-    expect(screen.getByText(/установленное покрытие исчерпано/i)).toBeTruthy();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith("/api/country-resolution/start", {
+      body: JSON.stringify({
+        automaticShortlistSnapshotId: fixture.readModel.shortlistSnapshot.id,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      signal: expect.any(AbortSignal),
+    });
     const cards = screen.getByRole("region", { name: "Карточки стран" });
     expect(within(cards).getByRole("heading", { name: "Country SI" })).toBeTruthy();
     expect(within(cards).getByText(/personal_safety.*effective 1.*contribution 5/)).toBeTruthy();
-    expect(within(cards).getByText("route-SI")).toBeTruthy();
-    expect(within(cards).getByText(/медицинскую страховку.*не выполнено/i)).toBeTruthy();
-    expect(within(cards).getByText(/предложение о работе.*ещё не получено/i)).toBeTruthy();
-    expect(within(cards).getByText("Вердикт на дату").nextElementSibling?.textContent)
-      .toBe("2026-08-12");
     expect(within(cards).getByText("evidence-SI")).toBeTruthy();
-    expect(within(cards).getByText("knowledge-ranking-SI")).toBeTruthy();
-    expect(within(cards).getAllByText("knowledge-current-SI")).toHaveLength(2);
     expect(journey.container.querySelector(".workspace-globe")?.getAttribute("data-mode"))
       .toBe("collapsed");
     expect(journey.container.querySelector('[aria-label="Ход проверки"]')).toBeNull();
@@ -605,7 +673,19 @@ describe("place-frontier journey lifecycle", () => {
     const next = terminalFixture("frontier-run-new");
     let resolveFetch: ((response: Response) => void) | undefined;
     const responsePromise = new Promise<Response>((resolve) => { resolveFetch = resolve; });
-    const fetch = vi.fn(() => responsePromise);
+    let resolveStart: ((response: Response) => void) | undefined;
+    let startCount = 0;
+    const fetch = vi.fn((url: string) => {
+      if (url === "/api/country-resolution/start") {
+        startCount += 1;
+        if (startCount === 1) {
+          return new Promise<Response>((resolve) => { resolveStart = resolve; });
+        }
+        return Promise.resolve(resolutionStartResponse(next.readModel));
+      }
+      resolveStart?.(resolutionStartResponse(previous.readModel));
+      return responsePromise;
+    });
     vi.stubGlobal("fetch", fetch);
     render(<PlaceFrontierJourney initialReadModel={previous.readModel} mode="stored"
       runId={previous.readModel.runId} />);
@@ -632,8 +712,6 @@ describe("place-frontier journey lifecycle", () => {
       "x-life-preference-profile-id": PREFERENCE_ID,
     } }));
 
-    await vi.waitFor(() => expect(window.location.search)
-      .toBe("?flow=place-frontier&run=frontier-run-new"));
     await screen.findByText("frontier-run-new:shortlist");
     expect(searchWhenRead).toBe("?flow=place-frontier&run=frontier-run-new");
   });
@@ -643,14 +721,21 @@ describe("place-frontier journey lifecycle", () => {
     const cancel = vi.fn();
     const body = new ReadableStream<Uint8Array>({ cancel });
     const getReader = vi.spyOn(body, "getReader");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
-      headers: {
-        "content-type": "application/x-ndjson; charset=utf-8",
-        "x-life-run-id": "frontier-run-owned-retry",
-        "x-life-profile-id": PROFILE_ID,
-        "x-life-preference-profile-id": PREFERENCE_ID,
-      },
-    })));
+    let resolveStart: ((response: Response) => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url === "/api/country-resolution/start") {
+        return new Promise<Response>((resolve) => { resolveStart = resolve; });
+      }
+      resolveStart?.(resolutionStartResponse(previous.readModel));
+      return Promise.resolve(new Response(body, {
+        headers: {
+          "content-type": "application/x-ndjson; charset=utf-8",
+          "x-life-run-id": "frontier-run-owned-retry",
+          "x-life-profile-id": PROFILE_ID,
+          "x-life-preference-profile-id": PREFERENCE_ID,
+        },
+      }));
+    }));
     const nativeReplaceState = window.history.replaceState.bind(window.history);
     vi.spyOn(window.history, "replaceState").mockImplementation((data, unused, url) => {
       nativeReplaceState(data, unused, url);
@@ -667,14 +752,21 @@ describe("place-frontier journey lifecycle", () => {
 
   test("rejects a reused retry run while preserving terminal UI", async () => {
     const fixture = terminalFixture();
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(eventStream(fixture.events), {
-      headers: {
-        "content-type": "application/x-ndjson; charset=utf-8",
-        "x-life-run-id": fixture.readModel.runId,
-        "x-life-profile-id": PROFILE_ID,
-        "x-life-preference-profile-id": PREFERENCE_ID,
-      },
-    })));
+    let resolveStart: ((response: Response) => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url === "/api/country-resolution/start") {
+        return new Promise<Response>((resolve) => { resolveStart = resolve; });
+      }
+      resolveStart?.(resolutionStartResponse(fixture.readModel));
+      return Promise.resolve(new Response(eventStream(fixture.events), {
+        headers: {
+          "content-type": "application/x-ndjson; charset=utf-8",
+          "x-life-run-id": fixture.readModel.runId,
+          "x-life-profile-id": PROFILE_ID,
+          "x-life-preference-profile-id": PREFERENCE_ID,
+        },
+      }));
+    }));
     render(<PlaceFrontierJourney initialReadModel={fixture.readModel} mode="stored"
       runId={fixture.readModel.runId} />);
 
@@ -700,7 +792,14 @@ describe("place-frontier journey lifecycle", () => {
     const fixture = terminalFixture();
     const body = pendingStream();
     const cancel = vi.spyOn(body, "cancel");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { headers })));
+    let resolveStart: ((response: Response) => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url === "/api/country-resolution/start") {
+        return new Promise<Response>((resolve) => { resolveStart = resolve; });
+      }
+      resolveStart?.(resolutionStartResponse(fixture.readModel));
+      return Promise.resolve(new Response(body, { headers }));
+    }));
     render(<PlaceFrontierJourney initialReadModel={fixture.readModel} mode="stored"
       runId={fixture.readModel.runId} />);
 
@@ -723,9 +822,18 @@ describe("place-frontier journey lifecycle", () => {
         "x-life-preference-profile-id": PREFERENCE_ID,
       },
     });
-    const fetch = vi.fn()
-      .mockResolvedValueOnce(response("frontier-run-first", firstBody))
-      .mockResolvedValueOnce(response("frontier-run-second", secondBody));
+    let resolveStart: ((response: Response) => void) | undefined;
+    let retryCount = 0;
+    const fetch = vi.fn((url: string) => {
+      if (url === "/api/country-resolution/start") {
+        return new Promise<Response>((resolve) => { resolveStart = resolve; });
+      }
+      resolveStart?.(resolutionStartResponse(fixture.readModel));
+      retryCount += 1;
+      return Promise.resolve(retryCount === 1
+        ? response("frontier-run-first", firstBody)
+        : response("frontier-run-second", secondBody));
+    });
     vi.stubGlobal("fetch", fetch);
     render(<PlaceFrontierJourney initialReadModel={fixture.readModel} mode="stored"
       runId={fixture.readModel.runId} />);
@@ -735,7 +843,7 @@ describe("place-frontier journey lifecycle", () => {
       .toBe("?flow=place-frontier&run=frontier-run-first"));
     fireEvent.click(screen.getByRole("button", { name: "Повторить проверку" }));
 
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     await vi.waitFor(() => expect(firstCancel).toHaveBeenCalledOnce());
     expect(window.location.search).toBe("?flow=place-frontier&run=frontier-run-second");
   });
@@ -748,7 +856,10 @@ describe("place-frontier journey lifecycle", () => {
 
     const fixture = terminalFixture();
     let retrySignal: AbortSignal | undefined;
-    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn((url: string, init: RequestInit) => {
+      if (url === "/api/country-resolution/start") {
+        return Promise.resolve(resolutionStartResponse(fixture.readModel));
+      }
       retrySignal = init.signal as AbortSignal;
       return new Promise<Response>(() => undefined);
     }));
@@ -823,6 +934,7 @@ describe("frontier projection and workspace", () => {
       coordinate: { lat: 2, lng: 2 },
       description: "Доступно",
       status: "green" as const,
+      statusLabel: "Доступно для выбора",
       reason: { summary: "Не раскрывать" },
     },
     {
@@ -834,6 +946,7 @@ describe("frontier projection and workspace", () => {
       coordinate: { lat: 3, lng: 3 },
       description: "Уточнить",
       status: "yellow" as const,
+      statusLabel: "Требует решения",
       reason: {
         summary: "Нужна ручная проверка",
         officialUrl: "https://evidence.test/one",
@@ -850,6 +963,7 @@ describe("frontier projection and workspace", () => {
       coordinate: { lat: 4, lng: 4 },
       description: "Недоступно",
       status: "red" as const,
+      statusLabel: "Исключено",
       reason: { summary: "Все маршруты исключены" },
     },
   ] as const;
@@ -873,8 +987,9 @@ describe("frontier projection and workspace", () => {
     ]);
     expect(within(list).getAllByRole("button")).toHaveLength(2);
     expect(screen.getByText("Проверяем источник")).toBeTruthy();
-    expect(screen.getByText(/формально доступно/i)).toBeTruthy();
-    expect(screen.getByText(/формально недоступно/i)).toBeTruthy();
+    expect(screen.getByText("Доступно для выбора")).toBeTruthy();
+    expect(screen.getByText("Требует решения")).toBeTruthy();
+    expect(screen.getByText("Исключено")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Уточнить/i }));
     expect(screen.getByText("Evidence")).toBeTruthy();
@@ -899,6 +1014,7 @@ describe("frontier projection and workspace", () => {
     expect(route.manualCheckLinks).toEqual([
       { label: "Навигация", url: "https://manual.test/one" },
     ]);
+    expect(route.statusLabel).toBe("Требует решения");
   });
 
   test("aggregates every formal Evidence URL separately from manual navigation", () => {

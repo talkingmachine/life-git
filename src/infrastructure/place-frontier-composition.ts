@@ -4,14 +4,10 @@ import type Database from "better-sqlite3";
 
 import {
   createPlaceFrontierApplication,
-  countryCheckRunId,
-  type CountryVerifierPort,
 } from "../application/place-frontier";
 import { rankPlaces, type RankablePlace } from "../decision/place-ranker";
-import {
-  createColdStartComposition,
-  type ColdStartCompositionOptions,
-} from "./cold-start-composition";
+import type { ColdStartCompositionOptions } from "./cold-start-composition";
+import { createCountryVerifierAdapter } from "./country-verifier-adapter";
 import { createEvidenceIntegrity } from "./integrity";
 import { createInstalledPlacePackages } from "./sources/installed-place-packages";
 import { SqliteCountryKnowledgeStore } from "./sqlite/country-knowledge-store";
@@ -35,68 +31,9 @@ function frontierPlaces(): readonly RankablePlace[] {
 }
 
 export function createPlaceFrontierComposition(options: PlaceFrontierCompositionOptions) {
-  const coldStart = createColdStartComposition(options);
   const profiles = new SqliteProfileStore(options.database);
   const knowledge = new SqliteCountryKnowledgeStore(options.database, options.hmacKey);
-  const verifier: CountryVerifierPort = {
-    async check({ country, profileId, parentRunId, emitProgress, signal }) {
-      if (country.countryCode !== "SI") throw new Error("country_not_installed");
-      const runId = countryCheckRunId(parentRunId, country.countryCode);
-      const countryCheck = createColdStartComposition({
-        ...options,
-        nextRunId: () => runId,
-      });
-      const prepared = await countryCheck.prepare({
-        countryInput: country.label,
-        profileId,
-      });
-      if (prepared.profileId !== profileId || prepared.runId !== runId || prepared.country.code !== "SI") {
-        throw new Error("integrity_mismatch");
-      }
-      const readModel = await countryCheck.run(prepared, async (event) => {
-        if (event.type !== "assessment_completed") await emitProgress(event);
-      }, signal);
-      return {
-        countryCheckRunId: runId,
-        sourceAssessmentRulesVersion: readModel.assessmentRulesVersion,
-        verdict: readModel.comparator.formalVerdict,
-        evidenceSnapshotId: readModel.evidenceSnapshotId,
-        ...(readModel.knowledge.currentRevisionId === undefined ? {} : {
-          currentKnowledgeRevisionId: readModel.knowledge.currentRevisionId,
-        }),
-        ...(readModel.knowledge.updatedRevisionId === undefined ? {} : {
-          updatedKnowledgeRevisionId: readModel.knowledge.updatedRevisionId,
-        }),
-        ...(readModel.knowledge.knowledgeUpdatedAt === undefined ? {} : {
-          knowledgeUpdatedAt: readModel.knowledge.knowledgeUpdatedAt,
-        }),
-        lastCheckedAt: readModel.knowledge.lastCheckedAt,
-      };
-    },
-    async present({ parentRunId, countryCode, countryCheckRunId: childRunId, profileId }) {
-      const expectedRunId = countryCheckRunId(parentRunId, countryCode);
-      if (countryCode !== "SI" || childRunId !== expectedRunId) throw new Error("integrity_mismatch");
-      const readModel = await coldStart.present({ runId: childRunId, profileId });
-      if (readModel.runId !== childRunId || readModel.country.code !== countryCode) {
-        throw new Error("integrity_mismatch");
-      }
-      return {
-        sourceAssessmentRulesVersion: readModel.assessmentRulesVersion,
-        verdict: readModel.comparator.formalVerdict,
-        evidenceSnapshotId: readModel.evidenceSnapshotId,
-        ...(readModel.knowledge.currentRevisionId === undefined ? {} : {
-          currentKnowledgeRevisionId: readModel.knowledge.currentRevisionId,
-        }),
-        ...(readModel.knowledge.updatedRevisionId === undefined ? {} : {
-          updatedKnowledgeRevisionId: readModel.knowledge.updatedRevisionId,
-        }),
-        ...(readModel.knowledge.knowledgeUpdatedAt === undefined ? {} : {
-          knowledgeUpdatedAt: readModel.knowledge.knowledgeUpdatedAt,
-        }),
-        lastCheckedAt: readModel.knowledge.lastCheckedAt,
-      };
-    },
-  };
+  const verifier = createCountryVerifierAdapter(options);
   return createPlaceFrontierApplication({
     profiles,
     rankingInputs: {

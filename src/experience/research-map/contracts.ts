@@ -27,6 +27,7 @@ export interface ResearchCandidate {
   readonly description: string;
   readonly photoUrl?: string;
   readonly status: CandidateState;
+  readonly statusLabel?: string;
   readonly reason?: ResearchReason;
 }
 
@@ -59,6 +60,7 @@ export interface GlobeRoute {
   }[];
   readonly markerVisible?: boolean;
   readonly status: CandidateState;
+  readonly statusLabel?: string;
   readonly to: GeoCoordinate;
 }
 

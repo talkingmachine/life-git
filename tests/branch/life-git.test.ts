@@ -363,6 +363,7 @@ describe("Life Git housing branch", () => {
       { name: "artifacts" },
       { name: "branch_commits" },
       { name: "country_knowledge_revisions" },
+      { name: "country_resolution_revisions" },
       { name: "dossier_versions" },
       { name: "evidence_snapshots" },
       { name: "place_frontier_snapshots" },

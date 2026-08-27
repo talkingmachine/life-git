@@ -7,7 +7,7 @@
 | Последняя проверка | 2026-08-12 |
 | Область ответственности | однозначные продуктовые термины Stage 1 |
 | Supersedes | нет |
-| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12 |
+| Approval | пользователь проекта / 2026-08-06 / Stage 1; VS-3 place-frontier semantic amendment / approved 2026-08-12; VS-3R yellow-resolution amendment / approved 2026-08-12 |
 
 Термины относятся к продуктовой семантике. Технические entities и schemas определяются позже и не
 обязаны повторять эти названия буквально.
@@ -47,9 +47,15 @@
 | **Country frontier** | зафиксированный Ranking Snapshot и очередь ещё не завершённых стран; red заменяется следующей страной из того же порядка |
 | **Place relevance** | объяснимый score места по Preference Profile и Country Knowledge; unknown получает явную conservative boundary, route count не участвует |
 | **Research budget** | bounded operational limit отдельной capture/retry попытки; не является отдельным stop condition country shortlist |
-| **Top-5** | пять разных green/yellow стран из installed coverage и frozen Ranking Snapshot; любой yellow делает результат preliminary |
+| **Top-5** | до пяти разных effective green стран из installed coverage и frozen Ranking Snapshot после Yellow Resolution; при exhaustion честный resolved результат может содержать 0–4 страны |
 | **Ranking Snapshot** | неизменяемые profile/preferences, Knowledge revision IDs, ranking rules, factors и полный порядок стран текущего run |
-| **Shortlist Snapshot** | неизменяемый terminal result со всеми markers, пятью non-red либо честным меньшим результатом и exact evidence lineage |
+| **Automatic Shortlist Snapshot** | historical VS-3 terminal result со всеми formal markers, пятью formal non-red либо честным меньшим результатом и exact evidence lineage; он preliminary и не открывает City Frontier |
+| **Formal status** | неизменяемый `green`, `yellow` или `red` из sealed official Evidence; formal yellow не переписывается решением пользователя |
+| **Yellow decision** | append-only решение для exact formal yellow marker: `accepted_at_own_risk` или `rejected`; skip отсутствует |
+| **Effective status** | детерминированная пользовательская projection formal status и Yellow decision: accepted yellow -> green, rejected yellow -> red, unresolved yellow -> yellow |
+| **Resolution revision** | append-only canonical snapshot текущей Yellow Resolution: решения, replacement markers, cursor, queue и effective slots, проверяемые из immutable source graph |
+| **Resolved Country Shortlist Snapshot** | terminal Resolution revision с до пятью effective green странами без unresolved formal yellow; единственный future City Frontier input, если результат non-empty |
+| **Shortlist Snapshot** | historical VS-3 название Automatic Shortlist Snapshot; в forward product flow это не final country choice и не City Frontier input |
 | **Формально доступная страна / green** | подтверждён хотя бы один viable long-term ResidenceRoute; это не гарантия approval или city fit |
 | **Неопределённая страна / yellow** | green не найден, но официальный пробел или incomplete catalog не позволяет доказать невозможность |
 | **Исключённая страна / red** | complete applicable route catalog проверен, и каждый маршрут доказанно невозможен для profile; marker остаётся в истории |

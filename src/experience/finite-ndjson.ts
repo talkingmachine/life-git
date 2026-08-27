@@ -1,5 +1,39 @@
 export const FINITE_NDJSON_MAX_LINE_BYTES = 256 * 1024;
 
+export interface FiniteStreamHandoff {
+  readonly adopt: () => ReadableStream<Uint8Array> | undefined;
+  readonly cancel: (reason: unknown) => void;
+}
+
+export function cancelStreamWithoutMasking(
+  stream: ReadableStream<Uint8Array>,
+  reason: unknown,
+): void {
+  try {
+    void stream.cancel(reason).catch(() => undefined);
+  } catch {
+    // Cancellation must not replace the primary lifecycle or validation error.
+  }
+}
+
+export function createFiniteStreamHandoff(
+  stream: ReadableStream<Uint8Array>,
+): FiniteStreamHandoff {
+  let owned = true;
+  return Object.freeze({
+    adopt: () => {
+      if (!owned) return undefined;
+      owned = false;
+      return stream;
+    },
+    cancel: (reason: unknown) => {
+      if (!owned) return;
+      owned = false;
+      cancelStreamWithoutMasking(stream, reason);
+    },
+  });
+}
+
 function abortReason(signal?: AbortSignal): unknown {
   return signal?.reason ?? new DOMException("The operation was aborted", "AbortError");
 }

@@ -83,6 +83,7 @@ interface CityLabelDatum {
   readonly placeKind: PlaceKind;
   readonly selected: boolean;
   readonly status: GlobeRoute["status"];
+  readonly statusLabel?: string;
 }
 
 interface FlightLayer {
@@ -364,6 +365,7 @@ export function ResearchGlobeCanvas({
           placeKind: route.kind,
           selected: route.key === selectedRouteKey,
           status: route.status,
+          ...(route.statusLabel === undefined ? {} : { statusLabel: route.statusLabel }),
         }]
         : []
     ));
@@ -412,7 +414,7 @@ export function ResearchGlobeCanvas({
       );
     } else {
       const status = label.placeKind === "country"
-        ? frontierStatusLabels[label.status]
+        ? label.statusLabel ?? frontierStatusLabels[label.status]
         : statusLabels[label.status];
       element.setAttribute("role", "note");
       element.setAttribute(
@@ -491,6 +493,12 @@ export function ResearchGlobeCanvas({
     const settleRendererFrame = window.requestAnimationFrame(() => {
       focusFrame = window.requestAnimationFrame(() => {
         const container = size.container.current;
+        const activeElement = document.activeElement;
+        if (activeElement !== null && activeElement !== document.body &&
+          activeElement !== container && !container?.contains(activeElement)) {
+          returnFocusKey.current = undefined;
+          return;
+        }
         const marker = visibleMarkerButton(container, routeKey)
           ?? firstVisibleMarkerButton(container);
         if (marker !== undefined) marker.focus();
@@ -915,7 +923,7 @@ export function ResearchGlobeCanvas({
           </h2>
           <p className={styles.markerDetailsStatus}>
             {selectedRoute.kind === "country"
-              ? frontierStatusLabels[selectedRoute.status]
+              ? selectedRoute.statusLabel ?? frontierStatusLabels[selectedRoute.status]
               : statusLabels[selectedRoute.status]}
           </p>
           {selectedRoute.status === "green" && selectedRoute.photoUrl !== undefined ? (

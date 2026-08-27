@@ -26,6 +26,21 @@ export default async function Page({ searchParams }: PageProps) {
   const runId = one(params.run);
   const profileId = one(params.profile);
 
+  if (flow === "country-resolution") {
+    if (runId === undefined) return <MissingCountryResolution />;
+    try {
+      const { getConfirmedLifeApplication } = await import("../infrastructure/composition-root");
+      const readModel = await getConfirmedLifeApplication().presentCountryResolution(runId);
+      return <PlaceFrontierJourney mode={{ kind: "resolution-stored", readModel }} />;
+    } catch (error) {
+      if (error instanceof Error && (error.message === "resolution_not_found" ||
+        error.message === "snapshot_not_found")) {
+        return <MissingCountryResolution />;
+      }
+      return <UnavailableCountryResolution />;
+    }
+  }
+
   if (flow === "place-frontier") {
     if (runId === undefined) return <PlaceFrontierStart />;
     try {
@@ -102,6 +117,31 @@ function UnavailablePlaceFrontier() {
         <p className="eyebrow">Запуск недоступен</p>
         <h1>Снимок не удалось открыть</h1>
         <p>Проверьте идентификатор запуска. Доменный вывод не показан.</p>
+      </section>
+    </main>
+  );
+}
+
+function MissingCountryResolution() {
+  return (
+    <main className="landing landing--error">
+      <section className="landing__copy">
+        <p className="eyebrow">Разрешение недоступно</p>
+        <h1>Разрешение не найдено</h1>
+        <p>Откройте сохранённый автоматический результат и начните разрешение снова.</p>
+        <a href="?flow=place-frontier">Открыть поиск стран</a>
+      </section>
+    </main>
+  );
+}
+
+function UnavailableCountryResolution() {
+  return (
+    <main className="landing landing--error">
+      <section className="landing__copy">
+        <p className="eyebrow">Запуск недоступен</p>
+        <h1>Снимок не удалось открыть</h1>
+        <p>Проверьте идентификатор разрешения. Доменный вывод не показан.</p>
       </section>
     </main>
   );
