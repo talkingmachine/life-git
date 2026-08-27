@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "city-safety-surs-municipality-result-status@1",
+  "fixtureClass": "unavailable_projection",
+  "requestFixture": "surs-municipality-population.request.json",
+  "sourceTable": "05C5003S",
+  "referenceDate": "2025-01-01",
+  "rawResponseCaptured": false,
+  "rawResponseSha256": null,
+  "status": "exact_municipality_result_not_bound",
+  "publishable": false,
+  "requiredResultContract": {
+    "geography": "one exact SURS municipality code",
+    "period": "1 January of the offence reference year",
+    "unit": "people",
+    "value": "positive canonical integer",
+    "source": "Statistični urad Republike Slovenije"
+  },
+  "proofBoundary": "The committed 2026 catalog fixture binds only a derived settlement summary and raw-response hash. It is not reused or relabelled as this missing exact municipality result."
+}

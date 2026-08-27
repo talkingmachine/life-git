@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "city-safety-municipal-scope-projection@1",
+  "fixtureClass": "unavailable_projection",
+  "sourceReadiness": "official_route_reviewed_raw_bytes_not_bound",
+  "publisher": "Mestna občina Velenje",
+  "dataAuthorityClaim": "Policijska postaja Velenje",
+  "navigationUrl": "https://www.velenje.si/",
+  "resolvedEvidenceUrl": "https://www.velenje.si/app/uploads/2025/04/pp-s-prilogo.pdf",
+  "settlementCode": "133024",
+  "municipalityCode": "133",
+  "coveredMunicipalityCodes": ["125", "126", "133"],
+  "coveredMunicipalityNames": ["Šmartno ob Paki", "Šoštanj", "Velenje"],
+  "rawArtifactCommitted": false,
+  "rawSha256": null,
+  "publishable": false,
+  "disposition": "rejected",
+  "rejectionReason": "scope_mismatch",
+  "proofBoundary": "The reviewed official route describes a police-station territory spanning three municipalities. No official document bytes or exact total are committed, so this projection proves only the fail-closed scope decision and must never become a Velenje fact."
+}

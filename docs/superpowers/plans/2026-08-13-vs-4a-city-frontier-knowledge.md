@@ -174,7 +174,7 @@ Define this port in `src/application/city-data-contracts.ts`; the SQLite adapter
 
 - [ ] **Step 1: Write RED for atomic Evidence/overlay sealing**
 
-Test same-ID exact retry, conflicting payload, exact city/package/catalog/criteria/ranking binding, `completedAt >= max(capturedAt, searchedAt)`, every ledger artifact reference present exactly once in the generic Evidence manifest, every previous-origin attempt resolving to an exact prior verified City Evidence/source-plan/accepted URL lineage, overlay-without-generic rejection, generic-without-overlay recovery, byte/hash/HMAC tamper and immutable UPDATE/DELETE. Mutate/re-sign safety query/provider/outcome/result order, assessment time, previous Evidence/source-plan provenance, canonical URL, redirect, authority/media/retention decision, artifact/source hash, locator, rejection reason and `3/10/2` counters; every semantic mutation must fail reconstruction.
+Test same-ID exact retry, conflicting payload, exact city/package/catalog/criteria/ranking binding, `completedAt >= max(capturedAt, searchedAt)`, every ledger artifact reference present exactly once in the generic Evidence manifest, every previous-origin attempt resolving to an exact prior verified City Evidence/source-plan/accepted URL lineage, overlay-without-generic rejection, generic-without-overlay recovery, byte/hash/HMAC tamper and immutable UPDATE/DELETE. Bind every ledger reference to the exact discovery artifact before sealing: raw mode compares canonical URL/response URL and captured-byte hash with `locator`/`sourceSha256`; transient mode parses the canonical retained inspection/navigation/denominator projection and compares its `sourceLocator`, `sourceSha256` and retention disposition. The generic manifest then verifies the stored artifact bytes and provenance. Mutate/re-sign safety query/provider/outcome/result order, assessment time, previous Evidence/source-plan provenance, canonical URL, redirect, authority/media/retention decision, artifact/source hash, locator, rejection reason and `3/10/2` counters in both retention modes; every semantic mutation must fail reconstruction.
 
 - [ ] **Step 2: Run RED**
 
@@ -189,7 +189,7 @@ Columns: ID FK to `evidence_snapshots`, unique check-run ID, mirrored city/count
 
 - [ ] **Step 4: Implement one immediate seal transaction and verified replay**
 
-Factor reusable generic Evidence verification out of `evidence-store.ts`; do not add city branches to old source-ID unions. Before sealing, load and verify every previous-origin Evidence reference and canonical-compare its city/municipality/definition/source-plan plus accepted URL with the discovery input; no arbitrary current official URL may impersonate prior provenance. Seal the discovery result's exact `si-city-safety` artifacts through the existing artifact writer before the signed generic snapshot and overlay; the raw-seal mode stores permitted official bytes, while hash-locator mode stores only its canonical minimal projection. On lost insert race, read back and canonical-compare. A cancellation or thrown storage/parser error must leave no overlay row; a sealed generic snapshot without its overlay is recovered idempotently on retry.
+Factor reusable generic Evidence verification out of `evidence-store.ts`; do not add city branches to old source-ID unions. Before sealing, load and verify every previous-origin Evidence reference and canonical-compare its city/municipality/definition/source-plan plus accepted URL with the discovery input; no arbitrary current official URL may impersonate prior provenance. Accept the exact discovery result artifacts, require each ledger ref to resolve to exactly one same-run artifact, and validate the raw or retained-projection bridge above before writing. Seal those exact `si-city-safety` artifacts through the existing artifact writer before the signed generic snapshot and overlay; the raw-seal mode stores permitted official bytes, while hash-locator mode stores only its canonical minimal projection. On lost insert race, read back and canonical-compare. A cancellation or thrown storage/parser error must leave no overlay row; a sealed generic snapshot without its overlay is recovered idempotently on retry.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -419,7 +419,7 @@ export function replayCityEvidence(input: {
 
 - [ ] **Step 1: Write zero-network RED**
 
-Construct a real sealed city bundle, replace every request/official-source/safety-search port with a throwing counted spy, replay twice, compare canonical claims/blockers/safety ledger/accepted and reviewed URLs/context/completedAt, and assert zero calls.
+Construct a real sealed city bundle, replace `CitySafetyOfficialDocumentPort.inspect`, `CitySafetySearchPort.search`, every generic `OfficialSourcePort.capture` and `RequestStep` with throwing counted spies, replay twice, compare canonical claims/blockers/safety ledger/accepted and reviewed URLs/context/completedAt, and assert every count remains zero.
 
 - [ ] **Step 2: Run RED**
 
@@ -429,7 +429,7 @@ Construct a real sealed city bundle, replace every request/official-source/safet
 
 - [ ] **Step 3: Implement package-specific byte replay**
 
-Load the signed overlay and generic artifacts, recursively load any explicitly referenced prior City Evidence, resolve the exact installed package/version, reconstruct its plan and safety attempt ledger with verified previous provenance, rerun validators on sealed permitted bytes/minimal projections and canonical-compare all claims, blockers, queries, candidate order, redirects, counters, accepted/reviewed URLs, parser/rules versions and context. Reject cycles and wrong-city/source-plan lineage. Never call `OfficialSourcePort` or `CitySafetySearchPort`.
+Load the signed overlay and generic artifacts, recursively load any explicitly referenced prior City Evidence, resolve the exact installed package/version, reconstruct its plan and safety attempt ledger with verified previous provenance, rerun validators on sealed permitted bytes/minimal projections and canonical-compare all claims, blockers, queries, candidate order, redirects, counters, accepted/reviewed URLs, parser/rules versions and context. Reject cycles and wrong-city/source-plan lineage. Never call `CitySafetyOfficialDocumentPort.inspect`, `CitySafetySearchPort.search`, `OfficialSourcePort.capture` or `RequestStep`.
 
 - [ ] **Step 4: Add drift/tamper tests**
 

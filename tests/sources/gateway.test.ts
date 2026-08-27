@@ -4,6 +4,7 @@ import {
   MAX_CAPTURE_BYTES,
   SourceCaptureError,
   captureHttpOnce,
+  captureHttpWithTrace,
 } from "../../src/infrastructure/sources/gateway";
 import type { HttpStepRequest } from "../../src/research/contracts";
 import type {
@@ -325,6 +326,96 @@ describe("captureHttpOnce", () => {
     await expect(
       captureHttpOnce(request, new AbortController().signal),
     ).rejects.toMatchObject({ kind, retryable: false });
+  });
+});
+
+describe("captureHttpWithTrace", () => {
+  test("returns the canonical trusted redirect chain and applies a per-request byte limit", async () => {
+    // Break caught: safety silently inherits the 30 MiB legacy limit or loses official redirect lineage.
+    const redirectedRequest = { ...request, method: "GET" as const, bodyBytes: undefined };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response(null, {
+        status: 302,
+        url: request.url,
+        headers: { location: "/final.xml" },
+      }))
+      .mockResolvedValueOnce(response("1234", {
+        status: 200,
+        url: "https://www.cbr.ru/final.xml",
+        headers: { "content-type": "application/xml" },
+      })));
+
+    const result = await captureHttpWithTrace(
+      redirectedRequest,
+      new AbortController().signal,
+      { maxBytes: 4, maxRedirects: 1 },
+    );
+
+    expect(result.redirectChain).toEqual([
+      request.url,
+      "https://www.cbr.ru/final.xml",
+    ]);
+    expect(new TextDecoder().decode(result.artifact.bytes)).toBe("1234");
+  });
+
+  test("preserves redirected 404 status, URL, media type and trusted chain", async () => {
+    // Break caught: a redirected not-found is flattened and cannot reconstruct the reviewed official path.
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response(null, {
+        status: 302,
+        url: request.url,
+        headers: { location: "/missing.xml" },
+      }))
+      .mockResolvedValueOnce(response("missing", {
+        status: 404,
+        url: "https://www.cbr.ru/missing.xml",
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      })));
+
+    await expect(captureHttpWithTrace(request, new AbortController().signal, {
+      maxBytes: 100,
+      maxRedirects: 2,
+    })).rejects.toMatchObject({
+      kind: "http_error",
+      trace: {
+        redirectChain: [request.url, "https://www.cbr.ru/missing.xml"],
+        responseStatus: 404,
+        responseUrl: "https://www.cbr.ru/missing.xml",
+        mediaType: "text/plain",
+      },
+    });
+  });
+
+  test("keeps an untrusted redirect outside the trusted chain", async () => {
+    // Break caught: a rejected external target is counted as an official hop.
+    vi.stubGlobal("fetch", vi.fn(async () => response(null, {
+      status: 302,
+      url: request.url,
+      headers: { location: "https://mirror.example/private" },
+    })));
+
+    await expect(captureHttpWithTrace(request, new AbortController().signal, {
+      maxBytes: 100,
+      maxRedirects: 2,
+    })).rejects.toMatchObject({
+      kind: "navigation_mismatch",
+      trace: {
+        redirectChain: [request.url],
+        rejectedRedirectUrl: "https://mirror.example/private",
+        responseStatus: 302,
+        responseUrl: request.url,
+      },
+    });
+  });
+
+  test.each([
+    [{ maxBytes: 0, maxRedirects: 1 }],
+    [{ maxBytes: Number.MAX_SAFE_INTEGER + 1, maxRedirects: 1 }],
+    [{ maxBytes: 1, maxRedirects: -1 }],
+  ])("rejects unsafe capture limits %#", async (limits) => {
+    // Break caught: arithmetic-invalid limits disable a bounded capture.
+    await expect(captureHttpWithTrace(request, new AbortController().signal, limits))
+      .rejects.toMatchObject({ kind: "navigation_mismatch" });
   });
 });
 

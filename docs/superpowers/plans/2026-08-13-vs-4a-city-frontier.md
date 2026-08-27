@@ -99,13 +99,20 @@ export type CitySafetyCandidateRejectionReason =
   | "retention_unapproved"
   | "conflict";
 
-export interface CitySafetyEvidenceLink {
-  readonly disposition: "accepted" | "reviewed_rejected";
-  readonly navigationUrl: string;
-  readonly resolvedEvidenceUrl?: string;
-  readonly referenceYear?: number;
-  readonly rejectionReason?: CitySafetyCandidateRejectionReason;
-}
+export type CitySafetyEvidenceLink =
+  | {
+      readonly disposition: "accepted";
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl: string;
+      readonly referenceYear: number;
+    }
+  | {
+      readonly disposition: "reviewed_rejected";
+      readonly navigationUrl: string;
+      readonly resolvedEvidenceUrl?: string;
+      readonly referenceYear?: number;
+      readonly rejectionReason: CitySafetyCandidateRejectionReason;
+    };
 
 export interface CityFrontierReadModel {
   readonly runId: string;
