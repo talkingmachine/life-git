@@ -19,7 +19,6 @@ import {
   CodexRuntimeError,
   createCodexJsonInvocation,
 } from "../../src/infrastructure/codex-cli/contracts";
-import { CODEX_STARTUP_NOTICES } from "../../src/infrastructure/codex-cli/event-stream";
 import {
   createCodexCliModelAdapterForTest,
 } from "../../src/infrastructure/codex-cli/model-adapter";
@@ -429,7 +428,6 @@ function successfulProbe(finalMessage: string, webSearchCount = 0) {
   return {
     pid: 17,
     finalMessage,
-    startupNotices: CODEX_STARTUP_NOTICES,
     eventTypes: [
       "thread.started",
       "item.completed",

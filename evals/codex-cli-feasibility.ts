@@ -21,10 +21,6 @@ import {
   runCodexJsonProbe,
 } from "../src/infrastructure/codex-cli/feasibility-probe";
 import { buildCodexExecArgs } from "../src/infrastructure/codex-cli/policy";
-import {
-  CODEX_STARTUP_NOTICES,
-  type CodexStartupNotices,
-} from "../src/infrastructure/codex-cli/event-stream";
 import type { JsonObject } from "../src/infrastructure/codex-cli/owned-json";
 import {
   CODEX_DISABLED_FEATURES,
@@ -133,7 +129,6 @@ export interface CodexCliFeasibilityArtifact {
   readonly callableSkillFeaturesDisabled: true;
   readonly codexExecProcessCount: 1;
   readonly eventTypes: readonly string[];
-  readonly startupNotices: CodexStartupNotices;
   readonly toolEventTypes: readonly [];
   readonly resultSchemaVersion: typeof RESULT_SCHEMA_VERSION;
   readonly resultDigest: string;
@@ -256,7 +251,6 @@ interface ModelProof {
   readonly closedChildEnvironment: true;
   readonly codexExecProcessCount: 1;
   readonly eventTypes: readonly string[];
-  readonly startupNotices: CodexStartupNotices;
   readonly toolEventTypes: readonly [];
   readonly finalMessage: string;
   readonly stdoutBytes: number;
@@ -388,7 +382,6 @@ async function runCodexCliFeasibilityWithRuntime(
         closedChildEnvironment: observer.modelClosedEnvironment,
         codexExecProcessCount: observer.codexExecProcessCount,
         eventTypes: result.eventTypes,
-        startupNotices: result.startupNotices,
         toolEventTypes: [],
         finalMessage: result.finalMessage,
         stdoutBytes: observer.modelStdoutBytes,
@@ -451,7 +444,6 @@ export async function runCodexCliFeasibilityForTest(input: {
       callableSkillFeaturesDisabled: true,
       codexExecProcessCount: 1,
       eventTypes: model.eventTypes,
-      startupNotices: model.startupNotices,
       toolEventTypes: EMPTY_TUPLE,
       resultSchemaVersion: RESULT_SCHEMA_VERSION,
       resultDigest,
@@ -800,7 +792,6 @@ function readModelProof(value: unknown, fixture: SyntheticFixture): ModelProof {
     "closedChildEnvironment",
     "codexExecProcessCount",
     "eventTypes",
-    "startupNotices",
     "toolEventTypes",
     "finalMessage",
     "stdoutBytes",
@@ -810,7 +801,6 @@ function readModelProof(value: unknown, fixture: SyntheticFixture): ModelProof {
     "residualTempDirectories",
   ]);
   const eventTypes = readStringArray(proof.eventTypes);
-  const startupNotices = readStartupNotices(proof.startupNotices);
   const finalMessage = proof.finalMessage;
   if (proof.strictExecConfig !== true || proof.closedChildEnvironment !== true ||
     proof.codexExecProcessCount !== 1 || !isEmptyArray(proof.toolEventTypes) ||
@@ -827,7 +817,6 @@ function readModelProof(value: unknown, fixture: SyntheticFixture): ModelProof {
     closedChildEnvironment: true,
     codexExecProcessCount: 1,
     eventTypes: Object.freeze([...eventTypes]),
-    startupNotices,
     toolEventTypes: EMPTY_TUPLE,
     finalMessage,
     stdoutBytes: proof.stdoutBytes,
@@ -847,14 +836,6 @@ function requireExactResult(finalMessage: string): void {
   }
   const result = readExactObject(parsed, ["schemaVersion", "status"]);
   if (result.schemaVersion !== RESULT_SCHEMA_VERSION || result.status !== RESULT_STATUS) throw isolationUnproven();
-}
-
-function readStartupNotices(value: unknown): CodexStartupNotices {
-  if (!Array.isArray(value) || value.length !== CODEX_STARTUP_NOTICES.length ||
-    value[0] !== CODEX_STARTUP_NOTICES[0] || value[1] !== CODEX_STARTUP_NOTICES[1]) {
-    throw isolationUnproven();
-  }
-  return Object.freeze([CODEX_STARTUP_NOTICES[0], CODEX_STARTUP_NOTICES[1]] as const);
 }
 
 function isValidEventSequence(eventTypes: readonly string[]): boolean {

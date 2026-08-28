@@ -5,11 +5,7 @@ import {
   MAX_CODEX_STDOUT_BYTES,
   type CodexJsonInvocation,
 } from "./contracts";
-import {
-  CODEX_STARTUP_NOTICES,
-  parseCodexEventStreamWithProof,
-  type CodexStartupNotices,
-} from "./event-stream";
+import { parseCodexEventStreamWithProof } from "./event-stream";
 import {
   createClosedCodexEnvironment,
   CODEX_DISABLED_FEATURES,
@@ -44,7 +40,6 @@ export async function runCodexJsonProbe(input: {
 }): Promise<{
   readonly pid: number;
   readonly finalMessage: string;
-  readonly startupNotices: CodexStartupNotices;
   readonly eventTypes: readonly string[];
   readonly webSearchCount: number;
   readonly toolPolicyProven: true;
@@ -70,7 +65,6 @@ export async function runCodexJsonProbe(input: {
       }, input.invocation.toolPolicy);
       return {
         pid: result.pid,
-        startupNotices: CODEX_STARTUP_NOTICES,
         ...proof,
       };
     },

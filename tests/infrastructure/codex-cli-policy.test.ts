@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { CodexJsonInvocation } from "../../src/infrastructure/codex-cli/contracts";
+import { CODEX_PROTOCOL_NOTICE_REVISION } from "../../src/infrastructure/codex-cli/event-stream";
 import {
   buildCodexExecArgs,
   CODEX_DISABLED_FEATURES,
@@ -105,5 +106,6 @@ describe("buildCodexExecArgs", () => {
     expect(EXPECTED_DISABLED_FEATURES.every((feature) => args.includes(`--disable`) &&
       args.some((entry, index) => entry === "--disable" && args[index + 1] === feature))).toBe(true);
     expect(codexPolicyFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(CODEX_PROTOCOL_NOTICE_REVISION).toBe("alpha.4-reviewed-pre-turn-errors@1");
   });
 });

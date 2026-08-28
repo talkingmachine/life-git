@@ -6,6 +6,7 @@ import {
   CodexRuntimeError,
   type CodexJsonInvocation,
 } from "./contracts";
+import { CODEX_PROTOCOL_NOTICE_REVISION } from "./event-stream";
 
 export const CODEX_DISABLED_FEATURES = Object.freeze([
   "apps",
@@ -44,6 +45,7 @@ const CODEX_EXEC_ARGV_GRAMMAR = Object.freeze([
 
 const POLICY_FINGERPRINT_INPUT = JSON.stringify({
   protocol: CODEX_CLI_PROTOCOL_VERSION,
+  protocolRevision: CODEX_PROTOCOL_NOTICE_REVISION,
   model: CODEX_MODEL,
   reasoningEfforts: ["low", "medium"],
   toolPolicies: ["codex-tools-none@2", "codex-tools-web-search@1"],

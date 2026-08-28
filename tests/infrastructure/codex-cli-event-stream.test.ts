@@ -34,9 +34,28 @@ function completedMessageEvents(message = "completed answer"): Uint8Array[] {
   ];
 }
 
+const REVIEWED_NOTICES = [
+  {
+    id: "item_0",
+    message: "Configured value for `approval_policy` is disallowed by requirements; falling back to required value UnlessTrusted. Details: invalid value for `approval_policy`: `Never` is not in the allowed set [UnlessTrusted, OnRequest] (set by MDM com.openai.codex:requirements_toml_base64)",
+  },
+  {
+    id: "item_1",
+    message: "Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.",
+  },
+] as const;
+
+function proofEvents(message = "completed answer"): Uint8Array[] {
+  return [
+    line({ type: "thread.started", thread_id: "thread-1" }),
+    ...REVIEWED_NOTICES.map((notice) => line({ type: "item.completed", item: { ...notice, type: "error" } })),
+    ...completedMessageEvents(message).slice(1),
+  ];
+}
+
 describe("parseCodexEventStream", () => {
   test("returns the sole completed assistant message under the zero-tool policy", async () => {
-    await expect(parseCodexEventStream(await fixture("protocol-v2-no-tools.jsonl"), LIMITS))
+    await expect(parseCodexEventStream(streamOf(...completedMessageEvents('{"schemaVersion":"fixture@1"}')), LIMITS))
       .resolves.toBe('{"schemaVersion":"fixture@1"}');
   });
 
@@ -98,13 +117,15 @@ describe("parseCodexEventStreamWithProof", () => {
     expect(proof).toEqual({
       finalMessage: '{"schemaVersion":"fixture@1"}',
       eventTypes: [
-        "thread.started", "turn.started", "item.started", "item.completed",
+        "thread.started", "item.completed", "item.completed", "turn.started", "item.started", "item.completed",
         "item.started", "item.completed", "item.completed", "turn.completed",
       ],
       webSearchCount: 1,
       toolPolicyProven: true,
     });
     expect(JSON.stringify(proof)).not.toContain("official municipal source");
+    expect(JSON.stringify(proof)).not.toContain("approval_policy");
+    expect(JSON.stringify(proof)).not.toContain("code-mode host");
   });
 
   test.each([
@@ -147,11 +168,45 @@ describe("parseCodexEventStreamWithProof", () => {
     )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
+  test.each([
+    ["a missing notice", proofEvents().filter((_event, index) => index !== 1)],
+    ["swapped notices", [proofEvents()[0]!, proofEvents()[2]!, proofEvents()[1]!, ...proofEvents().slice(3)]],
+    ["a mutated notice message", [
+      proofEvents()[0]!,
+      line({ type: "item.completed", item: { id: "item_0", type: "error", message: "mutated" } }),
+      ...proofEvents().slice(2),
+    ]],
+    ["a mutated notice key", [
+      proofEvents()[0]!,
+      line({ type: "item.completed", item: { id: "item_0", type: "error", message: REVIEWED_NOTICES[0].message, extra: true } }),
+      ...proofEvents().slice(2),
+    ]],
+    ["a mutated notice ID", [
+      proofEvents()[0]!,
+      line({ type: "item.completed", item: { id: "other", type: "error", message: REVIEWED_NOTICES[0].message } }),
+      ...proofEvents().slice(2),
+    ]],
+    ["a third pre-turn error", [
+      ...proofEvents().slice(0, 3),
+      line({ type: "item.completed", item: { id: "item_2", type: "error", message: "unexpected" } }),
+      ...proofEvents().slice(3),
+    ]],
+    ["an error after turn start", [
+      ...proofEvents().slice(0, 4),
+      line({ type: "item.completed", item: { id: "item_2", type: "error", message: "unexpected" } }),
+      ...proofEvents().slice(4),
+    ]],
+  ])("rejects %s from the reviewed notice prefix", async (_name, events) => {
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-web-search@1",
+    )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  });
+
   test.each(["shell", "command_execution", "mcp_tool_call", "browser", "app", "plugin", "skill", "image", "file_change"])(
     "rejects the prohibited %s item with the tool-event code",
     async (type) => {
       const events = [
-        ...completedMessageEvents().slice(0, 2),
+        ...proofEvents().slice(0, 4),
         line({ type: "item.started", item: { type, id: "tool-1" } }),
       ];
       await expect(parseCodexEventStreamWithProof(
@@ -162,9 +217,9 @@ describe("parseCodexEventStreamWithProof", () => {
 
   test("rejects a web-search item with any unreviewed key", async () => {
     const events = [
-      ...completedMessageEvents().slice(0, 4),
+      ...proofEvents().slice(0, 6),
       line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "official municipal source", result: "no" } }),
-      ...completedMessageEvents().slice(4),
+      ...proofEvents().slice(6),
     ];
     await expect(parseCodexEventStreamWithProof(
       streamOf(...events), LIMITS, "codex-tools-web-search@1",

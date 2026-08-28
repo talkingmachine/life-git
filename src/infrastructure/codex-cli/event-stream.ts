@@ -13,22 +13,25 @@ export type CodexEventStreamProof = Readonly<{
   toolPolicyProven: true;
 }>;
 
-/**
- * Legacy feasibility-artifact labels. They are not accepted as stream events
- * and are retained only while the offline artifact contract is migrated.
- */
-export const CODEX_STARTUP_NOTICES = Object.freeze([
-  "approval_policy_never_to_unless_trusted",
-  "code_mode_host_disabled",
-] as const);
+/** Reviewed Codex CLI alpha.4 no-tool pre-turn protocol revision. */
+export const CODEX_PROTOCOL_NOTICE_REVISION = "alpha.4-reviewed-pre-turn-errors@1";
 
-export type CodexStartupNotices = typeof CODEX_STARTUP_NOTICES;
+const REVIEWED_PRE_TURN_NOTICES = Object.freeze([
+  Object.freeze({
+    id: "item_0",
+    message: "Configured value for `approval_policy` is disallowed by requirements; falling back to required value UnlessTrusted. Details: invalid value for `approval_policy`: `Never` is not in the allowed set [UnlessTrusted, OnRequest] (set by MDM com.openai.codex:requirements_toml_base64)",
+  }),
+  Object.freeze({
+    id: "item_1",
+    message: "Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.",
+  }),
+] as const);
 
 export async function parseCodexEventStream(
   chunks: AsyncIterable<Uint8Array>,
   limits: StreamLimits,
 ): Promise<string> {
-  return (await parseEventStream(chunks, limits, "codex-tools-none@2")).finalMessage;
+  return (await parseEventStream(chunks, limits, "codex-tools-none@2", false)).finalMessage;
 }
 
 export async function parseCodexEventStreamWithProof(
@@ -36,7 +39,7 @@ export async function parseCodexEventStreamWithProof(
   limits: StreamLimits,
   toolPolicy: CodexToolPolicyId,
 ): Promise<CodexEventStreamProof> {
-  const parsed = await parseEventStream(chunks, limits, readToolPolicy(toolPolicy));
+  const parsed = await parseEventStream(chunks, limits, readToolPolicy(toolPolicy), true);
   return Object.freeze({
     finalMessage: parsed.finalMessage,
     eventTypes: Object.freeze([...parsed.eventTypes]),
@@ -67,12 +70,14 @@ interface StreamState {
   eventCount: number;
   message: string | undefined;
   eventTypes: string[];
+  reviewedNoticeIndex: number;
 }
 
 async function parseEventStream(
   chunks: AsyncIterable<Uint8Array>,
   limits: StreamLimits,
   toolPolicy: CodexToolPolicyId,
+  requireReviewedNotices: boolean,
 ): Promise<ParsedCodexEventStream> {
   const { maxStdoutBytes, maxEvents } = readLimits(limits);
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -86,7 +91,7 @@ async function parseEventStream(
       stdoutBytes += ownedChunk.byteLength;
       if (stdoutBytes > maxStdoutBytes) throw new CodexRuntimeError("codex_output_too_large");
       pending += decoder.decode(ownedChunk, { stream: true });
-      pending = consumeLines(pending, state, maxEvents, toolPolicy);
+      pending = consumeLines(pending, state, maxEvents, toolPolicy, requireReviewedNotices);
     }
     pending += decoder.decode();
   } catch (error) {
@@ -98,6 +103,7 @@ async function parseEventStream(
     state.reasoningId !== undefined || state.webSearchId !== undefined || state.message === undefined) {
     throw protocolInvalid();
   }
+  if (requireReviewedNotices && state.reviewedNoticeIndex !== REVIEWED_PRE_TURN_NOTICES.length) throw protocolInvalid();
   return Object.freeze({
     finalMessage: state.message,
     eventTypes: Object.freeze([...state.eventTypes]),
@@ -117,22 +123,34 @@ function createStreamState(): StreamState {
     eventCount: 0,
     message: undefined,
     eventTypes: [],
+    reviewedNoticeIndex: 0,
   };
 }
 
-function consumeLines(pending: string, state: StreamState, maxEvents: number, toolPolicy: CodexToolPolicyId): string {
+function consumeLines(
+  pending: string,
+  state: StreamState,
+  maxEvents: number,
+  toolPolicy: CodexToolPolicyId,
+  requireReviewedNotices: boolean,
+): string {
   let lineStart = 0;
   while (true) {
     const newline = pending.indexOf("\n", lineStart);
     if (newline === -1) return pending.slice(lineStart);
     state.eventCount += 1;
     if (state.eventCount > maxEvents) throw new CodexRuntimeError("codex_event_limit");
-    parseEvent(pending.slice(lineStart, newline), state, toolPolicy);
+    parseEvent(pending.slice(lineStart, newline), state, toolPolicy, requireReviewedNotices);
     lineStart = newline + 1;
   }
 }
 
-function parseEvent(line: string, state: StreamState, toolPolicy: CodexToolPolicyId): void {
+function parseEvent(
+  line: string,
+  state: StreamState,
+  toolPolicy: CodexToolPolicyId,
+  requireReviewedNotices: boolean,
+): void {
   if (state.turnCompleted) throw protocolInvalid();
   const event = parseJsonEvent(line);
   state.eventTypes.push(event.type);
@@ -144,7 +162,8 @@ function parseEvent(line: string, state: StreamState, toolPolicy: CodexToolPolic
       state.threadStarted = true;
       return;
     case "turn.started":
-      if (!hasExactKeys(event, ["type"]) || !state.threadStarted || state.turnStarted) throw protocolInvalid();
+      if (!hasExactKeys(event, ["type"]) || !state.threadStarted || state.turnStarted ||
+        (requireReviewedNotices && state.reviewedNoticeIndex !== REVIEWED_PRE_TURN_NOTICES.length)) throw protocolInvalid();
       state.turnStarted = true;
       return;
     case "item.started":
@@ -152,6 +171,10 @@ function parseEvent(line: string, state: StreamState, toolPolicy: CodexToolPolic
       startItem(event, state, toolPolicy);
       return;
     case "item.completed":
+      if (requireReviewedNotices && !state.turnStarted && state.threadStarted) {
+        completeReviewedPreTurnNotice(event, state);
+        return;
+      }
       requireActiveTurn(state);
       completeItem(event, state, toolPolicy);
       return;
@@ -164,6 +187,16 @@ function parseEvent(line: string, state: StreamState, toolPolicy: CodexToolPolic
     default:
       throw protocolInvalid();
   }
+}
+
+function completeReviewedPreTurnNotice(event: Record<string, unknown>, state: StreamState): void {
+  const expected = REVIEWED_PRE_TURN_NOTICES[state.reviewedNoticeIndex];
+  if (expected === undefined || !hasExactItemKeys(event, ["id", "type", "message"])) throw protocolInvalid();
+  const item = event.item;
+  if (!isObject(item) || item.id !== expected.id || item.type !== "error" || item.message !== expected.message ||
+    state.seenItemIds.has(expected.id)) throw protocolInvalid();
+  state.seenItemIds.add(expected.id);
+  state.reviewedNoticeIndex += 1;
 }
 
 function startItem(event: Record<string, unknown>, state: StreamState, toolPolicy: CodexToolPolicyId): void {
