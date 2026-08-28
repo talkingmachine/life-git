@@ -186,6 +186,16 @@ Live-команды используют synthetic solo profile, сохраня�
 SQLite `data/evals/current-run/vs1.sqlite` и создают redacted JSON в `artifacts/evals/vs1/`.
 Reset ограничен точным SQLite-файлом и его `-wal`/`-shm`; каталоги, glob и другие базы не удаляются.
 
+## Явный локальный Stage A gate Codex
+
+Prerequisites: bundled Codex executable is available and `codex login status` reports ChatGPT. The only opt-in command is:
+
+```bash
+pnpm eval:local-codex-stage-a -- --live-local-subscription --artifact data/evals/local-codex-stage-a/result.json
+```
+
+It writes the sanitized local artifact at `data/evals/local-codex-stage-a/result.json`. The gate fixes the model to Terra (`gpt-5.6-terra`) and never exceeds medium reasoning. Discovery candidates are untrusted planning hints, not Evidence.
+
 Для локального UI создайте каталог `data`, скопируйте `.env.example` в игнорируемый `.env.local`,
 задайте непустой `EVIDENCE_HMAC_KEY` и запустите `pnpm dev`. Для VS-2 provider-free walkthrough
 используются только эти две переменные и current official HTTPS sources.

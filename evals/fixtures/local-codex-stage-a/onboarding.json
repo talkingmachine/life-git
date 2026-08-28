@@ -1,0 +1,1 @@
+{"sentence":"Я переезжаю в Белград с партнёром, бюджет 2000 евро, важна безопасность.","expected":[{"field":"destination","span":"Белград"},{"field":"participants","span":"с партнёром"},{"field":"budget","span":"2000 евро"},{"field":"priority","span":"безопасность"}],"inventedValueCount":0}
