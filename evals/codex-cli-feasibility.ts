@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import { types } from "node:util";
 
 import {
-  CODEX_CLI_VERSION,
   CodexRuntimeError,
   createCodexJsonInvocation,
   MAX_CODEX_EVENTS,

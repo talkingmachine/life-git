@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   CODEX_CLI_COMPATIBILITY_POLICY,
   CODEX_CLI_PROTOCOL_VERSION,
@@ -8,7 +10,9 @@ import {
   type CodexJsonResult,
 } from "./contracts";
 import { runCodexJsonProbe } from "./feasibility-probe";
+import { CodexFlightPool } from "./flight-pool";
 import { snapshotOwnedJson, type JsonValue } from "./owned-json";
+import { codexPolicyFingerprint } from "./policy";
 import { createClosedCodexEnvironment, type CodexPreflightResult } from "./preflight";
 import type { CodexProcessSpawner } from "./process";
 import type { ValidatedCodexTempRoot } from "./temp-directory";
@@ -21,6 +25,7 @@ export interface CodexCliModelAdapterOptions {
   readonly spawner: CodexProcessSpawner;
   readonly tempRoot: ValidatedCodexTempRoot;
   readonly childEnv: Readonly<Record<string, string>>;
+  readonly flightPool?: CodexFlightPool;
 }
 
 export class CodexCliModelAdapter {
@@ -28,6 +33,7 @@ export class CodexCliModelAdapter {
   readonly #spawner: CodexProcessSpawner;
   readonly #tempRoot: ValidatedCodexTempRoot;
   readonly #childEnv: Readonly<Record<string, string>>;
+  readonly #flightPool: CodexFlightPool;
 
   constructor(options: CodexCliModelAdapterOptions) {
     this.#preflight = Object.freeze({
@@ -38,41 +44,89 @@ export class CodexCliModelAdapter {
     this.#spawner = options.spawner;
     this.#tempRoot = Object.freeze({ path: options.tempRoot.path, uid: options.tempRoot.uid });
     this.#childEnv = Object.freeze(createClosedCodexEnvironment(options.childEnv));
+    this.#flightPool = options.flightPool ?? new CodexFlightPool({
+      maximumConcurrency: 5,
+      cooldownMs: 60_000,
+      now: Date.now,
+      classifyPressure,
+    });
   }
 
   async invokeJson(input: CodexJsonInvocation): Promise<CodexJsonResult> {
-    const templateVersion = input.templateVersion;
-    const schemaVersion = input.schemaVersion;
-    const probe = await runCodexJsonProbe({
-      invocation: input,
-      preflight: this.#preflight,
-      spawner: this.#spawner,
-      tempRoot: this.#tempRoot,
-      childEnv: this.#childEnv,
+    const key = deriveCodexFlightKey(input);
+    return this.#flightPool.run({
+      key,
+      signal: input.signal,
+      operation: async (signal) => {
+        const probe = await runCodexJsonProbe({
+          invocation: Object.freeze({ ...input, signal }),
+          preflight: this.#preflight,
+          spawner: this.#spawner,
+          tempRoot: this.#tempRoot,
+          childEnv: this.#childEnv,
+          flightKey: key,
+        });
+        throwIfAborted(signal);
+        let value: JsonValue;
+        try {
+          value = freezeJson(snapshotOwnedJson(JSON.parse(probe.finalMessage) as unknown));
+        } catch {
+          throw new CodexRuntimeError("codex_json_invalid");
+        }
+        throwIfAborted(signal);
+        return Object.freeze({
+          value,
+          metadata: Object.freeze({
+            invocationVersion: CODEX_INVOCATION_VERSION,
+            protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
+            compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY,
+            cliVersion: this.#preflight.cliVersion,
+            model: CODEX_MODEL,
+            reasoningEffort: input.reasoningEffort,
+            toolPolicy: input.toolPolicy,
+            templateVersion: input.templateVersion,
+            schemaVersion: input.schemaVersion,
+          }),
+        });
+      },
     });
-    throwIfAborted(input.signal);
-
-    let value: JsonValue;
-    try {
-      value = freezeJson(snapshotOwnedJson(JSON.parse(probe.finalMessage) as unknown));
-    } catch {
-      throw new CodexRuntimeError("codex_json_invalid");
-    }
-    throwIfAborted(input.signal);
-
-    const metadata = Object.freeze({
-      invocationVersion: CODEX_INVOCATION_VERSION,
-      protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
-      compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY,
-      cliVersion: this.#preflight.cliVersion,
-      model: CODEX_MODEL,
-      reasoningEffort: input.reasoningEffort,
-      toolPolicy: input.toolPolicy,
-      templateVersion,
-      schemaVersion,
-    });
-    return Object.freeze({ value, metadata });
   }
+}
+
+/** Hash-only identity for requests which may share one owned child process. */
+export function deriveCodexFlightKey(input: CodexJsonInvocation): string {
+  const payload = canonicalJson({
+    capability: input.capability,
+    limits: input.limits,
+    model: CODEX_MODEL,
+    outputSchemaHash: sha256(canonicalJson(input.outputSchema)),
+    policyFingerprint: codexPolicyFingerprint,
+    promptHash: sha256(input.prompt),
+    reasoningEffort: input.reasoningEffort,
+    schemaVersion: input.schemaVersion,
+    templateVersion: input.templateVersion,
+    toolPolicy: input.toolPolicy,
+  });
+  return sha256(payload);
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function canonicalJson(value: JsonValue | Record<string, unknown>): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
+  const object = value as Record<string, JsonValue>;
+  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key] as JsonValue)}`).join(",")}}`;
+}
+
+function classifyPressure(error: unknown): "rate_limited" | "provider_transient" | "timeout" | undefined {
+  if (!(error instanceof CodexRuntimeError)) return undefined;
+  if (error.code === "codex_rate_limited") return "rate_limited";
+  if (error.code === "codex_provider_transient") return "provider_transient";
+  if (error.code === "codex_timeout") return "timeout";
+  return undefined;
 }
 
 export function createCodexCliModelAdapterForTest(

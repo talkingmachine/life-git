@@ -39,6 +39,8 @@ export async function runCodexJsonProbe(input: {
   readonly spawner: CodexProcessSpawner;
   readonly tempRoot: ValidatedCodexTempRoot;
   readonly childEnv: Readonly<Record<string, string>>;
+  /** Diagnostic-only hash; never forwarded to the child process. */
+  readonly flightKey?: string;
 }): Promise<{
   readonly pid: number;
   readonly finalMessage: string;

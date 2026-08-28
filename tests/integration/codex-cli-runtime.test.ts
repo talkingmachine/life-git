@@ -2,6 +2,8 @@ import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { createHash } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const probe = vi.hoisted(() => ({ run: vi.fn() }));
@@ -24,6 +26,7 @@ import { CODEX_STARTUP_NOTICES } from "../../src/infrastructure/codex-cli/event-
 import {
   createCodexCliModelAdapterForTest,
 } from "../../src/infrastructure/codex-cli/model-adapter";
+import { codexPolicyFingerprint } from "../../src/infrastructure/codex-cli/policy";
 import { CODEX_DISABLED_FEATURES } from "../../src/infrastructure/codex-cli/preflight";
 import type { CodexProcessSpawner, SpawnedCodexProcess } from "../../src/infrastructure/codex-cli/process";
 
@@ -105,6 +108,54 @@ describe("CodexCliModelAdapter", () => {
     await expect(adapter.invokeJson(validInvocation(controller.signal))).rejects.toBe(reason);
     expect(probe.run).toHaveBeenCalledTimes(1);
   });
+
+  test("coalesces equivalent invocations without putting raw prompt or signals in the flight key", async () => {
+    const first = new AbortController();
+    const second = new AbortController();
+    const gate = deferred<ReturnType<typeof successfulProbe>>();
+    probe.run.mockReturnValueOnce(gate.promise);
+    const adapter = createCodexCliModelAdapterForTest(adapterOptions());
+    const invocation = validInvocation(first.signal);
+
+    const firstResult = adapter.invokeJson(invocation);
+    const secondResult = adapter.invokeJson(createCodexJsonInvocation({ ...invocation, signal: second.signal }));
+    await vi.waitFor(() => expect(probe.run).toHaveBeenCalledTimes(1));
+    expect(probe.run.mock.calls[0]?.[0].flightKey).toBe(independentFlightKey(invocation));
+    gate.resolve(successfulProbe('{"ok":true}'));
+
+    const [left, right] = await Promise.all([firstResult, secondResult]);
+    expect(left).toBe(right);
+    expect(Object.isFrozen(left.value)).toBe(true);
+  });
+
+  test.each([
+    ["capability", { capability: "onboarding.review" }],
+    ["effort", { reasoningEffort: "medium" }],
+    ["prompt", { prompt: "other synthetic" }],
+    ["schema", { outputSchema: { type: "object", properties: { value: { type: "string" } } } }],
+    ["template", { templateVersion: "extract@2" }],
+    ["limits", { limits: { timeoutMs: 15_001, maxStdoutBytes: 65_536, maxStderrBytes: 16_384, maxEvents: 64 } }],
+  ])("uses a distinct flight for changed %s", async (_name, change) => {
+    probe.run.mockResolvedValue(successfulProbe('{"ok":true}'));
+    const adapter = createCodexCliModelAdapterForTest(adapterOptions());
+    const base = validInvocation();
+    await adapter.invokeJson(base);
+    await adapter.invokeJson(createCodexJsonInvocation({ ...base, ...change } as never));
+    expect(probe.run).toHaveBeenCalledTimes(2);
+  });
+
+  test("uses a distinct flight for the reviewed discovery tool policy", async () => {
+    probe.run.mockResolvedValue(successfulProbe('{"ok":true}'));
+    const adapter = createCodexCliModelAdapterForTest(adapterOptions());
+    await adapter.invokeJson(validInvocation());
+    await adapter.invokeJson(createCodexJsonInvocation({
+      ...validInvocation(),
+      capability: "source.discover",
+      reasoningEffort: "medium",
+      toolPolicy: "codex-tools-web-search@1",
+    }));
+    expect(probe.run).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("Codex CLI runtime singleton", () => {
@@ -130,7 +181,7 @@ describe("Codex CLI runtime singleton", () => {
     }
   });
 
-  test("keeps a failed initialization terminal and never starts an implicit retry", async () => {
+  test("does not cache a failed partial initialization", async () => {
     const fixture = await runtimeFixture({ failFirstProcess: true });
     const runtime = await freshRuntime();
 
@@ -138,11 +189,10 @@ describe("Codex CLI runtime singleton", () => {
       .toThrowError(expect.objectContaining({ code: "codex_process_failed" }));
     await expect(runtime.initializeCodexCliRuntime(fixture.input))
       .rejects.toMatchObject({ code: "codex_process_failed" });
-    await expect(runtime.initializeCodexCliRuntime(fixture.input))
-      .rejects.toMatchObject({ code: "codex_process_failed" });
+    const recovered = await runtimeFixture();
+    await runtime.initializeCodexCliRuntime(recovered.input);
     expect(fixture.spawner.spawn).toHaveBeenCalledTimes(1);
-    expect(() => runtime.getCodexCliModelAdapter())
-      .toThrowError(expect.objectContaining({ code: "codex_process_failed" }));
+    expect(recovered.spawner.spawn).toHaveBeenCalledTimes(3);
   });
 
   test("does not retain the startup signal or borrowed child environment", async () => {
@@ -190,6 +240,21 @@ describe("Codex CLI runtime singleton", () => {
     expect(routeBundle.getCodexCliModelAdapter()).toBe(installed);
     await routeBundle.initializeCodexCliRuntime(fixture.input);
     expect(fixture.spawner.spawn).toHaveBeenCalledTimes(3);
+  });
+
+  test("keeps startup static and exposes the three explicit synthetic capability probes", async () => {
+    const fixture = await runtimeFixture();
+    const runtime = await freshRuntime();
+    await runtime.initializeCodexCliRuntime(fixture.input);
+    expect(probe.run).not.toHaveBeenCalled();
+    probe.run.mockResolvedValue(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}'));
+
+    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal)).resolves.toEqual({
+      schemaVersion: "codex-runtime-smoke@2", low: "ok", medium: "ok", discovery: "ok",
+    });
+    expect(probe.run.mock.calls.map(([call]) => [call.invocation.reasoningEffort, call.invocation.toolPolicy]))
+      .toEqual([["low", "codex-tools-none@2"], ["medium", "codex-tools-none@2"], ["medium", "codex-tools-web-search@1"]]);
+    expect(probe.run.mock.calls[2]?.[0].invocation.prompt).toContain("official OpenAI developer documentation home");
   });
 });
 
@@ -288,6 +353,29 @@ function validInvocation(signal: AbortSignal = new AbortController().signal) {
     },
     signal,
   });
+}
+
+function independentFlightKey(invocation: ReturnType<typeof validInvocation>): string {
+  const canonical = independentCanonicalJson({
+    capability: invocation.capability,
+    limits: invocation.limits,
+    model: CODEX_MODEL,
+    outputSchemaHash: createHash("sha256").update(independentCanonicalJson(invocation.outputSchema), "utf8").digest("hex"),
+    policyFingerprint: codexPolicyFingerprint,
+    promptHash: createHash("sha256").update(invocation.prompt, "utf8").digest("hex"),
+    reasoningEffort: invocation.reasoningEffort,
+    schemaVersion: invocation.schemaVersion,
+    templateVersion: invocation.templateVersion,
+    toolPolicy: invocation.toolPolicy,
+  });
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
+function independentCanonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(independentCanonicalJson).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${independentCanonicalJson(record[key])}`).join(",")}}`;
 }
 
 function successfulProbe(finalMessage: string) {

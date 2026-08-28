@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 
-import { CodexRuntimeError } from "./contracts";
+import { CodexRuntimeError, createCodexJsonInvocation, type CodexReasoningEffort } from "./contracts";
+import { CodexFlightPool } from "./flight-pool";
 import { CodexCliModelAdapter } from "./model-adapter";
 import {
   createClosedCodexEnvironment,
@@ -32,7 +33,13 @@ interface CodexCliRuntimeState {
 
 export function initializeCodexCliRuntime(input: InitializeCodexCliRuntimeInput): Promise<void> {
   const state = runtimeState();
-  state.initialization ??= initializeOnce(snapshotInput(input), state);
+  if (state.initialization === undefined) {
+    const attempt = initializeOnce(snapshotInput(input), state);
+    state.initialization = attempt;
+    void attempt.catch(() => {
+      if (state.initialization === attempt) state.initialization = undefined;
+    });
+  }
   return state.initialization;
 }
 
@@ -40,6 +47,35 @@ export function getCodexCliModelAdapter(): CodexCliModelAdapter {
   const adapter = runtimeState().installedAdapter;
   if (adapter === undefined) throw new CodexRuntimeError("codex_process_failed");
   return adapter;
+}
+
+export interface CodexCliCapabilityVerification {
+  readonly schemaVersion: "codex-runtime-smoke@2";
+  readonly low: "ok";
+  readonly medium: "ok";
+  readonly discovery: "ok";
+}
+
+/** Explicit subscription-consuming gate; startup itself intentionally remains static. */
+export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<CodexCliCapabilityVerification> {
+  const adapter = getCodexCliModelAdapter();
+  for (const reasoningEffort of ["low", "medium"] as const) {
+    const result = await adapter.invokeJson(smokeInvocation(reasoningEffort, signal));
+    assertSmokeResult(result.value);
+  }
+  const discovery = await adapter.invokeJson(createCodexJsonInvocation({
+    capability: "source.discover",
+    reasoningEffort: "medium",
+    toolPolicy: "codex-tools-web-search@1",
+    templateVersion: "codex-runtime-discovery-smoke@2",
+    schemaVersion: "codex-runtime-smoke@2",
+    prompt: "Use native web search only to find the current official OpenAI developer documentation home. Return only the required synthetic status object.",
+    outputSchema: smokeOutputSchema(),
+    limits: smokeLimits(),
+    signal,
+  }));
+  assertSmokeResult(discovery.value);
+  return Object.freeze({ schemaVersion: "codex-runtime-smoke@2", low: "ok", medium: "ok", discovery: "ok" });
 }
 
 interface OwnedInitializationInput {
@@ -110,7 +146,57 @@ async function initializeOnce(
     spawner: input.spawner,
     tempRoot,
     childEnv: input.childEnv,
+    flightPool: new CodexFlightPool({
+      maximumConcurrency: 5,
+      cooldownMs: 60_000,
+      now: Date.now,
+      classifyPressure: (error) => {
+        if (!(error instanceof CodexRuntimeError)) return undefined;
+        if (error.code === "codex_rate_limited") return "rate_limited";
+        if (error.code === "codex_provider_transient") return "provider_transient";
+        if (error.code === "codex_timeout") return "timeout";
+        return undefined;
+      },
+    }),
   });
+}
+
+function smokeInvocation(reasoningEffort: CodexReasoningEffort, signal: AbortSignal) {
+  return createCodexJsonInvocation({
+    capability: "onboarding.extract",
+    reasoningEffort,
+    toolPolicy: "codex-tools-none@2",
+    templateVersion: "codex-runtime-smoke@2",
+    schemaVersion: "codex-runtime-smoke@2",
+    prompt: "Return only the required synthetic status object.",
+    outputSchema: smokeOutputSchema(),
+    limits: smokeLimits(),
+    signal,
+  });
+}
+
+function smokeOutputSchema() {
+  return Object.freeze({
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "status"],
+    properties: {
+      schemaVersion: { const: "codex-runtime-smoke@2" },
+      status: { const: "ok" },
+    },
+  });
+}
+
+function smokeLimits() {
+  return Object.freeze({ timeoutMs: 30_000, maxStdoutBytes: 131_072, maxStderrBytes: 16_384, maxEvents: 128 });
+}
+
+function assertSmokeResult(value: unknown): void {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new CodexRuntimeError("codex_json_invalid");
+  const object = value as Record<string, unknown>;
+  if (Object.keys(object).length !== 2 || object.schemaVersion !== "codex-runtime-smoke@2" || object.status !== "ok") {
+    throw new CodexRuntimeError("codex_json_invalid");
+  }
 }
 
 function runtimeState(): CodexCliRuntimeState {
