@@ -11,7 +11,9 @@ import {
   parseOnboardingFixture,
   createStageAArtifactStore,
   proveStageAAbort,
+  readOnboardingFixture,
   runLocalCodexStageA,
+  assertGuardedFixtureProposals,
 } from "../../evals/local-codex-stage-a";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
@@ -253,6 +255,19 @@ describe("local Codex Stage A gate", () => {
     })));
   });
 
+  test("rejects a same-count guarded projection with one altered normalized value", async () => {
+    const fixture = await readOnboardingFixture();
+    const guarded = fixture.expected.proposals.map((proposal) => proposal.fieldId === "current_location"
+      ? { kind: "non_participant_field", fieldId: proposal.fieldId, normalizedValue: { countryCode: "RU", city: "Тверь" } }
+      : proposal.fieldId === "participants"
+        ? { kind: "participant_roster", roster: proposal.typedValue }
+        : proposal.fieldId.startsWith("participants.")
+          ? participantGuardedProposal(proposal)
+          : { kind: "non_participant_field", fieldId: proposal.fieldId, normalizedValue: proposal.typedValue });
+    expect(guarded).toHaveLength(fixture.expected.proposals.length);
+    expect(() => assertGuardedFixtureProposals(fixture, guarded)).toThrow("local_codex_stage_a_onboarding_invalid");
+  });
+
   test("rejects a malformed discovery fixture before calling the discovery port", async () => {
     const malformed = { ...discoveryFixture, authorityRoots: ["not-an-authority"] };
     const discover = vi.fn();
@@ -301,4 +316,10 @@ function toNullPrototype(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(toNullPrototype);
   if (value !== null && typeof value === "object") return Object.assign(Object.create(null), Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, toNullPrototype(nested)])));
   return value;
+}
+
+function participantGuardedProposal(proposal: { readonly fieldId: string; readonly typedValue: unknown }) {
+  const match = /^participants\.(self|companion\.\d+)\.([a-z_]+)$/.exec(proposal.fieldId);
+  if (match === null) throw new Error("invalid test fixture");
+  return { kind: "participant_leaf", descriptor: match[1]!, leafId: match[2]!, normalizedValue: proposal.typedValue };
 }

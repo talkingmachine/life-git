@@ -428,7 +428,8 @@ export async function evaluateOnboardingFixture(fixture: StageAOnboardingFixture
   const actual = output.proposals;
   const expected = fixture.expected.proposals;
   const matched = actual.filter((proposal) => expected.some((entry) => exactProposalMatch(proposal, entry, fixture.message.text))).length;
-  if (actual.length !== expected.length || matched !== expected.length || guarded.proposals.length !== expected.length) throw new TypeError("local_codex_stage_a_onboarding_invalid");
+  if (actual.length !== expected.length || matched !== expected.length) throw new TypeError("local_codex_stage_a_onboarding_invalid");
+  assertGuardedFixtureProposals(fixture, guarded.proposals);
   return Object.freeze({ guardedProposalCount: guarded.proposals.length, inventedValueCount: actual.length - matched });
 }
 
@@ -445,7 +446,58 @@ export async function evaluateDiscoveryFixture(fixture: StageADiscoveryFixture, 
 
 function exactProposalMatch(actual: { readonly fieldId: unknown; readonly typedValue: unknown; readonly messageId: unknown; readonly sourceSpan: { readonly start: unknown; readonly end: unknown } }, expected: StageAOnboardingFixture["expected"]["proposals"][number], text: string): boolean {
   return actual.fieldId === expected.fieldId && actual.messageId === expected.messageId && actual.sourceSpan.start === expected.sourceSpan.start && actual.sourceSpan.end === expected.sourceSpan.end &&
-    text.slice(expected.sourceSpan.start, expected.sourceSpan.end) === expected.text && JSON.stringify(actual.typedValue) === JSON.stringify(expected.typedValue);
+    text.slice(expected.sourceSpan.start, expected.sourceSpan.end) === expected.text && equalOwnedJson(actual.typedValue, expected.typedValue);
+}
+
+/** Independently derives the documented guarded shape from the fixture's raw model proposal. */
+export function assertGuardedFixtureProposals(fixture: StageAOnboardingFixture, guarded: unknown): void {
+  const proposals = ownedArray(guarded, "local_codex_stage_a_onboarding_invalid");
+  if (proposals.length !== fixture.expected.proposals.length) throw new TypeError("local_codex_stage_a_onboarding_invalid");
+  for (let index = 0; index < proposals.length; index += 1) {
+    if (!equalOwnedJson(proposals[index], expectedGuardedProposal(fixture.expected.proposals[index]!))) {
+      throw new TypeError("local_codex_stage_a_onboarding_invalid");
+    }
+  }
+}
+
+function expectedGuardedProposal(proposal: StageAOnboardingFixture["expected"]["proposals"][number]): object {
+  if (proposal.fieldId === "participants") return { kind: "participant_roster", roster: proposal.typedValue };
+  const participant = /^participants\.(self|companion\.(?:0|[1-9][0-9]*))\.([a-z_]+)$/.exec(proposal.fieldId);
+  if (participant !== null) return { kind: "participant_leaf", descriptor: participant[1]!, leafId: participant[2]!, normalizedValue: proposal.typedValue };
+  return { kind: "non_participant_field", fieldId: proposal.fieldId, normalizedValue: proposal.typedValue };
+}
+
+function equalOwnedJson(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object" || types.isProxy(left) || types.isProxy(right)) return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    const leftValues = ownedArray(left, "local_codex_stage_a_onboarding_invalid");
+    const rightValues = ownedArray(right, "local_codex_stage_a_onboarding_invalid");
+    return leftValues.length === rightValues.length && leftValues.every((value, index) => equalOwnedJson(value, rightValues[index]));
+  }
+  if (!ownedRecord(left) || !ownedRecord(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index] && equalOwnedJson(left[key], right[key]));
+}
+
+function ownedArray(value: unknown, code: string): readonly unknown[] {
+  if (!Array.isArray(value) || types.isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype || Object.getOwnPropertySymbols(value).length !== 0) throw new TypeError(code);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Object.keys(descriptors).length !== value.length + 1) throw new TypeError(code);
+  const copy: unknown[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor?.enumerable !== true || !("value" in descriptor)) throw new TypeError(code);
+    copy.push(descriptor.value);
+  }
+  return copy;
+}
+
+function ownedRecord(value: object): value is Record<string, unknown> {
+  if (types.isProxy(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) || Object.getOwnPropertySymbols(value).length !== 0) return false;
+  return Object.values(Object.getOwnPropertyDescriptors(value)).every((descriptor) => descriptor.enumerable === true && "value" in descriptor);
 }
 
 function assertOwnedJson(value: unknown): void {
