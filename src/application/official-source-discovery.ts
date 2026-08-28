@@ -1,8 +1,6 @@
 import { types } from "node:util";
 import { isIP } from "node:net";
 
-import type { CodexInvocationMetadata } from "../infrastructure/codex-cli/contracts";
-
 export interface OfficialSourceDiscoveryPort {
   discover(input: OfficialSourceDiscoveryRequest): Promise<OfficialSourceDiscoveryResult>;
 }
@@ -25,9 +23,21 @@ export type OfficialSourceCandidate = Readonly<{
   rationale: string;
 }>;
 
+export type OfficialSourceDiscoveryRuntimeMetadata = Readonly<{
+  invocationVersion: "codex-cli-invocation@2";
+  protocolVersion: "codex-cli-protocol@2";
+  compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1";
+  cliVersion: string;
+  model: "gpt-5.6-terra";
+  reasoningEffort: "medium";
+  toolPolicy: "codex-tools-web-search@1";
+  templateVersion: "official-source-discover@1";
+  schemaVersion: "official-source-candidates@1";
+}>;
+
 export type OfficialSourceDiscoveryResult = Readonly<{
   candidates: readonly OfficialSourceCandidate[];
-  metadata: CodexInvocationMetadata;
+  metadata: OfficialSourceDiscoveryRuntimeMetadata;
 }>;
 
 export type OfficialSourceDiscoveryErrorCode =

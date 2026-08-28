@@ -7,6 +7,7 @@ import {
   type OfficialSourceCandidate,
   type OfficialSourceDiscoveryPort,
   type OfficialSourceDiscoveryResult,
+  type OfficialSourceDiscoveryRuntimeMetadata,
 } from "../../application/official-source-discovery";
 import { CodexRuntimeError, createCodexJsonInvocation, type CodexJsonResult } from "./contracts";
 import type { CodexCliModelAdapter } from "./model-adapter";
@@ -69,7 +70,7 @@ function buildPrompt(request: ReturnType<typeof reconstructOfficialSourceDiscove
 
 function decodeResult(result: CodexJsonResult): OfficialSourceDiscoveryResult {
   try {
-    requireMetadata(result.metadata);
+    const metadata = requireMetadata(result.metadata);
     const root = exactObject(result.value, ["candidates"]);
     const candidatesValue = array(root.candidates, 5);
     const urls = new Set<string>();
@@ -80,17 +81,28 @@ function decodeResult(result: CodexJsonResult): OfficialSourceDiscoveryResult {
       urls.add(url);
       return Object.freeze({ url, claimedPublisher: text(item.claimedPublisher, 256), expectedCoverage: text(item.expectedCoverage, 1_024), rationale: text(item.rationale, 1_024) });
     });
-    return Object.freeze({ candidates: Object.freeze(candidates), metadata: Object.freeze({ ...result.metadata }) });
+    return Object.freeze({ candidates: Object.freeze(candidates), metadata });
   } catch { integrity(); }
 }
 
-function requireMetadata(metadata: unknown): void {
+function requireMetadata(metadata: unknown): OfficialSourceDiscoveryRuntimeMetadata {
   const value = exactObject(metadata, ["invocationVersion", "protocolVersion", "compatibilityPolicy", "cliVersion", "model", "reasoningEffort", "toolPolicy", "templateVersion", "schemaVersion"]);
   if (value.invocationVersion !== "codex-cli-invocation@2" || value.protocolVersion !== "codex-cli-protocol@2" ||
     value.compatibilityPolicy !== "codex-cli-0.149.0-alpha.4-plus@1" || value.model !== "gpt-5.6-terra" ||
     value.reasoningEffort !== "medium" || value.toolPolicy !== "codex-tools-web-search@1" ||
     value.templateVersion !== "official-source-discover@1" || value.schemaVersion !== "official-source-candidates@1" || typeof value.cliVersion !== "string") integrity();
   parseSupportedCodexCliVersion(`${value.cliVersion}\n`);
+  return Object.freeze({
+    invocationVersion: "codex-cli-invocation@2",
+    protocolVersion: "codex-cli-protocol@2",
+    compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1",
+    cliVersion: value.cliVersion,
+    model: "gpt-5.6-terra",
+    reasoningEffort: "medium",
+    toolPolicy: "codex-tools-web-search@1",
+    templateVersion: "official-source-discover@1",
+    schemaVersion: "official-source-candidates@1",
+  });
 }
 
 function exactObject(value: unknown, expected: readonly string[]): Record<string, unknown> {
