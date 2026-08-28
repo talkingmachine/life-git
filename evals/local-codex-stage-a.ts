@@ -180,7 +180,8 @@ function validateProofs(runtime: Awaited<ReturnType<Dependencies["initializeRunt
 }
 
 function validMeasurement(value: ConcurrencyMeasurement, requested: number): boolean {
-  return value.requested === requested && value.completed === requested && [1, 3, 5].includes(value.effectiveCeiling) && [value.elapsedMs, value.p95Ms, value.throughputMilliJobsPerSecond].every((number) => Number.isSafeInteger(number) && number >= 0 && number <= 3_600_000_000);
+  if (value.requested !== requested || value.completed !== requested || ![1, 3, 5].includes(value.effectiveCeiling) || ![value.elapsedMs, value.p95Ms, value.throughputMilliJobsPerSecond].every((number) => Number.isSafeInteger(number) && number >= 0 && number <= 3_600_000_000) || value.p95Ms > value.elapsedMs) return false;
+  return value.throughputMilliJobsPerSecond === throughputMilliJobsPerSecond(requested, value.elapsedMs);
 }
 
 function validateArtifact(value: Artifact): void {
@@ -200,7 +201,7 @@ function validateArtifact(value: Artifact): void {
 }
 
 function strictNow(value: number): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 3_600_000_000) throw new TypeError("local_codex_stage_a_invalid_clock");
+  if (!Number.isSafeInteger(value) || value < 0) throw new TypeError("local_codex_stage_a_invalid_clock");
   return value;
 }
 
@@ -238,7 +239,7 @@ const productionDependencies: Dependencies = Object.freeze({
     if (diagnostics.activeLeaders !== 0 || diagnostics.queuedFlights !== 0) throw new TypeError("local_codex_stage_a_concurrency_not_terminal");
     const samples = values.map((value) => safeElapsed(value.elapsed));
     const total = safeElapsed(elapsedMs);
-    return Object.freeze({ requested, completed: requested, elapsedMs: total, p95Ms: nearestRankP95(samples), throughputMilliJobsPerSecond: Math.floor((requested * 1_000_000) / Math.max(1, total)), effectiveCeiling: diagnostics.effectiveCeiling });
+    return Object.freeze({ requested, completed: requested, elapsedMs: total, p95Ms: nearestRankP95(samples), throughputMilliJobsPerSecond: throughputMilliJobsPerSecond(requested, total), effectiveCeiling: diagnostics.effectiveCeiling });
   },
   async proveAbort() {
     const adapter = getCodexCliModelAdapter(); const controller = new AbortController();
@@ -283,7 +284,7 @@ const productionDependencies: Dependencies = Object.freeze({
       await rm(temporary, { force: true });
     }
   },
-  now: () => Date.now(),
+  now: monotonicNow,
 });
 
 function monotonicNow(): number {
@@ -299,6 +300,12 @@ function nearestRankP95(samples: readonly number[]): number {
   if (samples.length === 0) throw new TypeError("local_codex_stage_a_invalid_metrics");
   const ordered = [...samples].sort((left, right) => left - right);
   return ordered[Math.ceil(ordered.length * 0.95) - 1]!;
+}
+
+/** Zero elapsed is reported as zero rather than fabricating an infinite rate. */
+function throughputMilliJobsPerSecond(completed: number, elapsedMs: number): number {
+  if (elapsedMs === 0) return 0;
+  return Math.floor((completed * 1_000_000) / elapsedMs);
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {

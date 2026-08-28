@@ -58,7 +58,7 @@ describe("local Codex Stage A gate", () => {
       }),
       runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
       runDiscovery: async () => ({ candidateCount: 1, allCandidatesUntrusted: true }),
-      measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 }),
+      measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: requested * 1_000_000, effectiveCeiling: 5 }),
       proveAbort: async () => ({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true }),
       prepareArtifact: async () => undefined,
       cleanupArtifact: async () => undefined,
@@ -80,8 +80,8 @@ describe("local Codex Stage A gate", () => {
       discovery: { candidateCount: 1, allCandidatesUntrusted: true },
       concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false, measurements: [
         { requested: 1, completed: 1, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
-        { requested: 2, completed: 2, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
-        { requested: 5, completed: 5, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
+        { requested: 2, completed: 2, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 2_000_000, effectiveCeiling: 5 },
+        { requested: 5, completed: 5, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 5_000_000, effectiveCeiling: 5 },
       ] },
       abort: { processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true },
     });
@@ -103,6 +103,14 @@ describe("local Codex Stage A gate", () => {
     })).rejects.toThrow("local_codex_stage_a_invalid_proof");
   });
 
+  test("rejects internally inconsistent bounded measurement claims", async () => {
+    const base = deterministicDependencies();
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...base,
+      measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: 10, p95Ms: 11, throughputMilliJobsPerSecond: requested * 100_000, effectiveCeiling: 5 }),
+    })).rejects.toThrow("local_codex_stage_a_invalid_proof");
+  });
+
   test("removes stale output before runtime and cleans it on a later failure through owned filesystem seams", async () => {
     const order: string[] = [];
     const base = deterministicDependencies();
@@ -113,6 +121,12 @@ describe("local Codex Stage A gate", () => {
       cleanupArtifact: async () => { order.push("cleanup"); },
     })).rejects.toThrow("broken");
     expect(order).toEqual(["prepare", "runtime", "cleanup"]);
+  });
+
+  test("uses a production monotonic clock when every subscription dependency is faked", async () => {
+    const { now: _ignored, ...withoutClock } = deterministicDependencies();
+    void _ignored;
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), withoutClock)).resolves.toEqual({ exitCode: 0, stderr: "" });
   });
 
   test("rejects hostile onboarding fixtures before invoking the model", async () => {
@@ -177,7 +191,7 @@ function deterministicDependencies() {
     initializeRuntime: async () => ({ cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2" as const, compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1" as const, model: "gpt-5.6-terra" as const, noToolProbe: { passed: true as const, webSearchCount: 0 }, discoveryProbe: { passed: true as const, webSearchCount: 1 } }),
     runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
     runDiscovery: async () => ({ candidateCount: 1, allCandidatesUntrusted: true as const }),
-    measureConcurrency: async (requested: 1 | 2 | 5) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1, effectiveCeiling: 5 as const }),
+    measureConcurrency: async (requested: 1 | 2 | 5) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: requested * 1_000_000, effectiveCeiling: 5 as const }),
     proveAbort: async () => ({ processGroupTerminated: true as const, lateResultAccepted: false as const, waiterRejected: true as const, leaderTerminalObserved: true as const }),
     prepareArtifact: async () => undefined,
     cleanupArtifact: async () => undefined,
