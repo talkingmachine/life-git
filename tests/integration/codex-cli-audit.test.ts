@@ -48,6 +48,32 @@ describe("Codex runtime static audit", () => {
     await expect(auditCodexRuntime({ rootPath })).rejects.toThrow("codex_runtime_audit_failed");
   });
 
+  test("permits only the fixed Terra model argv in the policy owner", async () => {
+    const rootPath = await createRuntimeFixture({
+      policySource: 'export const args = ["--model", "gpt-5.6-terra"];',
+    });
+
+    await expect(auditCodexRuntime({ rootPath })).resolves.toMatchObject({
+      schemaVersion: "codex-runtime-static-audit@1",
+    });
+  });
+
+  test.each([
+    ["the fixed Terra argv outside the policy owner", {
+      source: 'export const args = ["--model", "gpt-5.6-terra"];',
+    }],
+    ["a dynamic model argv in the policy owner", {
+      policySource: 'export const args = ["--model", process.env.CODEX_MODEL];',
+    }],
+    ["a different fixed model argv in the policy owner", {
+      policySource: 'export const args = ["--model", "gpt-5.6-luna"];',
+    }],
+  ])("rejects %s", async (_label, fixture) => {
+    const rootPath = await createRuntimeFixture(fixture);
+
+    await expect(auditCodexRuntime({ rootPath })).rejects.toThrow("codex_runtime_audit_failed");
+  });
+
   test("walks the installed production dependency graph", async () => {
     const rootPath = await createRuntimeFixture({
       dependencies: { "runtime-wrapper": "1.0.0" },
@@ -216,6 +242,7 @@ describe("Codex runtime static audit", () => {
 
 async function createRuntimeFixture(input: {
   readonly source?: string;
+  readonly policySource?: string;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly installedPackages?: Readonly<Record<string, {
     readonly dependencies: Readonly<Record<string, string>>;
@@ -227,6 +254,9 @@ async function createRuntimeFixture(input: {
   await mkdir(join(rootPath, "src", "infrastructure", "codex-cli"), { recursive: true });
   await writeFile(join(rootPath, "src", "infrastructure", "codex-cli", "runtime.ts"),
     input.source ?? "export const runtime = true;", "utf8");
+  if (input.policySource !== undefined) {
+    await writeFile(join(rootPath, "src", "infrastructure", "codex-cli", "policy.ts"), input.policySource, "utf8");
+  }
   await writeFile(join(rootPath, "package.json"), JSON.stringify({
     name: "audit-fixture",
     private: true,

@@ -14,6 +14,9 @@ const OPENAI_SDK_IMPORT = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\()\s*
 const API_KEY_HANDLING = /\bOPENAI_API_KEY\b|\b(?:apiKey|api_key)\b|\b(?:store|save|persist|bill|charge)\w*\s*\([^)]*api[\s_-]*key/i;
 const MODEL_DOWNLOAD_SURFACE = /\b(?:downloadModel|downloadWeights|modelWeights|model_weights|weightsPath|weights_path|huggingface|hf_hub)\b/i;
 const FORBIDDEN_RUNTIME_METHOD = /--model\b|\bresume\s*\(|\bretry\s*\(|\bsetInterval\s*\(|\b(?:sessionId|session_id)\b|\b(?:retry|fallback)(?:Codex|Model|Provider|Invocation|Request)\b|\b(?:providerRegistry|modelProvider|switchProvider)\b|\b(?:start|spawn|create)?Background(?:Worker|Job|Queue)\b/;
+const FIXED_TERRA_MODEL_ARGV = /["']--model["']\s*,\s*["']gpt-5\.6-terra["']/g;
+const FIXED_TERRA_MODEL_GRAMMAR = /--model gpt-5\.6-terra\b/g;
+const FIXED_MODEL_POLICY_PATH = join("src", "infrastructure", "codex-cli", "policy.ts");
 
 export interface CodexRuntimeStaticAudit {
   readonly schemaVersion: typeof STATIC_AUDIT_SCHEMA_VERSION;
@@ -32,7 +35,7 @@ export async function auditCodexRuntime(input: {
   const productionPaths = await productionSourcePaths(rootPath);
   for (const filePath of productionPaths) auditBroadProductionSource(await readFile(filePath, "utf8"));
   for (const filePath of await codexRuntimeSourcePaths(rootPath)) {
-    auditForbiddenRuntimeMethods(await readFile(filePath, "utf8"));
+    auditForbiddenRuntimeMethods(filePath, rootPath, await readFile(filePath, "utf8"));
   }
   return Object.freeze({
     schemaVersion: STATIC_AUDIT_SCHEMA_VERSION,
@@ -252,8 +255,11 @@ function auditBroadProductionSource(source: string): void {
   if (MODEL_DOWNLOAD_SURFACE.test(source)) throw auditFailed();
 }
 
-function auditForbiddenRuntimeMethods(source: string): void {
-  if (FORBIDDEN_RUNTIME_METHOD.test(source)) throw auditFailed();
+function auditForbiddenRuntimeMethods(filePath: string, rootPath: string, source: string): void {
+  const auditedSource = filePath === join(rootPath, FIXED_MODEL_POLICY_PATH)
+    ? source.replace(FIXED_TERRA_MODEL_ARGV, "").replace(FIXED_TERRA_MODEL_GRAMMAR, "")
+    : source;
+  if (FORBIDDEN_RUNTIME_METHOD.test(auditedSource)) throw auditFailed();
 }
 
 async function readPackageManifest(path: string): Promise<unknown> {
