@@ -44,6 +44,16 @@ afterEach(async () => {
 });
 
 describe("CodexCliModelAdapter", () => {
+  test("forwards only a frozen bounded pool diagnostics snapshot", () => {
+    const adapter = createCodexCliModelAdapterForTest(adapterOptions());
+    const diagnostics = adapter.runtimeDiagnostics();
+    expect(diagnostics).toEqual({ activeLeaders: 0, queuedFlights: 0, effectiveCeiling: 5 });
+    expect(Object.isFrozen(diagnostics)).toBe(true);
+    expect(Object.keys(diagnostics)).toEqual(["activeLeaders", "queuedFlights", "effectiveCeiling"]);
+    expect(() => { (diagnostics as { activeLeaders: number }).activeLeaders = 99; }).toThrow();
+    expect(adapter.runtimeDiagnostics()).toEqual({ activeLeaders: 0, queuedFlights: 0, effectiveCeiling: 5 });
+  });
+
   test("returns an owned recursively frozen JSON value and frozen metadata", async () => {
     probe.run.mockResolvedValueOnce(successfulProbe('{"nested":{"values":[1,true]}}'));
     const adapter = createCodexCliModelAdapterForTest(adapterOptions());

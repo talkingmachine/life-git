@@ -39,6 +39,10 @@ type Artifact = Readonly<{
 
 export type ConcurrencyMeasurement = Readonly<{ requested: 1 | 2 | 5; completed: 1 | 2 | 5; elapsedMs: number; p95Ms: number; throughputMilliJobsPerSecond: number; effectiveCeiling: 1 | 3 | 5 }>;
 type AbortProof = Readonly<{ processGroupTerminated: boolean; lateResultAccepted: boolean; waiterRejected: boolean; leaderTerminalObserved: boolean }>;
+export type StageAAdapterForAbort = Readonly<{
+  invokeJson(input: ReturnType<typeof invocation>): Promise<Readonly<{ value: unknown }>>;
+  runtimeDiagnostics(): Readonly<{ activeLeaders: number; queuedFlights: number; effectiveCeiling: 1 | 3 | 5 }>;
+}>;
 
 export type StageAOnboardingFixture = Readonly<{
   message: SessionMessage;
@@ -244,26 +248,7 @@ const productionDependencies: Dependencies = Object.freeze({
     return Object.freeze({ requested, completed: requested, elapsedMs: total, p95Ms: nearestRankP95(samples), throughputMilliJobsPerSecond: throughputMilliJobsPerSecond(requested, total), effectiveCeiling: diagnostics.effectiveCeiling });
   },
   async proveAbort() {
-    const adapter = getCodexCliModelAdapter(); const controller = new AbortController();
-    const baseline = adapter.runtimeDiagnostics();
-    if (baseline.activeLeaders !== 0 || baseline.queuedFlights !== 0) throw new TypeError("local_codex_stage_a_abort_not_idle");
-    const work = adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}.", controller.signal));
-    await waitFor(() => adapter.runtimeDiagnostics().activeLeaders === baseline.activeLeaders + 1);
-    const reason = new DOMException("Stage A abort", "AbortError");
-    controller.abort(reason);
-    try {
-      await work;
-    } catch (error) {
-      if (error !== reason) throw new TypeError("local_codex_stage_a_abort_reason_mismatch");
-      await waitFor(() => {
-        const diagnostics = adapter.runtimeDiagnostics();
-        return diagnostics.activeLeaders === baseline.activeLeaders && diagnostics.queuedFlights === baseline.queuedFlights;
-      });
-      const successor = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort-successor@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}."));
-      if ((successor.value as { ok?: unknown }).ok !== true) throw new TypeError("local_codex_stage_a_successor_invalid");
-      return Object.freeze({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true });
-    }
-    throw new TypeError("local_codex_stage_a_late_result");
+    return proveStageAAbort(getCodexCliModelAdapter());
   },
   async writeArtifact(path, artifact) {
     await productionArtifactStore.write(path, artifact);
@@ -290,6 +275,38 @@ function nearestRankP95(samples: readonly number[]): number {
 function throughputMilliJobsPerSecond(completed: number, elapsedMs: number): number {
   if (elapsedMs === 0) return 0;
   return Math.floor((completed * 1_000_000) / elapsedMs);
+}
+
+/**
+ * `processGroupTerminated` is derived only after the adapter operation settles
+ * and the pool returns to baseline.  The adapter's lower layer already awaits
+ * `runBoundedProcess` exit (including TERM/KILL); this gate exposes no process
+ * identity and deliberately does not repeat process-layer tests.
+ */
+export async function proveStageAAbort(
+  adapter: StageAAdapterForAbort,
+  wait: (predicate: () => boolean) => Promise<void> = waitFor,
+): Promise<Readonly<{ processGroupTerminated: true; lateResultAccepted: false; waiterRejected: true; leaderTerminalObserved: true }>> {
+  const controller = new AbortController();
+  const baseline = adapter.runtimeDiagnostics();
+  if (baseline.activeLeaders !== 0 || baseline.queuedFlights !== 0) throw new TypeError("local_codex_stage_a_abort_not_idle");
+  const work = adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}.", controller.signal));
+  await wait(() => adapter.runtimeDiagnostics().activeLeaders === baseline.activeLeaders + 1);
+  const reason = new DOMException("Stage A abort", "AbortError");
+  controller.abort(reason);
+  try {
+    await work;
+  } catch (error) {
+    if (error !== reason) throw new TypeError("local_codex_stage_a_abort_reason_mismatch");
+    await wait(() => {
+      const diagnostics = adapter.runtimeDiagnostics();
+      return diagnostics.activeLeaders === baseline.activeLeaders && diagnostics.queuedFlights === baseline.queuedFlights;
+    });
+    const successor = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort-successor@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}."));
+    if ((successor.value as { ok?: unknown }).ok !== true) throw new TypeError("local_codex_stage_a_successor_invalid");
+    return Object.freeze({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true });
+  }
+  throw new TypeError("local_codex_stage_a_late_result");
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {

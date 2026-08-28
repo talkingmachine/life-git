@@ -10,6 +10,7 @@ import {
   parseLocalCodexStageAArgs,
   parseOnboardingFixture,
   createStageAArtifactStore,
+  proveStageAAbort,
   runLocalCodexStageA,
 } from "../../evals/local-codex-stage-a";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
@@ -183,6 +184,34 @@ describe("local Codex Stage A gate", () => {
     await writeFile(collision, "unrelated", { mode: 0o600 });
     await expect(createStageAArtifactStore({ workspaceRoot: root, randomId: () => "fixed" }).write(path, validArtifact())).rejects.toMatchObject({ code: "EEXIST" });
     expect(await readFile(collision, "utf8")).toBe("unrelated");
+  });
+
+  test("abort proof requires admission, exact waiter reason, terminal handoff, then successor", async () => {
+    let active = 0;
+    const calls: string[] = [];
+    const adapter = {
+      runtimeDiagnostics: () => Object.freeze({ activeLeaders: active, queuedFlights: 0, effectiveCeiling: 5 as const }),
+      invokeJson: (input: { templateVersion: string; signal: AbortSignal }) => {
+        calls.push(input.templateVersion);
+        if (input.templateVersion === "stage-a-abort@1") {
+          active = 1;
+          return new Promise<Readonly<{ value: unknown }>>((_, reject) => input.signal.addEventListener("abort", () => { active = 0; reject(input.signal.reason); }, { once: true }));
+        }
+        expect(active).toBe(0);
+        return Promise.resolve(Object.freeze({ value: Object.freeze({ ok: true }) }));
+      },
+    };
+    const wait = async (predicate: () => boolean) => { if (!predicate()) throw new TypeError("timeout"); };
+    await expect(proveStageAAbort(adapter, wait)).resolves.toEqual({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true });
+    expect(calls).toEqual(["stage-a-abort@1", "stage-a-abort-successor@1"]);
+  });
+
+  test("abort proof fails if admission is not observed or original result resolves late", async () => {
+    const idleAdapter = { runtimeDiagnostics: () => Object.freeze({ activeLeaders: 0, queuedFlights: 0, effectiveCeiling: 5 as const }), invokeJson: async () => Object.freeze({ value: Object.freeze({ ok: true }) }) };
+    await expect(proveStageAAbort(idleAdapter, async () => { throw new TypeError("timeout"); })).rejects.toThrow("timeout");
+    let active = 0;
+    const lateAdapter = { runtimeDiagnostics: () => Object.freeze({ activeLeaders: active, queuedFlights: 0, effectiveCeiling: 5 as const }), invokeJson: async () => { active = 1; return Object.freeze({ value: Object.freeze({ ok: true }) }); } };
+    await expect(proveStageAAbort(lateAdapter, async () => undefined)).rejects.toThrow("local_codex_stage_a_late_result");
   });
 
   test("rejects hostile onboarding fixtures before invoking the model", async () => {
