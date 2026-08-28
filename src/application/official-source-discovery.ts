@@ -152,9 +152,9 @@ function isFailureReason(value: unknown): value is OfficialSourceDiscoveryReques
 
 function isDnsHostname(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  const policyHost = host.endsWith(".") ? host.slice(0, -1) : host;
-  const unbracketed = policyHost.startsWith("[") && policyHost.endsWith("]") ? policyHost.slice(1, -1) : policyHost;
-  return policyHost !== "localhost" && !policyHost.endsWith(".localhost") && isIP(unbracketed) === 0;
+  const unbracketed = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  return host !== "localhost" && !host.endsWith(".localhost") && isIP(unbracketed) === 0 &&
+    host.split(".").every((label) => label.length > 0);
 }
 
 function utf8Bytes(value: string): number { return new TextEncoder().encode(value).byteLength; }

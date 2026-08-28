@@ -48,6 +48,10 @@ describe("official source discovery request", () => {
     { ...request(), failedSource: { url: "https://api.localhost/", reason: "stale" } },
     { ...request(), failedSource: { url: "https://localhost./", reason: "stale" } },
     { ...request(), failedSource: { url: "https://api.localhost./", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://localhost../", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://api.localhost../", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://official.example./", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://official..example/", reason: "stale" } },
     { ...request(), signal: new Proxy(new AbortController().signal, {}) },
     { ...request(), signal: Object.create(new AbortController().signal) },
   ])("rejects unsafe or noncanonical input before discovery", (input) => {

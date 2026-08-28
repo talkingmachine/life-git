@@ -79,6 +79,10 @@ describe("Codex official source discovery", () => {
     { candidates: [{ url: "https://[::1]/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
     { candidates: [{ url: "https://localhost./", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
     { candidates: [{ url: "https://api.localhost./", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
+    { candidates: [{ url: "https://localhost../", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
+    { candidates: [{ url: "https://api.localhost../", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
+    { candidates: [{ url: "https://official.example./", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
+    { candidates: [{ url: "https://official..example/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
     { candidates: [{ url: "https://example.com/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C", official: true }] },
   ])("fails closed for invalid model candidates", async (value) => {
     const { runtime: adapter } = runtime(value);
