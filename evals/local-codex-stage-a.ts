@@ -1,4 +1,4 @@
-import { chmod, mkdir, open, realpath, rename, rm, unlink } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, realpath, rename, rm, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, relative, resolve } from "node:path";
 import { types } from "node:util";
@@ -6,6 +6,13 @@ import { types } from "node:util";
 import { CODEX_CLI_COMPATIBILITY_POLICY, CODEX_CLI_PROTOCOL_VERSION, CODEX_MODEL, createCodexJsonInvocation } from "../src/infrastructure/codex-cli/contracts";
 import { getCodexCliModelAdapter, verifyCodexCliCapabilities } from "../src/infrastructure/codex-cli/runtime";
 import { registerNodeCodexRuntime } from "../src/instrumentation-node";
+import { createCodexOnboardingModel } from "../src/infrastructure/codex-cli/onboarding-model";
+import { createCodexOfficialSourceDiscovery } from "../src/infrastructure/codex-cli/official-source-discovery";
+import { createOnboardingSession } from "../src/decision/onboarding-session";
+import { guardExtraction, projectQuestionnaireForModel } from "../src/decision/onboarding-model-contract";
+import { parseLocalExtractionOutput } from "../src/decision/onboarding-model-output";
+import type { SessionMessage } from "../src/decision/onboarding-session";
+import { reconstructOfficialSourceDiscoveryRequest, type OfficialSourceDiscoveryRequest } from "../src/application/official-source-discovery";
 
 const OPT_IN_ERROR = "local_codex_live_opt_in_required\n";
 const ARTIFACT_SCHEMA = "local-codex-stage-a@1" as const;
@@ -151,18 +158,22 @@ const productionDependencies: Dependencies = Object.freeze({
     return Object.freeze({ cliVersion: result.metadata.cliVersion, protocolVersion: result.metadata.protocolVersion, compatibilityPolicy: result.metadata.compatibilityPolicy, model: result.metadata.model, noToolProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.low.webSearchCount }), discoveryProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.discovery.webSearchCount }) });
   },
   async runOnboarding() {
-    const adapter = getCodexCliModelAdapter();
-    const result = await adapter.invokeJson(invocation("onboarding.extract", "medium", "codex-tools-none@2", "stage-a-onboarding@1", { type: "object", additionalProperties: false, required: ["fields"], properties: { fields: { type: "array", minItems: 4, maxItems: 4 } } }, "Extract exactly four explicitly stated guarded fields and UTF-16 spans from this public synthetic sentence; do not invent values: «Я переезжаю в Белград с партнёром, бюджет 2000 евро, важна безопасность». Return only schema JSON."));
-    const fields = (result.value as { fields?: unknown[] }).fields;
-    if (!Array.isArray(fields) || fields.length !== 4) throw new TypeError("local_codex_stage_a_onboarding_invalid");
-    return Object.freeze({ guardedProposalCount: 4, inventedValueCount: 0 });
+    const fixture = await readOnboardingFixture();
+    const session = createOnboardingSession({ nextParticipantId: () => "00000000-0000-4000-8000-000000000001", nextCompletionCommandId: () => "00000000-0000-4000-8000-000000000002" });
+    const model = createCodexOnboardingModel(getCodexCliModelAdapter());
+    const output = await model.extract({ message: fixture.message, questionnaire: projectQuestionnaireForModel(session), signal: new AbortController().signal });
+    const guarded = guardExtraction({ session, userMessage: fixture.message, rawModelOutput: output });
+    const actual = output.proposals;
+    if (actual.length !== fixture.expected.proposals.length || guarded.proposals.length !== 4) throw new TypeError("local_codex_stage_a_onboarding_invalid");
+    const matched = actual.filter((proposal, index) => JSON.stringify(proposal) === JSON.stringify(fixture.expected.proposals[index]) && fixture.message.text.slice(proposal.sourceSpan.start, proposal.sourceSpan.end) === fixture.expected.proposals[index]!.text).length;
+    if (matched !== 4) throw new TypeError("local_codex_stage_a_onboarding_invalid");
+    return Object.freeze({ guardedProposalCount: guarded.proposals.length, inventedValueCount: actual.length - matched });
   },
   async runDiscovery() {
-    const adapter = getCodexCliModelAdapter();
-    const result = await adapter.invokeJson(invocation("source.discover", "medium", "codex-tools-web-search@1", "stage-a-discovery@1", { type: "object", additionalProperties: false, required: ["candidates"], properties: { candidates: { type: "array", minItems: 1, maxItems: 5 } } }, "Use native web search once for one public municipal or public-operator source candidate about Belgrade public transport. Return candidates only; candidates are untrusted and are not Evidence."));
-    const candidates = (result.value as { candidates?: unknown[] }).candidates;
-    if (!Array.isArray(candidates) || candidates.length < 1 || candidates.length > 5) throw new TypeError("local_codex_stage_a_discovery_invalid");
-    return Object.freeze({ candidateCount: candidates.length, allCandidatesUntrusted: true });
+    const fixture = await readDiscoveryFixture();
+    const result = await createCodexOfficialSourceDiscovery(getCodexCliModelAdapter()).discover({ ...fixture.request, signal: new AbortController().signal });
+    if (result.candidates.length < 1 || result.candidates.length > fixture.candidateLimit || result.metadata.model !== CODEX_MODEL || result.metadata.reasoningEffort !== "medium" || result.metadata.toolPolicy !== "codex-tools-web-search@1") throw new TypeError("local_codex_stage_a_discovery_invalid");
+    return Object.freeze({ candidateCount: result.candidates.length, allCandidatesUntrusted: fixture.candidatesUntrusted });
   },
   async measureConcurrency(requested) {
     const adapter = getCodexCliModelAdapter();
@@ -221,6 +232,31 @@ async function existingPathIsUnsafe(directory: string, target: string): Promise<
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     return true;
   }
+}
+
+async function readOnboardingFixture(): Promise<Readonly<{ message: SessionMessage; expected: ReturnType<typeof parseLocalExtractionOutput> & { proposals: readonly (ReturnType<typeof parseLocalExtractionOutput>["proposals"][number] & { text: string })[] } }>> {
+  const value: unknown = JSON.parse(await readFile(new URL("./fixtures/local-codex-stage-a/onboarding.json", import.meta.url), "utf8"));
+  const root = exactObject(value, ["message", "expected"]);
+  const message = exactObject(root.message, ["messageId", "role", "text"]);
+  const expectedRoot = exactObject(root.expected, ["schemaVersion", "proposals", "nextQuestion"]);
+  if (message.role !== "user" || typeof message.messageId !== "string" || typeof message.text !== "string" || !Array.isArray(expectedRoot.proposals)) throw new TypeError("local_codex_stage_a_invalid_fixture");
+  const fixtureProposals = expectedRoot.proposals.map((value) => {
+    const proposal = exactObject(value, ["fieldId", "typedValue", "messageId", "sourceSpan", "text"]);
+    if (typeof proposal.text !== "string") throw new TypeError("local_codex_stage_a_invalid_fixture");
+    return Object.freeze(proposal);
+  });
+  const parsed = parseLocalExtractionOutput({ schemaVersion: expectedRoot.schemaVersion, proposals: fixtureProposals.map((proposal) => ({ fieldId: proposal.fieldId, typedValue: proposal.typedValue, messageId: proposal.messageId, sourceSpan: proposal.sourceSpan })), nextQuestion: expectedRoot.nextQuestion });
+  const texts = fixtureProposals.map((proposal) => proposal.text).filter((text): text is string => typeof text === "string");
+  if (texts.length !== fixtureProposals.length) throw new TypeError("local_codex_stage_a_invalid_fixture");
+  return Object.freeze({ message: Object.freeze({ messageId: message.messageId, role: "user", text: message.text }), expected: Object.freeze({ ...parsed, proposals: parsed.proposals.map((proposal, index) => Object.freeze({ ...proposal, text: texts[index]! })) }) });
+}
+
+async function readDiscoveryFixture(): Promise<Readonly<{ request: Omit<OfficialSourceDiscoveryRequest, "signal">; candidateLimit: number; candidatesUntrusted: true }>> {
+  const value: unknown = JSON.parse(await readFile(new URL("./fixtures/local-codex-stage-a/discovery.json", import.meta.url), "utf8"));
+  const root = exactObject(value, ["schemaVersion", "entity", "fact", "failedSource", "authorityRoots", "localeHints", "round", "candidateLimit", "candidatesUntrusted"]);
+  if (!Number.isInteger(root.candidateLimit) || typeof root.candidateLimit !== "number" || root.candidateLimit < 1 || root.candidateLimit > 5 || root.candidatesUntrusted !== true) throw new TypeError("local_codex_stage_a_invalid_fixture");
+  const request = reconstructOfficialSourceDiscoveryRequest({ schemaVersion: root.schemaVersion, entity: root.entity, fact: root.fact, failedSource: root.failedSource, authorityRoots: root.authorityRoots, localeHints: root.localeHints, round: root.round, signal: new AbortController().signal });
+  return Object.freeze({ request: { schemaVersion: request.schemaVersion, entity: request.entity, fact: request.fact, failedSource: request.failedSource, authorityRoots: request.authorityRoots, localeHints: request.localeHints, round: request.round }, candidateLimit: root.candidateLimit, candidatesUntrusted: true });
 }
 
 function invocation(capability: "onboarding.extract" | "source.discover", reasoningEffort: "low" | "medium", toolPolicy: "codex-tools-none@2" | "codex-tools-web-search@1", templateVersion: string, outputSchema: object, prompt: string, signal = new AbortController().signal) {
