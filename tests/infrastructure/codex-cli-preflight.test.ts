@@ -126,7 +126,7 @@ describe("preflightCodexCli", () => {
   test("accepts the exact unsandboxed version and ChatGPT authentication streams", async () => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output("") }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output("") }),
       spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }),
     ]);
 
@@ -137,7 +137,7 @@ describe("preflightCodexCli", () => {
       signal: new AbortController().signal,
     })).resolves.toEqual({
       executable: fixture.executable,
-      cliVersion: "codex-cli 0.148.0-alpha.15",
+      cliVersion: "codex-cli 0.149.0-alpha.4",
       authenticatedWith: "ChatGPT",
     });
     expect(spawner.spawn).toHaveBeenCalledTimes(2);
@@ -146,7 +146,7 @@ describe("preflightCodexCli", () => {
   test("requires exact pinned version and ChatGPT authentication for the configured executable", async () => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
       spawned("", { stderr: output(KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS) }),
     ]);
     const signal = new AbortController().signal;
@@ -166,7 +166,7 @@ describe("preflightCodexCli", () => {
 
     expect(result).toEqual({
       executable: fixture.executable,
-      cliVersion: "codex-cli 0.148.0-alpha.15",
+      cliVersion: "codex-cli 0.149.0-alpha.4",
       authenticatedWith: "ChatGPT",
     });
     expect(spawner.spawn).toHaveBeenCalledTimes(2);
@@ -195,7 +195,7 @@ describe("preflightCodexCli", () => {
     const explicit = await executableFixture();
     const pathFixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
       spawned("", { stderr: output(KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS) }),
     ]);
 
@@ -241,10 +241,10 @@ describe("preflightCodexCli", () => {
   });
 
   test.each([
-    ["a missing line ending", "codex-cli 0.148.0-alpha.15"],
-    ["an extra line ending", "codex-cli 0.148.0-alpha.15\n\n"],
-    ["a different version", "codex-cli 0.148.0-alpha.14\n"],
-  ])("stops after one version spawn for %s", async (_name, versionStdout) => {
+    { name: "a missing line ending", versionStdout: "codex-cli 0.149.0-alpha.4" },
+    { name: "an extra line ending", versionStdout: "codex-cli 0.149.0-alpha.4\n\n" },
+    { name: "a different version", versionStdout: "codex-cli 0.148.0-alpha.99\n" },
+  ])("stops after one version spawn for $name", async ({ versionStdout }) => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([spawned(versionStdout, { stderr: output(KNOWN_PATH_ALIAS_WARNING) })]);
 
@@ -263,7 +263,7 @@ describe("preflightCodexCli", () => {
   ])("rejects version stderr containing %s", async (_name, versionStderr) => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(versionStderr) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(versionStderr) }),
     ]);
 
     await expect(preflightCodexCli({
@@ -278,7 +278,7 @@ describe("preflightCodexCli", () => {
   test("rejects a non-ChatGPT login status after exactly two spawns", async () => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
       spawned("", { stderr: output(`${KNOWN_PATH_ALIAS_WARNING}Not logged in\n`) }),
     ]);
 
@@ -302,7 +302,7 @@ describe("preflightCodexCli", () => {
   ])("strictly rejects %s without exposing stderr", async (_name, loginStderr, loginStdout) => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
       spawned(loginStdout, { stderr: output(loginStderr) }),
     ]);
 

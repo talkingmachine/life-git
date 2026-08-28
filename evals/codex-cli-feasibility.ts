@@ -17,11 +17,11 @@ import {
   type CodexRuntimeErrorCode,
 } from "../src/infrastructure/codex-cli/contracts";
 import {
-  CODEX_EXEC_ARGS,
   CODEX_MESSAGE_INPUT_INSPECTION_ARGS,
   inspectModelVisibleInputs,
   runCodexJsonProbe,
 } from "../src/infrastructure/codex-cli/feasibility-probe";
+import { buildCodexExecArgs } from "../src/infrastructure/codex-cli/policy";
 import {
   CODEX_STARTUP_NOTICES,
   type CodexStartupNotices,
@@ -1209,11 +1209,10 @@ function isFreshDirectChild(path: string, tempRoot: ValidatedCodexTempRoot): boo
 }
 
 function hasExactExecArguments(args: readonly string[], cwd: string): boolean {
-  if (!sameStrings(args.slice(0, CODEX_EXEC_ARGS.length), CODEX_EXEC_ARGS)) return false;
-  const suffix = args.slice(CODEX_EXEC_ARGS.length);
-  return suffix.length === 6 && suffix[0] === "--cd" && suffix[1] === cwd && suffix[2] === "--output-schema" &&
-    typeof suffix[3] === "string" && dirname(suffix[3]) === cwd && basename(suffix[3]) === "schema.json" &&
-    suffix[4] === "--json" && suffix[5] === "-";
+  return sameStrings(args, buildCodexExecArgs({
+    reasoningEffort: "low",
+    toolPolicy: "codex-tools-none@2",
+  }, cwd, join(cwd, "schema.json")));
 }
 
 function sameEnvironment(

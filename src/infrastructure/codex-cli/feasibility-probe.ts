@@ -15,6 +15,7 @@ import {
   CODEX_PREFLIGHT_LIMITS,
   type CodexPreflightResult,
 } from "./preflight";
+import { buildCodexExecArgs } from "./policy";
 import { runBoundedProcess, type CodexProcessSpawner } from "./process";
 import {
   createEmptyCodexTempDirectory,
@@ -23,18 +24,6 @@ import {
 } from "./temp-directory";
 
 const DISABLED_FEATURE_ARGS = CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature] as const);
-
-export const CODEX_EXEC_ARGS = Object.freeze([
-  "exec",
-  "--strict-config",
-  "--ephemeral",
-  "--ignore-user-config",
-  "--ignore-rules",
-  ...DISABLED_FEATURE_ARGS,
-  "--sandbox",
-  "read-only",
-  "--skip-git-repo-check",
-] as const);
 
 export const CODEX_MESSAGE_INPUT_INSPECTION_ARGS = Object.freeze([
   ...DISABLED_FEATURE_ARGS,
@@ -61,13 +50,7 @@ export async function runCodexJsonProbe(input: {
     use: async ({ directoryPath, schemaPath }) => {
       const result = await runBoundedProcess({
         executable: input.preflight.executable,
-        args: [
-          ...CODEX_EXEC_ARGS,
-          "--cd", directoryPath,
-          "--output-schema", schemaPath,
-          "--json",
-          "-",
-        ],
+        args: buildCodexExecArgs(input.invocation, directoryPath, schemaPath),
         cwd: directoryPath,
         env: createClosedCodexEnvironment(input.childEnv),
         stdin: new TextEncoder().encode(input.invocation.prompt),

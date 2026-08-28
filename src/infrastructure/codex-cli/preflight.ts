@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { CodexRuntimeError } from "./contracts";
-import { parseSupportedCodexCliVersion } from "./policy";
+import { CODEX_DISABLED_FEATURES, parseSupportedCodexCliVersion } from "./policy";
 import { runBoundedProcess, type CodexProcessSpawner } from "./process";
 
 export const CODEX_PREFLIGHT_LIMITS = Object.freeze({
@@ -17,31 +17,7 @@ const CODEX_FEATURE_INVENTORY_LIMITS = Object.freeze({
   maxStdoutBytes: 16_384,
 } as const);
 
-export const CODEX_DISABLED_FEATURES = Object.freeze([
-  "apps",
-  "auth_elicitation",
-  "browser_use",
-  "browser_use_full_cdp_access",
-  "code_mode",
-  "code_mode_host",
-  "goals",
-  "hooks",
-  "image_generation",
-  "in_app_browser",
-  "multi_agent",
-  "plugin_sharing",
-  "plugins",
-  "remote_plugin",
-  "shell_snapshot",
-  "shell_tool",
-  "skill_mcp_dependency_install",
-  "skill_search",
-  "tool_call_mcp_elicitation",
-  "tool_suggest",
-  "unified_exec",
-  "view_image",
-  "workspace_dependencies",
-] as const);
+export { CODEX_DISABLED_FEATURES } from "./policy";
 
 export const CODEX_FEATURE_INVENTORY_ARGS = Object.freeze([
   ...CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
@@ -76,6 +52,7 @@ export async function preflightCodexCli(input: {
   ) {
     throw new CodexRuntimeError("codex_version_mismatch");
   }
+  const cliVersion = parseSupportedCodexCliVersion(version.stdout);
 
   const loginStatus = await runTextProbe(executable, ["login", "status"], input, {
     captureStderr: true,
@@ -88,7 +65,7 @@ export async function preflightCodexCli(input: {
     throw new CodexRuntimeError("codex_not_authenticated");
   }
 
-  return { executable, cliVersion: parseSupportedCodexCliVersion(version.stdout), authenticatedWith: "ChatGPT" };
+  return { executable, cliVersion, authenticatedWith: "ChatGPT" };
 }
 
 export async function readDisabledFeatureInventory(input: {
