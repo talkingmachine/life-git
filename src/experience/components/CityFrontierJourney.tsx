@@ -20,6 +20,7 @@ import {
   presentCityFrontierReadModel,
   projectCityFrontierView,
   reduceCityFrontierContinuationEvent,
+  type CityFrontierCardView,
   type CityFrontierScreenState,
 } from "../city-frontier-view-model";
 import { replaceCityFrontierRunUrl } from "../run-url";
@@ -29,6 +30,7 @@ import type {
   WorkspaceGlobePresentation,
 } from "../research-map/contracts";
 import { createProductGlobeRoute, MOSCOW_ORIGIN } from "../research-map/product-route";
+import { CityFrontierCards } from "./CityFrontierCards";
 import { CityFrontierPanel } from "./CityFrontierPanel";
 import { CityFrontierStart } from "./CityFrontierStart";
 import { ProductShell } from "./ProductShell";
@@ -67,9 +69,24 @@ interface RetainedContinueRequest {
   readonly payload: string;
 }
 
+interface RetainedSelectRequest {
+  readonly cityId: string;
+  readonly commandId: string;
+  readonly identityKey: string;
+  readonly payload: string;
+  readonly terminalRevisionId: string;
+}
+
+interface CitySelectionEnvelope {
+  readonly selection: unknown;
+  readonly commit: unknown;
+  readonly readModel: unknown;
+}
+
 const START_ERROR = "Поиск городов не запущен. Проверьте соединение и повторите попытку.";
 const CONTINUE_ERROR = "Проверка города прервана. Сохранённая история не изменена.";
 const STREAM_ERROR = "Поток проверки прерван. Сохранённое состояние требует проверки.";
+const SELECT_ERROR = "Выбор города не сохранён. Сохранённая история не изменена.";
 
 function releaseConsumerAfterEffectReplay(consumer: StreamConsumer): void {
   const releaseToken = {};
@@ -87,6 +104,82 @@ async function openCityFrontierJson(response: Response): Promise<CityFrontierScr
     throw new Error("invalid_city_frontier_content_type");
   }
   return presentCityFrontierReadModel(await response.json());
+}
+
+function exactSelectionEnvelope(value: unknown): CitySelectionEnvelope {
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new Error("invalid_city_selection_envelope");
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== 3 || keys[0] !== "commit" || keys[1] !== "readModel" ||
+    keys[2] !== "selection") {
+    throw new Error("invalid_city_selection_envelope");
+  }
+  return {
+    selection: record.selection,
+    commit: record.commit,
+    readModel: record.readModel,
+  };
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) =>
+      `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function openCitySelectionJson(
+  response: Response,
+  current: CityFrontierReadModel,
+  request: RetainedSelectRequest,
+): Promise<CityFrontierScreenState> {
+  if (!response.ok) throw new Error("city_selection_request_failed");
+  if (response.headers.get("content-type") !== "application/json; charset=utf-8") {
+    throw new Error("invalid_city_selection_content_type");
+  }
+  const envelope = exactSelectionEnvelope(await response.json());
+  const next = presentCityFrontierReadModel(envelope.readModel as CityFrontierReadModel);
+  if (next.kind !== "stable" || next.readModel.runId !== current.runId ||
+    next.readModel.revision.kind !== "terminal" ||
+    next.readModel.revision.id !== request.terminalRevisionId) {
+    throw new Error("invalid_city_selection_read_model_identity");
+  }
+  const returnedHistory = new Map<
+    string,
+    Array<CityFrontierReadModel["selections"][number]>
+  >();
+  for (const pair of next.readModel.selections) {
+    const identity = JSON.stringify([pair.selection.id, pair.commit.id]);
+    const matching = returnedHistory.get(identity) ?? [];
+    matching.push(pair);
+    returnedHistory.set(identity, matching);
+  }
+  const preservesSelectionHistory = current.selections.every((prior) => {
+    const identity = JSON.stringify([prior.selection.id, prior.commit.id]);
+    const preserved = returnedHistory.get(identity);
+    return preserved?.length === 1 && canonicalJson(preserved[0]) === canonicalJson(prior);
+  });
+  if (!preservesSelectionHistory) {
+    throw new Error("invalid_city_selection_history_replacement");
+  }
+  const matches = next.readModel.selections.filter(({ selection }) =>
+    selection.commandId === request.commandId &&
+    selection.cityId === request.cityId &&
+    selection.terminalRevisionId === request.terminalRevisionId
+  );
+  if (matches.length !== 1) throw new Error("invalid_city_selection_history");
+  const matched = matches[0]!;
+  if (canonicalJson(envelope.selection) !== canonicalJson(matched.selection) ||
+    canonicalJson(envelope.commit) !== canonicalJson(matched.commit)) {
+    throw new Error("invalid_city_selection_result_binding");
+  }
+  return next;
 }
 
 function candidateReason(candidate: ReturnType<typeof projectCityFrontierView>["candidates"][number]):
@@ -159,13 +252,17 @@ export function CityFrontierJourney({ mode, onReload }: CityFrontierJourneyProps
   const [startError, setStartError] = useState<string>();
   const [continuePending, setContinuePending] = useState(false);
   const [continueError, setContinueError] = useState<string>();
+  const [selectPendingCityId, setSelectPendingCityId] = useState<string>();
+  const [selectError, setSelectError] = useState<string>();
   const mounted = useRef(false);
   const generation = useRef(0);
   const screenCursor = useRef(screen);
   const startController = useRef<AbortController | undefined>(undefined);
   const continueController = useRef<AbortController | undefined>(undefined);
+  const selectController = useRef<AbortController | undefined>(undefined);
   const startRequest = useRef<RetainedStartRequest | undefined>(undefined);
   const continueRequest = useRef<RetainedContinueRequest | undefined>(undefined);
+  const selectRequests = useRef(new Map<string, RetainedSelectRequest>());
   const pendingHandoff = useRef<CityFrontierStreamHandoff | undefined>(undefined);
   const consumerRef = useRef<StreamConsumer | undefined>(undefined);
   const stopConsumer = useRef<(reason: DOMException) => void>(
@@ -193,6 +290,9 @@ export function CityFrontierJourney({ mode, onReload }: CityFrontierJourneyProps
         );
         continueController.current?.abort(
           new DOMException("City frontier continuation unmounted", "AbortError"),
+        );
+        selectController.current?.abort(
+          new DOMException("City frontier selection unmounted", "AbortError"),
         );
         stopConsumer.current(
           new DOMException("City frontier screen unmounted", "AbortError"),
@@ -376,11 +476,81 @@ export function CityFrontierJourney({ mode, onReload }: CityFrontierJourneyProps
     })();
   };
 
+  const selectCity = (card: CityFrontierCardView) => {
+    const current = screenCursor.current;
+    if (current === undefined || current.kind !== "stable" ||
+      current.readModel.revision.kind !== "terminal" ||
+      current.readModel.catalog.rulesVersion !== "city-catalog@2" ||
+      selectController.current !== undefined) return;
+    const terminalRevisionId = current.readModel.revision.id;
+    const projected = projectCityFrontierView(current);
+    const currentCard = projected.cards.find(({ city, markerDigest }) =>
+      city.cityId === card.city.cityId && markerDigest === card.markerDigest);
+    if (currentCard === undefined) return;
+
+    const identityKey = `${terminalRevisionId}\u0000${currentCard.city.cityId}`;
+    const retained = selectRequests.current.get(identityKey);
+    const request = retained ?? (() => {
+      const commandId = crypto.randomUUID();
+      const payload = JSON.stringify({
+        terminalCityShortlistSnapshotId: terminalRevisionId,
+        cityId: currentCard.city.cityId,
+        commandId,
+        ...(currentCard.status === "yellow"
+          ? { warningCopyVersion: "city-unknown-risk@1" }
+          : {}),
+      });
+      return {
+        cityId: currentCard.city.cityId,
+        commandId,
+        identityKey,
+        payload,
+        terminalRevisionId,
+      };
+    })();
+    selectRequests.current.set(identityKey, request);
+    const controller = new AbortController();
+    selectController.current = controller;
+    setSelectPendingCityId(currentCard.city.cityId);
+    setSelectError(undefined);
+    void (async () => {
+      try {
+        const response = await fetch("/api/city-frontier/select", {
+          body: request.payload,
+          headers: { "content-type": "application/json" },
+          method: "POST",
+          signal: controller.signal,
+        });
+        const next = await openCitySelectionJson(response, current.readModel, request);
+        const latest = screenCursor.current;
+        if (controller.signal.aborted || !mounted.current ||
+          selectController.current !== controller || latest === undefined ||
+          latest.readModel.runId !== current.readModel.runId ||
+          latest.readModel.revision.id !== terminalRevisionId) return;
+        selectRequests.current.delete(identityKey);
+        screenCursor.current = next;
+        setScreen(next);
+      } catch {
+        if (!controller.signal.aborted && mounted.current &&
+          selectController.current === controller) setSelectError(SELECT_ERROR);
+      } finally {
+        if (selectController.current === controller) {
+          selectController.current = undefined;
+          if (mounted.current) setSelectPendingCityId(undefined);
+        }
+      }
+    })();
+  };
+
   const modeStatus = view === undefined
     ? "pending" as const
     : view.candidates.some(({ status }) => status === "pending")
       ? "pending" as const
       : view.cards.length > 0 ? "green" as const : "yellow" as const;
+  const stableTerminal = screen?.kind === "stable" &&
+    screen.readModel.revision.kind === "terminal";
+  const selectionEnabled = stableTerminal &&
+    screen.readModel.catalog.rulesVersion === "city-catalog@2";
 
   return (
     <ProductShell
@@ -406,13 +576,25 @@ export function CityFrontierJourney({ mode, onReload }: CityFrontierJourneyProps
           />
         ) : screen !== undefined && view !== undefined ? (
           <>
-            <ResearchWorkspace
-              candidates={candidates}
-              mode={modeStatus}
-              progress={progress}
-              progressAnnouncement={progress.at(-1)?.label}
-              scope="city-frontier"
-            />
+            {stableTerminal ? (
+              <CityFrontierCards
+                cards={view.cards}
+                error={selectError}
+                onSelect={selectCity}
+                pendingCityId={selectPendingCityId}
+                registry={screen.readModel.registry}
+                selectionEnabled={selectionEnabled}
+                selectionHistory={view.selectionHistory ?? []}
+              />
+            ) : (
+              <ResearchWorkspace
+                candidates={candidates}
+                mode={modeStatus}
+                progress={progress}
+                progressAnnouncement={progress.at(-1)?.label}
+                scope="city-frontier"
+              />
+            )}
             <CityFrontierPanel
               canRetry={continueError !== undefined || (
                 screen.kind === "transportError" && !view.requiresVerifiedReload

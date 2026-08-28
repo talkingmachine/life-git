@@ -12,6 +12,7 @@ const SOURCE_ID = "country-resolution:terminal-si";
 const RUN_ID = "city-frontier:si-run";
 const BASE_REVISION_ID = "city-frontier-revision:si-base";
 const SUCCESSOR_REVISION_ID = "city-frontier-revision:si-successor";
+const TERMINAL_REVISION_ID = `city-frontier-revision:${"c".repeat(64)}`;
 const INSTANT = "2026-08-28T12:00:00.000Z";
 
 const criteria = [
@@ -244,6 +245,132 @@ function cityReadModel(input: {
       createdAt: INSTANT,
     },
     selections: [],
+  } as unknown as CityFrontierReadModel;
+}
+
+function selectableMarker(
+  cityId: "ljubljana" | "maribor",
+  rank: 1 | 2,
+  visualStatus: "green" | "yellow",
+): CityFrontierReadModel["revision"]["markers"][number] {
+  const marker = structuredClone(cityMarker()) as unknown as {
+    cityId: string;
+    rank: number;
+    status: string;
+    visualStatus: string;
+    knowledgeRevisionId: string;
+    evidenceSnapshotId: string;
+    requiredMismatches: unknown[];
+    unknownBasis: unknown[];
+    facts: Array<{ readonly criterionId: string; readonly definitionId: string; outcome: unknown }>;
+  };
+  marker.cityId = cityId;
+  marker.rank = rank;
+  marker.status = "selectable";
+  marker.visualStatus = visualStatus;
+  marker.knowledgeRevisionId = `city-knowledge:${cityId}@1`;
+  marker.evidenceSnapshotId = `city-evidence:${cityId}@1`;
+  marker.requiredMismatches = [];
+  if (visualStatus === "yellow") {
+    marker.facts[1] = {
+      ...marker.facts[1]!,
+      outcome: { kind: "unknown", reason: "source_unavailable" },
+    };
+    marker.unknownBasis = [{
+      criterionId: "long_term_rent",
+      definitionId: criteria[1].definitionId,
+      reason: "source_unavailable",
+    }];
+  } else {
+    marker.unknownBasis = [];
+  }
+  return marker as unknown as CityFrontierReadModel["revision"]["markers"][number];
+}
+
+function terminalCityReadModel(selectedCity?: "ljubljana" | "maribor"): CityFrontierReadModel {
+  const base = cityReadModel({ revisionId: BASE_REVISION_ID });
+  const green = selectableMarker("ljubljana", 1, "green");
+  const yellow = selectableMarker("maribor", 2, "yellow");
+  const entries = [green, yellow].map((marker, index) => ({
+    cityId: marker.cityId,
+    rank: marker.rank,
+    markerDigest: index === 0 ? "d".repeat(64) : "e".repeat(64),
+    knowledgeRevisionId: marker.knowledgeRevisionId,
+    evidenceSnapshotId: marker.evidenceSnapshotId,
+    unknownBasis: marker.unknownBasis,
+  }));
+  const terminal = {
+    schemaVersion: "city-frontier@1" as const,
+    kind: "terminal" as const,
+    id: TERMINAL_REVISION_ID,
+    runId: RUN_ID,
+    predecessorRevisionId: BASE_REVISION_ID,
+    rankingSnapshotId: "city-ranking:si@1",
+    markers: [green, yellow],
+    nextUncheckedRank: 3,
+    entries,
+    stopCondition: "catalog_exhausted" as const,
+    operation: {
+      kind: "city_completed" as const,
+      commandId: "city-continue:terminal",
+      expectedHeadRevisionId: BASE_REVISION_ID,
+      cityId: "maribor",
+      cityCheckRunId: "city-check:terminal",
+    },
+    createdAt: INSTANT,
+  };
+  const selectedIndex = selectedCity === "maribor" ? 1 : 0;
+  const selectedMarker = [green, yellow][selectedIndex]!;
+  const selectionId = `city-selection:${selectedCity === "maribor" ? "1".repeat(64) : "f".repeat(64)}`;
+  return {
+    ...base,
+    ranking: {
+      ...base.ranking,
+      knowledgeRevisionIds: {
+        ljubljana: green.knowledgeRevisionId,
+        maribor: yellow.knowledgeRevisionId,
+      },
+      ordered: base.ranking.ordered.map((ranked, index) => ({
+        ...ranked,
+        score: index === 0 ? "9.1" : "8.4",
+        coverage: index === 0 ? "1" : "0.75",
+        knowledgeRevisionId: index === 0 ? green.knowledgeRevisionId : yellow.knowledgeRevisionId,
+      })),
+    },
+    revision: terminal,
+    selections: selectedCity === undefined ? [] : [{
+      selection: {
+        schemaVersion: "city-selection@1" as const,
+        id: selectionId,
+        commandId: selectedCity === "maribor" ? "city-select:command-2" : "city-select:command-1",
+        runId: RUN_ID,
+        terminalRevisionId: TERMINAL_REVISION_ID,
+        cityId: selectedCity,
+        countryCode: "SI",
+        profileSnapshotId: "profile:si@1",
+        preferenceProfileSnapshotId: "preferences:si@1",
+        resolvedCountryShortlistRevisionId: SOURCE_ID,
+        criteriaSnapshotId: "city-criteria:si@1",
+        rankingSnapshotId: "city-ranking:si@1",
+        preCityBranchCommitId: `pre-city-branch:${"a".repeat(64)}`,
+        selectedMarkerDigest: entries[selectedIndex]!.markerDigest,
+        knowledgeRevisionId: selectedMarker.knowledgeRevisionId,
+        evidenceSnapshotId: selectedMarker.evidenceSnapshotId,
+        unknownBasis: selectedMarker.unknownBasis,
+        ...(selectedCity === "maribor" ? { warningCopyVersion: "city-unknown-risk@1" as const } : {}),
+        createdAt: INSTANT,
+      },
+      commit: {
+        schemaVersion: "city-branch@1" as const,
+        id: `city-branch:${selectedCity === "maribor" ? "9".repeat(64) : "b".repeat(64)}`,
+        parentId: `pre-city-branch:${"a".repeat(64)}`,
+        forkedFrom: `pre-city-branch:${"a".repeat(64)}`,
+        citySelectionSnapshotId: selectionId,
+        cityId: selectedCity,
+        countryCode: "SI",
+        createdAt: INSTANT,
+      },
+    }],
   } as unknown as CityFrontierReadModel;
 }
 
@@ -501,6 +628,148 @@ describe("city-frontier first experience vertical REDs", () => {
     });
     expect(fetch.mock.calls[0]?.[1]?.body).toBe(expected);
     expect(fetch.mock.calls[1]?.[1]?.body).toBe(expected);
+  });
+
+  test("renders bounded terminal green and yellow City cards with their status and risk", async () => {
+    const working = cityReadModel({
+      revisionId: SUCCESSOR_REVISION_ID,
+      withCommittedMarker: true,
+    });
+    const terminal = terminalCityReadModel();
+    const { normalizeCityFrontierReadModel } = await import(
+      "../../src/experience/city-frontier-stream"
+    );
+    expect(() => normalizeCityFrontierReadModel(working)).not.toThrow();
+    expect(() => normalizeCityFrontierReadModel(terminal)).not.toThrow();
+    const { CityFrontierJourney } = await loadCityFrontierJourney();
+
+    render(<CityFrontierJourney mode={{ kind: "stored", readModel: working } as never} />);
+    expect(screen.queryByRole("button", { name: "Выбрать город" })).toBeNull();
+    cleanup();
+    render(<CityFrontierJourney mode={{ kind: "stored", readModel: terminal } as never} />);
+
+    expect(screen.getByText("Доступен для выбора")).toBeTruthy();
+    expect(screen.getByText("Доступен с неполными данными")).toBeTruthy();
+    expect(screen.getByText(
+      "По одному или нескольким критериям сохранены неполные данные.",
+    )).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Выбрать город" })).toHaveLength(2);
+  });
+
+  test("selects a terminal City with the exact command and adopts its verified branch result", async () => {
+    const terminal = terminalCityReadModel();
+    const selected = terminalCityReadModel("ljubljana");
+    const { normalizeCityFrontierReadModel } = await import(
+      "../../src/experience/city-frontier-stream"
+    );
+    expect(() => normalizeCityFrontierReadModel(terminal)).not.toThrow();
+    expect(() => normalizeCityFrontierReadModel(selected)).not.toThrow();
+    const { CityFrontierJourney } = await loadCityFrontierJourney();
+    vi.stubGlobal("crypto", { randomUUID: () => "city-select:command-1" });
+    const fetch = vi.fn<(...args: [RequestInfo | URL, RequestInit?]) => Promise<Response>>(
+      async () => new Response(JSON.stringify({
+        selection: selected.selections[0]!.selection,
+        commit: selected.selections[0]!.commit,
+        readModel: selected,
+      }), { headers: { "content-type": "application/json; charset=utf-8" } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(<CityFrontierJourney mode={{ kind: "stored", readModel: terminal } as never} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Выбрать город" })[0]!);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    expect(fetch.mock.calls[0]?.[0]).toBe("/api/city-frontier/select");
+    expect(fetch.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({
+      terminalCityShortlistSnapshotId: TERMINAL_REVISION_ID,
+      cityId: "ljubljana",
+      commandId: "city-select:command-1",
+    }));
+    await screen.findByText("Выбранный город: Ljubljana");
+    expect(screen.getByText(/city-branch:/)).toBeTruthy();
+    expect(screen.getByText(/Maribor/)).toBeTruthy();
+  });
+
+  test("retries an ambiguous yellow terminal Select with its exact risk-acknowledging command", async () => {
+    const terminal = terminalCityReadModel();
+    const { CityFrontierJourney } = await loadCityFrontierJourney();
+    vi.stubGlobal("crypto", { randomUUID: () => "city-select:command-1" });
+    const fetch = vi.fn<(...args: [RequestInfo | URL, RequestInit?]) => Promise<Response>>(
+      async () => { throw new Error("ambiguous_city_selection_failure"); },
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(<CityFrontierJourney mode={{ kind: "stored", readModel: terminal } as never} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Выбрать город" })[1]!);
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getAllByRole("button", { name: "Выбрать город" })[1]!);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    const expected = JSON.stringify({
+      terminalCityShortlistSnapshotId: TERMINAL_REVISION_ID,
+      cityId: "maribor",
+      commandId: "city-select:command-1",
+      warningCopyVersion: "city-unknown-risk@1",
+    });
+    expect(fetch.mock.calls[0]?.[1]?.body).toBe(expected);
+    expect(fetch.mock.calls[1]?.[1]?.body).toBe(expected);
+  });
+
+  test("does not adopt a malformed successful Select envelope", async () => {
+    const terminal = terminalCityReadModel();
+    const selected = terminalCityReadModel("ljubljana");
+    const { normalizeCityFrontierReadModel } = await import(
+      "../../src/experience/city-frontier-stream"
+    );
+    expect(() => normalizeCityFrontierReadModel(selected)).not.toThrow();
+    const { CityFrontierJourney } = await loadCityFrontierJourney();
+    vi.stubGlobal("crypto", { randomUUID: () => "city-select:command-1" });
+    const fetch = vi.fn<(...args: [RequestInfo | URL, RequestInit?]) => Promise<Response>>(
+      async () => new Response(JSON.stringify({
+        selection: selected.selections[0]!.selection,
+        commit: selected.selections[0]!.commit,
+        readModel: { ...selected, untrustedBrowserField: true },
+      }), { headers: { "content-type": "application/json; charset=utf-8" } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(<CityFrontierJourney mode={{ kind: "stored", readModel: terminal } as never} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Выбрать город" })[0]!);
+
+    expect((await screen.findByRole("alert")).textContent)
+      .toBe("Выбор города не сохранён. Сохранённая история не изменена.");
+    expect(screen.getAllByRole("button", { name: "Выбрать город" })).toHaveLength(2);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  test("rejects a Select response that replaces prior verified selection history", async () => {
+    const withPriorSelection = terminalCityReadModel("ljubljana");
+    const responseOnlySelection = terminalCityReadModel("maribor");
+    const { normalizeCityFrontierReadModel } = await import(
+      "../../src/experience/city-frontier-stream"
+    );
+    expect(() => normalizeCityFrontierReadModel(withPriorSelection)).not.toThrow();
+    expect(() => normalizeCityFrontierReadModel(responseOnlySelection)).not.toThrow();
+    const { CityFrontierJourney } = await loadCityFrontierJourney();
+    vi.stubGlobal("crypto", { randomUUID: () => "city-select:command-2" });
+    const fetch = vi.fn<(...args: [RequestInfo | URL, RequestInit?]) => Promise<Response>>(
+      async () => new Response(JSON.stringify({
+        selection: responseOnlySelection.selections[0]!.selection,
+        commit: responseOnlySelection.selections[0]!.commit,
+        readModel: responseOnlySelection,
+      }), { headers: { "content-type": "application/json; charset=utf-8" } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(
+      <CityFrontierJourney mode={{ kind: "stored", readModel: withPriorSelection } as never} />,
+    );
+
+    expect(screen.getByText(`city-branch:${"b".repeat(64)}`)).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Выбрать город" })[1]!);
+
+    expect((await screen.findByRole("alert")).textContent)
+      .toBe("Выбор города не сохранён. Сохранённая история не изменена.");
+    expect(screen.getByText(`city-branch:${"b".repeat(64)}`)).toBeTruthy();
+    expect(screen.queryByText(`city-branch:${"9".repeat(64)}`)).toBeNull();
   });
 
   test("retains a committed City marker and requires reload when Continue reaches EOF before completion", async () => {
