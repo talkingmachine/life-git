@@ -251,7 +251,7 @@ export function createConfirmedLifeComposition(options: ConfirmedLifeComposition
     presentCountryResolution: countryResolution.presentCountryResolution,
     requireResolvedCountryShortlistForCity:
       countryResolution.requireResolvedCountryShortlistForCity,
-    ...cityFrontier.application,
+    ...cityFrontier,
   });
 }
 

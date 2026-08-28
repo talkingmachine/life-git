@@ -3072,6 +3072,36 @@ describe("City Selection structural replay", () => {
 });
 
 describe("authoritative City Selection with sibling Branch", () => {
+  test("rejects a Selection timestamp before terminal creation and accepts equality", () => {
+    // Break caught: a selection being canonically published before its terminal authority existed.
+    const regressing = selectionCreateInput("alpha");
+    mutable(regressing).createdAt = "2026-01-05T23:59:59.999Z";
+    const equal = selectionCreateInput("alpha");
+    mutable(equal).createdAt = equal.terminal.createdAt;
+
+    expectIntegrityMismatch(() => createCitySelectionWithBranch(regressing, INTEGRITY));
+    expect(createCitySelectionWithBranch(equal, INTEGRITY).selection.createdAt)
+      .toBe(equal.terminal.createdAt);
+  });
+
+  test("rejects replay when Selection and sibling agree on a pre-terminal timestamp", () => {
+    // Break caught: structural replay accepting mutually consistent but chronologically impossible rows.
+    const input = selectionCreateInput("alpha");
+    mutable(input).createdAt = "2026-01-05T23:59:59.999Z";
+    const value = manualSelectionWithBranch(input);
+    const authority = {
+      terminal: input.terminal,
+      ranking: input.ranking,
+      preCityBranch: input.preCityBranch,
+    };
+
+    expectIntegrityMismatch(() => reconstructCitySelectionWithBranch(
+      value,
+      authority,
+      INTEGRITY,
+    ));
+  });
+
   test("creates complete green and yellow Selection/Branch pairs from verified authority", () => {
     // Break caught: trusting caller durable fields, dropping warning basis, or losing parent lineage.
     const greenInput = selectionCreateInput("alpha");

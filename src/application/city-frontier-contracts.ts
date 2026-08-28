@@ -334,6 +334,30 @@ export interface CitySelectionHistoryReadPort {
   ): Promise<readonly CitySelectionWithBranch[]>;
 }
 
+export interface CitySelectionCommandIntent {
+  readonly terminalCityShortlistSnapshotId: string;
+  readonly cityId: string;
+  readonly warningCopyVersion?: "city-unknown-risk@1";
+}
+
+export interface CitySelectionPublication {
+  readonly commandId: string;
+  readonly intent: CitySelectionCommandIntent;
+  readonly pair: CitySelectionWithBranch;
+}
+
+export interface CitySelectionReadPort extends CitySelectionHistoryReadPort {
+  loadSelectionWithBranchVerified(
+    citySelectionSnapshotId: string,
+  ): Promise<CitySelectionWithBranch>;
+}
+
+export interface CitySelectionWriterPort extends CitySelectionReadPort {
+  publishSelection(
+    input: CitySelectionPublication,
+  ): Promise<CitySelectionWithBranch>;
+}
+
 export interface CityFrontierStartWriterPort {
   publishStart(input: CityFrontierStartPublication): CityFrontierStartPublicationResult;
 }
@@ -1930,6 +1954,7 @@ export function createCitySelectionWithBranch(
       privateIntegrity,
     );
     if (terminal.kind !== "terminal") mismatch();
+    if (createdAt < terminal.createdAt) mismatch();
     const ranking = reconstructCityRankingSnapshot(rankingCandidate, privateIntegrity);
     const preCityBranch = reconstructPreCityBranchCommit(
       preCityCandidate,
@@ -1992,6 +2017,7 @@ export function reconstructCitySelectionWithBranch(
       privateIntegrity,
     );
     if (terminal.kind !== "terminal") mismatch();
+    if (selection.createdAt < terminal.createdAt) mismatch();
     const ranking = reconstructCityRankingSnapshot(rankingCandidate, privateIntegrity);
     const preCityBranch = reconstructPreCityBranchCommit(
       preCityCandidate,
