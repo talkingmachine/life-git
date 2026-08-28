@@ -6,6 +6,7 @@ import {
   type CodexJsonInvocation,
 } from "./contracts";
 import {
+  CODEX_STARTUP_NOTICES,
   parseCodexEventStreamWithProof,
   type CodexStartupNotices,
 } from "./event-stream";
@@ -43,6 +44,8 @@ export async function runCodexJsonProbe(input: {
   readonly finalMessage: string;
   readonly startupNotices: CodexStartupNotices;
   readonly eventTypes: readonly string[];
+  readonly webSearchCount: number;
+  readonly toolPolicyProven: true;
 }> {
   return withCodexTempDirectory({
     root: input.tempRoot,
@@ -62,9 +65,10 @@ export async function runCodexJsonProbe(input: {
       const proof = await parseCodexEventStreamWithProof(streamChunks(result.stdout), {
         maxStdoutBytes: input.invocation.limits.maxStdoutBytes,
         maxEvents: input.invocation.limits.maxEvents,
-      });
+      }, input.invocation.toolPolicy);
       return {
         pid: result.pid,
+        startupNotices: CODEX_STARTUP_NOTICES,
         ...proof,
       };
     },

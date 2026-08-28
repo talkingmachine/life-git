@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"thread-1"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"type":"reasoning","id":"reasoning-1"}}
+{"type":"item.completed","item":{"type":"reasoning","id":"reasoning-1"}}
+{"type":"item.started","item":{"type":"web_search","id":"search-1","query":"official municipal source"}}
+{"type":"item.completed","item":{"type":"web_search","id":"search-1","query":"official municipal source"}}
+{"type":"item.completed","item":{"type":"agent_message","text":"{\"schemaVersion\":\"fixture@1\"}"}}
+{"type":"turn.completed"}
