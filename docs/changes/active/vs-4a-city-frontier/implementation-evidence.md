@@ -2,9 +2,10 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `implementation in progress — beta core verified` |
-| Дата проверки | 2026-08-27 |
-| Область | проверенный beta core City Frontier; не полный VS4A delivery |
+| Статус | `implementation in progress — beta delivery locally verified` |
+| Дата проверки | 2026-08-28 |
+| Область | проверенный beta core и первый executable delivery vertical; не source-verified VS4A delivery |
+| Code checkpoint | `0576d1b775a4a519c97a3f42952716ea7acd5e17` |
 
 ## Подтверждённый beta scope
 
@@ -15,43 +16,56 @@
 - Events и composition.
 - Abort, recovery и concurrency.
 - Lineage и history replay.
+- Atomic public `SelectCity` и sibling City Branch publication.
+- Strict Start/Continue/Select HTTP adapters.
+- Finite NDJSON decoder и browser-safe frozen projection.
+- Setup/live/stored City Journey, terminal green/yellow cards, exact risk-bound Select и verified
+  append-only selection/branch history.
+
+## Delivery PR ledger
+
+- [PR #15](https://github.com/talkingmachine/life-git/pull/15) — `SelectCity` и sibling branches.
+- [PR #16](https://github.com/talkingmachine/life-git/pull/16) — strict City HTTP transport.
+- [PR #17](https://github.com/talkingmachine/life-git/pull/17) — finite decoder и pure projection.
+- [PR #18](https://github.com/talkingmachine/life-git/pull/18) — executable City experience,
+  terminal cards и selection UX.
 
 ## Blocking guarantees
 
 Автоматизированные проверки подтверждают independent package/manifest checks, integrity до write
 или другого irreversible side effect, atomic publication проекции Evidence → Knowledge → Frontier,
 single-flight, abort и no-late-write. Также проверены policy behaviours `@1`, `@2` и `@999`, а
-также confidentiality, ownership и frozen public DTOs.
+также confidentiality, ownership и frozen public DTOs. Browser adoption дополнительно требует
+strict full-DTO normalization, exact run/revision/command/candidate binding и сохраняет ранее
+verified selection/branch history как неизменяемое подмножество следующего read model.
 
-## Локальная проверка repair checkpoint
+## Локальная проверка beta delivery checkpoint
 
-На reviewed repair checkpoint выполнены следующие команды и получены результаты:
+На beta-delivery code checkpoint после Task 18 выполнены следующие команды и получены результаты:
 
 ```bash
-pnpm install --offline --frozen-lockfile --frozen-store --store-dir <pnpm-store>
-# exit 0; <pnpm-store> — проверенный offline frozen store
+./node_modules/.bin/vitest run
+# 101/101 files, 3,434/3,434 tests
 
-pnpm typecheck
+./node_modules/.bin/tsc --noEmit
 # exit 0
 
-pnpm lint
+./node_modules/.bin/eslint .
 # exit 0
 
-pnpm exec vitest run --reporter=dot
-# 98/98 files, 3,299/3,299 tests
-
-pnpm build
+env NEXT_TELEMETRY_DISABLED=1 ./node_modules/.bin/next build
 # exit 0
 ```
 
 ## Ограничения и следующий scope
 
-Не заработаны public `SelectCity` write use case, City HTTP transport, City UI, browser walkthrough
-и live-source/model evidence. Поэтому VS4A не получает полный статус `implemented`.
+Не заработаны deterministic Task 19 replay/SQL/official-source acceptance evidence, browser
+walkthrough и live-source/model evidence. Поэтому VS4A не получает полный статус `implemented` или
+`source-verified`.
 
 Existing live-only databases автоматически не мигрируются: до любой мутации они должны fail closed
 с `database_schema_reset_required`.
 
-Оставшиеся legacy/history/edge matrices находятся вне earned beta scope. Nonblocking hardening
-backlog: `CITY-EVIDENCE-SCHEMA-CLOSURE`, `CODEX-PROCESS-TREE-OWNERSHIP`,
+Оставшиеся legacy/history/edge и visual/a11y/lifecycle matrices находятся вне earned beta scope.
+Nonblocking hardening backlog: `CITY-EVIDENCE-SCHEMA-CLOSURE`, `CODEX-PROCESS-TREE-OWNERSHIP`,
 `CODEX-IO-TARGET-OWNERSHIP` и `DECIMAL-ORDER-BOUNDS`.
