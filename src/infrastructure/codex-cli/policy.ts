@@ -56,7 +56,7 @@ export const codexPolicyFingerprint = createHash("sha256")
   .digest("hex");
 
 export function parseSupportedCodexCliVersion(stdout: string): string {
-  const match = /^codex-cli 0\.149\.0-alpha\.([0-9]{1,6})\n$/.exec(stdout);
+  const match = /^codex-cli 0\.149\.0-alpha\.((?:[4-9]|[1-9][0-9]{1,5}))\n$/.exec(stdout);
   if (match === null || match[1] === undefined || Number(match[1]) < 4) {
     throw new CodexRuntimeError("codex_version_mismatch");
   }

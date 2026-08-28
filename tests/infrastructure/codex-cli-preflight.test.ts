@@ -244,6 +244,7 @@ describe("preflightCodexCli", () => {
     { name: "a missing line ending", versionStdout: "codex-cli 0.149.0-alpha.4" },
     { name: "an extra line ending", versionStdout: "codex-cli 0.149.0-alpha.4\n\n" },
     { name: "a different version", versionStdout: "codex-cli 0.148.0-alpha.99\n" },
+    { name: "a noncanonical alpha ordinal", versionStdout: "codex-cli 0.149.0-alpha.000004\n" },
   ])("stops after one version spawn for $name", async ({ versionStdout }) => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([spawned(versionStdout, { stderr: output(KNOWN_PATH_ALIAS_WARNING) })]);

@@ -64,6 +64,7 @@ describe("parseSupportedCodexCliVersion", () => {
     "codex-cli 0.149.0-alpha.3\n",
     "codex-cli 0.150.0-alpha.1\n",
     "codex-cli 0.149.0-alpha.4 extra\n",
+    "codex-cli 0.149.0-alpha.000004\n",
     "codex-cli 0.149.0-alpha.1000000\n",
   ])(
     "rejects unsupported version output %j", (stdout) => {

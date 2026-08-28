@@ -47,3 +47,33 @@ I read `writing-good-tests.md` before test changes. The RED command above ran af
 - The policy parser accepts only 1–6 ASCII decimal alpha ordinals with numeric value at least four; future major/minor families and `alpha.1000000` fail before login/model execution.
 - No live network, browser, or model call was made. No historical onboarding tuples were edited.
 - Concern: alpha ordinals above `999999` intentionally require a reviewed policy revision, per the supplied ruling.
+
+## Fix round 1/5 — canonical alpha ordinal
+
+### Changed files
+
+- `src/infrastructure/codex-cli/policy.ts`: accepts only canonical non-zero-leading alpha ordinals from `4` through six decimal digits.
+- `tests/infrastructure/codex-cli-policy.test.ts`: rejects `codex-cli 0.149.0-alpha.000004` directly.
+- `tests/infrastructure/codex-cli-preflight.test.ts`: proves the same malformed version stops after the version probe and before login.
+
+### RED
+
+```sh
+pnpm exec vitest run tests/infrastructure/codex-cli-policy.test.ts tests/infrastructure/codex-cli-preflight.test.ts
+```
+
+Output: `2 failed` files; `2 failed | 33 passed` tests. The parser accepted `alpha.000004`, and preflight therefore attempted login instead of returning `codex_version_mismatch` after one spawn.
+
+### GREEN
+
+```sh
+pnpm exec vitest run tests/infrastructure/codex-cli-policy.test.ts tests/infrastructure/codex-cli-preflight.test.ts
+pnpm typecheck
+git diff --check
+```
+
+Output: `Test Files 2 passed (2)`, `Tests 35 passed (35)`; `$ tsc --noEmit` and `git diff --check` both exited 0.
+
+### Self-review
+
+The exact grammar `(?:[4-9]|[1-9][0-9]{1,5})` retains every previously accepted canonical reviewed ordinal (`4` through `999999`) while rejecting leading-zero spellings, lower ordinals, oversized numbers, and all other CLI families. No argv, feature tuple, login, or onboarding behavior changed.
