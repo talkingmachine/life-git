@@ -470,6 +470,8 @@ type CodexFlightPoolOptions = Readonly<{
 }>;
 ```
 
+Production composition passes `cooldownMs: 60_000`. Tests inject time and do not sleep.
+
 `run<T>` takes `operation: (leaderSignal: AbortSignal) => Promise<T>`. It resolves every active waiter with the same operation result reference, or rejects them with the same terminal error; `classifyPressure` changes the ceiling only for rejected rate/transient/timeout operations. Results produced by the model adapter are already recursively frozen, so the generic pool must not mutate or clone them. Do not cache completed results or expose registry mutation/test-only cleanup methods in production.
 
 - [ ] **Step 6: Run focused GREEN and runtime integration**
@@ -790,7 +792,7 @@ Require no-flag invocation to exit 1 with exactly `local_codex_live_opt_in_requi
 }
 ```
 
-The fake fixture above uses one search pair; the live artifact accepts an integer `webSearchCount` from 1 through the invocation event limit. Latency/rate counters may be additional bounded numeric fields defined by the test, but raw prompts, questionnaire text, search query/snippets, auth paths/tokens, full model output and source excerpts are forbidden.
+The literal artifact above is the fake fixture: it uses observed version `0.149.0-alpha.4`, one search pair and one candidate. The live artifact uses the actual `parseSupportedCodexCliVersion` result, accepts `webSearchCount` from 1 through the invocation event limit, and accepts `candidateCount` from 1 through 5. Latency/rate counters may be additional bounded numeric fields defined by the test, but raw prompts, questionnaire text, search query/snippets, auth paths/tokens, full model output and source excerpts are forbidden.
 
 - [ ] **Step 2: Run the contract test and observe RED**
 
@@ -804,7 +806,7 @@ Expected: eval entrypoint and package script do not exist.
 
 Export argument parsing and `runLocalCodexStageA` so tests inject runtime/model/discovery/clock/write dependencies. The live main path uses the installed ChatGPT Codex executable through production preflight. Write the artifact atomically through a same-directory temporary file and rename; never write an application DB.
 
-The onboarding fixture contains one explicit Russian sentence whose four expected guarded fields and source spans are literal in the fixture. The discovery fixture asks for one official municipal/public-operator source candidate and contains no personal data.
+The onboarding fixture contains one explicit Russian sentence whose four expected guarded fields and source spans are literal in the fixture. The discovery fixture asks for one official municipal/public-operator source candidate and contains no personal data. Concurrency probes use five distinct public synthetic job IDs `stage-a:1` through `stage-a:5`; each schema requires the model to echo its own job ID, so the eval can detect cross-job leakage while producing distinct flight keys. The separate fake-runtime test continues to prove identical keys single-flight.
 
 - [ ] **Step 4: Add the explicit package command and docs**
 
