@@ -11,6 +11,13 @@ import {
   presentCountryResolutionReadModel,
   projectCountryResolutionView,
 } from "../../../src/experience/country-resolution-view-model";
+import {
+  initialCityFrontierEventState,
+} from "../../../src/experience/city-frontier-stream";
+import {
+  presentCityFrontierReadModel,
+  projectCityFrontierView,
+} from "../../../src/experience/city-frontier-view-model";
 
 export function smokePlaceFrontierClientBundle() {
   return {
@@ -25,5 +32,14 @@ export function smokeCountryResolutionClientBundle(readModel: Parameters<
   return {
     eventState: initialCountryResolutionEventState(readModel),
     view: projectCountryResolutionView(presentCountryResolutionReadModel(readModel)),
+  };
+}
+
+export function smokeCityFrontierClientBundle(readModel: Parameters<
+  typeof presentCityFrontierReadModel
+>[0]) {
+  return {
+    eventState: initialCityFrontierEventState(readModel),
+    view: projectCityFrontierView(presentCityFrontierReadModel(readModel)),
   };
 }
