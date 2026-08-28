@@ -13,6 +13,7 @@ import {
   proveStageAAbort,
   readOnboardingFixture,
   runLocalCodexStageA,
+  runLocalCodexStageAEntrypoint,
   assertGuardedFixtureProposals,
   initializeReviewedStageARuntimeForTest,
 } from "../../evals/local-codex-stage-a";
@@ -40,6 +41,35 @@ const discoveryFixture = {
 };
 
 describe("local Codex Stage A gate", () => {
+  test("reports an exact reviewed-installation mismatch without registration, subscription, or artifact write", async () => {
+    const registerRuntime = vi.fn(async () => undefined);
+    const consumeSubscription = vi.fn(async () => deterministicDependencies().initializeRuntime());
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      initializeRuntime: () => initializeReviewedStageARuntimeForTest({
+        executableOverride: undefined,
+        verifyInstallation: async () => { throw new CodexRuntimeError("codex_version_mismatch"); },
+        registerRuntime,
+        consumeSubscription,
+      }),
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:codex_version_mismatch\n" });
+    expect(registerRuntime).not.toHaveBeenCalled();
+    expect(consumeSubscription).not.toHaveBeenCalled();
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("never leaks unrelated failure text through the CLI wrapper", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      initializeRuntime: async () => { throw new Error("/private/path token=secret deliberate trap"); },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  });
+
   test.each([undefined, REVIEWED_CODEX_EXECUTABLE])(
     "verifies the reviewed installation before registration and subscription for override %s",
     async (executableOverride) => {

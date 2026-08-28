@@ -146,6 +146,21 @@ export async function runLocalCodexStageA(
   return Object.freeze({ exitCode: 0, stderr: "" });
 }
 
+/** Closed CLI boundary: retains only the reviewed-build mismatch code. */
+export async function runLocalCodexStageAEntrypoint(
+  argv: readonly string[],
+  supplied: Partial<Dependencies> = {},
+): Promise<LocalCodexStageAEntrypointResult> {
+  try {
+    return await runLocalCodexStageA(parseLocalCodexStageAArgs(argv), supplied);
+  } catch (error) {
+    if (error instanceof CodexRuntimeError && error.code === "codex_version_mismatch") {
+      return Object.freeze({ exitCode: 1, stderr: "local_codex_stage_a_failed:codex_version_mismatch\n" });
+    }
+    return Object.freeze({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  }
+}
+
 function readArgs(value: unknown): LocalCodexStageAArguments {
   const object = exactObject(value, ["live", "artifactPath"]);
   if (typeof object.live !== "boolean" || typeof object.artifactPath !== "string") throw new TypeError("local_codex_stage_a_invalid_arguments");
@@ -556,8 +571,8 @@ function invocation(capability: "onboarding.extract" | "source.discover", reason
 }
 
 if (import.meta.main) {
-  runLocalCodexStageA(parseLocalCodexStageAArgs(process.argv.slice(2))).then((result) => {
+  runLocalCodexStageAEntrypoint(process.argv.slice(2)).then((result) => {
     if (result.stderr !== "") process.stderr.write(result.stderr);
     process.exitCode = result.exitCode;
-  }).catch(() => { process.stderr.write("local_codex_stage_a_failed\n"); process.exitCode = 1; });
+  });
 }
