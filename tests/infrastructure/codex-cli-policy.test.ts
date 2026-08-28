@@ -5,6 +5,7 @@ import { CODEX_PROTOCOL_NOTICE_REVISION } from "../../src/infrastructure/codex-c
 import {
   buildCodexExecArgs,
   CODEX_DISABLED_FEATURES,
+  CODEX_FIXED_EXEC_CONFIGS,
   CODEX_WEB_SEARCH_DISABLED_FEATURES,
   codexPolicyFingerprint,
   parseSupportedCodexCliVersion,
@@ -80,7 +81,8 @@ describe("buildCodexExecArgs", () => {
     const args = buildCodexExecArgs(invocation("low", "codex-tools-none@2"), "/owned/fresh", "/owned/fresh/schema.json");
 
     expect(args).toEqual([
-      "exec", "--strict-config", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+      "exec", ...CODEX_FIXED_EXEC_CONFIGS.flatMap((config) => ["-c", config]),
+      "--strict-config", "--ephemeral", "--ignore-user-config", "--ignore-rules",
       "--model", "gpt-5.6-terra", "-c", "model_reasoning_effort=\"low\"",
       ...EXPECTED_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
       "--sandbox", "read-only", "--skip-git-repo-check", "--cd", "/owned/fresh",
@@ -88,6 +90,7 @@ describe("buildCodexExecArgs", () => {
     ]);
     expect(args.filter((arg) => arg === "exec")).toHaveLength(1);
     expect(args).not.toContain("--search");
+    expectFixedConfigs(args);
     expect(args).not.toContain("private user payload must stay on stdin");
     expect(args.join("\0")).not.toMatch(/--(?:ask-for-approval|approve-for-me|profile|add-dir)/);
   });
@@ -98,6 +101,7 @@ describe("buildCodexExecArgs", () => {
     expect(args.slice(0, 6)).toEqual(["--search", "--enable", "code_mode", "--enable", "code_mode_host", "exec"]);
     expect(args.slice(5, 7)).toEqual(["exec", "-c"]);
     expect(args).toContain("suppress_unstable_features_warning=true");
+    expectFixedConfigs(args);
     expect(CODEX_WEB_SEARCH_DISABLED_FEATURES).not.toContain("code_mode");
     expect(CODEX_WEB_SEARCH_DISABLED_FEATURES).not.toContain("code_mode_host");
     expect(args).toContain("model_reasoning_effort=\"medium\"");
@@ -114,3 +118,11 @@ describe("buildCodexExecArgs", () => {
     expect(CODEX_PROTOCOL_NOTICE_REVISION).toBe("alpha.4-reviewed-web-search@3");
   });
 });
+
+function expectFixedConfigs(args: readonly string[]): void {
+  for (const config of CODEX_FIXED_EXEC_CONFIGS) {
+    expect(args.filter((entry) => entry === config)).toHaveLength(1);
+    expect(args.indexOf(config)).toBeGreaterThan(args.indexOf("exec"));
+    expect(args.indexOf(config)).toBeLessThan(args.indexOf("--model"));
+  }
+}

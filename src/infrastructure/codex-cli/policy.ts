@@ -38,8 +38,18 @@ export const CODEX_WEB_SEARCH_DISABLED_FEATURES = Object.freeze(
   CODEX_DISABLED_FEATURES.filter((feature) => feature !== "code_mode" && feature !== "code_mode_host"),
 );
 
+export const CODEX_FIXED_EXEC_CONFIGS = Object.freeze([
+  "tools.experimental_request_user_input.enabled=false",
+  "tools.update_plan.enabled=false",
+  "check_for_update_on_startup=false",
+  "analytics.enabled=false",
+  "feedback.enabled=false",
+  "allow_login_shell=false",
+] as const);
+
 const CODEX_EXEC_ARGV_GRAMMAR = Object.freeze([
   "web-search: --search --enable code_mode --enable code_mode_host before exec; -c suppress_unstable_features_warning=true after exec",
+  "fixed exec-level -c safety configs before model and effort",
   "exec --strict-config --ephemeral --ignore-user-config --ignore-rules",
   "--model gpt-5.6-terra -c model_reasoning_effort=<fixed invocation effort>",
   "--disable <each retained disabled feature>",
@@ -80,6 +90,7 @@ export function buildCodexExecArgs(
       : []),
     "exec",
     ...(invocation.toolPolicy === "codex-tools-web-search@1" ? ["-c", "suppress_unstable_features_warning=true"] : []),
+    ...CODEX_FIXED_EXEC_CONFIGS.flatMap((config) => ["-c", config]),
     "--strict-config",
     "--ephemeral",
     "--ignore-user-config",

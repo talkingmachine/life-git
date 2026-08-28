@@ -357,7 +357,8 @@ function isToolItemType(type: string | undefined): boolean {
     type === "browser" || type === "computer" || type === "mcp_tool_call" || type === "mcp" || type === "app" ||
     type === "plugin" || type === "skill" || type === "image" || type === "image_generation" ||
     type === "file_change" || type === "tool_call" || type === "tool_result" || type === "function_call" ||
-    type === "function_call_output";
+    type === "function_call_output" || type === "code" || type === "program" || type === "program_output" ||
+    type === "code_mode" || type === "exec" || type === "wait" || type === "request_user_input" || type === "update_plan";
 }
 
 function readToolPolicy(value: unknown): CodexToolPolicyId {

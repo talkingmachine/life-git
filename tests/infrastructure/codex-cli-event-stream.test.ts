@@ -257,7 +257,7 @@ describe("parseCodexEventStreamWithProof", () => {
     )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
-  test.each(["shell", "command_execution", "mcp_tool_call", "browser", "app", "plugin", "skill", "image", "file_change"])(
+  test.each(["shell", "command_execution", "mcp_tool_call", "browser", "app", "plugin", "skill", "image", "file_change", "code", "program", "program_output", "code_mode", "exec", "wait", "request_user_input", "update_plan"])(
     "rejects the prohibited %s item with the tool-event code",
     async (type) => {
       const events = [
