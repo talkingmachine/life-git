@@ -14,7 +14,7 @@ export type CodexEventStreamProof = Readonly<{
 }>;
 
 /** Reviewed Codex CLI alpha.4 no-tool pre-turn protocol revision. */
-export const CODEX_PROTOCOL_NOTICE_REVISION = "alpha.4-reviewed-pre-turn-errors@1";
+export const CODEX_PROTOCOL_NOTICE_REVISION = "alpha.4-reviewed-pre-turn-errors@2";
 
 const REVIEWED_PRE_TURN_NOTICES = Object.freeze([
   Object.freeze({
@@ -176,10 +176,11 @@ function parseEvent(
         return;
       }
       requireActiveTurn(state);
-      completeItem(event, state, toolPolicy);
+      completeItem(event, state, toolPolicy, requireReviewedNotices);
       return;
     case "turn.completed":
-      if (!hasExactKeys(event, ["type"]) || !state.turnStarted || state.reasoningId !== undefined ||
+      if ((!requireReviewedNotices && !hasExactKeys(event, ["type"])) ||
+        (requireReviewedNotices && !hasReviewedUsageShape(event)) || !state.turnStarted || state.reasoningId !== undefined ||
         state.webSearchId !== undefined || state.message === undefined) throw protocolInvalid();
       state.turnCompleted = true;
       return;
@@ -228,7 +229,12 @@ function startItem(event: Record<string, unknown>, state: StreamState, toolPolic
   throwItemError(type);
 }
 
-function completeItem(event: Record<string, unknown>, state: StreamState, toolPolicy: CodexToolPolicyId): void {
+function completeItem(
+  event: Record<string, unknown>,
+  state: StreamState,
+  toolPolicy: CodexToolPolicyId,
+  requireReviewedTerminalShape: boolean,
+): void {
   const type = itemType(event);
   if (type === "reasoning") {
     if (!hasExactItemKeys(event, ["type", "id"]) || state.reasoningId === undefined ||
@@ -245,13 +251,32 @@ function completeItem(event: Record<string, unknown>, state: StreamState, toolPo
     state.webSearchId = undefined;
     return;
   }
-  if (type !== "agent_message" || !hasExactItemKeys(event, ["type", "text"]) || state.reasoningId !== undefined ||
+  const agentKeys = requireReviewedTerminalShape ? ["type", "id", "text"] : ["type", "text"];
+  if (type !== "agent_message" || !hasExactItemKeys(event, agentKeys) || state.reasoningId !== undefined ||
     state.webSearchId !== undefined || state.message !== undefined) {
     throwItemError(type);
   }
   const item = event.item;
   if (!isObject(item) || typeof item.text !== "string") throw protocolInvalid();
+  if (requireReviewedTerminalShape) {
+    const id = requireItemId(event);
+    if (state.seenItemIds.has(id)) throw protocolInvalid();
+    state.seenItemIds.add(id);
+  }
   state.message = item.text;
+}
+
+function hasReviewedUsageShape(event: Record<string, unknown>): boolean {
+  if (!hasExactKeys(event, ["type", "usage"]) || !isObject(event.usage)) return false;
+  const usage = event.usage;
+  const keys = [
+    "input_tokens",
+    "cached_input_tokens",
+    "cache_write_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+  ];
+  return hasExactKeys(usage, keys) && keys.every((key) => isNonNegativeSafeInteger(usage[key]));
 }
 
 function hasReviewedWebSearchShape(event: Record<string, unknown>): boolean {
@@ -353,6 +378,10 @@ function isBoundedText(value: string): boolean {
 
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isEnumerableDataDescriptor(

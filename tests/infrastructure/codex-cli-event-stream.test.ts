@@ -49,8 +49,22 @@ function proofEvents(message = "completed answer"): Uint8Array[] {
   return [
     line({ type: "thread.started", thread_id: "thread-1" }),
     ...REVIEWED_NOTICES.map((notice) => line({ type: "item.completed", item: { ...notice, type: "error" } })),
-    ...completedMessageEvents(message).slice(1),
+    line({ type: "turn.started" }),
+    line({ type: "item.started", item: { type: "reasoning", id: "reasoning-1" } }),
+    line({ type: "item.completed", item: { type: "reasoning", id: "reasoning-1" } }),
+    line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: message } }),
+    line({ type: "turn.completed", usage: validUsage() }),
   ];
+}
+
+function validUsage(): Record<string, number> {
+  return {
+    input_tokens: 1,
+    cached_input_tokens: 0,
+    cache_write_input_tokens: 0,
+    output_tokens: 1,
+    reasoning_output_tokens: 0,
+  };
 }
 
 describe("parseCodexEventStream", () => {
@@ -103,6 +117,42 @@ describe("parseCodexEventStream", () => {
 });
 
 describe("parseCodexEventStreamWithProof", () => {
+  test("accepts the observed alpha.4 agent ID and final usage shape without retaining either", async () => {
+    const proof = await parseCodexEventStreamWithProof(
+      streamOf(...proofEvents()), LIMITS, "codex-tools-none@2",
+    );
+
+    expect(proof.finalMessage).toBe("completed answer");
+    expect(JSON.stringify(proof)).not.toContain("item_2");
+    expect(JSON.stringify(proof)).not.toContain("input_tokens");
+  });
+
+  test.each([
+    ["missing agent ID", [
+      ...proofEvents().slice(0, 6),
+      line({ type: "item.completed", item: { type: "agent_message", text: "completed answer" } }),
+      proofEvents()[7]!,
+    ]],
+    ["a reused agent ID", [
+      ...proofEvents().slice(0, 6),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_1", text: "completed answer" } }),
+      proofEvents()[7]!,
+    ]],
+    ["missing final usage", [...proofEvents().slice(0, 7), line({ type: "turn.completed" })]],
+    ["a mutated final usage value", [
+      ...proofEvents().slice(0, 7),
+      line({ type: "turn.completed", usage: { ...validUsage(), output_tokens: -1 } }),
+    ]],
+    ["an extra final usage key", [
+      ...proofEvents().slice(0, 7),
+      line({ type: "turn.completed", usage: { ...validUsage(), future_tokens: 0 } }),
+    ]],
+  ])("rejects proof with %s", async (_name, events) => {
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-none@2",
+    )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  });
+
   test("rejects the reviewed discovery lifecycle under the zero-tool policy", async () => {
     await expect(parseCodexEventStreamWithProof(
       await fixture("protocol-v2-web-search.jsonl"), LIMITS, "codex-tools-none@2",
