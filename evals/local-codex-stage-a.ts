@@ -71,10 +71,12 @@ export async function runLocalCodexStageA(
   const dependencies = readDependencies(supplied);
   const runtime = await dependencies.initializeRuntime();
   validateRuntime(runtime);
-  const [onboarding, discovery, one, two, five, abort] = await Promise.all([
-    dependencies.runOnboarding(), dependencies.runDiscovery(), dependencies.measureConcurrency(1),
-    dependencies.measureConcurrency(2), dependencies.measureConcurrency(5), dependencies.proveAbort(),
-  ]);
+  const onboarding = await dependencies.runOnboarding();
+  const discovery = await dependencies.runDiscovery();
+  const one = await dependencies.measureConcurrency(1);
+  const two = await dependencies.measureConcurrency(2);
+  const five = await dependencies.measureConcurrency(5);
+  const abort = await dependencies.proveAbort();
   validateProofs(runtime, onboarding, discovery, [one, two, five], abort);
   const artifact: Artifact = Object.freeze({
     schemaVersion: ARTIFACT_SCHEMA, cliVersion: runtime.cliVersion, protocolVersion: runtime.protocolVersion,
@@ -142,10 +144,10 @@ function validateProofs(runtime: Awaited<ReturnType<Dependencies["initializeRunt
 const productionDependencies: Dependencies = Object.freeze({
   async initializeRuntime() {
     await registerNodeCodexRuntime();
-    await verifyCodexCliCapabilities(new AbortController().signal);
+    const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
     const adapter = getCodexCliModelAdapter();
     const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-version@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}."));
-    return Object.freeze({ cliVersion: result.metadata.cliVersion, protocolVersion: result.metadata.protocolVersion, compatibilityPolicy: result.metadata.compatibilityPolicy, model: result.metadata.model, noToolProbe: Object.freeze({ passed: true, webSearchCount: 0 }), discoveryProbe: Object.freeze({ passed: true, webSearchCount: 1 }) });
+    return Object.freeze({ cliVersion: result.metadata.cliVersion, protocolVersion: result.metadata.protocolVersion, compatibilityPolicy: result.metadata.compatibilityPolicy, model: result.metadata.model, noToolProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.low.webSearchCount }), discoveryProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.discovery.webSearchCount }) });
   },
   async runOnboarding() {
     const adapter = getCodexCliModelAdapter();
@@ -174,8 +176,17 @@ const productionDependencies: Dependencies = Object.freeze({
   async proveAbort() {
     const adapter = getCodexCliModelAdapter(); const controller = new AbortController();
     const work = adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}.", controller.signal));
-    controller.abort(new DOMException("Stage A abort", "AbortError"));
-    try { await work; throw new TypeError("local_codex_stage_a_late_result"); } catch { return Object.freeze({ processGroupTerminated: true, lateResultAccepted: false }); }
+    const reason = new DOMException("Stage A abort", "AbortError");
+    controller.abort(reason);
+    try {
+      await work;
+    } catch (error) {
+      if (error === reason || error instanceof DOMException && error.name === "AbortError") {
+        return Object.freeze({ processGroupTerminated: true, lateResultAccepted: false });
+      }
+      throw error;
+    }
+    throw new TypeError("local_codex_stage_a_late_result");
   },
   async writeArtifact(path, artifact) {
     const absolute = resolve(path); const directory = dirname(absolute);

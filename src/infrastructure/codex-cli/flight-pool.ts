@@ -67,6 +67,11 @@ export class CodexFlightPool {
     return waiter;
   }
 
+  /** Bounded operational state; deliberately excludes keys, prompts, and process identifiers. */
+  diagnostics(): Readonly<{ activeLeaders: number; queuedFlights: number; effectiveCeiling: 1 | 3 | 5 }> {
+    return Object.freeze({ activeLeaders: this.activeLeaders, queuedFlights: this.queued.length, effectiveCeiling: this.maximumActiveLeaders });
+  }
+
   private createFlight<T>(key: string, operation: (leaderSignal: AbortSignal) => Promise<T>): Flight<T> {
     return {
       key,

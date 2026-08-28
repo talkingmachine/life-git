@@ -51,18 +51,20 @@ export function getCodexCliModelAdapter(): CodexCliModelAdapter {
 
 export interface CodexCliCapabilityVerification {
   readonly schemaVersion: "codex-runtime-smoke@2";
-  readonly low: "ok";
-  readonly medium: "ok";
-  readonly discovery: "ok";
+  readonly low: Readonly<{ webSearchCount: 0 }>;
+  readonly medium: Readonly<{ webSearchCount: 0 }>;
+  readonly discovery: Readonly<{ webSearchCount: number }>;
 }
 
 /** Explicit subscription-consuming gate; startup itself intentionally remains static. */
 export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<CodexCliCapabilityVerification> {
   const adapter = getCodexCliModelAdapter();
+  const zeroToolCounts: { low?: 0; medium?: 0 } = {};
   for (const reasoningEffort of ["low", "medium"] as const) {
     const outcome = await adapter.invokeJsonForRuntimeCapabilityVerification(smokeInvocation(reasoningEffort, signal));
     assertSmokeResult(outcome.result.value);
     if (outcome.eventProof.webSearchCount !== 0) throw new CodexRuntimeError("codex_tool_event");
+    zeroToolCounts[reasoningEffort] = 0;
   }
   const discovery = await adapter.invokeJsonForRuntimeCapabilityVerification(createCodexJsonInvocation({
     capability: "source.discover",
@@ -76,8 +78,8 @@ export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<C
     signal,
   }));
   assertSmokeResult(discovery.result.value);
-  if (discovery.eventProof.webSearchCount < 1) throw new CodexRuntimeError("codex_tool_event");
-  return Object.freeze({ schemaVersion: "codex-runtime-smoke@2", low: "ok", medium: "ok", discovery: "ok" });
+  if (discovery.eventProof.webSearchCount < 1 || discovery.eventProof.webSearchCount > smokeLimits().maxEvents) throw new CodexRuntimeError("codex_tool_event");
+  return Object.freeze({ schemaVersion: "codex-runtime-smoke@2", low: Object.freeze({ webSearchCount: zeroToolCounts.low! }), medium: Object.freeze({ webSearchCount: zeroToolCounts.medium! }), discovery: Object.freeze({ webSearchCount: discovery.eventProof.webSearchCount }) });
 }
 
 interface OwnedInitializationInput {

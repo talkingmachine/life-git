@@ -274,7 +274,7 @@ describe("Codex CLI runtime singleton", () => {
       .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 1));
 
     await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal)).resolves.toEqual({
-      schemaVersion: "codex-runtime-smoke@2", low: "ok", medium: "ok", discovery: "ok",
+      schemaVersion: "codex-runtime-smoke@2", low: { webSearchCount: 0 }, medium: { webSearchCount: 0 }, discovery: { webSearchCount: 1 },
     });
     expect(probe.run.mock.calls.map(([call]) => [call.invocation.reasoningEffort, call.invocation.toolPolicy]))
       .toEqual([["low", "codex-tools-none@2"], ["medium", "codex-tools-none@2"], ["medium", "codex-tools-web-search@1"]]);

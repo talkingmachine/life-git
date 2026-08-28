@@ -26,6 +26,15 @@ function pool(now: () => number = () => 0): CodexFlightPool {
 }
 
 describe("CodexFlightPool", () => {
+  test("reports only sanitized active, queued, and ceiling diagnostics", async () => {
+    const flights = pool();
+    const leader = deferred<string>();
+    const pending = flights.run({ key: "private-key", signal: new AbortController().signal, operation: () => leader.promise });
+    expect(flights.diagnostics()).toEqual({ activeLeaders: 1, queuedFlights: 0, effectiveCeiling: 5 });
+    leader.resolve("done");
+    await pending;
+    expect(flights.diagnostics()).toEqual({ activeLeaders: 0, queuedFlights: 0, effectiveCeiling: 5 });
+  });
   test("detaches one aborted waiter while preserving the leader result identity", async () => {
     // Break caught: forwarding a waiter signal to the operation lets one caller cancel shared work.
     const flights = pool();
