@@ -155,6 +155,12 @@ describe("createCodexJsonInvocation", () => {
       .toThrowError("codex_protocol_invalid");
   });
 
+  test("rejects a transparent Proxy around an otherwise valid invocation", () => {
+    const input = new Proxy(validInvocation(), {});
+
+    expect(() => createCodexJsonInvocation(input)).toThrowError("codex_protocol_invalid");
+  });
+
   test("rejects a limits accessor without executing it", () => {
     const getter = vi.fn(() => 15_000);
     const input = validInvocation();
@@ -169,6 +175,12 @@ describe("createCodexJsonInvocation", () => {
       ...validInvocation().limits,
       unexpected: true,
     } }))).toThrowError("codex_protocol_invalid");
+  });
+
+  test("rejects a transparent Proxy around otherwise valid limits", () => {
+    const input = validInvocation({ limits: new Proxy(validInvocation().limits, {}) });
+
+    expect(() => createCodexJsonInvocation(input)).toThrowError("codex_protocol_invalid");
   });
 
   test("validates a genuine decorated AbortSignal without invoking caller accessors", () => {

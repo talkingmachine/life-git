@@ -238,7 +238,8 @@ function requireBoundResult(
     throw new TypeError("Invalid onboarding model result");
   }
   try {
-    parseSupportedCodexCliVersion(`${String(metadata.cliVersion)}\n`);
+    if (typeof metadata.cliVersion !== "string") throw new TypeError("Invalid onboarding model result");
+    parseSupportedCodexCliVersion(`${metadata.cliVersion}\n`);
   } catch {
     throw new TypeError("Invalid onboarding model result");
   }
@@ -249,7 +250,7 @@ function readExactPlainObject(
   value: unknown,
   expectedKeys: readonly string[],
 ): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  if (value === null || typeof value !== "object" || types.isProxy(value) || Array.isArray(value)) {
     throw new TypeError("Invalid onboarding model value");
   }
   const prototype = Object.getPrototypeOf(value);
@@ -294,3 +295,4 @@ function deepFreeze<T>(value: T): T {
   }
   return value;
 }
+import { types } from "node:util";

@@ -1,3 +1,5 @@
+import { types } from "node:util";
+
 import { snapshotOwnedJson, type JsonObject, type JsonValue } from "./owned-json";
 
 export const CODEX_CLI_PROTOCOL_VERSION = "codex-cli-protocol@2" as const;
@@ -138,7 +140,7 @@ export function createCodexJsonInvocation(input: {
 }
 
 function readExactPlainObject(value: unknown, expectedKeys: readonly string[]): Record<string, unknown> {
-  if (value === null || typeof value !== "object") throw protocolInvalid();
+  if (value === null || typeof value !== "object" || types.isProxy(value)) throw protocolInvalid();
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) throw protocolInvalid();
 

@@ -365,6 +365,33 @@ describe("Codex onboarding model", () => {
     expect(invokeJson).toHaveBeenCalledTimes(2);
   });
 
+  test("rejects proxied runtime metadata after one invocation", async () => {
+    const metadata = new Proxy(extractionMetadata(), {});
+    const { model, invokeJson } = successfulModel(extractionResult(metadata));
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_invalid");
+    expect(invokeJson).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects a coercible non-string runtime CLI version after one invocation", async () => {
+    const metadata = {
+      ...extractionMetadata(),
+      cliVersion: { toString: () => "codex-cli 0.149.0-alpha.4" },
+    } as unknown as CodexJsonResult["metadata"];
+    const { model, invokeJson } = successfulModel(extractionResult(metadata));
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_invalid");
+    expect(invokeJson).toHaveBeenCalledTimes(1);
+  });
+
   test("rejects a hostile questionnaire before serialization or a runtime call", async () => {
     const { model, invokeJson } = successfulModel();
     const getter = vi.fn(() => SECRET);
