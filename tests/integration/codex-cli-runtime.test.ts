@@ -43,6 +43,33 @@ afterEach(async () => {
 });
 
 describe("CodexCliModelAdapter", () => {
+  test("rejects web search on a later alpha before any probe or spawn", async () => {
+    const options = adapterOptions("codex-cli 0.149.0-alpha.5");
+    const adapter = createCodexCliModelAdapterForTest(options);
+    const invocation = createCodexJsonInvocation({
+      ...validInvocation(),
+      capability: "source.discover",
+      reasoningEffort: "medium",
+      toolPolicy: "codex-tools-web-search@1",
+    });
+
+    await expect(adapter.invokeJson(invocation)).rejects.toMatchObject({ code: "codex_version_mismatch" });
+
+    expect(probe.run).not.toHaveBeenCalled();
+    expect(options.spawner.spawn).not.toHaveBeenCalled();
+  });
+
+  test("retains later-alpha compatibility for a no-tool invocation", async () => {
+    probe.run.mockResolvedValueOnce(successfulProbe('{"ok":true}'));
+    const adapter = createCodexCliModelAdapterForTest(adapterOptions("codex-cli 0.149.0-alpha.5"));
+
+    await expect(adapter.invokeJson(validInvocation())).resolves.toMatchObject({
+      value: { ok: true },
+      metadata: { cliVersion: "codex-cli 0.149.0-alpha.5", toolPolicy: "codex-tools-none@2" },
+    });
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
   test("forwards only a frozen bounded pool diagnostics snapshot", () => {
     const adapter = createCodexCliModelAdapterForTest(adapterOptions());
     const diagnostics = adapter.runtimeDiagnostics();
@@ -450,11 +477,11 @@ function successfulProbe(finalMessage: string, webSearchCount = 0) {
   };
 }
 
-function adapterOptions() {
+function adapterOptions(cliVersion: string = CODEX_CLI_VERSION) {
   return {
     preflight: Object.freeze({
       executable: "/synthetic/codex",
-      cliVersion: CODEX_CLI_VERSION,
+      cliVersion,
       authenticatedWith: "ChatGPT" as const,
     }),
     spawner: Object.freeze({ spawn: vi.fn() }) as CodexProcessSpawner,

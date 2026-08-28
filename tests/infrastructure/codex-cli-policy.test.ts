@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { CodexJsonInvocation } from "../../src/infrastructure/codex-cli/contracts";
 import { CODEX_PROTOCOL_NOTICE_REVISION } from "../../src/infrastructure/codex-cli/event-stream";
+import { REVIEWED_INSTALLATION_DIGESTS } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import {
   buildCodexExecArgs,
   CODEX_DISABLED_FEATURES,
@@ -9,6 +10,7 @@ import {
   CODEX_WEB_SEARCH_DISABLED_FEATURES,
   CODEX_WEB_SEARCH_ENABLED_FEATURES,
   codexPolicyFingerprint,
+  deriveCodexPolicyFingerprintForTest,
   parseSupportedCodexCliVersion,
 } from "../../src/infrastructure/codex-cli/policy";
 
@@ -127,6 +129,15 @@ describe("buildCodexExecArgs", () => {
       args.some((entry, index) => entry === "--disable" && args[index + 1] === feature))).toBe(true);
     expect(codexPolicyFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(CODEX_PROTOCOL_NOTICE_REVISION).toBe("alpha.4-reviewed-web-search@3");
+  });
+
+  test("binds both reviewed binary digests into the policy fingerprint", () => {
+    const firstDrift = [`0${REVIEWED_INSTALLATION_DIGESTS[0].slice(1)}`, REVIEWED_INSTALLATION_DIGESTS[1]] as const;
+    const secondDrift = [REVIEWED_INSTALLATION_DIGESTS[0], `0${REVIEWED_INSTALLATION_DIGESTS[1].slice(1)}`] as const;
+
+    expect(codexPolicyFingerprint).toBe(deriveCodexPolicyFingerprintForTest(REVIEWED_INSTALLATION_DIGESTS));
+    expect(deriveCodexPolicyFingerprintForTest(firstDrift)).not.toBe(codexPolicyFingerprint);
+    expect(deriveCodexPolicyFingerprintForTest(secondDrift)).not.toBe(codexPolicyFingerprint);
   });
 });
 

@@ -7,7 +7,10 @@ import {
   type CodexJsonInvocation,
 } from "./contracts";
 import { CODEX_PROTOCOL_NOTICE_REVISION } from "./event-stream";
-import { REVIEWED_INSTALLATION_REVISION } from "./reviewed-installation";
+import {
+  REVIEWED_INSTALLATION_DIGESTS,
+  REVIEWED_INSTALLATION_REVISION,
+} from "./reviewed-installation";
 
 export const CODEX_DISABLED_FEATURES = Object.freeze([
   "apps",
@@ -60,23 +63,13 @@ const CODEX_EXEC_ARGV_GRAMMAR = Object.freeze([
   "--output-schema <owned schema path> --json -",
 ] as const);
 
-const POLICY_FINGERPRINT_INPUT = JSON.stringify({
-  protocol: CODEX_CLI_PROTOCOL_VERSION,
-  protocolRevision: CODEX_PROTOCOL_NOTICE_REVISION,
-  model: CODEX_MODEL,
-  reasoningEfforts: ["low", "medium"],
-  toolPolicies: ["codex-tools-none@2", "codex-tools-web-search@1"],
-  disabledFeatures: CODEX_DISABLED_FEATURES,
-  fixedExecConfigs: CODEX_FIXED_EXEC_CONFIGS,
-  webSearchEnabledFeatures: CODEX_WEB_SEARCH_ENABLED_FEATURES,
-  webSearchPolicyMarker: "--search",
-  reviewedInstallationRevision: REVIEWED_INSTALLATION_REVISION,
-  argvGrammar: CODEX_EXEC_ARGV_GRAMMAR,
-});
+export const codexPolicyFingerprint = fingerprintCodexPolicy(REVIEWED_INSTALLATION_DIGESTS);
 
-export const codexPolicyFingerprint = createHash("sha256")
-  .update(POLICY_FINGERPRINT_INPUT, "utf8")
-  .digest("hex");
+export function deriveCodexPolicyFingerprintForTest(
+  reviewedInstallationDigests: readonly [string, string],
+): string {
+  return fingerprintCodexPolicy(reviewedInstallationDigests);
+}
 
 export function parseSupportedCodexCliVersion(stdout: string): string {
   const match = /^codex-cli 0\.149\.0-alpha\.((?:[4-9]|[1-9][0-9]{1,5}))\n$/.exec(stdout);
@@ -114,4 +107,22 @@ export function buildCodexExecArgs(
     "--json",
     "-",
   ]);
+}
+
+function fingerprintCodexPolicy(reviewedInstallationDigests: readonly [string, string]): string {
+  const input = JSON.stringify({
+    protocol: CODEX_CLI_PROTOCOL_VERSION,
+    protocolRevision: CODEX_PROTOCOL_NOTICE_REVISION,
+    model: CODEX_MODEL,
+    reasoningEfforts: ["low", "medium"],
+    toolPolicies: ["codex-tools-none@2", "codex-tools-web-search@1"],
+    disabledFeatures: CODEX_DISABLED_FEATURES,
+    fixedExecConfigs: CODEX_FIXED_EXEC_CONFIGS,
+    webSearchEnabledFeatures: CODEX_WEB_SEARCH_ENABLED_FEATURES,
+    webSearchPolicyMarker: "--search",
+    reviewedInstallationRevision: REVIEWED_INSTALLATION_REVISION,
+    reviewedInstallationDigests: [...reviewedInstallationDigests],
+    argvGrammar: CODEX_EXEC_ARGV_GRAMMAR,
+  });
+  return createHash("sha256").update(input, "utf8").digest("hex");
 }

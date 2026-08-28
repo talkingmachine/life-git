@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, relative, resolve } from "node:path";
 import { types } from "node:util";
 
-import { CODEX_CLI_COMPATIBILITY_POLICY, CODEX_CLI_PROTOCOL_VERSION, CODEX_MODEL, createCodexJsonInvocation } from "../src/infrastructure/codex-cli/contracts";
+import { CODEX_CLI_COMPATIBILITY_POLICY, CODEX_CLI_PROTOCOL_VERSION, CODEX_MODEL, CodexRuntimeError, createCodexJsonInvocation } from "../src/infrastructure/codex-cli/contracts";
 import { getCodexCliModelAdapter, verifyCodexCliCapabilities } from "../src/infrastructure/codex-cli/runtime";
 import { registerNodeCodexRuntime } from "../src/instrumentation-node";
 import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "../src/infrastructure/codex-cli/reviewed-installation";
@@ -71,6 +71,19 @@ type Dependencies = Readonly<{
   writeArtifact: (path: string, artifact: Artifact) => Promise<void>;
   now: () => number;
 }>;
+
+type ReviewedStageARuntimeInitialization<T> = Readonly<{
+  executableOverride: string | undefined;
+  verifyInstallation: () => Promise<void>;
+  registerRuntime: () => Promise<void>;
+  consumeSubscription: () => Promise<T>;
+}>;
+
+export async function initializeReviewedStageARuntimeForTest<T>(
+  input: ReviewedStageARuntimeInitialization<T>,
+): Promise<T> {
+  return initializeReviewedStageARuntime(input);
+}
 
 export function parseLocalCodexStageAArgs(argv: readonly string[]): LocalCodexStageAArguments {
   if (!Array.isArray(argv) || types.isProxy(argv)) throw new TypeError("local_codex_stage_a_invalid_arguments");
@@ -219,13 +232,17 @@ const productionDependencies: Dependencies = Object.freeze({
   prepareArtifact: productionArtifactStore.prepare,
   cleanupArtifact: productionArtifactStore.cleanup,
   async initializeRuntime() {
-    if (process.env.CODEX_EXECUTABLE !== undefined && process.env.CODEX_EXECUTABLE !== REVIEWED_CODEX_EXECUTABLE) throw new Error("local_codex_stage_a_invalid_runtime");
-    await verifyReviewedLocalCodexInstallation();
-    await registerNodeCodexRuntime();
-    const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
-    const adapter = getCodexCliModelAdapter();
-    const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-version@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean", enum: [true] } } }, "Return only {ok:true}."));
-    return Object.freeze({ cliVersion: result.metadata.cliVersion, protocolVersion: result.metadata.protocolVersion, compatibilityPolicy: result.metadata.compatibilityPolicy, model: result.metadata.model, noToolProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.low.webSearchCount }), discoveryProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.discovery.webSearchCount }) });
+    return initializeReviewedStageARuntime({
+      executableOverride: process.env.CODEX_EXECUTABLE,
+      verifyInstallation: verifyReviewedLocalCodexInstallation,
+      registerRuntime: registerNodeCodexRuntime,
+      consumeSubscription: async () => {
+        const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
+        const adapter = getCodexCliModelAdapter();
+        const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-version@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean", enum: [true] } } }, "Return only {ok:true}."));
+        return Object.freeze({ cliVersion: result.metadata.cliVersion, protocolVersion: result.metadata.protocolVersion, compatibilityPolicy: result.metadata.compatibilityPolicy, model: result.metadata.model, noToolProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.low.webSearchCount }), discoveryProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.discovery.webSearchCount }) });
+      },
+    });
   },
   async runOnboarding() {
     const fixture = await readOnboardingFixture();
@@ -261,6 +278,15 @@ const productionDependencies: Dependencies = Object.freeze({
   },
   now: monotonicNow,
 });
+
+async function initializeReviewedStageARuntime<T>(input: ReviewedStageARuntimeInitialization<T>): Promise<T> {
+  if (input.executableOverride !== undefined && input.executableOverride !== REVIEWED_CODEX_EXECUTABLE) {
+    throw new CodexRuntimeError("codex_version_mismatch");
+  }
+  await input.verifyInstallation();
+  await input.registerRuntime();
+  return input.consumeSubscription();
+}
 
 function monotonicNow(): number {
   return Number(process.hrtime.bigint() / 1_000_000n);

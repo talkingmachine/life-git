@@ -14,7 +14,10 @@ import {
   readOnboardingFixture,
   runLocalCodexStageA,
   assertGuardedFixtureProposals,
+  initializeReviewedStageARuntimeForTest,
 } from "../../evals/local-codex-stage-a";
+import { CodexRuntimeError } from "../../src/infrastructure/codex-cli/contracts";
+import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
 
@@ -37,6 +40,53 @@ const discoveryFixture = {
 };
 
 describe("local Codex Stage A gate", () => {
+  test.each([undefined, REVIEWED_CODEX_EXECUTABLE])(
+    "verifies the reviewed installation before registration and subscription for override %s",
+    async (executableOverride) => {
+      const order: string[] = [];
+      const result = await initializeReviewedStageARuntimeForTest({
+        executableOverride,
+        verifyInstallation: async () => { order.push("verify"); },
+        registerRuntime: async () => { order.push("register"); },
+        consumeSubscription: async () => { order.push("subscribe"); return "runtime-proof"; },
+      });
+
+      expect(result).toBe("runtime-proof");
+      expect(order).toEqual(["verify", "register", "subscribe"]);
+    },
+  );
+
+  test("rejects a nonexact executable override before verification, registration, or subscription", async () => {
+    const verifyInstallation = vi.fn(async () => undefined);
+    const registerRuntime = vi.fn(async () => undefined);
+    const consumeSubscription = vi.fn(async () => "must-not-run");
+
+    await expect(initializeReviewedStageARuntimeForTest({
+      executableOverride: `${REVIEWED_CODEX_EXECUTABLE}.alias`,
+      verifyInstallation,
+      registerRuntime,
+      consumeSubscription,
+    })).rejects.toMatchObject({ code: "codex_version_mismatch" });
+    expect(verifyInstallation).not.toHaveBeenCalled();
+    expect(registerRuntime).not.toHaveBeenCalled();
+    expect(consumeSubscription).not.toHaveBeenCalled();
+  });
+
+  test("stops before registration and subscription when installation verification fails", async () => {
+    const mismatch = new CodexRuntimeError("codex_version_mismatch");
+    const registerRuntime = vi.fn(async () => undefined);
+    const consumeSubscription = vi.fn(async () => "must-not-run");
+
+    await expect(initializeReviewedStageARuntimeForTest({
+      executableOverride: undefined,
+      verifyInstallation: async () => { throw mismatch; },
+      registerRuntime,
+      consumeSubscription,
+    })).rejects.toBe(mismatch);
+    expect(registerRuntime).not.toHaveBeenCalled();
+    expect(consumeSubscription).not.toHaveBeenCalled();
+  });
+
   test("uses provider-compatible typed single-value enums in every live synthetic schema", async () => {
     const [runtime, stageA] = await Promise.all([
       readFile(resolve(process.cwd(), "src/infrastructure/codex-cli/runtime.ts"), "utf8"),
