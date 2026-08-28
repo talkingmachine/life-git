@@ -165,6 +165,7 @@ export async function completeOnboarding(
 function isFallbackModelError(error: unknown, signal: AbortSignal): boolean {
   if (signal.aborted) return false;
   if (!(error instanceof OnboardingModelError) || error.code === "onboarding_model_aborted") return false;
+  if (error.code === "onboarding_model_integrity_failed") return false;
   if (error.code === "onboarding_model_invalid") return true;
   return error.code === "onboarding_model_runtime_failed" && (
     error.runtimeCode === "codex_missing" ||

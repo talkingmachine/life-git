@@ -183,10 +183,15 @@ async function review(
 
     const result = await runtime.invokeJson(invocation);
     throwIfAborted(signal);
-    const value = requireBoundResult(result, {
-      templateVersion: ONBOARDING_MODEL_VERSIONS.reviewPrompt,
-      schemaVersion: ONBOARDING_MODEL_VERSIONS.reviewSchema,
-    });
+    let value: unknown;
+    try {
+      value = requireBoundResult(result, {
+        templateVersion: ONBOARDING_MODEL_VERSIONS.reviewPrompt,
+        schemaVersion: ONBOARDING_MODEL_VERSIONS.reviewSchema,
+      });
+    } catch {
+      throw RESULT_INTEGRITY_INVALID;
+    }
     return deepFreeze(parseLocalReviewOutput(value));
   } catch (error) {
     throw mapModelError(error, signal);
@@ -315,6 +320,9 @@ function readExactPlainObject(
 function mapModelError(error: unknown, signal: AbortSignal | undefined): OnboardingModelError {
   if (error === ABORTED || isAborted(signal)) {
     return new OnboardingModelError("onboarding_model_aborted");
+  }
+  if (error === RESULT_INTEGRITY_INVALID) {
+    return new OnboardingModelError("onboarding_model_integrity_failed");
   }
   if (error instanceof CodexRuntimeError) {
     return new OnboardingModelError("onboarding_model_runtime_failed", error.code);

@@ -48,6 +48,7 @@ export type OnboardingRuntimeErrorCode =
 
 export type OnboardingModelErrorCode =
   | "onboarding_model_aborted"
+  | "onboarding_model_integrity_failed"
   | "onboarding_model_invalid"
   | "onboarding_model_runtime_failed";
 

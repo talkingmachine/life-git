@@ -265,6 +265,27 @@ describe("onboarding application use cases", () => {
     expect(nextCompletionCommandId).not.toHaveBeenCalled();
   });
 
+  test("propagates extraction integrity failure without appending a fallback transcript", async () => {
+    const nextParticipantId = vi.fn(() => "40000000-0000-4000-8000-000000000001");
+    const nextAssistantMessageId = vi.fn(() => ASSISTANT_MESSAGE);
+    const nextCompletionCommandId = vi.fn(() => COMMAND_2);
+    const integrity = new OnboardingModelError("onboarding_model_integrity_failed");
+
+    await expect(extractMessage({
+      schemaVersion: "onboarding-message-command@1",
+      session: emptySession(),
+      message: { messageId: USER_MESSAGE, role: "user", text: "I am moving" },
+    }, {
+      model: model({ extractionError: integrity }),
+      nextParticipantId,
+      nextAssistantMessageId,
+      nextCompletionCommandId,
+    }, new AbortController().signal)).rejects.toBe(integrity);
+    expect(nextParticipantId).not.toHaveBeenCalled();
+    expect(nextAssistantMessageId).not.toHaveBeenCalled();
+    expect(nextCompletionCommandId).not.toHaveBeenCalled();
+  });
+
   test("rejects assistant identifiers that collide, are invalid, or consume a command/participant ID", async () => {
     const command = {
       schemaVersion: "onboarding-message-command@1" as const,
@@ -590,6 +611,27 @@ describe("onboarding application use cases", () => {
     }, new AbortController().signal)).resolves.toEqual({ kind: "launched", receipt, prepared: undefined });
     expect(completion.commitOrReplay).toHaveBeenCalledOnce();
     expect(frontier.prepareFromOnboardingReceipt).toHaveBeenCalledOnce();
+  });
+
+  test("propagates review integrity failure without completion or Frontier writes", async () => {
+    const integrity = new OnboardingModelError("onboarding_model_integrity_failed");
+    const completion = {
+      replayCommitted: vi.fn(async () => undefined),
+      commitOrReplay: vi.fn(),
+    };
+    const frontier = { prepareFromOnboardingReceipt: vi.fn() };
+
+    await expect(completeOnboarding({
+      schemaVersion: "onboarding-continue-command@1",
+      session: completeSession(),
+    }, {
+      model: model({ reviewError: integrity }),
+      completion,
+      frontier,
+    }, new AbortController().signal)).rejects.toBe(integrity);
+    expect(completion.replayCommitted).toHaveBeenCalledOnce();
+    expect(completion.commitOrReplay).not.toHaveBeenCalled();
+    expect(frontier.prepareFromOnboardingReceipt).not.toHaveBeenCalled();
   });
 
   test("closes malformed review output before completion or Frontier writes", async () => {

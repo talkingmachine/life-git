@@ -363,6 +363,21 @@ describe("Codex onboarding model", () => {
     );
   });
 
+  test("maps review metadata mismatch to a content-free integrity failure", async () => {
+    const { runtime, invokeJson } = fakeRuntime(async () => reviewResult({
+      ...reviewMetadata(),
+      toolPolicy: "codex-tools-web-search@1",
+    }));
+    const model = createCodexOnboardingModel(runtime);
+
+    const error = await modelError(model.review({
+      questionnaire: questionnaire(), signal: new AbortController().signal,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_integrity_failed");
+    expect(invokeJson).toHaveBeenCalledOnce();
+  });
+
   test.each([
     ["extraction", ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES],
     ["review", ONBOARDING_REVIEW_MAX_PROMPT_BYTES],
@@ -395,7 +410,7 @@ describe("Codex onboarding model", () => {
       message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
     }));
 
-    expectContentFreeError(error, "onboarding_model_invalid");
+    expectContentFreeError(error, "onboarding_model_integrity_failed");
     expect(invokeJson).toHaveBeenCalledTimes(1);
   });
 
@@ -410,7 +425,7 @@ describe("Codex onboarding model", () => {
       message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
     }));
 
-    expectContentFreeError(error, "onboarding_model_invalid");
+    expectContentFreeError(error, "onboarding_model_integrity_failed");
     expect(invokeJson).toHaveBeenCalledTimes(1);
   });
 
@@ -448,7 +463,7 @@ describe("Codex onboarding model", () => {
       signal: new AbortController().signal,
     }));
 
-    expectContentFreeError(error, "onboarding_model_invalid");
+    expectContentFreeError(error, "onboarding_model_integrity_failed");
     expect(invokeJson).toHaveBeenCalledTimes(1);
   });
 
@@ -462,14 +477,20 @@ describe("Codex onboarding model", () => {
       },
       metadata: extractionMetadata(),
     };
-    const first = successfulModel(invalidValue);
-    const firstError = await modelError(first.model.extract({
+    const firstRuntime = fakeRuntime(vi.fn()
+      .mockResolvedValueOnce(invalidValue)
+      .mockResolvedValueOnce({
+        ...invalidValue,
+        metadata: { ...extractionMetadata(), reasoningEffort: "medium" },
+      }));
+    const firstModel = createCodexOnboardingModel(firstRuntime.runtime);
+    const firstError = await modelError(firstModel.extract({
       message: message(),
       questionnaire: questionnaire(),
       signal: new AbortController().signal,
     }));
     expectContentFreeError(firstError, "onboarding_model_invalid");
-    expect(first.invokeJson).toHaveBeenCalledTimes(2);
+    expect(firstRuntime.invokeJson).toHaveBeenCalledTimes(2);
 
     const getter = vi.fn(() => extractionResult().value);
     const hostileResult = Object.defineProperties({}, {
@@ -482,7 +503,7 @@ describe("Codex onboarding model", () => {
       questionnaire: questionnaire(),
       signal: new AbortController().signal,
     }));
-    expectContentFreeError(secondError, "onboarding_model_invalid");
+    expectContentFreeError(secondError, "onboarding_model_integrity_failed");
     expect(getter).not.toHaveBeenCalled();
     expect(second.invokeJson).toHaveBeenCalledTimes(1);
   });
