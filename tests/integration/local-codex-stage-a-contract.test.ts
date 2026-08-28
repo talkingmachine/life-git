@@ -37,6 +37,14 @@ const discoveryFixture = {
 };
 
 describe("local Codex Stage A gate", () => {
+  test("accepts exactly one leading pnpm separator and preserves passive no-flag parsing", async () => {
+    expect(parseLocalCodexStageAArgs(["--", "--live-local-subscription", "--artifact", "data/evals/local-codex-stage-a/result.json"]))
+      .toEqual({ live: true, artifactPath: "data/evals/local-codex-stage-a/result.json" });
+    expect(parseLocalCodexStageAArgs(["--"])).toEqual({ live: false, artifactPath: "data/evals/local-codex-stage-a/result.json" });
+    expect(() => parseLocalCodexStageAArgs(["--live-local-subscription", "--"])).toThrow("local_codex_stage_a_invalid_arguments");
+    expect(() => parseLocalCodexStageAArgs(["--", "--"])).toThrow("local_codex_stage_a_invalid_arguments");
+  });
+
   test("requires explicit live opt-in before any dependency or artifact write", async () => {
     const writeArtifact = vi.fn(async () => undefined);
     const runtime = vi.fn(async () => { throw new Error("must not run"); });

@@ -75,7 +75,10 @@ export function parseLocalCodexStageAArgs(argv: readonly string[]): LocalCodexSt
   if (!Array.isArray(argv) || types.isProxy(argv)) throw new TypeError("local_codex_stage_a_invalid_arguments");
   let live = false;
   let artifactPath = ARTIFACT_PATH;
-  for (let index = 0; index < argv.length; index += 1) {
+  let index = 0;
+  const first = Object.getOwnPropertyDescriptor(argv, "0");
+  if (first?.enumerable === true && "value" in first && first.value === "--") index = 1;
+  for (; index < argv.length; index += 1) {
     const value = Object.getOwnPropertyDescriptor(argv, String(index));
     if (value?.enumerable !== true || !("value" in value) || typeof value.value !== "string") throw new TypeError("local_codex_stage_a_invalid_arguments");
     if (value.value === "--live-local-subscription") { live = true; continue; }
