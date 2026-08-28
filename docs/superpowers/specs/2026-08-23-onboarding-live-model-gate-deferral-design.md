@@ -3,6 +3,13 @@
 **Status:** approved in chat on 2026-08-23; implementation is not authorized until this written
 specification is reviewed and an implementation plan is approved.
 
+> **Scheduling superseded for local beta, 2026-08-28.** Пользователь явно перенёс live Codex
+> connection/debugging в текущий этап и авторизовал local subscription probes и web search.
+> [`2026-08-28-local-codex-llm-source-recovery-design.md`](2026-08-28-local-codex-llm-source-recovery-design.md)
+> теперь контролирует timing, retry, model ceiling и acceptance live calls в своём scope. Этот
+> документ остаётся историей прежней deferral и exact V3 artifact protocol, но его запрет текущих
+> live calls и требование ждать «конца проекта» больше не являются launch authority.
+
 ## Decision
 
 All real Codex CLI/OpenAI onboarding checks and debugging are deferred until the end of the project.

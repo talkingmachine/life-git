@@ -10,6 +10,13 @@
 | Supersedes | structured-only start UI; прежний запрет model-assisted onboarding в конкурсном runtime |
 | Approval | пользователь проекта / 2026-08-20 / exact-text / approved; Codex CLI runtime amendment / approved 2026-08-20; source-evidence guard amendment / approved 2026-08-22 |
 
+> **Partial supersession, 2026-08-28.** Local-beta model failure теперь допускает существующий
+> deterministic onboarding parser как fallback и один bounded runtime retry по правилам
+> [`2026-08-28-local-codex-llm-source-recovery-design.md`](2026-08-28-local-codex-llm-source-recovery-design.md).
+> Model-assisted source extraction/discovery остаются вне authority onboarding и реализуются через
+> отдельные narrow source ports новой спецификации. Questionnaire source-of-truth, explicit-only
+> extraction, confirmation, privacy и field guards сохраняются.
+
 ## 1. Цель и наблюдаемый результат
 
 Пользователь начинает не с пустой технической формы, а со свободного описания своей ситуации и
