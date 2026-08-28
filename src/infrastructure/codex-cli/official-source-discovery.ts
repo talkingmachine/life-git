@@ -38,14 +38,15 @@ export function createCodexOfficialSourceDiscovery(runtime: CodexCliModelAdapter
       try { request = reconstructOfficialSourceDiscoveryRequest(input); } catch (error) { throw mapError(error); }
       if (isAborted(request.signal)) throw new OfficialSourceDiscoveryError("official_source_discovery_aborted");
       try {
-        const result = await runtime.invokeJson(createCodexJsonInvocation({
+        const outcome = await runtime.invokeJsonWithEventProof(createCodexJsonInvocation({
           capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1",
           templateVersion: "official-source-discover@1", schemaVersion: "official-source-candidates@1",
           prompt: buildPrompt(request), outputSchema: OFFICIAL_SOURCE_CANDIDATES_SCHEMA,
           limits: OFFICIAL_SOURCE_DISCOVERY_LIMITS, signal: request.signal,
         }));
         if (isAborted(request.signal)) throw new OfficialSourceDiscoveryError("official_source_discovery_aborted");
-        return decodeResult(result);
+        if (outcome.eventProof.webSearchCount < 1) throw new CodexRuntimeError("codex_tool_event");
+        return decodeResult(outcome.result);
       } catch (error) { throw mapError(error); }
     },
   };

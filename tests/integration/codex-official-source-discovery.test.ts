@@ -42,12 +42,12 @@ function metadata(): CodexJsonResult["metadata"] {
   };
 }
 
-function runtime(value: unknown, resultMetadata: unknown = metadata()): { runtime: CodexCliModelAdapter; invoke: ReturnType<typeof vi.fn> } {
+function runtime(value: unknown, resultMetadata: unknown = metadata(), webSearchCount = 1): { runtime: CodexCliModelAdapter; invoke: ReturnType<typeof vi.fn> } {
   const invoke = vi.fn(async (input: CodexJsonInvocation) => {
     void input;
-    return { value, metadata: resultMetadata };
+    return { result: { value, metadata: resultMetadata }, eventProof: { webSearchCount } };
   });
-  return { runtime: { invokeJson: invoke } as unknown as CodexCliModelAdapter, invoke };
+  return { runtime: { invokeJsonWithEventProof: invoke } as unknown as CodexCliModelAdapter, invoke };
 }
 
 describe("Codex official source discovery", () => {
@@ -70,6 +70,13 @@ describe("Codex official source discovery", () => {
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.candidates)).toBe(true);
     expect(Object.isFrozen(result.candidates[0])).toBe(true);
+  });
+
+  test("rejects a source discovery result that did not prove a real web search", async () => {
+    const { runtime: adapter } = runtime({ candidates: [] }, metadata(), 0);
+    await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toMatchObject({
+      code: "official_source_discovery_runtime_failed", runtimeCode: "codex_tool_event",
+    });
   });
 
   test.each([
@@ -115,17 +122,17 @@ describe("Codex official source discovery", () => {
     const controller = new AbortController();
     let finish: ((value: CodexJsonResult) => void) | undefined;
     const invoke = vi.fn(() => new Promise<CodexJsonResult>((resolve) => { finish = resolve; }));
-    const adapter = { invokeJson: invoke } as unknown as CodexCliModelAdapter;
+    const adapter = { invokeJsonWithEventProof: invoke } as unknown as CodexCliModelAdapter;
     const discovery = createCodexOfficialSourceDiscovery(adapter).discover({ ...request(), signal: controller.signal });
     controller.abort();
-    finish?.({ value: { candidates: [] }, metadata: new Proxy(metadata(), {}) });
+    finish?.({ result: { value: { candidates: [] }, metadata: new Proxy(metadata(), {}) }, eventProof: { webSearchCount: 1 } } as never);
     await expect(discovery).rejects.toMatchObject({ code: "official_source_discovery_aborted" });
   });
 
   test("contains an error prototype spoof without exposing its message", async () => {
     const spoof = Object.setPrototypeOf(new Error("private trap text"), OfficialSourceDiscoveryError.prototype);
     const invoke = vi.fn(async () => { throw spoof; });
-    const adapter = { invokeJson: invoke } as unknown as CodexCliModelAdapter;
+    const adapter = { invokeJsonWithEventProof: invoke } as unknown as CodexCliModelAdapter;
     await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toMatchObject({
       code: "official_source_discovery_invalid",
       message: "official_source_discovery_invalid",
@@ -134,7 +141,7 @@ describe("Codex official source discovery", () => {
 
   test("maps a genuine typed runtime failure without its message", async () => {
     const invoke = vi.fn(async () => { throw new CodexRuntimeError("codex_timeout"); });
-    const adapter = { invokeJson: invoke } as unknown as CodexCliModelAdapter;
+    const adapter = { invokeJsonWithEventProof: invoke } as unknown as CodexCliModelAdapter;
     await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toMatchObject({
       code: "official_source_discovery_runtime_failed",
       runtimeCode: "codex_timeout",

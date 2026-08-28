@@ -61,12 +61,12 @@ export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<C
   const adapter = getCodexCliModelAdapter();
   const zeroToolCounts: { low?: 0; medium?: 0 } = {};
   for (const reasoningEffort of ["low", "medium"] as const) {
-    const outcome = await adapter.invokeJsonForRuntimeCapabilityVerification(smokeInvocation(reasoningEffort, signal));
+    const outcome = await adapter.invokeJsonWithEventProof(smokeInvocation(reasoningEffort, signal));
     assertSmokeResult(outcome.result.value);
     if (outcome.eventProof.webSearchCount !== 0) throw new CodexRuntimeError("codex_tool_event");
     zeroToolCounts[reasoningEffort] = 0;
   }
-  const discovery = await adapter.invokeJsonForRuntimeCapabilityVerification(createCodexJsonInvocation({
+  const discovery = await adapter.invokeJsonWithEventProof(createCodexJsonInvocation({
     capability: "source.discover",
     reasoningEffort: "medium",
     toolPolicy: "codex-tools-web-search@1",

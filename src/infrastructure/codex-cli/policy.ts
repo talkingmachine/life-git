@@ -34,8 +34,12 @@ export const CODEX_DISABLED_FEATURES = Object.freeze([
   "workspace_dependencies",
 ] as const);
 
+export const CODEX_WEB_SEARCH_DISABLED_FEATURES = Object.freeze(
+  CODEX_DISABLED_FEATURES.filter((feature) => feature !== "code_mode" && feature !== "code_mode_host"),
+);
+
 const CODEX_EXEC_ARGV_GRAMMAR = Object.freeze([
-  "optional --search before exec for codex-tools-web-search@1",
+  "web-search: --search --enable code_mode --enable code_mode_host before exec; -c suppress_unstable_features_warning=true after exec",
   "exec --strict-config --ephemeral --ignore-user-config --ignore-rules",
   "--model gpt-5.6-terra -c model_reasoning_effort=<fixed invocation effort>",
   "--disable <each retained disabled feature>",
@@ -71,15 +75,20 @@ export function buildCodexExecArgs(
   schemaPath: string,
 ): readonly string[] {
   return Object.freeze([
-    ...(invocation.toolPolicy === "codex-tools-web-search@1" ? ["--search"] : []),
+    ...(invocation.toolPolicy === "codex-tools-web-search@1"
+      ? ["--search", "--enable", "code_mode", "--enable", "code_mode_host"]
+      : []),
     "exec",
+    ...(invocation.toolPolicy === "codex-tools-web-search@1" ? ["-c", "suppress_unstable_features_warning=true"] : []),
     "--strict-config",
     "--ephemeral",
     "--ignore-user-config",
     "--ignore-rules",
     "--model", "gpt-5.6-terra",
     "-c", `model_reasoning_effort=${JSON.stringify(invocation.reasoningEffort)}`,
-    ...CODEX_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
+    ...(invocation.toolPolicy === "codex-tools-web-search@1"
+      ? CODEX_WEB_SEARCH_DISABLED_FEATURES
+      : CODEX_DISABLED_FEATURES).flatMap((feature) => ["--disable", feature]),
     "--sandbox", "read-only",
     "--skip-git-repo-check",
     "--cd", directoryPath,

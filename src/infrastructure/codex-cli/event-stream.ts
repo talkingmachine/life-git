@@ -14,7 +14,7 @@ export type CodexEventStreamProof = Readonly<{
 }>;
 
 /** Reviewed Codex CLI alpha.4 no-tool pre-turn protocol revision. */
-export const CODEX_PROTOCOL_NOTICE_REVISION = "alpha.4-reviewed-pre-turn-errors@2";
+export const CODEX_PROTOCOL_NOTICE_REVISION = "alpha.4-reviewed-web-search@3";
 
 const REVIEWED_PRE_TURN_NOTICES = Object.freeze([
   Object.freeze({
@@ -69,6 +69,7 @@ interface StreamState {
   webSearchCount: number;
   eventCount: number;
   message: string | undefined;
+  webCandidate: string | undefined;
   eventTypes: string[];
   reviewedNoticeIndex: number;
 }
@@ -103,7 +104,7 @@ async function parseEventStream(
     state.reasoningId !== undefined || state.webSearchId !== undefined || state.message === undefined) {
     throw protocolInvalid();
   }
-  if (requireReviewedNotices && state.reviewedNoticeIndex !== REVIEWED_PRE_TURN_NOTICES.length) throw protocolInvalid();
+  if (requireReviewedNotices && state.reviewedNoticeIndex !== reviewedNotices(toolPolicy).length) throw protocolInvalid();
   return Object.freeze({
     finalMessage: state.message,
     eventTypes: Object.freeze([...state.eventTypes]),
@@ -122,6 +123,7 @@ function createStreamState(): StreamState {
     webSearchCount: 0,
     eventCount: 0,
     message: undefined,
+    webCandidate: undefined,
     eventTypes: [],
     reviewedNoticeIndex: 0,
   };
@@ -163,7 +165,7 @@ function parseEvent(
       return;
     case "turn.started":
       if (!hasExactKeys(event, ["type"]) || !state.threadStarted || state.turnStarted ||
-        (requireReviewedNotices && state.reviewedNoticeIndex !== REVIEWED_PRE_TURN_NOTICES.length)) throw protocolInvalid();
+        (requireReviewedNotices && state.reviewedNoticeIndex !== reviewedNotices(toolPolicy).length)) throw protocolInvalid();
       state.turnStarted = true;
       return;
     case "item.started":
@@ -172,7 +174,7 @@ function parseEvent(
       return;
     case "item.completed":
       if (requireReviewedNotices && !state.turnStarted && state.threadStarted) {
-        completeReviewedPreTurnNotice(event, state);
+        completeReviewedPreTurnNotice(event, state, toolPolicy);
         return;
       }
       requireActiveTurn(state);
@@ -181,7 +183,9 @@ function parseEvent(
     case "turn.completed":
       if ((!requireReviewedNotices && !hasExactKeys(event, ["type"])) ||
         (requireReviewedNotices && !hasReviewedUsageShape(event)) || !state.turnStarted || state.reasoningId !== undefined ||
-        state.webSearchId !== undefined || state.message === undefined) throw protocolInvalid();
+        state.webSearchId !== undefined || (toolPolicy === "codex-tools-none@2" && state.message === undefined) ||
+        (toolPolicy === "codex-tools-web-search@1" && state.webCandidate === undefined)) throw protocolInvalid();
+      if (toolPolicy === "codex-tools-web-search@1") state.message = state.webCandidate;
       state.turnCompleted = true;
       return;
     case "turn.failed":
@@ -190,14 +194,20 @@ function parseEvent(
   }
 }
 
-function completeReviewedPreTurnNotice(event: Record<string, unknown>, state: StreamState): void {
-  const expected = REVIEWED_PRE_TURN_NOTICES[state.reviewedNoticeIndex];
+function completeReviewedPreTurnNotice(
+  event: Record<string, unknown>, state: StreamState, toolPolicy: CodexToolPolicyId,
+): void {
+  const expected = reviewedNotices(toolPolicy)[state.reviewedNoticeIndex];
   if (expected === undefined || !hasExactItemKeys(event, ["id", "type", "message"])) throw protocolInvalid();
   const item = event.item;
   if (!isObject(item) || item.id !== expected.id || item.type !== "error" || item.message !== expected.message ||
     state.seenItemIds.has(expected.id)) throw protocolInvalid();
   state.seenItemIds.add(expected.id);
   state.reviewedNoticeIndex += 1;
+}
+
+function reviewedNotices(toolPolicy: CodexToolPolicyId): readonly (typeof REVIEWED_PRE_TURN_NOTICES)[number][] {
+  return toolPolicy === "codex-tools-web-search@1" ? REVIEWED_PRE_TURN_NOTICES.slice(0, 1) : REVIEWED_PRE_TURN_NOTICES;
 }
 
 function startItem(event: Record<string, unknown>, state: StreamState, toolPolicy: CodexToolPolicyId): void {
@@ -214,7 +224,7 @@ function startItem(event: Record<string, unknown>, state: StreamState, toolPolic
   }
   if (type === "web_search") {
     if (toolPolicy === "codex-tools-none@2") throw new CodexRuntimeError("codex_tool_event");
-    if (!hasExactItemKeys(event, ["type", "id", "query"]) || !hasReviewedWebSearchShape(event)) {
+    if (!hasExactItemKeys(event, ["type", "id", "query", "action"]) || !hasReviewedWebSearchStartShape(event)) {
       throw new CodexRuntimeError("codex_tool_event");
     }
     const id = requireItemId(event);
@@ -222,8 +232,8 @@ function startItem(event: Record<string, unknown>, state: StreamState, toolPolic
       throw protocolInvalid();
     }
     state.webSearchId = id;
+    state.webCandidate = undefined;
     state.seenItemIds.add(id);
-    state.webSearchCount += 1;
     return;
   }
   throwItemError(type);
@@ -244,16 +254,18 @@ function completeItem(
   }
   if (type === "web_search") {
     if (toolPolicy === "codex-tools-none@2") throw new CodexRuntimeError("codex_tool_event");
-    if (!hasExactItemKeys(event, ["type", "id", "query"]) || !hasReviewedWebSearchShape(event)) {
+    if (!hasExactItemKeys(event, ["type", "id", "query", "action"]) || !hasReviewedWebSearchCompletionShape(event)) {
       throw new CodexRuntimeError("codex_tool_event");
     }
     if (state.webSearchId === undefined || requireItemId(event) !== state.webSearchId) throw protocolInvalid();
+    const item = event.item as Record<string, unknown>;
+    if (isSearchAction(item.action)) state.webSearchCount += 1;
     state.webSearchId = undefined;
     return;
   }
   const agentKeys = requireReviewedTerminalShape ? ["type", "id", "text"] : ["type", "text"];
   if (type !== "agent_message" || !hasExactItemKeys(event, agentKeys) || state.reasoningId !== undefined ||
-    state.webSearchId !== undefined || state.message !== undefined) {
+    state.webSearchId !== undefined || (toolPolicy === "codex-tools-none@2" && state.message !== undefined)) {
     throwItemError(type);
   }
   const item = event.item;
@@ -263,7 +275,8 @@ function completeItem(
     if (state.seenItemIds.has(id)) throw protocolInvalid();
     state.seenItemIds.add(id);
   }
-  state.message = item.text;
+  if (toolPolicy === "codex-tools-web-search@1") state.webCandidate = item.text;
+  else state.message = item.text;
 }
 
 function hasReviewedUsageShape(event: Record<string, unknown>): boolean {
@@ -279,9 +292,25 @@ function hasReviewedUsageShape(event: Record<string, unknown>): boolean {
   return hasExactKeys(usage, keys) && keys.every((key) => isNonNegativeSafeInteger(usage[key]));
 }
 
-function hasReviewedWebSearchShape(event: Record<string, unknown>): boolean {
+function hasReviewedWebSearchStartShape(event: Record<string, unknown>): boolean {
   const item = event.item;
-  return isObject(item) && typeof item.query === "string" && isBoundedText(item.query);
+  return isObject(item) && item.query === "" && isOtherAction(item.action);
+}
+
+function hasReviewedWebSearchCompletionShape(event: Record<string, unknown>): boolean {
+  const item = event.item;
+  if (!isObject(item) || typeof item.query !== "string") return false;
+  return (item.query === "" && isOtherAction(item.action)) ||
+    (isBoundedText(item.query) && isSearchAction(item.action) && item.action.query === item.query);
+}
+
+function isOtherAction(value: unknown): boolean {
+  return isObject(value) && hasExactKeys(value, ["type"]) && value.type === "other";
+}
+
+function isSearchAction(value: unknown): value is Record<string, unknown> & { query: string } {
+  return isObject(value) && hasExactKeys(value, ["type", "query"]) && value.type === "search" &&
+    typeof value.query === "string" && isBoundedText(value.query);
 }
 
 function requireActiveTurn(state: StreamState): void {

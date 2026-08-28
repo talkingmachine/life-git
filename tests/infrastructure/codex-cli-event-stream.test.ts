@@ -67,6 +67,11 @@ function validUsage(): Record<string, number> {
   };
 }
 
+function webProofEvents(message = "completed answer"): Uint8Array[] {
+  const events = proofEvents(message);
+  return [events[0]!, events[1]!, ...events.slice(3)];
+}
+
 describe("parseCodexEventStream", () => {
   test("returns the sole completed assistant message under the zero-tool policy", async () => {
     await expect(parseCodexEventStream(streamOf(...completedMessageEvents('{"schemaVersion":"fixture@1"}')), LIMITS))
@@ -153,10 +158,10 @@ describe("parseCodexEventStreamWithProof", () => {
     )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
-  test("rejects the reviewed discovery lifecycle under the zero-tool policy", async () => {
+  test("rejects a web-search startup lifecycle under the zero-tool startup policy", async () => {
     await expect(parseCodexEventStreamWithProof(
       await fixture("protocol-v2-web-search.jsonl"), LIMITS, "codex-tools-none@2",
-    )).rejects.toMatchObject({ code: "codex_tool_event" });
+    )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
   test("proves the reviewed discovery lifecycle without retaining its query", async () => {
@@ -167,8 +172,8 @@ describe("parseCodexEventStreamWithProof", () => {
     expect(proof).toEqual({
       finalMessage: '{"schemaVersion":"fixture@1"}',
       eventTypes: [
-        "thread.started", "item.completed", "item.completed", "turn.started", "item.started", "item.completed",
-        "item.started", "item.completed", "item.completed", "turn.completed",
+        "thread.started", "item.completed", "turn.started", "item.started", "item.completed",
+        "item.completed", "item.started", "item.completed", "item.completed", "turn.completed",
       ],
       webSearchCount: 1,
       toolPolicyProven: true,
@@ -256,7 +261,7 @@ describe("parseCodexEventStreamWithProof", () => {
     "rejects the prohibited %s item with the tool-event code",
     async (type) => {
       const events = [
-        ...proofEvents().slice(0, 4),
+        ...webProofEvents().slice(0, 3),
         line({ type: "item.started", item: { type, id: "tool-1" } }),
       ];
       await expect(parseCodexEventStreamWithProof(
@@ -267,9 +272,9 @@ describe("parseCodexEventStreamWithProof", () => {
 
   test("rejects a web-search item with any unreviewed key", async () => {
     const events = [
-      ...proofEvents().slice(0, 6),
-      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "official municipal source", result: "no" } }),
-      ...proofEvents().slice(6),
+      ...webProofEvents().slice(0, 5),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" }, result: "no" } }),
+      ...webProofEvents().slice(5),
     ];
     await expect(parseCodexEventStreamWithProof(
       streamOf(...events), LIMITS, "codex-tools-web-search@1",

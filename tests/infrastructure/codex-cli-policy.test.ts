@@ -5,6 +5,7 @@ import { CODEX_PROTOCOL_NOTICE_REVISION } from "../../src/infrastructure/codex-c
 import {
   buildCodexExecArgs,
   CODEX_DISABLED_FEATURES,
+  CODEX_WEB_SEARCH_DISABLED_FEATURES,
   codexPolicyFingerprint,
   parseSupportedCodexCliVersion,
 } from "../../src/infrastructure/codex-cli/policy";
@@ -94,7 +95,11 @@ describe("buildCodexExecArgs", () => {
   test("puts the only allowed discovery tool before exec and fixes medium effort", () => {
     const args = buildCodexExecArgs(invocation("medium", "codex-tools-web-search@1"), "/owned/fresh", "/owned/fresh/schema.json");
 
-    expect(args.slice(0, 2)).toEqual(["--search", "exec"]);
+    expect(args.slice(0, 6)).toEqual(["--search", "--enable", "code_mode", "--enable", "code_mode_host", "exec"]);
+    expect(args.slice(5, 7)).toEqual(["exec", "-c"]);
+    expect(args).toContain("suppress_unstable_features_warning=true");
+    expect(CODEX_WEB_SEARCH_DISABLED_FEATURES).not.toContain("code_mode");
+    expect(CODEX_WEB_SEARCH_DISABLED_FEATURES).not.toContain("code_mode_host");
     expect(args).toContain("model_reasoning_effort=\"medium\"");
     expect(args.join("\0")).not.toMatch(/--(?:ask-for-approval|approve-for-me|profile|add-dir)/);
   });
@@ -106,6 +111,6 @@ describe("buildCodexExecArgs", () => {
     expect(EXPECTED_DISABLED_FEATURES.every((feature) => args.includes(`--disable`) &&
       args.some((entry, index) => entry === "--disable" && args[index + 1] === feature))).toBe(true);
     expect(codexPolicyFingerprint).toMatch(/^[a-f0-9]{64}$/);
-    expect(CODEX_PROTOCOL_NOTICE_REVISION).toBe("alpha.4-reviewed-pre-turn-errors@2");
+    expect(CODEX_PROTOCOL_NOTICE_REVISION).toBe("alpha.4-reviewed-web-search@3");
   });
 });

@@ -28,7 +28,7 @@ export interface CodexCliModelAdapterOptions {
   readonly flightPool?: CodexFlightPool;
 }
 
-interface CodexCliFlightOutcome {
+export interface CodexCliInvocationOutcome {
   readonly result: CodexJsonResult;
   readonly eventProof: Readonly<{ webSearchCount: number }>;
 }
@@ -62,7 +62,7 @@ export class CodexCliModelAdapter {
   }
 
   /** Runtime-only path: preserves public result shape while retaining reviewed event proof. */
-  async invokeJsonForRuntimeCapabilityVerification(input: CodexJsonInvocation): Promise<CodexCliFlightOutcome> {
+  async invokeJsonWithEventProof(input: CodexJsonInvocation): Promise<CodexCliInvocationOutcome> {
     return this.invokeFlightOutcome(input);
   }
 
@@ -75,7 +75,7 @@ export class CodexCliModelAdapter {
     return this.#flightPool.diagnostics();
   }
 
-  private invokeFlightOutcome(input: CodexJsonInvocation): Promise<CodexCliFlightOutcome> {
+  private invokeFlightOutcome(input: CodexJsonInvocation): Promise<CodexCliInvocationOutcome> {
     const key = deriveCodexFlightKey(input);
     return this.#flightPool.run({
       key,
