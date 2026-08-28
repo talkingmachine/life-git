@@ -14,6 +14,7 @@ import {
   CODEX_CLI_VERSION,
   CODEX_INVOCATION_VERSION,
   CODEX_MODEL,
+  CodexRuntimeError,
   type CodexJsonInvocation,
   type CodexJsonResult,
 } from "../../src/infrastructure/codex-cli/contracts";
@@ -41,7 +42,7 @@ function metadata(): CodexJsonResult["metadata"] {
   };
 }
 
-function runtime(value: unknown, resultMetadata = metadata()): { runtime: CodexCliModelAdapter; invoke: ReturnType<typeof vi.fn> } {
+function runtime(value: unknown, resultMetadata: unknown = metadata()): { runtime: CodexCliModelAdapter; invoke: ReturnType<typeof vi.fn> } {
   const invoke = vi.fn(async (input: CodexJsonInvocation) => {
     void input;
     return { value, metadata: resultMetadata };
@@ -75,9 +76,63 @@ describe("Codex official source discovery", () => {
     { candidates: Array.from({ length: 6 }, () => ({ url: "https://example.com/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" })) },
     { candidates: [{ url: "https://example.com/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }, { url: "https://example.com/", claimedPublisher: "D", expectedCoverage: "E", rationale: "F" }] },
     { candidates: [{ url: "http://example.com/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
+    { candidates: [{ url: "https://[::1]/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }] },
     { candidates: [{ url: "https://example.com/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C", official: true }] },
   ])("fails closed for invalid model candidates", async (value) => {
     const { runtime: adapter } = runtime(value);
     await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toBeInstanceOf(OfficialSourceDiscoveryError);
+  });
+
+  test.each([
+    new Proxy(request(), {}),
+    { ...request(), entity: new Proxy(request().entity, {}) },
+    { ...request(), fact: Object.defineProperty(request().fact, "description", { enumerable: true, get: () => "trap" }) },
+    { ...request(), failedSource: { ...request().failedSource as object, extra: true } },
+  ])("rejects malformed request before the adapter call", async (input) => {
+    const { runtime: adapter, invoke } = runtime({ candidates: [] });
+    await expect(createCodexOfficialSourceDiscovery(adapter).discover(input as never)).rejects.toBeInstanceOf(OfficialSourceDiscoveryError);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    new Proxy(metadata(), {}),
+    { ...metadata(), extra: true },
+    { ...metadata(), toolPolicy: "codex-tools-none@2" },
+  ])("rejects malformed or mismatched metadata without candidates", async (resultMetadata) => {
+    const { runtime: adapter } = runtime({ candidates: [] }, resultMetadata);
+    await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toMatchObject({
+      code: "official_source_discovery_integrity_failed",
+    });
+  });
+
+  test("does not decode a deferred result after the caller aborts", async () => {
+    const controller = new AbortController();
+    let finish: ((value: CodexJsonResult) => void) | undefined;
+    const invoke = vi.fn(() => new Promise<CodexJsonResult>((resolve) => { finish = resolve; }));
+    const adapter = { invokeJson: invoke } as unknown as CodexCliModelAdapter;
+    const discovery = createCodexOfficialSourceDiscovery(adapter).discover({ ...request(), signal: controller.signal });
+    controller.abort();
+    finish?.({ value: { candidates: [] }, metadata: new Proxy(metadata(), {}) });
+    await expect(discovery).rejects.toMatchObject({ code: "official_source_discovery_aborted" });
+  });
+
+  test("contains an error prototype spoof without exposing its message", async () => {
+    const spoof = Object.setPrototypeOf(new Error("private trap text"), OfficialSourceDiscoveryError.prototype);
+    const invoke = vi.fn(async () => { throw spoof; });
+    const adapter = { invokeJson: invoke } as unknown as CodexCliModelAdapter;
+    await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toMatchObject({
+      code: "official_source_discovery_invalid",
+      message: "official_source_discovery_invalid",
+    });
+  });
+
+  test("maps a genuine typed runtime failure without its message", async () => {
+    const invoke = vi.fn(async () => { throw new CodexRuntimeError("codex_timeout"); });
+    const adapter = { invokeJson: invoke } as unknown as CodexCliModelAdapter;
+    await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toMatchObject({
+      code: "official_source_discovery_runtime_failed",
+      runtimeCode: "codex_timeout",
+      message: "official_source_discovery_runtime_failed",
+    });
   });
 });

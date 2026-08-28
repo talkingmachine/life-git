@@ -43,6 +43,7 @@ export function createCodexOfficialSourceDiscovery(runtime: CodexCliModelAdapter
           prompt: buildPrompt(request), outputSchema: OFFICIAL_SOURCE_CANDIDATES_SCHEMA,
           limits: OFFICIAL_SOURCE_DISCOVERY_LIMITS, signal: request.signal,
         }));
+        if (isAborted(request.signal)) throw new OfficialSourceDiscoveryError("official_source_discovery_aborted");
         return decodeResult(result);
       } catch (error) { throw mapError(error); }
     },
@@ -128,9 +129,24 @@ function text(value: unknown, maximumBytes: number): string {
 function integrity(): never { throw new OfficialSourceDiscoveryError("official_source_discovery_integrity_failed"); }
 
 function mapError(error: unknown): OfficialSourceDiscoveryError {
-  if (error instanceof OfficialSourceDiscoveryError) return error;
-  if (error instanceof CodexRuntimeError) return new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", error.code);
+  const discoveryCode = trustedOwnErrorCode(error, OfficialSourceDiscoveryError.prototype, isDiscoveryCode);
+  if (discoveryCode !== undefined) return error as OfficialSourceDiscoveryError;
+  const runtimeCode = trustedOwnErrorCode(error, CodexRuntimeError.prototype, (value): value is string => typeof value === "string");
+  if (runtimeCode !== undefined) return new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", runtimeCode);
   return new OfficialSourceDiscoveryError("official_source_discovery_invalid");
+}
+
+function trustedOwnErrorCode<T extends string>(value: unknown, prototype: object, accepts: (code: unknown) => code is T): T | undefined {
+  if (value === null || typeof value !== "object" || types.isProxy(value) || !types.isNativeError(value) ||
+    Object.getPrototypeOf(value) !== prototype) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, "code");
+  if (descriptor === undefined || descriptor.enumerable !== true || !("value" in descriptor) || !accepts(descriptor.value)) return undefined;
+  return descriptor.value;
+}
+
+function isDiscoveryCode(value: unknown): value is OfficialSourceDiscoveryError["code"] {
+  return value === "official_source_discovery_aborted" || value === "official_source_discovery_integrity_failed" ||
+    value === "official_source_discovery_invalid" || value === "official_source_discovery_runtime_failed";
 }
 
 function isAborted(signal: AbortSignal): boolean {

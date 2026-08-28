@@ -1,4 +1,5 @@
 import { types } from "node:util";
+import { isIP } from "node:net";
 
 import type { CodexInvocationMetadata } from "../infrastructure/codex-cli/contracts";
 
@@ -46,6 +47,8 @@ export class OfficialSourceDiscoveryError extends Error {
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const MAX_IDENTIFIER_BYTES = 256;
 const MAX_TEXT_BYTES = 1_024;
+/** URLs share the public description/coverage/rationale transport budget. */
+const MAX_URL_UTF8_BYTES = MAX_TEXT_BYTES;
 
 export function reconstructOfficialSourceDiscoveryRequest(value: unknown): OfficialSourceDiscoveryRequest {
   try {
@@ -94,11 +97,11 @@ export function reconstructOfficialSourceDiscoveryRequest(value: unknown): Offic
 }
 
 export function canonicalHttpsUrl(value: unknown): string {
-  if (typeof value !== "string" || utf8Bytes(value) > MAX_TEXT_BYTES) invalid();
+  if (typeof value !== "string" || utf8Bytes(value) > MAX_URL_UTF8_BYTES) invalid();
   let parsed: URL;
   try { parsed = new URL(value); } catch { invalid(); }
   if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "" || parsed.hash !== "" ||
-    isPrivateHostname(parsed.hostname) || parsed.href !== value) invalid();
+    !isDnsHostname(parsed.hostname) || parsed.href !== value) invalid();
   return parsed.href;
 }
 
@@ -138,6 +141,7 @@ function requiredText(value: unknown, maximumBytes: number): string {
 
 function nativeSignal(value: unknown): AbortSignal {
   if (value === null || typeof value !== "object" || types.isProxy(value) || NATIVE_ABORTED_GETTER === undefined) invalid();
+  if (Object.getPrototypeOf(value) !== AbortSignal.prototype) invalid();
   try { NATIVE_ABORTED_GETTER.call(value); } catch { invalid(); }
   return value as AbortSignal;
 }
@@ -146,17 +150,10 @@ function isFailureReason(value: unknown): value is OfficialSourceDiscoveryReques
   return value === "unavailable" || value === "stale" || value === "empty" || value === "semantic_drift" || value === "not_covering_fact";
 }
 
-function isPrivateHostname(hostname: string): boolean {
+function isDnsHostname(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  if (host === "localhost" || host.endsWith(".localhost") || host === "::1") return true;
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (ipv4 === null) return false;
-  const octets = ipv4.slice(1).map(Number);
-  if (octets.some((octet) => octet > 255)) return true;
-  return octets[0] === 10 || octets[0] === 127 || octets[0] === 0 ||
-    (octets[0] === 169 && octets[1] === 254) ||
-    (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
-    (octets[0] === 192 && octets[1] === 168);
+  const unbracketed = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  return host !== "localhost" && !host.endsWith(".localhost") && isIP(unbracketed) === 0;
 }
 
 function utf8Bytes(value: string): number { return new TextEncoder().encode(value).byteLength; }

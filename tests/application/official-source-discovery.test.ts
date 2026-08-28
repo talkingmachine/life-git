@@ -40,6 +40,14 @@ describe("official source discovery request", () => {
     { ...request(), failedSource: { url: "https://user:pass@example.com/", reason: "stale" } },
     { ...request(), failedSource: { url: "https://example.com/#fragment", reason: "stale" } },
     { ...request(), failedSource: { url: "https://EXAMPLE.com/", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://127.0.0.1/", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://[::1]/", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://[fd00::1]/", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://[::ffff:127.0.0.1]/", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://localhost/", reason: "stale" } },
+    { ...request(), failedSource: { url: "https://api.localhost/", reason: "stale" } },
+    { ...request(), signal: new Proxy(new AbortController().signal, {}) },
+    { ...request(), signal: Object.create(new AbortController().signal) },
   ])("rejects unsafe or noncanonical input before discovery", (input) => {
     expect(() => reconstructOfficialSourceDiscoveryRequest(input)).toThrow(OfficialSourceDiscoveryError);
   });
