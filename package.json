@@ -10,6 +10,7 @@
     "eval:live": "node --import tsx evals/live.ts",
     "eval:codex-network-privacy": "node --import tsx evals/codex-cli-network-privacy.ts",
     "eval:codex-runtime-feasibility": "node --import tsx evals/codex-cli-feasibility.ts",
+    "eval:local-codex-negative-capability": "node --import tsx evals/local-codex-negative-capability.ts",
     "eval:local-codex-stage-a": "node --import tsx evals/local-codex-stage-a.ts",
     "eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts",
     "test": "vitest run",
