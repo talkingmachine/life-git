@@ -72,6 +72,25 @@ function webProofEvents(message = "completed answer"): Uint8Array[] {
   return [events[0]!, events[1]!, ...events.slice(3)];
 }
 
+function webPrefix(): Uint8Array[] {
+  return [
+    line({ type: "thread.started", thread_id: "thread-1" }),
+    line({ type: "item.completed", item: { ...REVIEWED_NOTICES[0], type: "error" } }),
+    line({ type: "turn.started" }),
+  ];
+}
+
+function webSearch(id: string, query: string): Uint8Array[] {
+  return [
+    line({ type: "item.started", item: { type: "web_search", id, query: "", action: { type: "other" } } }),
+    line({ type: "item.completed", item: { type: "web_search", id, query, action: { type: "search", query } } }),
+  ];
+}
+
+function webTerminal(): Uint8Array[] {
+  return [line({ type: "turn.completed", usage: validUsage() })];
+}
+
 describe("parseCodexEventStream", () => {
   test("returns the sole completed assistant message under the zero-tool policy", async () => {
     await expect(parseCodexEventStream(streamOf(...completedMessageEvents('{"schemaVersion":"fixture@1"}')), LIMITS))
@@ -191,6 +210,56 @@ describe("parseCodexEventStreamWithProof", () => {
     expect(JSON.stringify(proof)).not.toContain("official municipal source");
     expect(JSON.stringify(proof)).not.toContain("approval_policy");
     expect(JSON.stringify(proof)).not.toContain("code-mode host");
+  });
+
+  test("accepts an other completion without counting a real search", async () => {
+    const proof = await parseCodexEventStreamWithProof(streamOf(
+      ...webPrefix(),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } }),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } }),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: "final" } }),
+      ...webTerminal(),
+    ), LIMITS, "codex-tools-web-search@1");
+    expect(proof.webSearchCount).toBe(0);
+  });
+
+  test("counts two matched searches and retains only the final candidate", async () => {
+    const proof = await parseCodexEventStreamWithProof(streamOf(
+      ...webPrefix(),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: "first" } }),
+      ...webSearch("search-1", "synthetic-query-one"),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_3", text: "second" } }),
+      ...webSearch("search-2", "synthetic-query-two"),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_4", text: "final" } }),
+      ...webTerminal(),
+    ), LIMITS, "codex-tools-web-search@1");
+    expect(proof).toMatchObject({ finalMessage: "final", webSearchCount: 2 });
+    expect(JSON.stringify(proof)).not.toContain("synthetic-query");
+  });
+
+  test.each([
+    ["a start/completion ID mismatch", [
+      ...webPrefix(),
+      ...webSearch("search-1", "synthetic-query").slice(0, 1),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-2", query: "synthetic-query", action: { type: "search", query: "synthetic-query" } } }),
+    ]],
+    ["an item/action query mismatch", [
+      ...webPrefix(),
+      ...webSearch("search-1", "synthetic-query").slice(0, 1),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "synthetic-query", action: { type: "search", query: "different-query" } } }),
+    ]],
+    ["a candidate cleared by a second search without a later candidate", [
+      ...webPrefix(),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: "first" } }),
+      ...webSearch("search-1", "synthetic-query-one"),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_3", text: "second" } }),
+      ...webSearch("search-2", "synthetic-query-two"),
+      ...webTerminal(),
+    ]],
+  ])("rejects %s", async (_name, events) => {
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-web-search@1",
+    )).rejects.toMatchObject({ code: _name === "an item/action query mismatch" ? "codex_tool_event" : "codex_protocol_invalid" });
   });
 
   test.each([
