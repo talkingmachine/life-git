@@ -869,6 +869,31 @@ describe("city criteria policy", () => {
     expect(() => reconstructCityCriteria({ ...first, confirmedAt: "not-an-instant" }, evaluators)).toThrow("integrity_mismatch");
   });
 
+  test("semantically reconstructs a confirmed snapshot after canonical JSON round trip", () => {
+    // Break caught: treating JSON object key insertion order as sealed Criteria semantics.
+    const draft = deriveCityCriteriaDraft(profile, preferences, defaults, evaluators);
+    const confirmed = confirmCityCriteria({
+      draft,
+      profileSnapshotId: "profile",
+      preferenceProfileSnapshotId: "preferences",
+      confirmedAt: "2026-08-14T00:00:00.000Z",
+    }, evaluators, STRUCTURAL_INTEGRITY);
+    const roundTripped = JSON.parse(
+      STRUCTURAL_INTEGRITY.canonical(confirmed),
+    ) as CityCriteriaSnapshot;
+
+    const reconstructed = reconstructCityCriteria(roundTripped, evaluators);
+
+    expect(reconstructed).toEqual({
+      profileSnapshotId: "profile",
+      preferenceProfileSnapshotId: "preferences",
+      criteria: confirmed.criteria,
+      rulesVersion: "city-criteria@1",
+      confirmedAt: "2026-08-14T00:00:00.000Z",
+    });
+    expectRecursivelyFrozen(reconstructed);
+  });
+
   test("exposes the exact structural Criteria reconstruction signature beside the semantic API", () => {
     // Break caught: persistence requiring evaluators or replacing the existing semantic boundary.
     expectTypeOf(reconstructCityCriteriaSnapshot).toEqualTypeOf<(

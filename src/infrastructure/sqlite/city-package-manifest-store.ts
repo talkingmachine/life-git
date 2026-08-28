@@ -428,7 +428,7 @@ export class SqliteCityPackageManifestStore implements
         if (matches.length !== 1 || matches[0]!.manifest.id !== rows[0]!.id) mismatch();
         return matches[0];
       });
-      return read.immediate();
+      return read.deferred();
     } catch (error) {
       this.restoreConnectionState(connection);
       normalize(error);
@@ -447,7 +447,7 @@ export class SqliteCityPackageManifestStore implements
         if (this.totalChanges() !== beforeChanges || this.schemaState() !== beforeSchema) mismatch();
         return records.length === 0 ? undefined : records[records.length - 1];
       });
-      return read.immediate();
+      return read.deferred();
     } catch (error) {
       this.restoreConnectionState(connection);
       normalize(error);

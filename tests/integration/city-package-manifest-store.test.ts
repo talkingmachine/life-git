@@ -1228,6 +1228,25 @@ describe("InstalledCityPackages", () => {
 });
 
 describe("SqliteCityPackageManifestStore", () => {
+  test("reconstructs exact and current packages on a query-only connection without writes", async () => {
+    // Break caught: verified reads use BEGIN IMMEDIATE, which query_only rejects as a write.
+    const database = memoryDatabase();
+    const manifests = store(database);
+    const input = await preparedInput(database, "query-only", "2026-08-24T10:00:00.000Z");
+    const appended = manifests.appendPrepared(input);
+    database.pragma("query_only = ON");
+    expect(database.pragma("query_only", { simple: true })).toBe(1);
+    const changes = totalChanges(database);
+
+    const exact = manifests.loadExactVerified(appended.key)!;
+    const current = manifests.loadCurrentVerified(appended.key.countryCode)!;
+
+    expect(INTEGRITY.canonical(exact.manifest)).toBe(INTEGRITY.canonical(appended));
+    expect(INTEGRITY.canonical(current.manifest)).toBe(INTEGRITY.canonical(appended));
+    expect(INTEGRITY.canonical(current.manifest)).toBe(INTEGRITY.canonical(exact.manifest));
+    expect(totalChanges(database)).toBe(changes);
+  });
+
   test("owns append inheritance and the exact four-argument constructor at compile time", () => {
     // Break caught: Task 5 must not redeclare append and SQLite must own same-DB dependencies.
     expectTypeOf<InstalledCityPackageManifestStorePort>()
