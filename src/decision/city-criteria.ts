@@ -58,6 +58,17 @@ function normalizeCriteria(value: unknown, evaluators: CityCriterionEvaluatorReg
   if (new Set(criteria.map(({ criterionId }) => criterionId)).size !== 4) throw new Error("invalid_city_criteria");
   return criteria as unknown as CityCriteriaSnapshot["criteria"];
 }
+function sameCriteria(
+  left: CityCriteriaSnapshot["criteria"],
+  right: CityCriteriaSnapshot["criteria"],
+): boolean {
+  return left.length === right.length && left.every((criterion, index) => {
+    const candidate = right[index];
+    return candidate !== undefined && criterion.criterionId === candidate.criterionId &&
+      criterion.definitionId === candidate.definitionId && criterion.mode === candidate.mode &&
+      criterion.importance === candidate.importance && criterion.target === candidate.target;
+  });
+}
 function v2CityPreferences(value: PreferenceProfileV2Snapshot): PreferenceProfileV2Snapshot["cityCriteria"] {
   if (!record(value) || !exact(value, [
     "schemaVersion", "id", "confirmedAt", "countryCriteria", "cityCriteria",
@@ -328,7 +339,7 @@ export function reconstructCityCriteriaSnapshot(
 }
 export function reconstructCityCriteria(snapshot: CityCriteriaSnapshot, evaluators: CityCriterionEvaluatorRegistry): CityCriteriaProjection {
   if (!record(snapshot) || !exact(snapshot, ["schemaVersion", "id", "profileSnapshotId", "preferenceProfileSnapshotId", "criteria", "rulesVersion", "confirmedAt"]) || snapshot.schemaVersion !== RULES_VERSION || snapshot.rulesVersion !== RULES_VERSION || typeof snapshot.id !== "string" || snapshot.id.length === 0 || typeof snapshot.profileSnapshotId !== "string" || snapshot.profileSnapshotId.length === 0 || typeof snapshot.preferenceProfileSnapshotId !== "string" || snapshot.preferenceProfileSnapshotId.length === 0 || !instant(snapshot.confirmedAt)) throw new Error("integrity_mismatch");
-  try { const criteria = normalizeCriteria(snapshot.criteria, evaluators); if (JSON.stringify(criteria) !== JSON.stringify(snapshot.criteria)) throw new Error(); return freeze({ profileSnapshotId: snapshot.profileSnapshotId, preferenceProfileSnapshotId: snapshot.preferenceProfileSnapshotId, criteria, rulesVersion: RULES_VERSION, confirmedAt: snapshot.confirmedAt }); } catch { throw new Error("integrity_mismatch"); }
+  try { const criteria = normalizeCriteria(snapshot.criteria, evaluators); if (!sameCriteria(criteria, snapshot.criteria)) throw new Error(); return freeze({ profileSnapshotId: snapshot.profileSnapshotId, preferenceProfileSnapshotId: snapshot.preferenceProfileSnapshotId, criteria, rulesVersion: RULES_VERSION, confirmedAt: snapshot.confirmedAt }); } catch { throw new Error("integrity_mismatch"); }
 }
 
 const INSTALLED_DEFINITION_KEYS = [
