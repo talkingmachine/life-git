@@ -14,7 +14,7 @@ const OPENAI_SDK_IMPORT = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\()\s*
 const API_KEY_HANDLING = /\bOPENAI_API_KEY\b|\b(?:apiKey|api_key)\b|\b(?:store|save|persist|bill|charge)\w*\s*\([^)]*api[\s_-]*key/i;
 const MODEL_DOWNLOAD_SURFACE = /\b(?:downloadModel|downloadWeights|modelWeights|model_weights|weightsPath|weights_path|huggingface|hf_hub)\b/i;
 const FORBIDDEN_RUNTIME_METHOD = /--model\b|\bresume\s*\(|\bretry\s*\(|\bsetInterval\s*\(|\b(?:sessionId|session_id)\b|\b(?:retry|fallback)(?:Codex|Model|Provider|Invocation|Request)\b|\b(?:providerRegistry|modelProvider|switchProvider)\b|\b(?:start|spawn|create)?Background(?:Worker|Job|Queue)\b/;
-const FIXED_TERRA_MODEL_ARGV = /["']--model["']\s*,\s*["']gpt-5\.6-terra["']/g;
+const FIXED_TERRA_MODEL_ARGV = /["']--model["']\s*,\s*["']gpt-5\.6-terra["'](?=\s*(?:,|\]))/g;
 const FIXED_TERRA_MODEL_GRAMMAR = /--model gpt-5\.6-terra\b/g;
 const FIXED_MODEL_POLICY_PATH = join("src", "infrastructure", "codex-cli", "policy.ts");
 

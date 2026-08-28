@@ -62,7 +62,7 @@ interface StreamState {
   turnCompleted: boolean;
   reasoningId: string | undefined;
   webSearchId: string | undefined;
-  seenWebSearchIds: Set<string>;
+  seenItemIds: Set<string>;
   webSearchCount: number;
   eventCount: number;
   message: string | undefined;
@@ -112,7 +112,7 @@ function createStreamState(): StreamState {
     turnCompleted: false,
     reasoningId: undefined,
     webSearchId: undefined,
-    seenWebSearchIds: new Set(),
+    seenItemIds: new Set(),
     webSearchCount: 0,
     eventCount: 0,
     message: undefined,
@@ -172,7 +172,10 @@ function startItem(event: Record<string, unknown>, state: StreamState, toolPolic
     if (!hasExactItemKeys(event, ["type", "id"]) || state.reasoningId !== undefined || state.webSearchId !== undefined) {
       throw protocolInvalid();
     }
-    state.reasoningId = requireItemId(event);
+    const id = requireItemId(event);
+    if (state.seenItemIds.has(id)) throw protocolInvalid();
+    state.reasoningId = id;
+    state.seenItemIds.add(id);
     return;
   }
   if (type === "web_search") {
@@ -181,11 +184,11 @@ function startItem(event: Record<string, unknown>, state: StreamState, toolPolic
       throw new CodexRuntimeError("codex_tool_event");
     }
     const id = requireItemId(event);
-    if (state.reasoningId !== undefined || state.webSearchId !== undefined || state.seenWebSearchIds.has(id)) {
+    if (state.reasoningId !== undefined || state.webSearchId !== undefined || state.seenItemIds.has(id)) {
       throw protocolInvalid();
     }
     state.webSearchId = id;
-    state.seenWebSearchIds.add(id);
+    state.seenItemIds.add(id);
     state.webSearchCount += 1;
     return;
   }

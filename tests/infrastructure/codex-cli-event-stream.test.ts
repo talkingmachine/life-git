@@ -121,6 +121,12 @@ describe("parseCodexEventStreamWithProof", () => {
       line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),
       ...completedMessageEvents().slice(4),
     ]],
+    ["a duplicate reasoning ID", [
+      ...completedMessageEvents().slice(0, 4),
+      line({ type: "item.started", item: { type: "reasoning", id: "reasoning-1" } }),
+      line({ type: "item.completed", item: { type: "reasoning", id: "reasoning-1" } }),
+      ...completedMessageEvents().slice(4),
+    ]],
     ["a web-search result after the agent message", [
       ...completedMessageEvents().slice(0, 5),
       line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),

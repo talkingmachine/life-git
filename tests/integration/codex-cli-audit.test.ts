@@ -68,6 +68,9 @@ describe("Codex runtime static audit", () => {
     ["a different fixed model argv in the policy owner", {
       policySource: 'export const args = ["--model", "gpt-5.6-luna"];',
     }],
+    ["a caller-controlled suffix on the fixed Terra model in the policy owner", {
+      policySource: 'export const args = ["--model", "gpt-5.6-terra" + callerControlledValue];',
+    }],
   ])("rejects %s", async (_label, fixture) => {
     const rootPath = await createRuntimeFixture(fixture);
 
