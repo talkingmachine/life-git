@@ -11,9 +11,9 @@ import {
   type OnboardingRuntimeErrorCode,
 } from "../src/application/onboarding-contracts";
 import {
-  ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V4,
   reconstructOnboardingModelVersions,
-  type OnboardingModelVersionsV3,
+  type OnboardingModelVersionsV4,
 } from "../src/application/onboarding-model-versions";
 import {
   PARTICIPANT_LEAF_IDS,
@@ -61,7 +61,7 @@ import {
 
 const FIXTURE_VERSION = "onboarding-cases@1" as const;
 const SESSION_SEED_VERSION = "onboarding-feasibility-session-seed@1" as const;
-const ARTIFACT_VERSION = "onboarding-model-feasibility@3" as const;
+const ARTIFACT_VERSION = "onboarding-model-feasibility@4" as const;
 const DIAGNOSTIC_VERSION = "onboarding-model-feasibility-diagnostic@3" as const;
 const FEASIBILITY_FIXTURE_URL = new URL("./fixtures/onboarding/cases.json", import.meta.url);
 const FEASIBILITY_FIXTURE_PATH = resolve(fileURLToPath(FEASIBILITY_FIXTURE_URL));
@@ -122,12 +122,16 @@ export interface OnboardingModelFeasibilityArtifact {
   readonly schemaVersion: typeof ARTIFACT_VERSION;
   readonly fixtureVersion: typeof FIXTURE_VERSION;
   readonly fixtureDigest: string;
-  readonly invocationVersion: OnboardingModelVersionsV3["invocation"];
-  readonly cliVersion: OnboardingModelVersionsV3["cliVersion"];
-  readonly extractionPromptVersion: OnboardingModelVersionsV3["extractionPrompt"];
-  readonly reviewPromptVersion: OnboardingModelVersionsV3["reviewPrompt"];
-  readonly extractionSchemaVersion: OnboardingModelVersionsV3["extractionSchema"];
-  readonly reviewSchemaVersion: OnboardingModelVersionsV3["reviewSchema"];
+  readonly invocationVersion: OnboardingModelVersionsV4["invocation"];
+  readonly protocolVersion: "codex-cli-protocol@2";
+  readonly model: "gpt-5.6-terra";
+  readonly reasoningEffort: "low";
+  readonly toolPolicy: "codex-tools-none@2";
+  readonly cliVersion: OnboardingModelVersionsV4["cliVersion"];
+  readonly extractionPromptVersion: OnboardingModelVersionsV4["extractionPrompt"];
+  readonly reviewPromptVersion: OnboardingModelVersionsV4["reviewPrompt"];
+  readonly extractionSchemaVersion: OnboardingModelVersionsV4["extractionSchema"];
+  readonly reviewSchemaVersion: OnboardingModelVersionsV4["reviewSchema"];
   readonly extractionPromptDigest: string;
   readonly reviewPromptDigest: string;
   readonly extractionSchemaDigest: string;
@@ -268,6 +272,10 @@ export async function runOnboardingFeasibilityForTest(input: {
       fixtureVersion: FIXTURE_VERSION,
       fixtureDigest: sha256(fixtureBytes),
       invocationVersion: modelVersions.invocation,
+      protocolVersion: "codex-cli-protocol@2" as const,
+      model: "gpt-5.6-terra" as const,
+      reasoningEffort: "low" as const,
+      toolPolicy: "codex-tools-none@2" as const,
       cliVersion: modelVersions.cliVersion,
       extractionPromptVersion: modelVersions.extractionPrompt,
       reviewPromptVersion: modelVersions.reviewPrompt,
@@ -654,10 +662,10 @@ function requireDistinctDiagnosticPath(value: unknown, artifactPath: string): st
   return diagnosticPath;
 }
 
-function requireCurrentModelVersions(value: unknown): OnboardingModelVersionsV3 {
+function requireCurrentModelVersions(value: unknown): OnboardingModelVersionsV4 {
   try {
     const versions = reconstructOnboardingModelVersions(value);
-    if (versions !== ONBOARDING_MODEL_VERSIONS_V3) throw failed();
+    if (versions !== ONBOARDING_MODEL_VERSIONS_V4) throw failed();
     return versions;
   } catch {
     throw failed();

@@ -45,6 +45,8 @@ export const ONBOARDING_REVIEW_LIMITS = Object.freeze({
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ABORTED = Symbol("onboarding-model-aborted");
+const EXTRACTION_SCHEMA_INVALID = Symbol("onboarding-extraction-schema-invalid");
+const RESULT_INTEGRITY_INVALID = Symbol("onboarding-model-result-integrity-invalid");
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const INPUT_JSON_PLACEHOLDER = "{{ONBOARDING_INPUT_JSON}}";
 
@@ -101,27 +103,57 @@ async function extract(
       questionnaire,
     });
     requirePromptSize(prompt, ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES);
-    const invocation = createCodexJsonInvocation({
-      capability: "onboarding.extract",
-      reasoningEffort: "low",
-      toolPolicy: "codex-tools-none@2",
-      templateVersion: ONBOARDING_MODEL_VERSIONS.extractionPrompt,
-      schemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
-      prompt,
-      outputSchema: ONBOARDING_EXTRACTION_SCHEMA,
-      limits: ONBOARDING_EXTRACTION_LIMITS,
-      signal,
-    });
-
-    const result = await runtime.invokeJson(invocation);
-    throwIfAborted(signal);
-    const value = requireBoundResult(result, {
-      templateVersion: ONBOARDING_MODEL_VERSIONS.extractionPrompt,
-      schemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
-    });
-    return decodeOnboardingExtractionWire({ value, messageId: message.messageId });
+    try {
+      return await invokeExtraction(runtime, {
+        prompt, messageId: message.messageId, signal, reasoningEffort: "low",
+      });
+    } catch (error) {
+      if (error !== EXTRACTION_SCHEMA_INVALID) throw error;
+      return await invokeExtraction(runtime, {
+        prompt, messageId: message.messageId, signal, reasoningEffort: "medium",
+      });
+    }
   } catch (error) {
     throw mapModelError(error, signal);
+  }
+}
+
+async function invokeExtraction(
+  runtime: CodexCliModelAdapter,
+  input: {
+    readonly prompt: string;
+    readonly messageId: string;
+    readonly signal: AbortSignal;
+    readonly reasoningEffort: "low" | "medium";
+  },
+): Promise<ReturnType<typeof decodeOnboardingExtractionWire>> {
+  const invocation = createCodexJsonInvocation({
+    capability: "onboarding.extract",
+    reasoningEffort: input.reasoningEffort,
+    toolPolicy: "codex-tools-none@2",
+    templateVersion: ONBOARDING_MODEL_VERSIONS.extractionPrompt,
+    schemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
+    prompt: input.prompt,
+    outputSchema: ONBOARDING_EXTRACTION_SCHEMA,
+    limits: ONBOARDING_EXTRACTION_LIMITS,
+    signal: input.signal,
+  });
+  const result = await runtime.invokeJson(invocation);
+  throwIfAborted(input.signal);
+  let value: unknown;
+  try {
+    value = requireBoundResult(result, {
+      templateVersion: ONBOARDING_MODEL_VERSIONS.extractionPrompt,
+      schemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
+      reasoningEffort: input.reasoningEffort,
+    });
+  } catch {
+    throw RESULT_INTEGRITY_INVALID;
+  }
+  try {
+    return decodeOnboardingExtractionWire({ value, messageId: input.messageId });
+  } catch {
+    throw EXTRACTION_SCHEMA_INVALID;
   }
 }
 
@@ -213,7 +245,11 @@ function requirePromptSize(prompt: string, maximum: number): void {
 
 function requireBoundResult(
   value: unknown,
-  expected: { readonly templateVersion: string; readonly schemaVersion: string },
+  expected: {
+    readonly templateVersion: string;
+    readonly schemaVersion: string;
+    readonly reasoningEffort?: "low" | "medium";
+  },
 ): unknown {
   const result = readExactPlainObject(value, ["value", "metadata"]);
   const metadata = readExactPlainObject(result.metadata, [
@@ -231,7 +267,9 @@ function requireBoundResult(
     metadata.protocolVersion !== "codex-cli-protocol@2" ||
     metadata.compatibilityPolicy !== ONBOARDING_MODEL_VERSIONS.cliVersion ||
     metadata.model !== "gpt-5.6-terra" ||
-    (metadata.reasoningEffort !== "low" && metadata.reasoningEffort !== "medium") ||
+    (expected.reasoningEffort === undefined
+      ? metadata.reasoningEffort !== "low"
+      : metadata.reasoningEffort !== expected.reasoningEffort) ||
     metadata.toolPolicy !== "codex-tools-none@2" ||
     metadata.templateVersion !== expected.templateVersion ||
     metadata.schemaVersion !== expected.schemaVersion) {

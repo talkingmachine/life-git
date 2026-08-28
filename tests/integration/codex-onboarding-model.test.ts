@@ -312,6 +312,26 @@ describe("Codex onboarding model", () => {
     );
   });
 
+  test("retries one invalid extraction at medium effort with the same zero-tool contract", async () => {
+    // Break caught: accepting a malformed low-effort wire response without its one allowed retry.
+    const { runtime, invokeJson } = fakeRuntime(vi.fn()
+      .mockResolvedValueOnce({ value: { invalid: true }, metadata: extractionMetadata() })
+      .mockResolvedValueOnce({
+        ...extractionResult(),
+        metadata: { ...extractionMetadata(), reasoningEffort: "medium" },
+      }));
+    const model = createCodexOnboardingModel(runtime);
+
+    await expect(model.extract({
+      message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
+    })).resolves.toEqual(decodedExtractionResult());
+
+    expect(invokeJson.mock.calls.map(([call]) => [call.reasoningEffort, call.toolPolicy])).toEqual([
+      ["low", "codex-tools-none@2"],
+      ["medium", "codex-tools-none@2"],
+    ]);
+  });
+
   test("reviews through exactly one separately bound shared-runtime invocation", async () => {
     const { runtime, invokeJson } = fakeRuntime(async () => reviewResult());
     const model = createCodexOnboardingModel(runtime);
@@ -325,6 +345,8 @@ describe("Codex onboarding model", () => {
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
       capability: "onboarding.review",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       templateVersion: "onboarding-review@2",
       schemaVersion: "onboarding-review-output@1",
       limits: ONBOARDING_REVIEW_LIMITS,
@@ -447,7 +469,7 @@ describe("Codex onboarding model", () => {
       signal: new AbortController().signal,
     }));
     expectContentFreeError(firstError, "onboarding_model_invalid");
-    expect(first.invokeJson).toHaveBeenCalledTimes(1);
+    expect(first.invokeJson).toHaveBeenCalledTimes(2);
 
     const getter = vi.fn(() => extractionResult().value);
     const hostileResult = Object.defineProperties({}, {
@@ -466,18 +488,25 @@ describe("Codex onboarding model", () => {
   });
 
   test("maps runtime and arbitrary failures without retry or raw content", async () => {
-    const runtimeFailure = fakeRuntime(async () => {
-      throw new CodexRuntimeError("codex_process_failed");
-    });
-    const runtimeModel = createCodexOnboardingModel(runtimeFailure.runtime);
-    const runtimeError = await modelError(runtimeModel.extract({
-      message: message(),
-      questionnaire: questionnaire(),
-      signal: new AbortController().signal,
-    }));
-    expectContentFreeError(runtimeError, "onboarding_model_runtime_failed");
-    expect(runtimeError.runtimeCode).toBe("codex_process_failed");
-    expect(runtimeFailure.invokeJson).toHaveBeenCalledTimes(1);
+    for (const runtimeCode of [
+      "codex_not_authenticated",
+      "codex_rate_limited",
+      "codex_timeout",
+      "codex_process_failed",
+    ] as const) {
+      const runtimeFailure = fakeRuntime(async () => {
+        throw new CodexRuntimeError(runtimeCode);
+      });
+      const runtimeModel = createCodexOnboardingModel(runtimeFailure.runtime);
+      const runtimeError = await modelError(runtimeModel.extract({
+        message: message(),
+        questionnaire: questionnaire(),
+        signal: new AbortController().signal,
+      }));
+      expectContentFreeError(runtimeError, "onboarding_model_runtime_failed");
+      expect(runtimeError.runtimeCode).toBe(runtimeCode);
+      expect(runtimeFailure.invokeJson).toHaveBeenCalledTimes(1);
+    }
 
     const arbitraryFailure = fakeRuntime(async () => {
       throw new Error(SECRET);

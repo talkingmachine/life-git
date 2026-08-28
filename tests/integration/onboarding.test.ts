@@ -94,6 +94,7 @@ function sessionWithMessages(count: number): OnboardingSessionState {
 
 function model(input: {
   readonly extraction?: unknown;
+  readonly extractionError?: Error;
   readonly review?: unknown;
   readonly reviewError?: Error;
 } = {}): OnboardingModelPort {
@@ -107,6 +108,7 @@ function model(input: {
       reviewSchema: "onboarding-review-output@1",
     },
     async extract() {
+      if (input.extractionError !== undefined) throw input.extractionError;
       return (input.extraction ?? {
         schemaVersion: "onboarding-model-output@1",
         proposals: [],
@@ -212,6 +214,55 @@ describe("onboarding application use cases", () => {
       { messageId: USER_MESSAGE, role: "user", text: "This winter" },
       { messageId: ASSISTANT_MESSAGE, role: "assistant", text: "When are you moving?" },
     ]);
+  });
+
+  test("falls back to one fixed question when extraction model is unavailable", async () => {
+    // Break caught: rejecting an unavailable model instead of preserving the deterministic questionnaire.
+    const nextParticipantId = vi.fn(() => "40000000-0000-4000-8000-000000000001");
+    const nextAssistantMessageId = vi.fn(() => ASSISTANT_MESSAGE);
+    const nextCompletionCommandId = vi.fn(() => COMMAND_2);
+    const original = emptySession();
+
+    const session = await extractMessage({
+      schemaVersion: "onboarding-message-command@1",
+      session: original,
+      message: { messageId: USER_MESSAGE, role: "user", text: "I am moving" },
+    }, {
+      model: model({ extractionError: new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout") }),
+      nextParticipantId,
+      nextAssistantMessageId,
+      nextCompletionCommandId,
+    }, new AbortController().signal);
+
+    expect(session.draft).toEqual(original.draft);
+    expect(session.messages).toEqual([
+      { messageId: USER_MESSAGE, role: "user", text: "I am moving" },
+      { messageId: ASSISTANT_MESSAGE, role: "assistant", text: "Заполните выделенные поля." },
+    ]);
+    expect(nextParticipantId).not.toHaveBeenCalled();
+    expect(nextAssistantMessageId).toHaveBeenCalledOnce();
+    expect(nextCompletionCommandId).not.toHaveBeenCalled();
+  });
+
+  test("never falls back or allocates IDs when extraction reports caller abort", async () => {
+    const nextParticipantId = vi.fn(() => "40000000-0000-4000-8000-000000000001");
+    const nextAssistantMessageId = vi.fn(() => ASSISTANT_MESSAGE);
+    const nextCompletionCommandId = vi.fn(() => COMMAND_2);
+    const abort = new OnboardingModelError("onboarding_model_aborted");
+
+    await expect(extractMessage({
+      schemaVersion: "onboarding-message-command@1",
+      session: emptySession(),
+      message: { messageId: USER_MESSAGE, role: "user", text: "I am moving" },
+    }, {
+      model: model({ extractionError: abort }),
+      nextParticipantId,
+      nextAssistantMessageId,
+      nextCompletionCommandId,
+    }, new AbortController().signal)).rejects.toBe(abort);
+    expect(nextParticipantId).not.toHaveBeenCalled();
+    expect(nextAssistantMessageId).not.toHaveBeenCalled();
+    expect(nextCompletionCommandId).not.toHaveBeenCalled();
   });
 
   test("rejects assistant identifiers that collide, are invalid, or consume a command/participant ID", async () => {
@@ -323,10 +374,7 @@ describe("onboarding application use cases", () => {
       session: original,
       message: { messageId: USER_MESSAGE, role: "user", text: "Hello" },
     }, { model: localModel, nextParticipantId, nextAssistantMessageId, nextCompletionCommandId },
-    new AbortController().signal)).rejects.toMatchObject({
-      name: "OnboardingModelError",
-      message: "onboarding_model_invalid",
-    });
+    new AbortController().signal)).rejects.toThrow("Invalid onboarding model contract");
     expect(original).toEqual(emptySession());
     expect(nextParticipantId).not.toHaveBeenCalled();
     expect(nextAssistantMessageId).not.toHaveBeenCalled();
@@ -366,7 +414,7 @@ describe("onboarding application use cases", () => {
     expect(session).toEqual(emptySession());
   });
 
-  test("keeps deterministic blockers when the model omits every issue", async () => {
+  test("keeps deterministic blockers when the model review is unavailable", async () => {
     const replayCommitted = vi.fn(async () => receipt);
     const completion = { replayCommitted, commitOrReplay: vi.fn() };
     const frontier = { prepareFromOnboardingReceipt: vi.fn() };
@@ -375,7 +423,7 @@ describe("onboarding application use cases", () => {
       schemaVersion: "onboarding-continue-command@1",
       session: emptySession(),
     }, {
-      model: model({ review: { schemaVersion: "onboarding-review-output@1", issues: [] } }),
+      model: model({ reviewError: new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout") }),
       completion,
       frontier,
     }, new AbortController().signal);
@@ -509,7 +557,7 @@ describe("onboarding application use cases", () => {
     expect(commitOrReplay.mock.invocationCallOrder[0]).toBeLessThan(prepareFromOnboardingReceipt.mock.invocationCallOrder[0] ?? 0);
   });
 
-  test("does not write or hand off when the one review call fails, and exposes no model content", async () => {
+  test("surfaces an untyped review failure without writing or handoff", async () => {
     const completion = { commitOrReplay: vi.fn() };
     const frontier = { prepareFromOnboardingReceipt: vi.fn() };
     await expect(completeOnboarding({
@@ -519,19 +567,16 @@ describe("onboarding application use cases", () => {
       model: model({ reviewError: new Error("secret model transcript") }),
       completion: { replayCommitted: vi.fn(async () => undefined), ...completion },
       frontier,
-    }, new AbortController().signal)).rejects.toMatchObject({
-      name: "OnboardingModelError",
-      message: "onboarding_model_invalid",
-    });
+    }, new AbortController().signal)).rejects.toThrow("secret model transcript");
     expect(completion.commitOrReplay).not.toHaveBeenCalled();
     expect(frontier.prepareFromOnboardingReceipt).not.toHaveBeenCalled();
   });
 
-  test("preserves a typed model error without completion or Frontier writes", async () => {
+  test("commits deterministic complete values when typed model review is unavailable", async () => {
     const typedError = new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout");
     const completion = {
       replayCommitted: vi.fn(async () => undefined),
-      commitOrReplay: vi.fn(),
+      commitOrReplay: vi.fn(async () => receipt),
     };
     const frontier = { prepareFromOnboardingReceipt: vi.fn() };
 
@@ -542,9 +587,9 @@ describe("onboarding application use cases", () => {
       model: model({ reviewError: typedError }),
       completion,
       frontier,
-    }, new AbortController().signal)).rejects.toBe(typedError);
-    expect(completion.commitOrReplay).not.toHaveBeenCalled();
-    expect(frontier.prepareFromOnboardingReceipt).not.toHaveBeenCalled();
+    }, new AbortController().signal)).resolves.toEqual({ kind: "launched", receipt, prepared: undefined });
+    expect(completion.commitOrReplay).toHaveBeenCalledOnce();
+    expect(frontier.prepareFromOnboardingReceipt).toHaveBeenCalledOnce();
   });
 
   test("closes malformed review output before completion or Frontier writes", async () => {
@@ -561,10 +606,7 @@ describe("onboarding application use cases", () => {
       model: model({ review: { schemaVersion: "onboarding-review-output@1", issues: [{ fieldId: "unknown" }] } }),
       completion,
       frontier,
-    }, new AbortController().signal)).rejects.toMatchObject({
-      name: "OnboardingModelError",
-      message: "onboarding_model_invalid",
-    });
+    }, new AbortController().signal)).rejects.toThrow("Invalid onboarding model output");
     expect(completion.commitOrReplay).not.toHaveBeenCalled();
     expect(frontier.prepareFromOnboardingReceipt).not.toHaveBeenCalled();
   });

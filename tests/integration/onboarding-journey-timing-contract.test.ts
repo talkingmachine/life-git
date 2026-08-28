@@ -33,7 +33,7 @@ import {
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
-  ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V4 as ONBOARDING_MODEL_VERSIONS_V3,
 } from "../../src/application/onboarding-model-versions";
 import type { OnboardingSessionState } from "../../src/decision/onboarding-session";
 
@@ -60,11 +60,15 @@ const ARTIFACT_KEYS = Object.freeze([
   "fixtureDigest",
   "fixtureVersion",
   "limitMs",
+  "model",
   "modelInvocationCount",
   "modelVersions",
+  "protocolVersion",
   "rawOutputStored",
   "rawPromptStored",
+  "reasoningEffort",
   "schemaVersion",
+  "toolPolicy",
   "transcriptStored",
 ]);
 const execFileAsync = promisify(execFile);
@@ -212,10 +216,14 @@ describe("onboarding journey timing artifact", () => {
     expect(runCanonicalJourney).toHaveBeenCalledOnce();
     expect(Object.keys(artifact).sort()).toEqual(ARTIFACT_KEYS);
     expect(artifact).toMatchObject({
-      schemaVersion: "onboarding-journey-timing@3",
+      schemaVersion: "onboarding-journey-timing@4",
       fixtureVersion: "onboarding-canonical-journey@1",
       fixtureDigest: "f42948b6283f42903df4e576fc08a2cb490bfc7b74db23fb1d91f37bb8ebfaa1",
       modelVersions: ONBOARDING_MODEL_VERSIONS_V3,
+      protocolVersion: "codex-cli-protocol@2",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       elapsedMs: 35_000,
       limitMs: 35_000,
       acceptedFrontierHandoff: true,
@@ -334,7 +342,7 @@ describe("onboarding journey timing artifact", () => {
       monotonicNowMs: clock(0, 1),
     });
 
-    expect(artifact.schemaVersion).toBe("onboarding-journey-timing@3");
+    expect(artifact.schemaVersion).toBe("onboarding-journey-timing@4");
     const serialized = await readFile(artifactPath, "utf8");
     expect(serialized).not.toContain("onboarding-journey-timing@2");
     expect(JSON.parse(serialized)).not.toHaveProperty("cliVersion");
