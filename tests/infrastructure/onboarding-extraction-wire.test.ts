@@ -6,6 +6,7 @@ import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
   ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V4,
   reconstructOnboardingModelVersions,
 } from "../../src/application/onboarding-model-versions";
 import {
@@ -233,6 +234,8 @@ describe("onboarding model version lineage", () => {
     ))).toBe(ONBOARDING_MODEL_VERSIONS_V2);
     expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V3 }))
       .toBe(ONBOARDING_MODEL_VERSIONS_V3);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V4 }))
+      .toBe(ONBOARDING_MODEL_VERSIONS_V4);
   });
 
   test("accepts exact whole tuples and rejects every meaningful prompt/schema mismatch", () => {
@@ -240,6 +243,7 @@ describe("onboarding model version lineage", () => {
       ONBOARDING_MODEL_VERSIONS_V1,
       ONBOARDING_MODEL_VERSIONS_V2,
       ONBOARDING_MODEL_VERSIONS_V3,
+      ONBOARDING_MODEL_VERSIONS_V4,
     ] as const;
 
     for (const tuple of exactTuples) {
@@ -250,6 +254,7 @@ describe("onboarding model version lineage", () => {
       { ...ONBOARDING_MODEL_VERSIONS_V1, extractionSchema: "onboarding-extraction-wire@2" },
       { ...ONBOARDING_MODEL_VERSIONS_V2, extractionSchema: "onboarding-model-output@1" },
       { ...ONBOARDING_MODEL_VERSIONS_V3, extractionSchema: "onboarding-model-output@1" },
+      { ...ONBOARDING_MODEL_VERSIONS_V4, invocation: ONBOARDING_MODEL_VERSIONS_V3.invocation },
     ]) {
       expect(() => reconstructOnboardingModelVersions(hybrid)).toThrow(TypeError);
     }

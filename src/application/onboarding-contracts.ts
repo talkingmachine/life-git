@@ -42,7 +42,9 @@ export type OnboardingRuntimeErrorCode =
   | "codex_process_failed"
   | "codex_json_invalid"
   | "codex_temp_root_invalid"
-  | "codex_tool_isolation_unproven";
+  | "codex_tool_isolation_unproven"
+  | "codex_rate_limited"
+  | "codex_provider_transient";
 
 export type OnboardingModelErrorCode =
   | "onboarding_model_aborted"

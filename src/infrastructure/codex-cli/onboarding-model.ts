@@ -2,7 +2,7 @@ import {
   OnboardingModelError,
   type OnboardingModelPort,
 } from "../../application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V3 } from "../../application/onboarding-model-versions";
+import { ONBOARDING_MODEL_VERSIONS_V4 } from "../../application/onboarding-model-versions";
 import { reconstructOnboardingQuestionnaireProjection } from "../../decision/onboarding-model-contract";
 import {
   parseLocalReviewOutput,
@@ -13,6 +13,7 @@ import {
   createCodexJsonInvocation,
   type CodexInvocationLimits,
 } from "./contracts";
+import { parseSupportedCodexCliVersion } from "./policy";
 import type { CodexCliModelAdapter } from "./model-adapter";
 import {
   decodeOnboardingExtractionWire,
@@ -23,7 +24,7 @@ import {
   ONBOARDING_REVIEW_SCHEMA,
 } from "./onboarding-schema";
 
-export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V3;
+export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V4;
 
 export const ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES = 65_536;
 export const ONBOARDING_REVIEW_MAX_PROMPT_BYTES = 98_304;
@@ -101,7 +102,9 @@ async function extract(
     });
     requirePromptSize(prompt, ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES);
     const invocation = createCodexJsonInvocation({
-      capability: "onboarding_extract",
+      capability: "onboarding.extract",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       templateVersion: ONBOARDING_MODEL_VERSIONS.extractionPrompt,
       schemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
       prompt,
@@ -135,7 +138,9 @@ async function review(
     const prompt = buildPrompt(ONBOARDING_REVIEW_PROMPT_TEMPLATE, { questionnaire });
     requirePromptSize(prompt, ONBOARDING_REVIEW_MAX_PROMPT_BYTES);
     const invocation = createCodexJsonInvocation({
-      capability: "onboarding_review",
+      capability: "onboarding.review",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       templateVersion: ONBOARDING_MODEL_VERSIONS.reviewPrompt,
       schemaVersion: ONBOARDING_MODEL_VERSIONS.reviewSchema,
       prompt,
@@ -213,14 +218,28 @@ function requireBoundResult(
   const result = readExactPlainObject(value, ["value", "metadata"]);
   const metadata = readExactPlainObject(result.metadata, [
     "invocationVersion",
+    "protocolVersion",
+    "compatibilityPolicy",
     "cliVersion",
+    "model",
+    "reasoningEffort",
+    "toolPolicy",
     "templateVersion",
     "schemaVersion",
   ]);
   if (metadata.invocationVersion !== ONBOARDING_MODEL_VERSIONS.invocation ||
-    metadata.cliVersion !== ONBOARDING_MODEL_VERSIONS.cliVersion ||
+    metadata.protocolVersion !== "codex-cli-protocol@2" ||
+    metadata.compatibilityPolicy !== ONBOARDING_MODEL_VERSIONS.cliVersion ||
+    metadata.model !== "gpt-5.6-terra" ||
+    (metadata.reasoningEffort !== "low" && metadata.reasoningEffort !== "medium") ||
+    metadata.toolPolicy !== "codex-tools-none@2" ||
     metadata.templateVersion !== expected.templateVersion ||
     metadata.schemaVersion !== expected.schemaVersion) {
+    throw new TypeError("Invalid onboarding model result");
+  }
+  try {
+    parseSupportedCodexCliVersion(`${String(metadata.cliVersion)}\n`);
+  } catch {
     throw new TypeError("Invalid onboarding model result");
   }
   return result.value;

@@ -399,7 +399,9 @@ describe("runCodexJsonProbe", () => {
     ].map((event) => `${JSON.stringify(event)}\n`).join("");
     const spawner = fakeSpawner(stdout);
     const invocation = createCodexJsonInvocation({
-      capability: "onboarding_extract",
+      capability: "onboarding.extract",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       templateVersion: "extract@1",
       schemaVersion: "schema@1",
       prompt: "private prompt",

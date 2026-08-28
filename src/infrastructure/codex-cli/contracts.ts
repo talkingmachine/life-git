@@ -1,7 +1,11 @@
 import { snapshotOwnedJson, type JsonObject, type JsonValue } from "./owned-json";
 
-export const CODEX_CLI_VERSION = "codex-cli 0.148.0-alpha.15" as const;
-export const CODEX_INVOCATION_VERSION = "codex-cli-invocation@1" as const;
+export const CODEX_CLI_PROTOCOL_VERSION = "codex-cli-protocol@2" as const;
+export const CODEX_INVOCATION_VERSION = "codex-cli-invocation@2" as const;
+export const CODEX_CLI_COMPATIBILITY_POLICY = "codex-cli-0.149.0-alpha.4-plus@1" as const;
+export const CODEX_MODEL = "gpt-5.6-terra" as const;
+/** Supported fixture version; runtime metadata always uses the observed preflight version. */
+export const CODEX_CLI_VERSION = "codex-cli 0.149.0-alpha.4" as const;
 export const MAX_CODEX_TIMEOUT_MS = 120_000;
 export const MAX_CODEX_STDOUT_BYTES = 1_048_576;
 export const MAX_CODEX_STDERR_BYTES = 65_536;
@@ -12,9 +16,14 @@ const NATIVE_ABORT_SIGNAL_ABORTED_GETTER =
   Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 
 export type CodexCapabilityId =
-  | "onboarding_extract"
-  | "onboarding_review"
-  | "full_life_film";
+  | "onboarding.extract"
+  | "onboarding.review"
+  | "source.extract"
+  | "source.discover"
+  | "full-life.film";
+
+export type CodexReasoningEffort = "low" | "medium";
+export type CodexToolPolicyId = "codex-tools-none@2" | "codex-tools-web-search@1";
 
 export interface CodexInvocationLimits {
   readonly timeoutMs: number;
@@ -25,6 +34,8 @@ export interface CodexInvocationLimits {
 
 export interface CodexJsonInvocation {
   readonly capability: CodexCapabilityId;
+  readonly reasoningEffort: CodexReasoningEffort;
+  readonly toolPolicy: CodexToolPolicyId;
   readonly templateVersion: string;
   readonly schemaVersion: string;
   readonly prompt: string;
@@ -35,7 +46,12 @@ export interface CodexJsonInvocation {
 
 export interface CodexInvocationMetadata {
   readonly invocationVersion: typeof CODEX_INVOCATION_VERSION;
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly protocolVersion: typeof CODEX_CLI_PROTOCOL_VERSION;
+  readonly compatibilityPolicy: typeof CODEX_CLI_COMPATIBILITY_POLICY;
+  readonly cliVersion: string;
+  readonly model: typeof CODEX_MODEL;
+  readonly reasoningEffort: CodexReasoningEffort;
+  readonly toolPolicy: CodexToolPolicyId;
   readonly templateVersion: string;
   readonly schemaVersion: string;
 }
@@ -58,7 +74,9 @@ export type CodexRuntimeErrorCode =
   | "codex_process_failed"
   | "codex_json_invalid"
   | "codex_temp_root_invalid"
-  | "codex_tool_isolation_unproven";
+  | "codex_tool_isolation_unproven"
+  | "codex_rate_limited"
+  | "codex_provider_transient";
 
 export class CodexRuntimeError extends Error {
   constructor(readonly code: CodexRuntimeErrorCode) {
@@ -69,6 +87,8 @@ export class CodexRuntimeError extends Error {
 
 export function createCodexJsonInvocation(input: {
   readonly capability: CodexCapabilityId;
+  readonly reasoningEffort: CodexReasoningEffort;
+  readonly toolPolicy: CodexToolPolicyId;
   readonly templateVersion: string;
   readonly schemaVersion: string;
   readonly prompt: string;
@@ -79,6 +99,8 @@ export function createCodexJsonInvocation(input: {
   try {
     const values = readExactPlainObject(input, [
       "capability",
+      "reasoningEffort",
+      "toolPolicy",
       "templateVersion",
       "schemaVersion",
       "prompt",
@@ -87,6 +109,9 @@ export function createCodexJsonInvocation(input: {
       "signal",
     ]);
     const capability = requireCapability(values.capability);
+    const reasoningEffort = requireReasoningEffort(values.reasoningEffort);
+    const toolPolicy = requireToolPolicy(values.toolPolicy);
+    if (!isValidCapabilityPolicy(capability, reasoningEffort, toolPolicy)) throw protocolInvalid();
     const templateVersion = requireBoundedText(values.templateVersion, true);
     const schemaVersion = requireBoundedText(values.schemaVersion, true);
     const prompt = requireBoundedText(values.prompt, false);
@@ -97,6 +122,8 @@ export function createCodexJsonInvocation(input: {
 
     return Object.freeze({
       capability,
+      reasoningEffort,
+      toolPolicy,
       templateVersion,
       schemaVersion,
       prompt,
@@ -128,10 +155,31 @@ function readExactPlainObject(value: unknown, expectedKeys: readonly string[]): 
 }
 
 function requireCapability(value: unknown): CodexCapabilityId {
-  if (value === "onboarding_extract" || value === "onboarding_review" || value === "full_life_film") {
+  if (value === "onboarding.extract" || value === "onboarding.review" || value === "source.extract" ||
+    value === "source.discover" || value === "full-life.film") {
     return value;
   }
   throw protocolInvalid();
+}
+
+function requireReasoningEffort(value: unknown): CodexReasoningEffort {
+  if (value === "low" || value === "medium") return value;
+  throw protocolInvalid();
+}
+
+function requireToolPolicy(value: unknown): CodexToolPolicyId {
+  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@1") return value;
+  throw protocolInvalid();
+}
+
+function isValidCapabilityPolicy(
+  capability: CodexCapabilityId,
+  reasoningEffort: CodexReasoningEffort,
+  toolPolicy: CodexToolPolicyId,
+): boolean {
+  return capability === "source.discover"
+    ? reasoningEffort === "medium" && toolPolicy === "codex-tools-web-search@1"
+    : (reasoningEffort === "low" || reasoningEffort === "medium") && toolPolicy === "codex-tools-none@2";
 }
 
 function requireBoundedText(value: unknown, mustNotBeEmpty: boolean): string {

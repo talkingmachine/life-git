@@ -770,7 +770,7 @@ describe("runCodexCliFeasibilityForTest", () => {
     expect(Object.values(artifact.disabledFeatures)).toEqual(Array.from({ length: 23 }, () => false));
     expect(artifact).toEqual({
       schemaVersion: "codex-cli-feasibility@1",
-      cliVersion: "codex-cli 0.148.0-alpha.15",
+      cliVersion: "codex-cli 0.149.0-alpha.4",
       authenticatedWith: "ChatGPT",
       disabledFeatures: exactDisabledFeatures(),
       strictExecConfig: true,
@@ -1113,7 +1113,7 @@ function validDependencies(
     runPreflight: vi.fn(async () => {
       calls.push("preflight");
       return {
-        cliVersion: "codex-cli 0.148.0-alpha.15",
+        cliVersion: "codex-cli 0.149.0-alpha.4",
         authenticatedWith: "ChatGPT",
       };
     }),

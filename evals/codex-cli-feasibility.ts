@@ -121,7 +121,7 @@ type CodexCliDiagnosticFailureKind =
 
 export interface CodexCliFeasibilityArtifact {
   readonly schemaVersion: typeof ARTIFACT_SCHEMA_VERSION;
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly authenticatedWith: "ChatGPT";
   readonly disabledFeatures: Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>;
   readonly strictExecConfig: true;
@@ -360,7 +360,9 @@ async function runCodexCliFeasibilityWithRuntime(
       const provenTempRoot = requireInitialized(tempRoot);
       const observer = requireInitialized(observedSpawner);
       const invocation = createCodexJsonInvocation({
-        capability: "onboarding_extract",
+        capability: "onboarding.extract",
+        reasoningEffort: "low",
+        toolPolicy: "codex-tools-none@2",
         templateVersion: "codex-runtime-feasibility@1",
         schemaVersion: RESULT_SCHEMA_VERSION,
         prompt: fixture.prompt,
@@ -742,12 +744,12 @@ function requireExactOutputSchema(value: unknown): void {
 }
 
 function readPreflightProof(value: unknown): {
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly authenticatedWith: "ChatGPT";
 } {
   const proof = readExactObject(value, ["cliVersion", "authenticatedWith"]);
-  if (proof.cliVersion !== CODEX_CLI_VERSION || proof.authenticatedWith !== "ChatGPT") throw isolationUnproven();
-  return { cliVersion: CODEX_CLI_VERSION, authenticatedWith: "ChatGPT" };
+  if (typeof proof.cliVersion !== "string" || proof.authenticatedWith !== "ChatGPT") throw isolationUnproven();
+  return { cliVersion: proof.cliVersion, authenticatedWith: "ChatGPT" };
 }
 
 function readDisabledFeatures(

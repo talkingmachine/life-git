@@ -12,7 +12,11 @@ vi.mock("../../src/infrastructure/codex-cli/feasibility-probe", () => ({
 }));
 
 import {
+  CODEX_CLI_COMPATIBILITY_POLICY,
+  CODEX_CLI_PROTOCOL_VERSION,
   CODEX_CLI_VERSION,
+  CODEX_INVOCATION_VERSION,
+  CODEX_MODEL,
   CodexRuntimeError,
   createCodexJsonInvocation,
 } from "../../src/infrastructure/codex-cli/contracts";
@@ -49,8 +53,13 @@ describe("CodexCliModelAdapter", () => {
     expect(result).toEqual({
       value: { nested: { values: [1, true] } },
       metadata: {
-        invocationVersion: "codex-cli-invocation@1",
+        invocationVersion: CODEX_INVOCATION_VERSION,
+        protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
+        compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY,
         cliVersion: CODEX_CLI_VERSION,
+        model: CODEX_MODEL,
+        reasoningEffort: "low",
+        toolPolicy: "codex-tools-none@2",
         templateVersion: "extract@1",
         schemaVersion: "onboarding-extraction@1",
       },
@@ -264,7 +273,9 @@ describe("Next instrumentation", () => {
 
 function validInvocation(signal: AbortSignal = new AbortController().signal) {
   return createCodexJsonInvocation({
-    capability: "onboarding_extract",
+    capability: "onboarding.extract",
+    reasoningEffort: "low",
+    toolPolicy: "codex-tools-none@2",
     templateVersion: "extract@1",
     schemaVersion: "onboarding-extraction@1",
     prompt: "synthetic",

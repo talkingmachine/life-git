@@ -2,7 +2,8 @@ import { access, lstat, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { CODEX_CLI_VERSION, CodexRuntimeError } from "./contracts";
+import { CodexRuntimeError } from "./contracts";
+import { parseSupportedCodexCliVersion } from "./policy";
 import { runBoundedProcess, type CodexProcessSpawner } from "./process";
 
 export const CODEX_PREFLIGHT_LIMITS = Object.freeze({
@@ -49,14 +50,13 @@ export const CODEX_FEATURE_INVENTORY_ARGS = Object.freeze([
 ] as const);
 
 const CHATGPT_APP_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex";
-const PINNED_VERSION_STDOUT = `${CODEX_CLI_VERSION}\n`;
 const KNOWN_PATH_ALIAS_WARNING =
   "WARNING: proceeding, even though we could not create PATH aliases: Operation not permitted (os error 1)\n";
 const CHATGPT_LOGIN_STATUS = "Logged in using ChatGPT\n";
 
 export interface CodexPreflightResult {
   readonly executable: string;
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly authenticatedWith: "ChatGPT";
 }
 
@@ -72,7 +72,6 @@ export async function preflightCodexCli(input: {
 
   const version = await runTextProbe(executable, ["--version"], input, { captureStderr: true });
   if (
-    version.stdout !== PINNED_VERSION_STDOUT ||
     (version.stderr !== "" && version.stderr !== KNOWN_PATH_ALIAS_WARNING)
   ) {
     throw new CodexRuntimeError("codex_version_mismatch");
@@ -89,7 +88,7 @@ export async function preflightCodexCli(input: {
     throw new CodexRuntimeError("codex_not_authenticated");
   }
 
-  return { executable, cliVersion: CODEX_CLI_VERSION, authenticatedWith: "ChatGPT" };
+  return { executable, cliVersion: parseSupportedCodexCliVersion(version.stdout), authenticatedWith: "ChatGPT" };
 }
 
 export async function readDisabledFeatureInventory(input: {

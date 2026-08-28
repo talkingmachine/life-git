@@ -130,7 +130,7 @@ export interface NetworkObservedSpawner {
 
 export interface CodexCliNetworkPrivacyAuditArtifact extends NetworkObserverProof {
   readonly schemaVersion: typeof ARTIFACT_SCHEMA_VERSION;
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly executableKind: "chatgpt_app_bundled";
   readonly allowlistVersion: typeof ALLOWLIST_SCHEMA_VERSION;
   readonly allowlistDigest: string;
@@ -186,7 +186,7 @@ interface SyntheticFixture {
 }
 
 export interface ArtifactProofInput {
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly executableKind: "chatgpt_app_bundled";
   readonly allowlist: CodexCliNetworkAllowlist;
   readonly dnsSnapshot: ApprovedDnsSnapshot;
@@ -429,7 +429,9 @@ export async function runCodexCliNetworkPrivacy(input: {
     });
     observed.armDnsSnapshot(dnsSnapshot);
     const invocation = createCodexJsonInvocation({
-      capability: "onboarding_extract",
+      capability: "onboarding.extract",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       templateVersion: "codex-network-privacy@1",
       schemaVersion: fixture.expectedResult.schemaVersion,
       prompt: fixture.prompt,

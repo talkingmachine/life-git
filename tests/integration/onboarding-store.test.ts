@@ -11,6 +11,7 @@ import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
   ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V4,
 } from "../../src/application/onboarding-model-versions";
 import { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from
   "../../src/decision/onboarding-catalog";
@@ -261,6 +262,17 @@ describe("SQLite onboarding confirmation persistence", () => {
     expect(reopened.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
   });
 
+  test("round-trips the current V4 tuple while retaining the six-key persistence shape", async () => {
+    const database = track(openEvidenceDatabase(temporaryDatabasePath("onboarding-v4-lineage-")));
+    const receipt = await commit(createStore(database), COMMAND_1, confirmedValues(), ONBOARDING_MODEL_VERSIONS_V4);
+    const row = database.prepare("SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId) as { versions_json: string };
+
+    expect(JSON.parse(row.versions_json)).toEqual(ONBOARDING_MODEL_VERSIONS_V4);
+    expect(Object.keys(JSON.parse(row.versions_json))).toEqual([
+      "cliVersion", "extractionPrompt", "extractionSchema", "invocation", "reviewPrompt", "reviewSchema",
+    ]);
+  });
+
   test("replays an ambiguous successful submission without another clock, materializer, or write", async () => {
     // Break caught: rematerializing an already committed command after the client missed its response.
     const database = track(openEvidenceDatabase(":memory:"));
@@ -456,6 +468,7 @@ describe("SQLite onboarding confirmation persistence", () => {
     ["V2 then V3", ONBOARDING_MODEL_VERSIONS_V2, ONBOARDING_MODEL_VERSIONS_V3],
     ["V3 then V1", ONBOARDING_MODEL_VERSIONS_V3, ONBOARDING_MODEL_VERSIONS_V1],
     ["V3 then V2", ONBOARDING_MODEL_VERSIONS_V3, ONBOARDING_MODEL_VERSIONS_V2],
+    ["V4 then V1", ONBOARDING_MODEL_VERSIONS_V4, ONBOARDING_MODEL_VERSIONS_V1],
   ] as const)("classifies a same-command %s replay as conflict before issuance or writes", async (
     _direction,
     committedVersions,

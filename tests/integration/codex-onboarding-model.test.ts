@@ -11,7 +11,10 @@ import { projectQuestionnaireForModel } from "../../src/decision/onboarding-mode
 import { createOnboardingSession, type SessionMessage } from "../../src/decision/onboarding-session";
 import {
   CODEX_CLI_VERSION,
+  CODEX_CLI_COMPATIBILITY_POLICY,
+  CODEX_CLI_PROTOCOL_VERSION,
   CODEX_INVOCATION_VERSION,
+  CODEX_MODEL,
   CodexRuntimeError,
   type CodexJsonInvocation,
   type CodexJsonResult,
@@ -100,8 +103,13 @@ function reviewResult(metadata: CodexJsonResult["metadata"] = reviewMetadata()):
 function extractionMetadata(): CodexJsonResult["metadata"] {
   return {
     invocationVersion: CODEX_INVOCATION_VERSION,
+    protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
+    compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY,
     cliVersion: CODEX_CLI_VERSION,
-    templateVersion: "onboarding-extract@3",
+    model: CODEX_MODEL,
+    reasoningEffort: "low",
+    toolPolicy: "codex-tools-none@2",
+    templateVersion: "onboarding-extract@4",
     schemaVersion: "onboarding-extraction-wire@2",
   };
 }
@@ -109,8 +117,13 @@ function extractionMetadata(): CodexJsonResult["metadata"] {
 function reviewMetadata(): CodexJsonResult["metadata"] {
   return {
     invocationVersion: CODEX_INVOCATION_VERSION,
+    protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
+    compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY,
     cliVersion: CODEX_CLI_VERSION,
-    templateVersion: "onboarding-review@1",
+    model: CODEX_MODEL,
+    reasoningEffort: "low",
+    toolPolicy: "codex-tools-none@2",
+    templateVersion: "onboarding-review@2",
     schemaVersion: "onboarding-review-output@1",
   };
 }
@@ -187,10 +200,10 @@ describe("Codex onboarding model", () => {
     const { model } = successfulModel();
 
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
-      invocation: "codex-cli-invocation@1",
-      cliVersion: "codex-cli 0.148.0-alpha.15",
-      extractionPrompt: "onboarding-extract@3",
-      reviewPrompt: "onboarding-review@1",
+      invocation: "codex-cli-invocation@2",
+      cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
+      extractionPrompt: "onboarding-extract@4",
+      reviewPrompt: "onboarding-review@2",
       extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
     });
@@ -234,8 +247,8 @@ describe("Codex onboarding model", () => {
     expect(invokeJson).toHaveBeenCalledTimes(1);
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
-      capability: "onboarding_extract",
-      templateVersion: "onboarding-extract@3",
+      capability: "onboarding.extract",
+      templateVersion: "onboarding-extract@4",
       schemaVersion: "onboarding-extraction-wire@2",
       limits: ONBOARDING_EXTRACTION_LIMITS,
     });
@@ -311,8 +324,8 @@ describe("Codex onboarding model", () => {
     expect(invokeJson).toHaveBeenCalledTimes(1);
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
-      capability: "onboarding_review",
-      templateVersion: "onboarding-review@1",
+      capability: "onboarding.review",
+      templateVersion: "onboarding-review@2",
       schemaVersion: "onboarding-review-output@1",
       limits: ONBOARDING_REVIEW_LIMITS,
     });

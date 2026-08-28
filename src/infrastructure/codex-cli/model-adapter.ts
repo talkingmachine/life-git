@@ -1,6 +1,8 @@
 import {
-  CODEX_CLI_VERSION,
+  CODEX_CLI_COMPATIBILITY_POLICY,
+  CODEX_CLI_PROTOCOL_VERSION,
   CODEX_INVOCATION_VERSION,
+  CODEX_MODEL,
   CodexRuntimeError,
   type CodexJsonInvocation,
   type CodexJsonResult,
@@ -60,7 +62,12 @@ export class CodexCliModelAdapter {
 
     const metadata = Object.freeze({
       invocationVersion: CODEX_INVOCATION_VERSION,
-      cliVersion: CODEX_CLI_VERSION,
+      protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
+      compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY,
+      cliVersion: this.#preflight.cliVersion,
+      model: CODEX_MODEL,
+      reasoningEffort: input.reasoningEffort,
+      toolPolicy: input.toolPolicy,
       templateVersion,
       schemaVersion,
     });
