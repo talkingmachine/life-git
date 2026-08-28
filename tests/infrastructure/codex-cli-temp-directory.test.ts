@@ -40,6 +40,8 @@ const EXPECTED_EXEC_ARGS = [
   "--ephemeral",
   "--ignore-user-config",
   "--ignore-rules",
+  "--model", "gpt-5.6-terra",
+  "-c", "model_reasoning_effort=\"low\"",
   "--disable", "apps",
   "--disable", "auth_elicitation",
   "--disable", "browser_use",
@@ -373,7 +375,7 @@ function fakeSpawner(stdout: string): CodexProcessSpawner & { spawn: ReturnType<
       stdout: output(stdout),
       stderr: output(""),
       exit: Promise.resolve({ code: 0, signal: null }),
-      kill: vi.fn(),
+      terminateGroup: vi.fn(),
     })),
   };
 }
@@ -462,7 +464,7 @@ describe("inspectModelVisibleInputs", () => {
         })(),
         stderr: output(""),
         exit: checked.then(() => ({ code: 0, signal: null })),
-        kill: vi.fn(),
+        terminateGroup: vi.fn(),
       };
     });
 
@@ -612,7 +614,7 @@ describe("inspectModelVisibleInputs", () => {
       stdout: output(""),
       stderr: output(""),
       exit,
-      kill: vi.fn((signal) => { resolveExit({ code: null, signal }); }),
+      terminateGroup: vi.fn((signal) => { resolveExit({ code: null, signal }); }),
     }));
     const running = inspectModelVisibleInputs({
       preflight,

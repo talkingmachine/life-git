@@ -7,7 +7,7 @@ export interface SpawnedCodexProcess {
   readonly stdout: AsyncIterable<Uint8Array>;
   readonly stderr: AsyncIterable<Uint8Array>;
   readonly exit: Promise<{ readonly code: number | null; readonly signal: string | null }>;
-  kill(signal: "SIGTERM" | "SIGKILL"): void;
+  terminateGroup(signal: "SIGTERM" | "SIGKILL"): void;
 }
 
 export interface CodexProcessSpawner {
@@ -52,6 +52,7 @@ export const nodeCodexProcessSpawner: CodexProcessSpawner = Object.freeze({
       cwd: input.cwd,
       env: { ...input.env } as NodeJS.ProcessEnv,
       shell: false,
+      detached: true,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
@@ -73,8 +74,9 @@ export const nodeCodexProcessSpawner: CodexProcessSpawner = Object.freeze({
       stdout: child.stdout,
       stderr: child.stderr,
       exit,
-      kill(signal): void {
-        child.kill(signal);
+      terminateGroup(signal): void {
+        const pid = child.pid;
+        if (pid !== undefined && pid > 0) process.kill(-pid, signal);
       },
     };
   },
@@ -231,20 +233,20 @@ function createAbortPromise(signal: AbortSignal): {
 
 async function terminateProcess(process: SpawnedCodexProcess, hasExited: () => boolean): Promise<void> {
   if (hasExited()) return;
-  safelyKill(process, "SIGTERM");
+  safelyTerminateGroup(process, "SIGTERM");
   await Promise.race([
     process.exit.then(() => undefined, () => undefined),
     new Promise<void>((resolve) => setTimeout(resolve, FORCE_KILL_AFTER_MS)),
   ]);
   if (!hasExited()) {
-    safelyKill(process, "SIGKILL");
+    safelyTerminateGroup(process, "SIGKILL");
     await process.exit.then(() => undefined, () => undefined);
   }
 }
 
-function safelyKill(process: SpawnedCodexProcess, signal: "SIGTERM" | "SIGKILL"): void {
+function safelyTerminateGroup(process: SpawnedCodexProcess, signal: "SIGTERM" | "SIGKILL"): void {
   try {
-    process.kill(signal);
+    process.terminateGroup(signal);
   } catch {
     // The observed exit promise remains the source of process state.
   }

@@ -342,7 +342,7 @@ export function createNetworkObservedSpawner(input: {
         proof = value;
       }).catch((error: unknown) => {
         try {
-          child.kill("SIGKILL");
+          child.terminateGroup("SIGKILL");
         } catch {
           // The observer failure remains authoritative if the child exits concurrently.
         }
@@ -358,7 +358,7 @@ export function createNetworkObservedSpawner(input: {
         stdout: child.stdout,
         stderr: child.stderr,
         exit: wrappedExit,
-        kill: child.kill.bind(child),
+        terminateGroup: child.terminateGroup.bind(child),
       });
     },
   });

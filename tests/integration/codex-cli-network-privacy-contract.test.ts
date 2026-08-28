@@ -591,7 +591,7 @@ describe("spawn-time paired observer", () => {
     const snapshot = await approvedSnapshot(1_000);
     const childExit = deferred<{ readonly code: number | null; readonly signal: string | null }>();
     const child = fakeProcess(902, childExit.promise);
-    vi.mocked(child.kill).mockImplementation((signal) => {
+    vi.mocked(child.terminateGroup).mockImplementation((signal) => {
       childExit.resolve({ code: null, signal });
     });
     const live = [...liveness];
@@ -613,8 +613,8 @@ describe("spawn-time paired observer", () => {
     await expect(observed.spawner.spawn(modelRequest()).exit).rejects.toThrow(
       "codex_network_privacy_audit_failed",
     );
-    expect(child.kill).toHaveBeenCalledTimes(1);
-    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    expect(child.terminateGroup).toHaveBeenCalledTimes(1);
+    expect(child.terminateGroup).toHaveBeenCalledWith("SIGKILL");
   });
 });
 
@@ -736,7 +736,7 @@ function fakeProcess(
     stdout: emptyStream(),
     stderr: emptyStream(),
     exit,
-    kill: vi.fn(),
+    terminateGroup: vi.fn(),
   };
 }
 

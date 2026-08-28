@@ -389,7 +389,7 @@ function fakeProcess(
     stdout: textStream(stdout),
     stderr: textStream(stderr),
     exit: typeof exit === "number" ? Promise.resolve({ code: exit, signal: null }) : exit,
-    kill: vi.fn(),
+    terminateGroup: vi.fn(),
   };
 }
 
