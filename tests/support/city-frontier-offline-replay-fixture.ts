@@ -178,6 +178,10 @@ export interface OfflineReplayBoundaryCounters {
   readonly scheduler: number;
 }
 
+export type CityFrontierOfflineReplaySelectionScenario =
+  | "single-yellow"
+  | "two-yellow-siblings";
+
 export interface CityFrontierOfflineReplayProof {
   readonly savedCompletion: CityFrontierReadModel;
   readonly presentations: readonly [CityFrontierReadModel, CityFrontierReadModel];
@@ -192,6 +196,9 @@ export interface CityFrontierOfflineReplayProof {
     readonly OfflineReplayRawRow[]
   >>;
   readonly counters: OfflineReplayBoundaryCounters;
+  readonly queryOnly: number;
+  readonly integrityCheck: readonly string[];
+  readonly foreignKeyViolations: readonly unknown[];
   readonly totalChangesBefore: number;
   readonly totalChangesAfter: number;
   readonly databasePath: string;
@@ -1108,6 +1115,7 @@ function rawCell(value: unknown): OfflineReplayRawCell {
 
 async function seedWriterDatabase(
   database: Database.Database,
+  scenario: CityFrontierOfflineReplaySelectionScenario,
 ): Promise<Readonly<{
   savedCompletion: CityFrontierReadModel;
   evidenceBeforeClose: readonly OfflineReplayEvidenceLedger[];
@@ -1154,18 +1162,28 @@ async function seedWriterDatabase(
       marker.status === "selectable" && marker.visualStatus === "yellow")) {
     throw new Error("task19a_terminal_fixture_failed");
   }
-  const selected = current.revision.markers.find((marker) =>
-    marker.unknownBasis.length > 0 && marker.facts.some((fact) =>
-      fact.manualCheckLinks.length > 0));
-  if (selected === undefined) throw new Error("task19a_yellow_marker_missing");
-  const selectedResult = await city.selection.selectCity({
-    terminalCityShortlistSnapshotId: current.revision.id,
-    cityId: selected.cityId,
-    commandId: "task19a-city-select-yellow",
-    warningCopyVersion: "city-unknown-risk@1",
-  });
-  const savedCompletion = selectedResult.readModel;
-  if (savedCompletion.selections.length !== 1) {
+  const requestedSelectionCount = scenario === "two-yellow-siblings" ? 2 : 1;
+  const selectedMarkers = [...current.revision.markers]
+    .filter((marker) => marker.unknownBasis.length > 0 && marker.facts.some((fact) =>
+      fact.manualCheckLinks.length > 0))
+    .sort((left, right) => left.rank - right.rank)
+    .slice(0, requestedSelectionCount);
+  if (selectedMarkers.length !== requestedSelectionCount) {
+    throw new Error("task19a_yellow_marker_missing");
+  }
+  let savedCompletion = current;
+  for (const [index, selected] of selectedMarkers.entries()) {
+    const selectedResult = await city.selection.selectCity({
+      terminalCityShortlistSnapshotId: current.revision.id,
+      cityId: selected.cityId,
+      commandId: index === 0
+        ? "task19a-city-select-yellow"
+        : "task19b-city-select-yellow-sibling",
+      warningCopyVersion: "city-unknown-risk@1",
+    });
+    savedCompletion = selectedResult.readModel;
+  }
+  if (savedCompletion.selections.length !== requestedSelectionCount) {
     throw new Error("task19a_selection_history_missing");
   }
   const evidenceIds = [...new Set(savedCompletion.revision.markers.map((marker) =>
@@ -1410,6 +1428,19 @@ function totalChanges(database: Database.Database): number {
   return row.count;
 }
 
+function sqliteIntegrityCheck(database: Database.Database): readonly string[] {
+  const rows = database.pragma("integrity_check") as readonly unknown[];
+  return Object.freeze(rows.map((row) => {
+    if (row === null || typeof row !== "object" || Array.isArray(row) ||
+      Object.getPrototypeOf(row) !== Object.prototype ||
+      Object.keys(row).length !== 1 || typeof (row as { integrity_check?: unknown })
+        .integrity_check !== "string") {
+      throw new Error("task19_sqlite_integrity_check_invalid");
+    }
+    return (row as { readonly integrity_check: string }).integrity_check;
+  }));
+}
+
 /**
  * Builds the Task 19A durable City Frontier replay proof.
  *
@@ -1417,8 +1448,13 @@ function totalChanges(database: Database.Database): number {
  * then reopened query-only and presented twice through production Application
  * and SQLite adapters with counted throwing live boundaries.
  */
-export async function createCityFrontierOfflineReplayProof():
+export async function createCityFrontierOfflineReplayProof(
+  scenario: CityFrontierOfflineReplaySelectionScenario = "single-yellow",
+):
 Promise<CityFrontierOfflineReplayProof> {
+  if (scenario !== "single-yellow" && scenario !== "two-yellow-siblings") {
+    throw new Error("task19_invalid_replay_scenario");
+  }
   const temporary = temporaryDatabase();
   let writer: Database.Database | undefined;
   let replay: Database.Database | undefined;
@@ -1432,14 +1468,15 @@ Promise<CityFrontierOfflineReplayProof> {
   };
   try {
     writer = openEvidenceDatabase(temporary.writerPath);
-    const captured = await seedWriterDatabase(writer);
+    const captured = await seedWriterDatabase(writer, scenario);
     writer.close();
     writer = undefined;
 
     copyFileSync(temporary.writerPath, temporary.replayPath);
     replay = openEvidenceDatabase(temporary.replayPath);
     replay.pragma("query_only = ON");
-    if (replay.pragma("query_only", { simple: true }) !== 1) {
+    const queryOnly = replay.pragma("query_only", { simple: true });
+    if (queryOnly !== 1) {
       throw new Error("task19a_query_only_not_enabled");
     }
 
@@ -1449,6 +1486,10 @@ Promise<CityFrontierOfflineReplayProof> {
       throw new Error("task19a_replay_copy_mismatch");
     }
     const totalChangesBefore = totalChanges(replay);
+    const integrityCheck = sqliteIntegrityCheck(replay);
+    const foreignKeyViolations = freezeDeep(structuredClone(
+      replay.pragma("foreign_key_check") as readonly unknown[],
+    ));
     const counters = emptyBoundaryCounters();
     const assembled = assembleCityReplay(replay, captured, counters);
     const first = await assembled.application.presentCityFrontier(
@@ -1478,6 +1519,9 @@ Promise<CityFrontierOfflineReplayProof> {
       rowsBefore: captured.rowsBefore,
       rowsAfter,
       counters: structuredClone(counters),
+      queryOnly,
+      integrityCheck,
+      foreignKeyViolations,
       totalChangesBefore,
       totalChangesAfter,
       databasePath: temporary.replayPath,
