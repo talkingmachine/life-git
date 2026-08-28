@@ -7,6 +7,7 @@ import {
   CODEX_DISABLED_FEATURES,
   CODEX_FIXED_EXEC_CONFIGS,
   CODEX_WEB_SEARCH_DISABLED_FEATURES,
+  CODEX_WEB_SEARCH_ENABLED_FEATURES,
   codexPolicyFingerprint,
   parseSupportedCodexCliVersion,
 } from "../../src/infrastructure/codex-cli/policy";
@@ -104,8 +105,18 @@ describe("buildCodexExecArgs", () => {
     expectFixedConfigs(args);
     expect(CODEX_WEB_SEARCH_DISABLED_FEATURES).not.toContain("code_mode");
     expect(CODEX_WEB_SEARCH_DISABLED_FEATURES).not.toContain("code_mode_host");
+    expect(CODEX_WEB_SEARCH_ENABLED_FEATURES).toEqual(["code_mode", "code_mode_host"]);
     expect(args).toContain("model_reasoning_effort=\"medium\"");
     expect(args.join("\0")).not.toMatch(/--(?:ask-for-approval|approve-for-me|profile|add-dir)/);
+    expect(args).toEqual([
+      "--search", "--enable", "code_mode", "--enable", "code_mode_host", "exec",
+      "-c", "suppress_unstable_features_warning=true", ...CODEX_FIXED_EXEC_CONFIGS.flatMap((config) => ["-c", config]),
+      "--strict-config", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+      "--model", "gpt-5.6-terra", "-c", "model_reasoning_effort=\"medium\"",
+      ...CODEX_WEB_SEARCH_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
+      "--sandbox", "read-only", "--skip-git-repo-check", "--cd", "/owned/fresh",
+      "--output-schema", "/owned/fresh/schema.json", "--json", "-",
+    ]);
   });
 
   test("binds the complete retained disabled-feature tuple into argv and fingerprint", () => {

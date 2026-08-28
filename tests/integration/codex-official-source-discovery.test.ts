@@ -72,8 +72,8 @@ describe("Codex official source discovery", () => {
     expect(Object.isFrozen(result.candidates[0])).toBe(true);
   });
 
-  test("rejects a source discovery result that did not prove a real web search", async () => {
-    const { runtime: adapter } = runtime({ candidates: [] }, metadata(), 0);
+  test.each([NaN, Infinity, -1, 0, 0.5, 129])("rejects source discovery proof count %s", async (count) => {
+    const { runtime: adapter } = runtime({ candidates: [] }, metadata(), count);
     await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toMatchObject({
       code: "official_source_discovery_runtime_failed", runtimeCode: "codex_tool_event",
     });

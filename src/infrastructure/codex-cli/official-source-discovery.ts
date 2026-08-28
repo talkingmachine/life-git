@@ -45,7 +45,7 @@ export function createCodexOfficialSourceDiscovery(runtime: CodexCliModelAdapter
           limits: OFFICIAL_SOURCE_DISCOVERY_LIMITS, signal: request.signal,
         }));
         if (isAborted(request.signal)) throw new OfficialSourceDiscoveryError("official_source_discovery_aborted");
-        if (outcome.eventProof.webSearchCount < 1) throw new CodexRuntimeError("codex_tool_event");
+        if (!isValidSearchCount(outcome.eventProof.webSearchCount)) throw new CodexRuntimeError("codex_tool_event");
         return decodeResult(outcome.result);
       } catch (error) { throw mapError(error); }
     },
@@ -140,6 +140,10 @@ function text(value: unknown, maximumBytes: number): string {
 }
 
 function integrity(): never { throw new OfficialSourceDiscoveryError("official_source_discovery_integrity_failed"); }
+
+function isValidSearchCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= OFFICIAL_SOURCE_DISCOVERY_LIMITS.maxEvents;
+}
 
 function mapError(error: unknown): OfficialSourceDiscoveryError {
   const discoveryCode = trustedOwnErrorCode(error, OfficialSourceDiscoveryError.prototype, isDiscoveryCode);

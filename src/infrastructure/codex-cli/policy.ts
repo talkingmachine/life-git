@@ -47,6 +47,8 @@ export const CODEX_FIXED_EXEC_CONFIGS = Object.freeze([
   "allow_login_shell=false",
 ] as const);
 
+export const CODEX_WEB_SEARCH_ENABLED_FEATURES = Object.freeze(["code_mode", "code_mode_host"] as const);
+
 const CODEX_EXEC_ARGV_GRAMMAR = Object.freeze([
   "web-search: --search --enable code_mode --enable code_mode_host before exec; -c suppress_unstable_features_warning=true after exec",
   "fixed exec-level -c safety configs before model and effort",
@@ -64,6 +66,9 @@ const POLICY_FINGERPRINT_INPUT = JSON.stringify({
   reasoningEfforts: ["low", "medium"],
   toolPolicies: ["codex-tools-none@2", "codex-tools-web-search@1"],
   disabledFeatures: CODEX_DISABLED_FEATURES,
+  fixedExecConfigs: CODEX_FIXED_EXEC_CONFIGS,
+  webSearchEnabledFeatures: CODEX_WEB_SEARCH_ENABLED_FEATURES,
+  webSearchPolicyMarker: "--search",
   argvGrammar: CODEX_EXEC_ARGV_GRAMMAR,
 });
 
@@ -86,7 +91,7 @@ export function buildCodexExecArgs(
 ): readonly string[] {
   return Object.freeze([
     ...(invocation.toolPolicy === "codex-tools-web-search@1"
-      ? ["--search", "--enable", "code_mode", "--enable", "code_mode_host"]
+      ? ["--search", ...CODEX_WEB_SEARCH_ENABLED_FEATURES.flatMap((feature) => ["--enable", feature])]
       : []),
     "exec",
     ...(invocation.toolPolicy === "codex-tools-web-search@1" ? ["-c", "suppress_unstable_features_warning=true"] : []),

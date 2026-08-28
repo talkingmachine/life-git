@@ -78,8 +78,12 @@ export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<C
     signal,
   }));
   assertSmokeResult(discovery.result.value);
-  if (discovery.eventProof.webSearchCount < 1 || discovery.eventProof.webSearchCount > smokeLimits().maxEvents) throw new CodexRuntimeError("codex_tool_event");
+  if (!isValidSearchCount(discovery.eventProof.webSearchCount, smokeLimits().maxEvents)) throw new CodexRuntimeError("codex_tool_event");
   return Object.freeze({ schemaVersion: "codex-runtime-smoke@2", low: Object.freeze({ webSearchCount: zeroToolCounts.low! }), medium: Object.freeze({ webSearchCount: zeroToolCounts.medium! }), discovery: Object.freeze({ webSearchCount: discovery.eventProof.webSearchCount }) });
+}
+
+function isValidSearchCount(value: unknown, maximum: number): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= maximum;
 }
 
 interface OwnedInitializationInput {

@@ -164,6 +164,16 @@ describe("parseCodexEventStreamWithProof", () => {
     )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
+  test("classifies a new-shape web-search start after a valid no-tool prefix as a tool event", async () => {
+    const events = [
+      ...proofEvents().slice(0, 4),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } }),
+    ];
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-none@2",
+    )).rejects.toMatchObject({ code: "codex_tool_event" });
+  });
+
   test("proves the reviewed discovery lifecycle without retaining its query", async () => {
     const proof = await parseCodexEventStreamWithProof(
       await fixture("protocol-v2-web-search.jsonl"), LIMITS, "codex-tools-web-search@1",

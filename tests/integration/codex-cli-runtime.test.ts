@@ -182,9 +182,18 @@ describe("CodexCliModelAdapter", () => {
     expect(probe.run.mock.calls.map(([call]) => call.flightKey))
       .toEqual([independentFlightKey(base), independentFlightKey(discovery)]);
     firstGate.resolve(successfulProbe('{"ok":true}'));
-    secondGate.resolve(successfulProbe('{"ok":true}'));
+    secondGate.resolve(successfulProbe('{"ok":true}', 1));
     await Promise.all([baseResult, discoveryResult]);
     expect(probe.run).toHaveBeenCalledTimes(2);
+  });
+
+  test("rejects a public discovery invocation without a proven web search", async () => {
+    probe.run.mockResolvedValue(successfulProbe('{"ok":true}', 0));
+    const adapter = createCodexCliModelAdapterForTest(adapterOptions());
+    await expect(adapter.invokeJson(createCodexJsonInvocation({
+      ...validInvocation(), capability: "source.discover", reasoningEffort: "medium",
+      toolPolicy: "codex-tools-web-search@1",
+    }))).rejects.toMatchObject({ code: "codex_tool_event" });
   });
 });
 

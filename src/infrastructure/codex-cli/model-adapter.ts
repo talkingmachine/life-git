@@ -89,6 +89,10 @@ export class CodexCliModelAdapter {
           childEnv: this.#childEnv,
           flightKey: key,
         });
+        if (input.toolPolicy === "codex-tools-web-search@1" &&
+          (!Number.isSafeInteger(probe.webSearchCount) || probe.webSearchCount < 1 || probe.webSearchCount > input.limits.maxEvents)) {
+          throw new CodexRuntimeError("codex_tool_event");
+        }
         throwIfAborted(signal);
         let value: JsonValue;
         try {
