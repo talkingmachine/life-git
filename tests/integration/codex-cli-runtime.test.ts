@@ -48,7 +48,11 @@ describe("CodexCliModelAdapter", () => {
     probe.run.mockResolvedValueOnce(successfulProbe('{"nested":{"values":[1,true]}}'));
     const adapter = createCodexCliModelAdapterForTest(adapterOptions());
 
-    const result = await adapter.invokeJson(validInvocation());
+    const result = await adapter.invokeJson(createCodexJsonInvocation({
+      ...validInvocation(),
+      templateVersion: "onboarding-extract@4",
+      schemaVersion: "onboarding-extraction-wire@2",
+    }));
 
     expect(result).toEqual({
       value: { nested: { values: [1, true] } },
@@ -60,8 +64,8 @@ describe("CodexCliModelAdapter", () => {
         model: "gpt-5.6-terra",
         reasoningEffort: "low",
         toolPolicy: "codex-tools-none@2",
-        templateVersion: "extract@1",
-        schemaVersion: "onboarding-extraction@1",
+        templateVersion: "onboarding-extract@4",
+        schemaVersion: "onboarding-extraction-wire@2",
       },
     });
     expect(Object.isFrozen(result)).toBe(true);
