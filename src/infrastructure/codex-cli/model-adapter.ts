@@ -76,6 +76,9 @@ export class CodexCliModelAdapter {
   }
 
   private invokeFlightOutcome(input: CodexJsonInvocation): Promise<CodexCliInvocationOutcome> {
+    if (input.toolPolicy === "codex-tools-web-search@1" && this.#preflight.cliVersion !== "codex-cli 0.149.0-alpha.4") {
+      return Promise.reject(new CodexRuntimeError("codex_version_mismatch"));
+    }
     const key = deriveCodexFlightKey(input);
     return this.#flightPool.run({
       key,

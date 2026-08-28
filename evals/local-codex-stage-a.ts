@@ -6,6 +6,7 @@ import { types } from "node:util";
 import { CODEX_CLI_COMPATIBILITY_POLICY, CODEX_CLI_PROTOCOL_VERSION, CODEX_MODEL, createCodexJsonInvocation } from "../src/infrastructure/codex-cli/contracts";
 import { getCodexCliModelAdapter, verifyCodexCliCapabilities } from "../src/infrastructure/codex-cli/runtime";
 import { registerNodeCodexRuntime } from "../src/instrumentation-node";
+import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "../src/infrastructure/codex-cli/reviewed-installation";
 import { createCodexOnboardingModel } from "../src/infrastructure/codex-cli/onboarding-model";
 import { createCodexOfficialSourceDiscovery } from "../src/infrastructure/codex-cli/official-source-discovery";
 import { createOnboardingSession } from "../src/decision/onboarding-session";
@@ -178,7 +179,7 @@ function validateArtifactPath(value: string): string {
 }
 
 function validateRuntime(value: Awaited<ReturnType<Dependencies["initializeRuntime"]>>): void {
-  if (!/^codex-cli 0\.149\.0-alpha\.(?:[4-9]|[1-9][0-9]+)$/.test(value.cliVersion) || value.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || value.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY || value.model !== CODEX_MODEL || value.noToolProbe.passed !== true || value.noToolProbe.webSearchCount !== 0 || value.discoveryProbe.passed !== true || !Number.isInteger(value.discoveryProbe.webSearchCount) || value.discoveryProbe.webSearchCount < 1 || value.discoveryProbe.webSearchCount > EVENT_LIMIT) throw new TypeError("local_codex_stage_a_invalid_runtime_proof");
+  if (value.cliVersion !== "codex-cli 0.149.0-alpha.4" || value.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || value.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY || value.model !== CODEX_MODEL || value.noToolProbe.passed !== true || value.noToolProbe.webSearchCount !== 0 || value.discoveryProbe.passed !== true || !Number.isInteger(value.discoveryProbe.webSearchCount) || value.discoveryProbe.webSearchCount < 1 || value.discoveryProbe.webSearchCount > EVENT_LIMIT) throw new TypeError("local_codex_stage_a_invalid_runtime_proof");
 }
 
 function validateProofs(runtime: Awaited<ReturnType<Dependencies["initializeRuntime"]>>, onboarding: Artifact["onboarding"], discovery: Artifact["discovery"], concurrency: readonly ConcurrencyMeasurement[], abort: AbortProof): void {
@@ -218,6 +219,8 @@ const productionDependencies: Dependencies = Object.freeze({
   prepareArtifact: productionArtifactStore.prepare,
   cleanupArtifact: productionArtifactStore.cleanup,
   async initializeRuntime() {
+    if (process.env.CODEX_EXECUTABLE !== undefined && process.env.CODEX_EXECUTABLE !== REVIEWED_CODEX_EXECUTABLE) throw new Error("local_codex_stage_a_invalid_runtime");
+    await verifyReviewedLocalCodexInstallation();
     await registerNodeCodexRuntime();
     const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
     const adapter = getCodexCliModelAdapter();

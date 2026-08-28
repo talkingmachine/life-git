@@ -7,6 +7,7 @@ import {
   type CodexJsonInvocation,
 } from "./contracts";
 import { CODEX_PROTOCOL_NOTICE_REVISION } from "./event-stream";
+import { REVIEWED_INSTALLATION_REVISION } from "./reviewed-installation";
 
 export const CODEX_DISABLED_FEATURES = Object.freeze([
   "apps",
@@ -69,6 +70,7 @@ const POLICY_FINGERPRINT_INPUT = JSON.stringify({
   fixedExecConfigs: CODEX_FIXED_EXEC_CONFIGS,
   webSearchEnabledFeatures: CODEX_WEB_SEARCH_ENABLED_FEATURES,
   webSearchPolicyMarker: "--search",
+  reviewedInstallationRevision: REVIEWED_INSTALLATION_REVISION,
   argvGrammar: CODEX_EXEC_ARGV_GRAMMAR,
 });
 
