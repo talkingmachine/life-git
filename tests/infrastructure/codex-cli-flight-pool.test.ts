@@ -71,6 +71,119 @@ describe("CodexFlightPool", () => {
     await Promise.resolve();
   });
 
+  test("starts a fresh successor after a queued abandoned flight releases its key", async () => {
+    // Break caught: joining an aborted queued flight leaves a later same-key caller pending forever.
+    const flights = pool();
+    const blockers = Array.from({ length: 5 }, () => deferred<string>());
+    blockers.forEach((blocker, index) => {
+      void flights.run({
+        key: `blocker-${index}`,
+        signal: new AbortController().signal,
+        operation: () => blocker.promise,
+      });
+    });
+    const abandonedController = new AbortController();
+    const abandonedOperation = vi.fn(() => Promise.resolve("must-not-run"));
+    const abandoned = flights.run({
+      key: "queued-abandoned",
+      signal: abandonedController.signal,
+      operation: abandonedOperation,
+    });
+    abandonedController.abort(new DOMException("gone", "AbortError"));
+    await expect(abandoned).rejects.toMatchObject({ name: "AbortError" });
+
+    const successor = deferred<string>();
+    const successorOperation = vi.fn(() => successor.promise);
+    const late = flights.run({
+      key: "queued-abandoned",
+      signal: new AbortController().signal,
+      operation: successorOperation,
+    });
+    expect(abandonedOperation).not.toHaveBeenCalled();
+    blockers[0]!.resolve("released");
+    await Promise.resolve();
+    expect(successorOperation).toHaveBeenCalledOnce();
+    successor.resolve("fresh");
+
+    await expect(late).resolves.toBe("fresh");
+    blockers.slice(1).forEach((blocker) => blocker.resolve("released"));
+  });
+
+  test("holds a late same-key caller behind an active abandoned leader before starting its successor", async () => {
+    // Break caught: active aborts either leak their abort to a later caller or overlap same-key leaders.
+    const flights = pool();
+    const leader = deferred<string>();
+    const firstController = new AbortController();
+    let leaderSignal!: AbortSignal;
+    const first = flights.run({
+      key: "active-abandoned",
+      signal: firstController.signal,
+      operation: (signal) => {
+        leaderSignal = signal;
+        return leader.promise;
+      },
+    });
+    firstController.abort(new DOMException("gone", "AbortError"));
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
+
+    const successor = deferred<string>();
+    const successorOperation = vi.fn(() => successor.promise);
+    const late = flights.run({
+      key: "active-abandoned",
+      signal: new AbortController().signal,
+      operation: successorOperation,
+    });
+    expect(leaderSignal.aborted).toBe(true);
+    expect(successorOperation).not.toHaveBeenCalled();
+    leader.reject(leaderSignal.reason);
+    await Promise.resolve();
+    expect(successorOperation).toHaveBeenCalledOnce();
+    successor.resolve("fresh");
+
+    await expect(late).resolves.toBe("fresh");
+  });
+
+  test("replaces an aborted late successor while an abandoned leader is still winding down", async () => {
+    // Break caught: an aborted barrier waiter poisons all later same-key callers until the old leader exits.
+    const flights = pool();
+    const leader = deferred<string>();
+    const firstController = new AbortController();
+    let leaderSignal!: AbortSignal;
+    const first = flights.run({
+      key: "successor-detached",
+      signal: firstController.signal,
+      operation: (signal) => {
+        leaderSignal = signal;
+        return leader.promise;
+      },
+    });
+    firstController.abort(new DOMException("gone", "AbortError"));
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
+
+    const detachedController = new AbortController();
+    const detached = flights.run({
+      key: "successor-detached",
+      signal: detachedController.signal,
+      operation: () => Promise.resolve("must-not-run"),
+    });
+    detachedController.abort(new DOMException("late gone", "AbortError"));
+    await expect(detached).rejects.toMatchObject({ name: "AbortError" });
+
+    const successor = deferred<string>();
+    const successorOperation = vi.fn(() => successor.promise);
+    const finalLate = flights.run({
+      key: "successor-detached",
+      signal: new AbortController().signal,
+      operation: successorOperation,
+    });
+    leader.reject(leaderSignal.reason);
+    await Promise.resolve();
+    expect(successorOperation).toHaveBeenCalledOnce();
+    successor.resolve("fresh");
+
+    await expect(finalLate).resolves.toBe("fresh");
+  });
+
   test("limits distinct active leaders to five and starts queued work after terminal handoff", async () => {
     // Break caught: distinct keys can exceed the process quota or terminal cleanup leaves a key stuck.
     const flights = pool();

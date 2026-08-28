@@ -20,6 +20,7 @@ type Flight<T> = {
   readonly waiters: Set<Waiter<T>>;
   started: boolean;
   terminal: boolean;
+  successor?: Flight<T>;
 };
 
 export class CodexFlightPool {
@@ -43,15 +44,20 @@ export class CodexFlightPool {
 
     this.recoverCapacity();
     let flight = this.flights.get(input.key) as Flight<T> | undefined;
+    if (flight?.controller.signal.aborted) {
+      if (flight.started) {
+        if (flight.successor === undefined || flight.successor.controller.signal.aborted) {
+          flight.successor = this.createFlight(input.key, input.operation);
+        }
+        flight = flight.successor;
+      } else {
+        this.removeQueuedFlight(flight);
+        this.flights.delete(input.key);
+        flight = undefined;
+      }
+    }
     if (flight === undefined) {
-      flight = {
-        key: input.key,
-        controller: new AbortController(),
-        operation: input.operation,
-        waiters: new Set(),
-        started: false,
-        terminal: false,
-      };
+      flight = this.createFlight(input.key, input.operation);
       this.flights.set(input.key, flight as Flight<unknown>);
       this.queued.push(flight as Flight<unknown>);
     }
@@ -59,6 +65,17 @@ export class CodexFlightPool {
     const waiter = this.attachWaiter(flight, input.signal);
     this.startQueuedFlights();
     return waiter;
+  }
+
+  private createFlight<T>(key: string, operation: (leaderSignal: AbortSignal) => Promise<T>): Flight<T> {
+    return {
+      key,
+      controller: new AbortController(),
+      operation,
+      waiters: new Set(),
+      started: false,
+      terminal: false,
+    };
   }
 
   private attachWaiter<T>(flight: Flight<T>, signal: AbortSignal): Promise<T> {
@@ -90,7 +107,7 @@ export class CodexFlightPool {
       const flight = this.queued.shift();
       if (flight === undefined) return;
       if (flight.controller.signal.aborted) {
-        this.flights.delete(flight.key);
+        if (this.flights.get(flight.key) === flight) this.flights.delete(flight.key);
         continue;
       }
       flight.started = true;
@@ -116,8 +133,7 @@ export class CodexFlightPool {
       waiter.detach();
       waiter.resolve(result);
     }
-    this.flights.delete(flight.key);
-    this.startQueuedFlights();
+    this.releaseFlight(flight);
   }
 
   private handoffFailure<T>(flight: Flight<T>, error: unknown): void {
@@ -130,8 +146,22 @@ export class CodexFlightPool {
       waiter.detach();
       waiter.reject(error);
     }
-    this.flights.delete(flight.key);
+    this.releaseFlight(flight);
+  }
+
+  private releaseFlight<T>(flight: Flight<T>): void {
+    if (this.flights.get(flight.key) === flight) this.flights.delete(flight.key);
+    const successor = flight.successor;
+    if (successor !== undefined && successor.waiters.size > 0 && !successor.controller.signal.aborted) {
+      this.flights.set(successor.key, successor as Flight<unknown>);
+      this.queued.push(successor as Flight<unknown>);
+    }
     this.startQueuedFlights();
+  }
+
+  private removeQueuedFlight<T>(flight: Flight<T>): void {
+    const index = this.queued.indexOf(flight as Flight<unknown>);
+    if (index >= 0) this.queued.splice(index, 1);
   }
 
   private reduceCapacity(): void {

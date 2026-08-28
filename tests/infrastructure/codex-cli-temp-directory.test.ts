@@ -40,8 +40,6 @@ const EXPECTED_EXEC_ARGS = [
   "--ephemeral",
   "--ignore-user-config",
   "--ignore-rules",
-  "--model", "gpt-5.6-terra",
-  "-c", "model_reasoning_effort=\"low\"",
   "--disable", "apps",
   "--disable", "auth_elicitation",
   "--disable", "browser_use",
