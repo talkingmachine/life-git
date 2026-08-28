@@ -1,4 +1,4 @@
-import { chmod, mkdir, open, readFile, realpath, rename, rm, unlink } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, rename, rm, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, relative, resolve } from "node:path";
 import { types } from "node:util";
@@ -33,9 +33,12 @@ type Artifact = Readonly<{
   discoveryProbe: Probe;
   onboarding: Readonly<{ guardedProposalCount: number; inventedValueCount: number }>;
   discovery: Readonly<{ candidateCount: number; allCandidatesUntrusted: true }>;
-  concurrency: Readonly<{ requested: readonly [1, 2, 5]; completed: readonly [1, 2, 5]; crossJobLeakage: boolean }>;
-  abort: Readonly<{ processGroupTerminated: true; lateResultAccepted: false }>;
+  concurrency: Readonly<{ requested: readonly [1, 2, 5]; completed: readonly [1, 2, 5]; crossJobLeakage: false; measurements: readonly [ConcurrencyMeasurement, ConcurrencyMeasurement, ConcurrencyMeasurement] }>;
+  abort: Readonly<{ processGroupTerminated: true; lateResultAccepted: false; waiterRejected: true; leaderTerminalObserved: true }>;
 }>;
+
+export type ConcurrencyMeasurement = Readonly<{ requested: 1 | 2 | 5; completed: 1 | 2 | 5; elapsedMs: number; p95Ms: number; throughputMilliJobsPerSecond: number; effectiveCeiling: 1 | 3 | 5 }>;
+type AbortProof = Readonly<{ processGroupTerminated: boolean; lateResultAccepted: boolean; waiterRejected: boolean; leaderTerminalObserved: boolean }>;
 
 export type StageAOnboardingFixture = Readonly<{
   message: SessionMessage;
@@ -56,8 +59,10 @@ type Dependencies = Readonly<{
   }>>;
   runOnboarding: () => Promise<Artifact["onboarding"]>;
   runDiscovery: () => Promise<Artifact["discovery"]>;
-  measureConcurrency: (requested: 1 | 2 | 5) => Promise<Readonly<{ completed: 1 | 2 | 5; crossJobLeakage: boolean }>>;
-  proveAbort: () => Promise<Artifact["abort"]>;
+  measureConcurrency: (requested: 1 | 2 | 5) => Promise<ConcurrencyMeasurement>;
+  proveAbort: () => Promise<AbortProof>;
+  prepareArtifact: (path: string) => Promise<void>;
+  cleanupArtifact: (path: string) => Promise<void>;
   writeArtifact: (path: string, artifact: Artifact) => Promise<void>;
   now: () => number;
 }>;
@@ -88,23 +93,35 @@ export async function runLocalCodexStageA(
   const ownedArgs = readArgs(args);
   if (!ownedArgs.live) return Object.freeze({ exitCode: 1, stderr: OPT_IN_ERROR });
   const dependencies = readDependencies(supplied);
-  const runtime = await dependencies.initializeRuntime();
-  validateRuntime(runtime);
-  const onboarding = await dependencies.runOnboarding();
-  const discovery = await dependencies.runDiscovery();
-  const one = await dependencies.measureConcurrency(1);
-  const two = await dependencies.measureConcurrency(2);
-  const five = await dependencies.measureConcurrency(5);
-  const abort = await dependencies.proveAbort();
-  validateProofs(runtime, onboarding, discovery, [one, two, five], abort);
-  const artifact: Artifact = Object.freeze({
+  // Stale evidence is removed before the first subscription-consuming action.
+  await dependencies.prepareArtifact(ownedArgs.artifactPath);
+  const startedAt = strictNow(dependencies.now());
+  let artifact: Artifact | undefined;
+  try {
+    const runtime = await dependencies.initializeRuntime();
+    validateRuntime(runtime);
+    const onboarding = await dependencies.runOnboarding();
+    const discovery = await dependencies.runDiscovery();
+    const one = await dependencies.measureConcurrency(1);
+    const two = await dependencies.measureConcurrency(2);
+    const five = await dependencies.measureConcurrency(5);
+    const abort = await dependencies.proveAbort();
+    validateProofs(runtime, onboarding, discovery, [one, two, five], abort);
+    artifact = Object.freeze({
     schemaVersion: ARTIFACT_SCHEMA, cliVersion: runtime.cliVersion, protocolVersion: runtime.protocolVersion,
     compatibilityPolicy: runtime.compatibilityPolicy, model: runtime.model, effortsProven: ["low", "medium"] as const,
     noToolProbe: runtime.noToolProbe, discoveryProbe: runtime.discoveryProbe, onboarding, discovery,
-    concurrency: Object.freeze({ requested: [1, 2, 5] as const, completed: [1, 2, 5] as const, crossJobLeakage: false }), abort,
-  });
-  void dependencies.now();
-  await dependencies.writeArtifact(ownedArgs.artifactPath, artifact);
+    concurrency: Object.freeze({ requested: [1, 2, 5] as const, completed: [1, 2, 5] as const, crossJobLeakage: false, measurements: [one, two, five] as const }),
+    abort: Object.freeze({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true }),
+    });
+    if (strictNow(dependencies.now()) < startedAt) throw new TypeError("local_codex_stage_a_invalid_clock");
+    validateArtifact(artifact);
+    await dependencies.writeArtifact(ownedArgs.artifactPath, artifact);
+  } catch (error) {
+    // A failed gate must never leave a plausible-looking report behind.
+    await dependencies.cleanupArtifact(ownedArgs.artifactPath);
+    throw error;
+  }
   return Object.freeze({ exitCode: 0, stderr: "" });
 }
 
@@ -115,13 +132,15 @@ function readArgs(value: unknown): LocalCodexStageAArguments {
 }
 
 function readDependencies(value: unknown): Dependencies {
-  const object = exactObject(value, ["initializeRuntime", "runOnboarding", "runDiscovery", "measureConcurrency", "proveAbort", "writeArtifact", "now"], true);
+  const object = exactObject(value, ["initializeRuntime", "runOnboarding", "runDiscovery", "measureConcurrency", "proveAbort", "prepareArtifact", "cleanupArtifact", "writeArtifact", "now"], true);
   return Object.freeze({
     initializeRuntime: functionDependency(object.initializeRuntime, productionDependencies.initializeRuntime),
     runOnboarding: functionDependency(object.runOnboarding, productionDependencies.runOnboarding),
     runDiscovery: functionDependency(object.runDiscovery, productionDependencies.runDiscovery),
     measureConcurrency: functionDependency(object.measureConcurrency, productionDependencies.measureConcurrency),
     proveAbort: functionDependency(object.proveAbort, productionDependencies.proveAbort),
+    prepareArtifact: functionDependency(object.prepareArtifact, productionDependencies.prepareArtifact),
+    cleanupArtifact: functionDependency(object.cleanupArtifact, productionDependencies.cleanupArtifact),
     writeArtifact: functionDependency(object.writeArtifact, productionDependencies.writeArtifact),
     now: functionDependency(object.now, productionDependencies.now),
   });
@@ -155,12 +174,39 @@ function validateRuntime(value: Awaited<ReturnType<Dependencies["initializeRunti
   if (!/^codex-cli 0\.149\.0-alpha\.(?:[4-9]|[1-9][0-9]+)$/.test(value.cliVersion) || value.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || value.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY || value.model !== CODEX_MODEL || value.noToolProbe.passed !== true || value.noToolProbe.webSearchCount !== 0 || value.discoveryProbe.passed !== true || !Number.isInteger(value.discoveryProbe.webSearchCount) || value.discoveryProbe.webSearchCount < 1 || value.discoveryProbe.webSearchCount > EVENT_LIMIT) throw new TypeError("local_codex_stage_a_invalid_runtime_proof");
 }
 
-function validateProofs(runtime: Awaited<ReturnType<Dependencies["initializeRuntime"]>>, onboarding: Artifact["onboarding"], discovery: Artifact["discovery"], concurrency: readonly Readonly<{ completed: number; crossJobLeakage: boolean }>[], abort: Artifact["abort"]): void {
+function validateProofs(runtime: Awaited<ReturnType<Dependencies["initializeRuntime"]>>, onboarding: Artifact["onboarding"], discovery: Artifact["discovery"], concurrency: readonly ConcurrencyMeasurement[], abort: AbortProof): void {
   void runtime;
-  if (onboarding.guardedProposalCount !== 4 || onboarding.inventedValueCount !== 0 || !Number.isInteger(discovery.candidateCount) || discovery.candidateCount < 1 || discovery.candidateCount > 5 || discovery.allCandidatesUntrusted !== true || concurrency.length !== 3 || concurrency.some((proof, index) => proof.completed !== [1, 2, 5][index] || proof.crossJobLeakage !== false) || abort.processGroupTerminated !== true || abort.lateResultAccepted !== false) throw new TypeError("local_codex_stage_a_invalid_proof");
+  if (onboarding.guardedProposalCount !== 4 || onboarding.inventedValueCount !== 0 || !Number.isInteger(discovery.candidateCount) || discovery.candidateCount < 1 || discovery.candidateCount > 5 || discovery.allCandidatesUntrusted !== true || concurrency.length !== 3 || concurrency.some((proof, index) => !validMeasurement(proof, [1, 2, 5][index]!)) || abort.processGroupTerminated !== true || abort.lateResultAccepted !== false || abort.waiterRejected !== true || abort.leaderTerminalObserved !== true) throw new TypeError("local_codex_stage_a_invalid_proof");
+}
+
+function validMeasurement(value: ConcurrencyMeasurement, requested: number): boolean {
+  return value.requested === requested && value.completed === requested && [1, 3, 5].includes(value.effectiveCeiling) && [value.elapsedMs, value.p95Ms, value.throughputMilliJobsPerSecond].every((number) => Number.isSafeInteger(number) && number >= 0 && number <= 3_600_000_000);
+}
+
+function validateArtifact(value: Artifact): void {
+  const root = exactObject(value, ["schemaVersion", "cliVersion", "protocolVersion", "compatibilityPolicy", "model", "effortsProven", "noToolProbe", "discoveryProbe", "onboarding", "discovery", "concurrency", "abort"]);
+  if (root.schemaVersion !== ARTIFACT_SCHEMA || typeof root.cliVersion !== "string" || root.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || root.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY || root.model !== CODEX_MODEL) throw new TypeError("local_codex_stage_a_invalid_artifact");
+  const efforts = exactArray(root.effortsProven);
+  const noTool = exactObject(root.noToolProbe, ["passed", "webSearchCount"]);
+  const discoveryProbe = exactObject(root.discoveryProbe, ["passed", "webSearchCount"]);
+  const onboarding = exactObject(root.onboarding, ["guardedProposalCount", "inventedValueCount"]);
+  const discovery = exactObject(root.discovery, ["candidateCount", "allCandidatesUntrusted"]);
+  const concurrency = exactObject(root.concurrency, ["requested", "completed", "crossJobLeakage", "measurements"]);
+  const abort = exactObject(root.abort, ["processGroupTerminated", "lateResultAccepted", "waiterRejected", "leaderTerminalObserved"]);
+  if (efforts.length !== 2 || efforts[0] !== "low" || efforts[1] !== "medium" || noTool.passed !== true || noTool.webSearchCount !== 0 || discoveryProbe.passed !== true || typeof discoveryProbe.webSearchCount !== "number" || !Number.isSafeInteger(discoveryProbe.webSearchCount) || discoveryProbe.webSearchCount < 1 || discoveryProbe.webSearchCount > EVENT_LIMIT || onboarding.guardedProposalCount !== 4 || onboarding.inventedValueCount !== 0 || typeof discovery.candidateCount !== "number" || !Number.isSafeInteger(discovery.candidateCount) || discovery.candidateCount < 1 || discovery.candidateCount > 5 || discovery.allCandidatesUntrusted !== true || concurrency.crossJobLeakage !== false || abort.processGroupTerminated !== true || abort.lateResultAccepted !== false || abort.waiterRejected !== true || abort.leaderTerminalObserved !== true) throw new TypeError("local_codex_stage_a_invalid_artifact");
+  const requested = exactArray(concurrency.requested); const completed = exactArray(concurrency.completed); const measurements = exactArray(concurrency.measurements);
+  if (requested.length !== 3 || completed.length !== 3 || measurements.length !== 3 || requested.some((entry, index) => entry !== [1, 2, 5][index]) || completed.some((entry, index) => entry !== [1, 2, 5][index])) throw new TypeError("local_codex_stage_a_invalid_artifact");
+  measurements.forEach((measurement, index) => { if (!validMeasurement(exactObject(measurement, ["requested", "completed", "elapsedMs", "p95Ms", "throughputMilliJobsPerSecond", "effectiveCeiling"]) as ConcurrencyMeasurement, [1, 2, 5][index]!)) throw new TypeError("local_codex_stage_a_invalid_artifact"); });
+}
+
+function strictNow(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 3_600_000_000) throw new TypeError("local_codex_stage_a_invalid_clock");
+  return value;
 }
 
 const productionDependencies: Dependencies = Object.freeze({
+  prepareArtifact: removeArtifact,
+  cleanupArtifact: removeArtifact,
   async initializeRuntime() {
     await registerNodeCodexRuntime();
     const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
@@ -179,33 +225,49 @@ const productionDependencies: Dependencies = Object.freeze({
   async measureConcurrency(requested) {
     const adapter = getCodexCliModelAdapter();
     const ids = Array.from({ length: requested }, (_, index) => `stage-a:${index + 1}`);
+    const startedAt = monotonicNow();
     const values = await Promise.all(ids.map(async (id) => {
+      const callStartedAt = monotonicNow();
       const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-echo@1", { type: "object", additionalProperties: false, required: ["jobId"], properties: { jobId: { const: id } } }, `Return only {"jobId":"${id}"}.`));
-      return (result.value as { jobId?: unknown }).jobId === id;
+      const elapsed = monotonicNow() - callStartedAt;
+      return Object.freeze({ matches: (result.value as { jobId?: unknown }).jobId === id, elapsed });
     }));
-    if (values.some((value) => !value)) throw new TypeError("local_codex_stage_a_cross_job_leakage");
-    return Object.freeze({ completed: requested, crossJobLeakage: false });
+    const elapsedMs = monotonicNow() - startedAt;
+    if (values.some((value) => !value.matches)) throw new TypeError("local_codex_stage_a_cross_job_leakage");
+    const diagnostics = adapter.runtimeDiagnostics();
+    if (diagnostics.activeLeaders !== 0 || diagnostics.queuedFlights !== 0) throw new TypeError("local_codex_stage_a_concurrency_not_terminal");
+    const samples = values.map((value) => safeElapsed(value.elapsed));
+    const total = safeElapsed(elapsedMs);
+    return Object.freeze({ requested, completed: requested, elapsedMs: total, p95Ms: nearestRankP95(samples), throughputMilliJobsPerSecond: Math.floor((requested * 1_000_000) / Math.max(1, total)), effectiveCeiling: diagnostics.effectiveCeiling });
   },
   async proveAbort() {
     const adapter = getCodexCliModelAdapter(); const controller = new AbortController();
+    const baseline = adapter.runtimeDiagnostics();
+    if (baseline.activeLeaders !== 0 || baseline.queuedFlights !== 0) throw new TypeError("local_codex_stage_a_abort_not_idle");
     const work = adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}.", controller.signal));
+    await waitFor(() => adapter.runtimeDiagnostics().activeLeaders === baseline.activeLeaders + 1);
     const reason = new DOMException("Stage A abort", "AbortError");
     controller.abort(reason);
     try {
       await work;
     } catch (error) {
-      if (error === reason || error instanceof DOMException && error.name === "AbortError") {
-        return Object.freeze({ processGroupTerminated: true, lateResultAccepted: false });
-      }
-      throw error;
+      if (error !== reason) throw new TypeError("local_codex_stage_a_abort_reason_mismatch");
+      await waitFor(() => {
+        const diagnostics = adapter.runtimeDiagnostics();
+        return diagnostics.activeLeaders === baseline.activeLeaders && diagnostics.queuedFlights === baseline.queuedFlights;
+      });
+      const successor = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort-successor@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}."));
+      if ((successor.value as { ok?: unknown }).ok !== true) throw new TypeError("local_codex_stage_a_successor_invalid");
+      return Object.freeze({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true });
     }
     throw new TypeError("local_codex_stage_a_late_result");
   },
   async writeArtifact(path, artifact) {
     const absolute = resolve(path); const directory = dirname(absolute);
     if (relative(resolve("data/evals/local-codex-stage-a"), absolute) !== "result.json") throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+    await assertSafeArtifactIdentity(absolute, false);
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    if (await existingPathIsUnsafe(directory, absolute)) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+    await assertSafeArtifactIdentity(absolute, true);
     await unlink(absolute).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
     const temporary = resolve(directory, `.local-codex-stage-a-${randomUUID()}.tmp`);
     let handle: Awaited<ReturnType<typeof open>> | undefined;
@@ -224,14 +286,51 @@ const productionDependencies: Dependencies = Object.freeze({
   now: () => Date.now(),
 });
 
-async function existingPathIsUnsafe(directory: string, target: string): Promise<boolean> {
-  try {
-    const canonicalDirectory = await realpath(directory);
-    const canonicalTarget = await realpath(target);
-    return dirname(canonicalTarget) !== canonicalDirectory || canonicalTarget !== resolve(canonicalDirectory, "result.json");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    return true;
+function monotonicNow(): number {
+  return Number(process.hrtime.bigint() / 1_000_000n);
+}
+
+function safeElapsed(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 3_600_000_000) throw new TypeError("local_codex_stage_a_invalid_clock");
+  return value;
+}
+
+function nearestRankP95(samples: readonly number[]): number {
+  if (samples.length === 0) throw new TypeError("local_codex_stage_a_invalid_metrics");
+  const ordered = [...samples].sort((left, right) => left - right);
+  return ordered[Math.ceil(ordered.length * 0.95) - 1]!;
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
+  const started = monotonicNow();
+  while (!predicate()) {
+    if (monotonicNow() - started > timeoutMs) throw new TypeError("local_codex_stage_a_terminal_timeout");
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function removeArtifact(path: string): Promise<void> {
+  const target = resolve(validateArtifactPath(path));
+  await assertSafeArtifactIdentity(target, false);
+  await unlink(target).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
+}
+
+/** Reject every alias before a mutation; the artifact is intentionally one lexical leaf. */
+async function assertSafeArtifactIdentity(target: string, requireParent: boolean): Promise<void> {
+  const root = resolve(process.cwd());
+  if (!target.startsWith(`${root}/`)) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+  const pieces = relative(root, target).split("/");
+  let cursor = root;
+  for (let index = 0; index < pieces.length; index += 1) {
+    cursor = resolve(cursor, pieces[index]!);
+    try {
+      const details = await lstat(cursor);
+      if (details.isSymbolicLink() || (index === pieces.length - 1 && details.nlink > 1)) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if (requireParent && index < pieces.length - 1) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+      return;
+    }
   }
 }
 

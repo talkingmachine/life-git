@@ -58,8 +58,10 @@ describe("local Codex Stage A gate", () => {
       }),
       runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
       runDiscovery: async () => ({ candidateCount: 1, allCandidatesUntrusted: true }),
-      measureConcurrency: async (requested) => ({ completed: requested, crossJobLeakage: false }),
-      proveAbort: async () => ({ processGroupTerminated: true, lateResultAccepted: false }),
+      measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 }),
+      proveAbort: async () => ({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true }),
+      prepareArtifact: async () => undefined,
+      cleanupArtifact: async () => undefined,
       writeArtifact,
       now: () => 1,
     });
@@ -76,9 +78,41 @@ describe("local Codex Stage A gate", () => {
       discoveryProbe: { passed: true, webSearchCount: 1 },
       onboarding: { guardedProposalCount: 4, inventedValueCount: 0 },
       discovery: { candidateCount: 1, allCandidatesUntrusted: true },
-      concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false },
-      abort: { processGroupTerminated: true, lateResultAccepted: false },
+      concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false, measurements: [
+        { requested: 1, completed: 1, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
+        { requested: 2, completed: 2, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
+        { requested: 5, completed: 5, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
+      ] },
+      abort: { processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true },
     });
+  });
+
+  test("fails closed when an abort proof lacks terminal leader evidence", async () => {
+    const base = deterministicDependencies();
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...base,
+      proveAbort: async () => ({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: false }),
+    })).rejects.toThrow("local_codex_stage_a_invalid_proof");
+  });
+
+  test("fails closed for backwards or unbounded concurrency measurements", async () => {
+    const base = deterministicDependencies();
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...base,
+      measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: -1, p95Ms: 1, throughputMilliJobsPerSecond: 1, effectiveCeiling: 5 }),
+    })).rejects.toThrow("local_codex_stage_a_invalid_proof");
+  });
+
+  test("removes stale output before runtime and cleans it on a later failure through owned filesystem seams", async () => {
+    const order: string[] = [];
+    const base = deterministicDependencies();
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...base,
+      prepareArtifact: async () => { order.push("prepare"); },
+      initializeRuntime: async () => { order.push("runtime"); throw new Error("broken"); },
+      cleanupArtifact: async () => { order.push("cleanup"); },
+    })).rejects.toThrow("broken");
+    expect(order).toEqual(["prepare", "runtime", "cleanup"]);
   });
 
   test("rejects hostile onboarding fixtures before invoking the model", async () => {
@@ -137,6 +171,20 @@ describe("local Codex Stage A gate", () => {
     expect(discover).toHaveBeenCalledTimes(1);
   });
 });
+
+function deterministicDependencies() {
+  return {
+    initializeRuntime: async () => ({ cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2" as const, compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1" as const, model: "gpt-5.6-terra" as const, noToolProbe: { passed: true as const, webSearchCount: 0 }, discoveryProbe: { passed: true as const, webSearchCount: 1 } }),
+    runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
+    runDiscovery: async () => ({ candidateCount: 1, allCandidatesUntrusted: true as const }),
+    measureConcurrency: async (requested: 1 | 2 | 5) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1, effectiveCeiling: 5 as const }),
+    proveAbort: async () => ({ processGroupTerminated: true as const, lateResultAccepted: false as const, waiterRejected: true as const, leaderTerminalObserved: true as const }),
+    prepareArtifact: async () => undefined,
+    cleanupArtifact: async () => undefined,
+    writeArtifact: async () => undefined,
+    now: () => 1,
+  };
+}
 
 function toNullPrototype(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(toNullPrototype);

@@ -66,6 +66,15 @@ export class CodexCliModelAdapter {
     return this.invokeFlightOutcome(input);
   }
 
+  /**
+   * Operational-only pool state for the Stage A gate.  It deliberately has no
+   * request identity or process information, so callers cannot turn it into a
+   * side channel for prompts, keys, or child process state.
+   */
+  runtimeDiagnostics(): Readonly<{ activeLeaders: number; queuedFlights: number; effectiveCeiling: 1 | 3 | 5 }> {
+    return this.#flightPool.diagnostics();
+  }
+
   private invokeFlightOutcome(input: CodexJsonInvocation): Promise<CodexCliFlightOutcome> {
     const key = deriveCodexFlightKey(input);
     return this.#flightPool.run({
