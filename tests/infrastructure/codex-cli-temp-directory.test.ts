@@ -28,6 +28,7 @@ import {
   withCodexTempDirectory,
   type ValidatedCodexTempRoot,
 } from "../../src/infrastructure/codex-cli/temp-directory";
+import { CODEX_FIXED_EXEC_CONFIGS } from "../../src/infrastructure/codex-cli/policy";
 
 const temporaryPaths: string[] = [];
 const encoder = new TextEncoder();
@@ -36,6 +37,7 @@ const CODE_MODE_HOST_DISABLED_MESSAGE =
 
 const EXPECTED_EXEC_ARGS = [
   "exec",
+  ...CODEX_FIXED_EXEC_CONFIGS.flatMap((config) => ["-c", config]),
   "--strict-config",
   "--ephemeral",
   "--ignore-user-config",
