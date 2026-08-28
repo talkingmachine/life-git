@@ -185,8 +185,8 @@ function smokeOutputSchema() {
     additionalProperties: false,
     required: ["schemaVersion", "status"],
     properties: {
-      schemaVersion: { const: "codex-runtime-smoke@2" },
-      status: { const: "ok" },
+      schemaVersion: { type: "string", enum: ["codex-runtime-smoke@2"] },
+      status: { type: "string", enum: ["ok"] },
     },
   });
 }

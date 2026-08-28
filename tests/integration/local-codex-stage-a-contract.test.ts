@@ -37,6 +37,19 @@ const discoveryFixture = {
 };
 
 describe("local Codex Stage A gate", () => {
+  test("uses provider-compatible typed single-value enums in every live synthetic schema", async () => {
+    const [runtime, stageA] = await Promise.all([
+      readFile(resolve(process.cwd(), "src/infrastructure/codex-cli/runtime.ts"), "utf8"),
+      readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8"),
+    ]);
+    expect(runtime).not.toContain("const:");
+    expect(stageA).not.toContain("const:");
+    expect(runtime).toContain('schemaVersion: { type: "string", enum: ["codex-runtime-smoke@2"] }');
+    expect(runtime).toContain('status: { type: "string", enum: ["ok"] }');
+    expect(stageA).toContain('ok: { type: "boolean", enum: [true] }');
+    expect(stageA).toContain('jobId: { type: "string", enum: [id] }');
+  });
+
   test("accepts exactly one leading pnpm separator and preserves passive no-flag parsing", async () => {
     expect(parseLocalCodexStageAArgs(["--", "--live-local-subscription", "--artifact", "data/evals/local-codex-stage-a/result.json"]))
       .toEqual({ live: true, artifactPath: "data/evals/local-codex-stage-a/result.json" });

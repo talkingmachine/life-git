@@ -221,7 +221,7 @@ const productionDependencies: Dependencies = Object.freeze({
     await registerNodeCodexRuntime();
     const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
     const adapter = getCodexCliModelAdapter();
-    const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-version@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}."));
+    const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-version@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean", enum: [true] } } }, "Return only {ok:true}."));
     return Object.freeze({ cliVersion: result.metadata.cliVersion, protocolVersion: result.metadata.protocolVersion, compatibilityPolicy: result.metadata.compatibilityPolicy, model: result.metadata.model, noToolProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.low.webSearchCount }), discoveryProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.discovery.webSearchCount }) });
   },
   async runOnboarding() {
@@ -238,7 +238,7 @@ const productionDependencies: Dependencies = Object.freeze({
     const startedAt = monotonicNow();
     const values = await Promise.all(ids.map(async (id) => {
       const callStartedAt = monotonicNow();
-      const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-echo@1", { type: "object", additionalProperties: false, required: ["jobId"], properties: { jobId: { const: id } } }, `Return only {"jobId":"${id}"}.`));
+      const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-echo@1", { type: "object", additionalProperties: false, required: ["jobId"], properties: { jobId: { type: "string", enum: [id] } } }, `Return only {"jobId":"${id}"}.`));
       const elapsed = monotonicNow() - callStartedAt;
       return Object.freeze({ matches: (result.value as { jobId?: unknown }).jobId === id, elapsed });
     }));
@@ -293,7 +293,7 @@ export async function proveStageAAbort(
   const controller = new AbortController();
   const baseline = adapter.runtimeDiagnostics();
   if (baseline.activeLeaders !== 0 || baseline.queuedFlights !== 0) throw new TypeError("local_codex_stage_a_abort_not_idle");
-  const work = adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}.", controller.signal));
+  const work = adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean", enum: [true] } } }, "Return only {ok:true}.", controller.signal));
   await wait(() => adapter.runtimeDiagnostics().activeLeaders === baseline.activeLeaders + 1);
   const reason = new DOMException("Stage A abort", "AbortError");
   controller.abort(reason);
@@ -305,7 +305,7 @@ export async function proveStageAAbort(
       const diagnostics = adapter.runtimeDiagnostics();
       return diagnostics.activeLeaders === baseline.activeLeaders && diagnostics.queuedFlights === baseline.queuedFlights;
     });
-    const successor = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort-successor@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { const: true } } }, "Return only {ok:true}."));
+    const successor = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-abort-successor@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean", enum: [true] } } }, "Return only {ok:true}."));
     if ((successor.value as { ok?: unknown }).ok !== true) throw new TypeError("local_codex_stage_a_successor_invalid");
     return Object.freeze({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true });
   }
