@@ -1,4 +1,5 @@
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, realpath, rename, rm, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { dirname, relative, resolve } from "node:path";
 import { types } from "node:util";
 
@@ -192,12 +193,35 @@ const productionDependencies: Dependencies = Object.freeze({
     const absolute = resolve(path); const directory = dirname(absolute);
     if (relative(resolve("data/evals/local-codex-stage-a"), absolute) !== "result.json") throw new TypeError("local_codex_stage_a_invalid_artifact_path");
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    const temporary = resolve(directory, `.result-${process.pid}-${Date.now()}.tmp`);
-    await writeFile(temporary, `${JSON.stringify(artifact)}\n`, { encoding: "utf8", mode: 0o600 });
-    await rename(temporary, absolute);
+    if (await existingPathIsUnsafe(directory, absolute)) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+    await unlink(absolute).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
+    const temporary = resolve(directory, `.local-codex-stage-a-${randomUUID()}.tmp`);
+    let handle: Awaited<ReturnType<typeof open>> | undefined;
+    try {
+      handle = await open(temporary, "wx", 0o600);
+      await handle.writeFile(`${JSON.stringify(artifact)}\n`, "utf8");
+      await handle.sync();
+      await handle.close(); handle = undefined;
+      await rename(temporary, absolute);
+      await chmod(absolute, 0o600);
+    } finally {
+      await handle?.close().catch(() => undefined);
+      await rm(temporary, { force: true });
+    }
   },
   now: () => Date.now(),
 });
+
+async function existingPathIsUnsafe(directory: string, target: string): Promise<boolean> {
+  try {
+    const canonicalDirectory = await realpath(directory);
+    const canonicalTarget = await realpath(target);
+    return dirname(canonicalTarget) !== canonicalDirectory || canonicalTarget !== resolve(canonicalDirectory, "result.json");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    return true;
+  }
+}
 
 function invocation(capability: "onboarding.extract" | "source.discover", reasoningEffort: "low" | "medium", toolPolicy: "codex-tools-none@2" | "codex-tools-web-search@1", templateVersion: string, outputSchema: object, prompt: string, signal = new AbortController().signal) {
   return createCodexJsonInvocation({ capability, reasoningEffort, toolPolicy, templateVersion, schemaVersion: templateVersion, prompt, outputSchema, limits: { timeoutMs: 30_000, maxStdoutBytes: 131_072, maxStderrBytes: 16_384, maxEvents: EVENT_LIMIT }, signal });
