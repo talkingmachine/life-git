@@ -2,7 +2,7 @@ import { tmpdir } from "node:os";
 
 import { CodexRuntimeError } from "./infrastructure/codex-cli/contracts";
 import { nodeCodexProcessSpawner } from "./infrastructure/codex-cli/process";
-import { initializeCodexCliRuntime } from "./infrastructure/codex-cli/runtime";
+import { initializeCodexCliRuntime as initializeStaticCodexCliPreflight } from "./infrastructure/codex-cli/runtime";
 
 export async function registerNodeCodexRuntime(): Promise<void> {
   const currentUid = process.getuid?.();
@@ -15,7 +15,8 @@ export async function registerNodeCodexRuntime(): Promise<void> {
     LANG: process.env.LANG,
     LC_ALL: process.env.LC_ALL,
   });
-  await initializeCodexCliRuntime({
+  // Startup deliberately performs only static preflight; the live capability gate is explicit.
+  await initializeStaticCodexCliPreflight({
     ...(process.env.CODEX_EXECUTABLE === undefined
       ? {}
       : { configuredExecutable: process.env.CODEX_EXECUTABLE }),

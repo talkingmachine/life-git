@@ -60,10 +60,11 @@ export interface CodexCliCapabilityVerification {
 export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<CodexCliCapabilityVerification> {
   const adapter = getCodexCliModelAdapter();
   for (const reasoningEffort of ["low", "medium"] as const) {
-    const result = await adapter.invokeJson(smokeInvocation(reasoningEffort, signal));
-    assertSmokeResult(result.value);
+    const outcome = await adapter.invokeJsonForRuntimeCapabilityVerification(smokeInvocation(reasoningEffort, signal));
+    assertSmokeResult(outcome.result.value);
+    if (outcome.eventProof.webSearchCount !== 0) throw new CodexRuntimeError("codex_tool_event");
   }
-  const discovery = await adapter.invokeJson(createCodexJsonInvocation({
+  const discovery = await adapter.invokeJsonForRuntimeCapabilityVerification(createCodexJsonInvocation({
     capability: "source.discover",
     reasoningEffort: "medium",
     toolPolicy: "codex-tools-web-search@1",
@@ -74,7 +75,8 @@ export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<C
     limits: smokeLimits(),
     signal,
   }));
-  assertSmokeResult(discovery.value);
+  assertSmokeResult(discovery.result.value);
+  if (discovery.eventProof.webSearchCount < 1) throw new CodexRuntimeError("codex_tool_event");
   return Object.freeze({ schemaVersion: "codex-runtime-smoke@2", low: "ok", medium: "ok", discovery: "ok" });
 }
 

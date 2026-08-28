@@ -28,6 +28,11 @@ export interface CodexCliModelAdapterOptions {
   readonly flightPool?: CodexFlightPool;
 }
 
+interface CodexCliFlightOutcome {
+  readonly result: CodexJsonResult;
+  readonly eventProof: Readonly<{ webSearchCount: number }>;
+}
+
 export class CodexCliModelAdapter {
   readonly #preflight: CodexPreflightResult;
   readonly #spawner: CodexProcessSpawner;
@@ -53,6 +58,15 @@ export class CodexCliModelAdapter {
   }
 
   async invokeJson(input: CodexJsonInvocation): Promise<CodexJsonResult> {
+    return (await this.invokeFlightOutcome(input)).result;
+  }
+
+  /** Runtime-only path: preserves public result shape while retaining reviewed event proof. */
+  async invokeJsonForRuntimeCapabilityVerification(input: CodexJsonInvocation): Promise<CodexCliFlightOutcome> {
+    return this.invokeFlightOutcome(input);
+  }
+
+  private invokeFlightOutcome(input: CodexJsonInvocation): Promise<CodexCliFlightOutcome> {
     const key = deriveCodexFlightKey(input);
     return this.#flightPool.run({
       key,
@@ -74,7 +88,7 @@ export class CodexCliModelAdapter {
           throw new CodexRuntimeError("codex_json_invalid");
         }
         throwIfAborted(signal);
-        return Object.freeze({
+        const result = Object.freeze({
           value,
           metadata: Object.freeze({
             invocationVersion: CODEX_INVOCATION_VERSION,
@@ -87,6 +101,10 @@ export class CodexCliModelAdapter {
             templateVersion: input.templateVersion,
             schemaVersion: input.schemaVersion,
           }),
+        });
+        return Object.freeze({
+          result,
+          eventProof: Object.freeze({ webSearchCount: probe.webSearchCount }),
         });
       },
     });

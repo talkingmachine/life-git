@@ -96,6 +96,12 @@ afterEach(async () => {
 });
 
 describe("Task 3 files", () => {
+  test("keeps ordinary Node startup at static preflight while the live gate stays explicitly armed", async () => {
+    const instrumentation = await readFile(resolve("src/instrumentation-node.ts"), "utf8");
+    expect(instrumentation).toContain("initializeStaticCodexCliPreflight");
+    expect(instrumentation).not.toContain("verifyCodexCliCapabilities");
+  });
+
   test("exposes the exact package entry point", async () => {
     const packageJson = JSON.parse(await readFile(resolve("package.json"), "utf8")) as {
       scripts?: Record<string, unknown>;

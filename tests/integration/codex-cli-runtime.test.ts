@@ -14,10 +14,7 @@ vi.mock("../../src/infrastructure/codex-cli/feasibility-probe", () => ({
 }));
 
 import {
-  CODEX_CLI_COMPATIBILITY_POLICY,
-  CODEX_CLI_PROTOCOL_VERSION,
   CODEX_CLI_VERSION,
-  CODEX_INVOCATION_VERSION,
   CODEX_MODEL,
   CodexRuntimeError,
   createCodexJsonInvocation,
@@ -56,11 +53,11 @@ describe("CodexCliModelAdapter", () => {
     expect(result).toEqual({
       value: { nested: { values: [1, true] } },
       metadata: {
-        invocationVersion: CODEX_INVOCATION_VERSION,
-        protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
-        compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY,
-        cliVersion: CODEX_CLI_VERSION,
-        model: CODEX_MODEL,
+        invocationVersion: "codex-cli-invocation@2",
+        protocolVersion: "codex-cli-protocol@2",
+        compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1",
+        cliVersion: "codex-cli 0.149.0-alpha.4",
+        model: "gpt-5.6-terra",
         reasoningEffort: "low",
         toolPolicy: "codex-tools-none@2",
         templateVersion: "extract@1",
@@ -134,26 +131,46 @@ describe("CodexCliModelAdapter", () => {
     ["prompt", { prompt: "other synthetic" }],
     ["schema", { outputSchema: { type: "object", properties: { value: { type: "string" } } } }],
     ["template", { templateVersion: "extract@2" }],
+    ["schema version", { schemaVersion: "onboarding-extraction@2" }],
     ["limits", { limits: { timeoutMs: 15_001, maxStdoutBytes: 65_536, maxStderrBytes: 16_384, maxEvents: 64 } }],
-  ])("uses a distinct flight for changed %s", async (_name, change) => {
-    probe.run.mockResolvedValue(successfulProbe('{"ok":true}'));
+  ])("starts distinct concurrent flights for changed %s", async (_name, change) => {
+    const firstGate = deferred<ReturnType<typeof successfulProbe>>();
+    const secondGate = deferred<ReturnType<typeof successfulProbe>>();
+    probe.run.mockReturnValueOnce(firstGate.promise).mockReturnValueOnce(secondGate.promise);
     const adapter = createCodexCliModelAdapterForTest(adapterOptions());
     const base = validInvocation();
-    await adapter.invokeJson(base);
-    await adapter.invokeJson(createCodexJsonInvocation({ ...base, ...change } as never));
+    const variant = createCodexJsonInvocation({ ...base, ...change } as never);
+    const baseResult = adapter.invokeJson(base);
+    const variantResult = adapter.invokeJson(variant);
+    await vi.waitFor(() => expect(probe.run).toHaveBeenCalledTimes(2));
+    expect(probe.run.mock.calls.map(([call]) => call.flightKey))
+      .toEqual([independentFlightKey(base), independentFlightKey(variant)]);
+    firstGate.resolve(successfulProbe('{"ok":true}'));
+    secondGate.resolve(successfulProbe('{"ok":true}'));
+    await Promise.all([baseResult, variantResult]);
     expect(probe.run).toHaveBeenCalledTimes(2);
   });
 
-  test("uses a distinct flight for the reviewed discovery tool policy", async () => {
-    probe.run.mockResolvedValue(successfulProbe('{"ok":true}'));
+  test("starts a distinct concurrent flight for the reviewed discovery tool policy", async () => {
+    const firstGate = deferred<ReturnType<typeof successfulProbe>>();
+    const secondGate = deferred<ReturnType<typeof successfulProbe>>();
+    probe.run.mockReturnValueOnce(firstGate.promise).mockReturnValueOnce(secondGate.promise);
     const adapter = createCodexCliModelAdapterForTest(adapterOptions());
-    await adapter.invokeJson(validInvocation());
-    await adapter.invokeJson(createCodexJsonInvocation({
+    const base = validInvocation();
+    const discovery = createCodexJsonInvocation({
       ...validInvocation(),
       capability: "source.discover",
       reasoningEffort: "medium",
       toolPolicy: "codex-tools-web-search@1",
-    }));
+    });
+    const baseResult = adapter.invokeJson(base);
+    const discoveryResult = adapter.invokeJson(discovery);
+    await vi.waitFor(() => expect(probe.run).toHaveBeenCalledTimes(2));
+    expect(probe.run.mock.calls.map(([call]) => call.flightKey))
+      .toEqual([independentFlightKey(base), independentFlightKey(discovery)]);
+    firstGate.resolve(successfulProbe('{"ok":true}'));
+    secondGate.resolve(successfulProbe('{"ok":true}'));
+    await Promise.all([baseResult, discoveryResult]);
     expect(probe.run).toHaveBeenCalledTimes(2);
   });
 });
@@ -247,7 +264,10 @@ describe("Codex CLI runtime singleton", () => {
     const runtime = await freshRuntime();
     await runtime.initializeCodexCliRuntime(fixture.input);
     expect(probe.run).not.toHaveBeenCalled();
-    probe.run.mockResolvedValue(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}'));
+    probe.run
+      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0))
+      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0))
+      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 1));
 
     await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal)).resolves.toEqual({
       schemaVersion: "codex-runtime-smoke@2", low: "ok", medium: "ok", discovery: "ok",
@@ -255,6 +275,19 @@ describe("Codex CLI runtime singleton", () => {
     expect(probe.run.mock.calls.map(([call]) => [call.invocation.reasoningEffort, call.invocation.toolPolicy]))
       .toEqual([["low", "codex-tools-none@2"], ["medium", "codex-tools-none@2"], ["medium", "codex-tools-web-search@1"]]);
     expect(probe.run.mock.calls[2]?.[0].invocation.prompt).toContain("official OpenAI developer documentation home");
+  });
+
+  test("rejects capability verification when zero-tool or discovery event proof is missing", async () => {
+    const fixture = await runtimeFixture();
+    const runtime = await freshRuntime();
+    await runtime.initializeCodexCliRuntime(fixture.input);
+    probe.run
+      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 1))
+      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0))
+      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0));
+
+    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal))
+      .rejects.toMatchObject({ code: "codex_tool_event" });
   });
 });
 
@@ -378,7 +411,7 @@ function independentCanonicalJson(value: unknown): string {
   return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${independentCanonicalJson(record[key])}`).join(",")}}`;
 }
 
-function successfulProbe(finalMessage: string) {
+function successfulProbe(finalMessage: string, webSearchCount = 0) {
   return {
     pid: 17,
     finalMessage,
@@ -391,6 +424,8 @@ function successfulProbe(finalMessage: string) {
       "item.completed",
       "turn.completed",
     ],
+    webSearchCount,
+    toolPolicyProven: true as const,
   };
 }
 
