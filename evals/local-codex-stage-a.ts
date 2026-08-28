@@ -205,9 +205,11 @@ function strictNow(value: number): number {
   return value;
 }
 
+const productionArtifactStore = createStageAArtifactStore({ workspaceRoot: process.cwd() });
+
 const productionDependencies: Dependencies = Object.freeze({
-  prepareArtifact: removeArtifact,
-  cleanupArtifact: removeArtifact,
+  prepareArtifact: productionArtifactStore.prepare,
+  cleanupArtifact: productionArtifactStore.cleanup,
   async initializeRuntime() {
     await registerNodeCodexRuntime();
     const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
@@ -264,25 +266,7 @@ const productionDependencies: Dependencies = Object.freeze({
     throw new TypeError("local_codex_stage_a_late_result");
   },
   async writeArtifact(path, artifact) {
-    const absolute = resolve(path); const directory = dirname(absolute);
-    if (relative(resolve("data/evals/local-codex-stage-a"), absolute) !== "result.json") throw new TypeError("local_codex_stage_a_invalid_artifact_path");
-    await assertSafeArtifactIdentity(absolute, false);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await assertSafeArtifactIdentity(absolute, true);
-    await unlink(absolute).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
-    const temporary = resolve(directory, `.local-codex-stage-a-${randomUUID()}.tmp`);
-    let handle: Awaited<ReturnType<typeof open>> | undefined;
-    try {
-      handle = await open(temporary, "wx", 0o600);
-      await handle.writeFile(`${JSON.stringify(artifact)}\n`, "utf8");
-      await handle.sync();
-      await handle.close(); handle = undefined;
-      await rename(temporary, absolute);
-      await chmod(absolute, 0o600);
-    } finally {
-      await handle?.close().catch(() => undefined);
-      await rm(temporary, { force: true });
-    }
+    await productionArtifactStore.write(path, artifact);
   },
   now: monotonicNow,
 });
@@ -316,15 +300,54 @@ async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<vo
   }
 }
 
-async function removeArtifact(path: string): Promise<void> {
-  const target = resolve(validateArtifactPath(path));
-  await assertSafeArtifactIdentity(target, false);
-  await unlink(target).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
+export type StageAArtifactStore = Readonly<{ prepare(path: string): Promise<void>; cleanup(path: string): Promise<void>; write(path: string, artifact: Artifact): Promise<void> }>;
+
+export function createStageAArtifactStore(options: Readonly<{ workspaceRoot: string; randomId?: () => string }>): StageAArtifactStore {
+  const root = resolve(options.workspaceRoot);
+  const randomId = options.randomId ?? randomUUID;
+  const targetFor = (path: string): string => {
+    if (path !== ARTIFACT_PATH || path.includes("\0")) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+    const target = resolve(root, path);
+    if (relative(root, target) !== ARTIFACT_PATH) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+    return target;
+  };
+  const remove = async (path: string): Promise<void> => {
+    const target = targetFor(path);
+    await assertSafeArtifactIdentity(root, target, false);
+    await unlink(target).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
+  };
+  return Object.freeze({
+    prepare: remove,
+    cleanup: remove,
+    async write(path, artifact) {
+      validateArtifact(artifact);
+      const absolute = targetFor(path); const directory = dirname(absolute);
+      await assertSafeArtifactIdentity(root, absolute, false);
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      await assertSafeArtifactIdentity(root, absolute, true);
+      await unlink(absolute).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
+      const temporary = resolve(directory, `.local-codex-stage-a-${randomId()}.tmp`);
+      if (dirname(temporary) !== directory) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
+      let handle: Awaited<ReturnType<typeof open>> | undefined;
+      let temporaryOwned = false;
+      try {
+        handle = await open(temporary, "wx", 0o600);
+        temporaryOwned = true;
+        await handle.writeFile(`${JSON.stringify(artifact)}\n`, "utf8");
+        await handle.sync();
+        await handle.close(); handle = undefined;
+        await rename(temporary, absolute);
+        await chmod(absolute, 0o600);
+      } finally {
+        await handle?.close().catch(() => undefined);
+        if (temporaryOwned) await rm(temporary, { force: true });
+      }
+    },
+  });
 }
 
 /** Reject every alias before a mutation; the artifact is intentionally one lexical leaf. */
-async function assertSafeArtifactIdentity(target: string, requireParent: boolean): Promise<void> {
-  const root = resolve(process.cwd());
+async function assertSafeArtifactIdentity(root: string, target: string, requireParent: boolean): Promise<void> {
   if (!target.startsWith(`${root}/`)) throw new TypeError("local_codex_stage_a_invalid_artifact_path");
   const pieces = relative(root, target).split("/");
   let cursor = root;

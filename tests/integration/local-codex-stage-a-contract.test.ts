@@ -1,4 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
+import { link, lstat, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 
 import {
   evaluateDiscoveryFixture,
@@ -6,6 +9,7 @@ import {
   parseDiscoveryFixture,
   parseLocalCodexStageAArgs,
   parseOnboardingFixture,
+  createStageAArtifactStore,
   runLocalCodexStageA,
 } from "../../evals/local-codex-stage-a";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
@@ -129,6 +133,58 @@ describe("local Codex Stage A gate", () => {
     await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), withoutClock)).resolves.toEqual({ exitCode: 0, stderr: "" });
   });
 
+  test("artifact store rejects lexical aliases and symlinked parents without outside mutation", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "stage-a-store-"));
+    const outside = await mkdtemp(resolve(tmpdir(), "stage-a-outside-"));
+    const store = createStageAArtifactStore({ workspaceRoot: root, randomId: () => "fixed" });
+    await expect(store.prepare("../data/evals/local-codex-stage-a/result.json")).rejects.toThrow("local_codex_stage_a_invalid_artifact_path");
+    await expect(store.prepare("data/evals/local-codex-stage-a/result.json\0suffix")).rejects.toThrow("local_codex_stage_a_invalid_artifact_path");
+    await mkdir(resolve(root, "data/evals"), { recursive: true });
+    await symlink(outside, resolve(root, "data/evals/local-codex-stage-a"));
+    const outsideResult = resolve(outside, "result.json");
+    await writeFile(outsideResult, "protected", { mode: 0o600 });
+    await expect(store.prepare("data/evals/local-codex-stage-a/result.json")).rejects.toThrow("local_codex_stage_a_invalid_artifact_path");
+    expect(await readFile(outsideResult, "utf8")).toBe("protected");
+    expect((await lstat(outsideResult)).mode & 0o777).toBe(0o600);
+  });
+
+  test("artifact store removes a stale regular final only through prepare", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "stage-a-store-"));
+    const target = resolve(root, "data/evals/local-codex-stage-a/result.json");
+    await mkdir(resolve(root, "data/evals/local-codex-stage-a"), { recursive: true });
+    await writeFile(target, "stale", { mode: 0o600 });
+    await createStageAArtifactStore({ workspaceRoot: root }).prepare("data/evals/local-codex-stage-a/result.json");
+    await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("artifact store rejects a hardlinked final without altering its peer", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "stage-a-store-"));
+    const directory = resolve(root, "data/evals/local-codex-stage-a");
+    const target = resolve(directory, "result.json");
+    const peer = resolve(root, "protected-input.json");
+    await mkdir(directory, { recursive: true });
+    await writeFile(peer, "peer-bytes", { mode: 0o600 });
+    await link(peer, target);
+    await expect(createStageAArtifactStore({ workspaceRoot: root }).prepare("data/evals/local-codex-stage-a/result.json")).rejects.toThrow("local_codex_stage_a_invalid_artifact_path");
+    expect(await readFile(peer, "utf8")).toBe("peer-bytes");
+    expect((await lstat(peer)).mode & 0o777).toBe(0o600);
+  });
+
+  test("artifact store writes atomically at mode 0600 and collision cleanup preserves unrelated files", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "stage-a-store-"));
+    const directory = resolve(root, "data/evals/local-codex-stage-a");
+    const path = "data/evals/local-codex-stage-a/result.json";
+    const store = createStageAArtifactStore({ workspaceRoot: root, randomId: () => "unique" });
+    await store.write(path, validArtifact());
+    const target = resolve(directory, "result.json");
+    expect((await lstat(target)).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(await readFile(target, "utf8"))).toMatchObject({ schemaVersion: "local-codex-stage-a@1" });
+    const collision = resolve(directory, ".local-codex-stage-a-fixed.tmp");
+    await writeFile(collision, "unrelated", { mode: 0o600 });
+    await expect(createStageAArtifactStore({ workspaceRoot: root, randomId: () => "fixed" }).write(path, validArtifact())).rejects.toMatchObject({ code: "EEXIST" });
+    expect(await readFile(collision, "utf8")).toBe("unrelated");
+  });
+
   test("rejects hostile onboarding fixtures before invoking the model", async () => {
     const malicious = structuredClone(onboardingFixture) as Record<string, unknown>;
     Object.defineProperty((malicious.expected as Record<string, unknown>).proposals as object, "0", {
@@ -197,6 +253,18 @@ function deterministicDependencies() {
     cleanupArtifact: async () => undefined,
     writeArtifact: async () => undefined,
     now: () => 1,
+  };
+}
+
+function validArtifact(): Parameters<ReturnType<typeof createStageAArtifactStore>["write"]>[1] {
+  return {
+    schemaVersion: "local-codex-stage-a@1", cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", model: "gpt-5.6-terra", effortsProven: ["low", "medium"],
+    noToolProbe: { passed: true, webSearchCount: 0 }, discoveryProbe: { passed: true, webSearchCount: 1 }, onboarding: { guardedProposalCount: 4, inventedValueCount: 0 }, discovery: { candidateCount: 1, allCandidatesUntrusted: true },
+    concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false, measurements: [
+      { requested: 1, completed: 1, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
+      { requested: 2, completed: 2, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 2_000_000, effectiveCeiling: 5 },
+      { requested: 5, completed: 5, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 5_000_000, effectiveCeiling: 5 },
+    ] }, abort: { processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true },
   };
 }
 
