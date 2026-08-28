@@ -29,3 +29,11 @@ export function replaceCountryResolutionRunUrl(runId: string): void {
     `?flow=country-resolution&run=${encodeURIComponent(runId)}`,
   );
 }
+
+export function replaceCityFrontierRunUrl(runId: string): void {
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `?flow=city-frontier&run=${encodeURIComponent(runId)}`,
+  );
+}

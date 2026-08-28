@@ -2,9 +2,9 @@
 
 | Поле | Значение |
 | --- | --- |
-| Статус | `implementation in progress — beta core verified` |
+| Статус | `implementation in progress — beta delivery locally verified` |
 | Владелец решения | пользователь проекта |
-| Последняя проверка | 2026-08-27 |
+| Последняя проверка | 2026-08-28 |
 | Область ответственности | установленный City Catalog, four-criterion city fit, frozen frontier, terminal shortlist и первый выбор городской Life Git ветви |
 | Supersedes | только forward обещание «1–3 города»; historical VS-3/VS-3R artifacts не изменяются |
 | Зависимости | [`VS-3R Yellow Resolution`](../vs-3r-yellow-resolution/change.md), [approved design](../../../superpowers/specs/2026-08-13-vs-4a-city-frontier-design.md), [plan index](../../../superpowers/plans/2026-08-13-vs-4a-city-frontier.md) |
@@ -88,14 +88,26 @@ shortlist, working resolution, empty/tampered terminal или effective-red coun
 ## 5. Beta implementation state и boundary
 
 `REQ-CF-01..07` и `SCN-CF-01..10` остаются утверждённым forward product contract для `GOAL-CF-01`.
-На 2026-08-27 подтверждён beta core: Setup; Start и Present; Prepare и один успешный Continue;
-durable Evidence → Knowledge → Frontier; events и composition; abort, recovery и concurrency; lineage
-и history replay. Полные результаты и границы приведены в
+На 2026-08-28 локально подтверждена beta delivery vertical. Она включает beta core — Setup; Start и
+Present; Prepare и один успешный Continue; durable Evidence → Knowledge → Frontier; events и
+composition; abort, recovery, concurrency, lineage и history replay — а также:
+
+- atomic public `SelectCity` с sibling City Branch publication;
+- strict Start/Continue/Select City HTTP transport;
+- finite NDJSON decoder и browser-safe frozen projection;
+- первый executable City UI flow setup/live/stored с terminal green/yellow cards, exact risk-bound
+  Select, same-command retry и verified append-only selection/branch history.
+
+Delivery sequence зафиксирована в GitHub PR
+[#15](https://github.com/talkingmachine/life-git/pull/15),
+[#16](https://github.com/talkingmachine/life-git/pull/16),
+[#17](https://github.com/talkingmachine/life-git/pull/17) и
+[#18](https://github.com/talkingmachine/life-git/pull/18). Полные результаты и границы приведены в
 [implementation evidence](implementation-evidence.md).
 
-Beta core не означает полный статус VS4A `implemented`. Не заработаны public write use case
-`SelectCity`, City HTTP transport, City UI, browser walkthrough и live-source/model evidence.
-Оставшиеся legacy/history/edge matrices, а также nonblocking hardening
+Beta delivery не означает полный статус VS4A `implemented`. Не заработаны deterministic Task 19
+replay/official-source acceptance evidence, browser walkthrough и live-source/model evidence.
+Оставшиеся legacy/history/edge и visual/a11y/lifecycle matrices, а также nonblocking hardening
 `CITY-EVIDENCE-SCHEMA-CLOSURE`, `CODEX-PROCESS-TREE-OWNERSHIP`,
 `CODEX-IO-TARGET-OWNERSHIP` и `DECIMAL-ORDER-BOUNDS`, не входят в earned beta scope.
 
