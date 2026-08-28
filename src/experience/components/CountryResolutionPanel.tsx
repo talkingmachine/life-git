@@ -65,9 +65,11 @@ function AssessmentExplanations({
 function ResolvedCountryCard({
   candidate,
   card,
+  sourceRevisionId,
 }: {
   readonly candidate: CountryResolutionCandidateView;
   readonly card: PlaceFrontierCountryCard;
+  readonly sourceRevisionId: string;
 }) {
   return (
     <article className="place-frontier-card country-resolution-card">
@@ -94,6 +96,10 @@ function ResolvedCountryCard({
           ))}
         </ul>
       </section>
+      <a href={`?flow=city-frontier&source=${encodeURIComponent(sourceRevisionId)}` +
+        `&country=${encodeURIComponent(card.country.countryCode)}`}>
+        Исследовать города
+      </a>
     </article>
   );
 }
@@ -199,6 +205,7 @@ export function CountryResolutionPanel({
                 country.countryCode === card.country.countryCode);
               if (effective === undefined) return null;
               return <ResolvedCountryCard candidate={effective} card={card}
+                sourceRevisionId={readModel.revision.id}
                 key={card.country.countryCode} />;
             })}
           </section>

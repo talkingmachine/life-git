@@ -1,5 +1,6 @@
 import { ColdStartJourney } from "../experience/components/ColdStartJourney";
 import { ColdStartStart } from "../experience/components/ColdStartStart";
+import { CityFrontierJourney } from "../experience/components/CityFrontierJourney";
 import { PlaceFrontierJourney } from "../experience/components/PlaceFrontierJourney";
 import { PlaceFrontierStart } from "../experience/components/PlaceFrontierStart";
 import { OnboardingStart } from "../experience/components/OnboardingStart";
@@ -13,6 +14,8 @@ interface PageProps {
     readonly flow?: string | readonly string[];
     readonly profile?: string | readonly string[];
     readonly run?: string | readonly string[];
+    readonly source?: string | readonly string[];
+    readonly country?: string | readonly string[];
   }>;
 }
 
@@ -26,6 +29,48 @@ export default async function Page({ searchParams }: PageProps) {
   const flow = one(params.flow);
   const runId = one(params.run);
   const profileId = one(params.profile);
+
+  if (flow === "city-frontier") {
+    const exactRunId = typeof params.run === "string" ? params.run : undefined;
+    const sourceRevisionId = typeof params.source === "string" ? params.source : undefined;
+    const countryCode = typeof params.country === "string" ? params.country : undefined;
+    const application = async () => {
+      const { getConfirmedLifeApplication } = await import("../infrastructure/composition-root");
+      return getConfirmedLifeApplication();
+    };
+
+    if (exactRunId !== undefined && params.source === undefined && params.country === undefined) {
+      try {
+        const readModel = await (await application()).presentCityFrontier(exactRunId);
+        return <CityFrontierJourney mode={{ kind: "stored", readModel }} />;
+      } catch (error) {
+        if (error instanceof Error && (error.message === "city_frontier_not_found" ||
+          error.message === "snapshot_not_found")) return <MissingCityFrontier />;
+        return <UnavailableCityFrontier />;
+      }
+    }
+
+    if (params.run === undefined && sourceRevisionId !== undefined && countryCode !== undefined) {
+      try {
+        const setup = await (await application()).presentCityFrontierSetup({
+          resolvedCountryShortlistRevisionId: sourceRevisionId,
+          countryCode,
+        });
+        return <CityFrontierJourney mode={{ kind: "setup", setup }} />;
+      } catch (error) {
+        if (error instanceof Error && error.message === "city_catalog_upgrade_required") {
+          return <CityCatalogUpgradeRequired />;
+        }
+        if (error instanceof Error && (error.message === "city_package_not_ready" ||
+          error.message === "city_package_not_installed")) return <UnavailableCityPackage />;
+        if (error instanceof Error && error.message === "resolution_not_found") {
+          return <MissingCityFrontierSetup />;
+        }
+        return <UnavailableCityFrontier />;
+      }
+    }
+    return <MissingCityFrontierSetup />;
+  }
 
   if (flow === "country-resolution") {
     if (runId === undefined) return <MissingCountryResolution />;
@@ -99,6 +144,65 @@ export default async function Page({ searchParams }: PageProps) {
       </main>
     );
   }
+}
+
+function MissingCityFrontierSetup() {
+  return (
+    <main className="landing landing--error">
+      <section className="landing__copy">
+        <p className="eyebrow">Поиск городов недоступен</p>
+        <h1>Исходная страна не найдена</h1>
+        <p>Откройте сохранённый результат поиска стран и выберите страну снова.</p>
+      </section>
+    </main>
+  );
+}
+
+function MissingCityFrontier() {
+  return (
+    <main className="landing landing--error">
+      <section className="landing__copy">
+        <p className="eyebrow">Запуск недоступен</p>
+        <h1>Поиск городов не найден</h1>
+        <p>Проверьте идентификатор запуска. Доменный вывод не показан.</p>
+      </section>
+    </main>
+  );
+}
+
+function UnavailableCityFrontier() {
+  return (
+    <main className="landing landing--error">
+      <section className="landing__copy">
+        <p className="eyebrow">Запуск недоступен</p>
+        <h1>Снимок не удалось открыть</h1>
+        <p>Доменный вывод не показан.</p>
+      </section>
+    </main>
+  );
+}
+
+function UnavailableCityPackage() {
+  return (
+    <main className="landing landing--error">
+      <section className="landing__copy">
+        <p className="eyebrow">Каталог недоступен</p>
+        <h1>Для этой страны нет готового пакета городов</h1>
+        <p>Поиск городов не запущен.</p>
+      </section>
+    </main>
+  );
+}
+
+function CityCatalogUpgradeRequired() {
+  return (
+    <main className="landing landing--error">
+      <section className="landing__copy">
+        <p className="eyebrow">Каталог недоступен</p>
+        <h1>Каталог городов нужно обновить, чтобы начать новый поиск.</h1>
+      </section>
+    </main>
+  );
 }
 
 function UnavailableColdStart() {

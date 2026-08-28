@@ -19,7 +19,7 @@ type LegacyResearchCandidate = Omit<LegacyJourneyCandidate, "reason" | "status">
 type ResearchCandidate = MapResearchCandidate | LegacyResearchCandidate;
 
 interface ResearchWorkspaceProps {
-  readonly scope?: "single-candidate" | "country-frontier";
+  readonly scope?: "single-candidate" | "country-frontier" | "city-frontier";
   readonly mode: CandidateState;
   readonly candidates: readonly ResearchCandidate[];
   readonly previousRun?: ResearchRunReference;
@@ -76,6 +76,10 @@ function candidateRoute(candidate: ResearchCandidate, routeLabel?: string): stri
     : `Россия → ${candidate.label}`;
 }
 
+function isFrontierScope(scope: ResearchWorkspaceProps["scope"]): boolean {
+  return scope === "country-frontier" || scope === "city-frontier";
+}
+
 export function ResearchWorkspace({
   mode,
   candidates,
@@ -127,15 +131,17 @@ export function ResearchWorkspace({
     || retryRecord !== undefined
     || retryError !== undefined
   );
-  const candidateLabels = scope === "country-frontier" ? frontierLabels : labels;
-  const showProgress = scope === "country-frontier"
+  const candidateLabels = isFrontierScope(scope) ? frontierLabels : labels;
+  const showProgress = isFrontierScope(scope)
     ? candidates.some(({ status }) => status === "pending")
     : mode === "pending";
 
   return (
     <section
-      aria-label={scope === "country-frontier"
-        ? "Проверка формальной доступности стран"
+      aria-label={scope === "city-frontier"
+        ? "Проверка городов"
+        : scope === "country-frontier"
+          ? "Проверка формальной доступности стран"
         : "Проверка маршрута"}
       className={`research-workspace research-workspace--${mode}`}
       data-scope={scope}
@@ -144,9 +150,13 @@ export function ResearchWorkspace({
     >
       <section className="orbit-panel research-workspace__candidate">
         <p className="orbit-panel__index">
-          {scope === "country-frontier" ? "СТРАНЫ" : "01 / МАРШРУТ"}
+          {scope === "city-frontier"
+            ? "ГОРОДА"
+            : scope === "country-frontier" ? "СТРАНЫ" : "01 / МАРШРУТ"}
         </p>
-        <ul aria-label={scope === "country-frontier" ? "Кандидаты стран" : "Кандидаты маршрута"}>
+        <ul aria-label={scope === "city-frontier"
+          ? "Кандидаты городов"
+          : scope === "country-frontier" ? "Кандидаты стран" : "Кандидаты маршрута"}>
           {candidates.map((candidate) => {
             const reasonId = `research-reason-${candidate.id}`;
             const isInteractive = candidate.reason !== undefined &&
