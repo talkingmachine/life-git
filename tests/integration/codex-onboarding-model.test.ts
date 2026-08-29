@@ -7,7 +7,7 @@ import {
   type OnboardingExtractionRetryReason,
   type OnboardingModelPort,
 } from "../../src/application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V9 } from
+import { ONBOARDING_MODEL_VERSIONS_V10 } from
   "../../src/application/onboarding-model-versions";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
 import { createOnboardingSession, type SessionMessage } from "../../src/decision/onboarding-session";
@@ -210,7 +210,7 @@ describe("Codex onboarding model", () => {
 
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
       invocation: "codex-cli-invocation@2",
-      cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
+      cliVersion: "codex-cli-0.149.0-alpha.4-plus@2",
       extractionPrompt: "onboarding-extract@9",
       reviewPrompt: "onboarding-review@2",
       extractionSchema: "onboarding-extraction-wire@3",
@@ -232,7 +232,7 @@ describe("Codex onboarding model", () => {
     });
     expect(Object.keys(model)).toEqual(["versions", "extract", "review"]);
     expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS);
-    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V9);
+    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V10);
     expect(Object.isFrozen(model)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_EXTRACTION_LIMITS)).toBe(true);

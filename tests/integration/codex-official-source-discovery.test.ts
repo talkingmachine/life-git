@@ -16,7 +16,7 @@ import {
   CODEX_CLI_PROTOCOL_VERSION,
   CODEX_CLI_VERSION,
   CODEX_INVOCATION_VERSION,
-  CODEX_MODEL,
+  CODEX_DISCOVERY_MODEL,
   CodexRuntimeError,
   type CodexJsonInvocation,
   type CodexJsonResult,
@@ -40,8 +40,8 @@ function metadata(): CodexJsonResult["metadata"] {
   return {
     invocationVersion: CODEX_INVOCATION_VERSION, protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
     compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY, cliVersion: CODEX_CLI_VERSION,
-    model: CODEX_MODEL, reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1",
-    templateVersion: "official-source-discover@2", schemaVersion: "official-source-candidates@1",
+    model: CODEX_DISCOVERY_MODEL, reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+    templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
   };
 }
 
@@ -65,7 +65,7 @@ describe("Codex official source discovery", () => {
 
     expect(invoke).toHaveBeenCalledTimes(1);
     const call = invoke.mock.calls[0][0] as CodexJsonInvocation;
-    expect(call).toMatchObject({ capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "official-source-discover@2", schemaVersion: "official-source-candidates@1" });
+    expect(call).toMatchObject({ capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2", templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1" });
     expect(call.outputSchema).toEqual(OFFICIAL_SOURCE_CANDIDATES_SCHEMA);
     expect(call.limits).toEqual(OFFICIAL_SOURCE_DISCOVERY_LIMITS);
     expect(call.signal).toBe(discoveryRequest.signal);

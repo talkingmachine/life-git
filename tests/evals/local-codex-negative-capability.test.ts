@@ -90,7 +90,7 @@ describe("negative capability structural observation", () => {
     ));
 
     expect(observation).toEqual({
-      schemaVersion: "local-codex-negative-capability-observation@1",
+      schemaVersion: "local-codex-negative-capability-observation@2",
       mode: "structural_observation",
       stableCode: "codex_negative_capability_shape_unreviewed",
       passed: false,

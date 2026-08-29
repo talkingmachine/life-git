@@ -7,8 +7,6 @@ import {
   buildCodexExecArgs,
   CODEX_DISABLED_FEATURES,
   CODEX_FIXED_EXEC_CONFIGS,
-  CODEX_WEB_SEARCH_DISABLED_FEATURES,
-  CODEX_WEB_SEARCH_ENABLED_FEATURES,
   codexPolicyFingerprint,
   deriveCodexPolicyFingerprintForTest,
   parseSupportedCodexCliVersion,
@@ -42,10 +40,10 @@ const EXPECTED_DISABLED_FEATURES = [
 
 function invocation(
   reasoningEffort: "low" | "medium",
-  toolPolicy: "codex-tools-none@2" | "codex-tools-web-search@1",
+  toolPolicy: "codex-tools-none@2" | "codex-tools-web-search@2",
 ): CodexJsonInvocation {
   return {
-    capability: toolPolicy === "codex-tools-web-search@1" ? "source.discover" : "onboarding.extract",
+    capability: toolPolicy === "codex-tools-web-search@2" ? "source.discover" : "onboarding.extract",
     reasoningEffort,
     toolPolicy,
     templateVersion: "template@1",
@@ -99,26 +97,33 @@ describe("buildCodexExecArgs", () => {
   });
 
   test("puts the only allowed discovery tool before exec and fixes medium effort", () => {
-    const args = buildCodexExecArgs(invocation("medium", "codex-tools-web-search@1"), "/owned/fresh", "/owned/fresh/schema.json");
+    const args = buildCodexExecArgs(invocation("medium", "codex-tools-web-search@2"), "/owned/fresh", "/owned/fresh/schema.json");
 
-    expect(args.slice(0, 6)).toEqual(["--search", "--enable", "code_mode", "--enable", "code_mode_host", "exec"]);
-    expect(args.slice(5, 7)).toEqual(["exec", "-c"]);
-    expect(args).toContain("suppress_unstable_features_warning=true");
+    expect(args.slice(0, 2)).toEqual(["--search", "exec"]);
     expectFixedConfigs(args);
-    expect(CODEX_WEB_SEARCH_DISABLED_FEATURES).not.toContain("code_mode");
-    expect(CODEX_WEB_SEARCH_DISABLED_FEATURES).not.toContain("code_mode_host");
-    expect(CODEX_WEB_SEARCH_ENABLED_FEATURES).toEqual(["code_mode", "code_mode_host"]);
+    expect(args).toContain("code_mode");
+    expect(args).toContain("code_mode_host");
     expect(args).toContain("model_reasoning_effort=\"medium\"");
     expect(args.join("\0")).not.toMatch(/--(?:ask-for-approval|approve-for-me|profile|add-dir)/);
     expect(args).toEqual([
-      "--search", "--enable", "code_mode", "--enable", "code_mode_host", "exec",
-      "-c", "suppress_unstable_features_warning=true", ...CODEX_FIXED_EXEC_CONFIGS.flatMap((config) => ["-c", config]),
+      "--search", "exec", ...CODEX_FIXED_EXEC_CONFIGS.flatMap((config) => ["-c", config]),
       "--strict-config", "--ephemeral", "--ignore-user-config", "--ignore-rules",
-      "--model", "gpt-5.6-terra", "-c", "model_reasoning_effort=\"medium\"",
-      ...CODEX_WEB_SEARCH_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
+      "--model", "gpt-5.4", "-c", "model_reasoning_effort=\"medium\"",
+      ...EXPECTED_DISABLED_FEATURES.flatMap((feature) => ["--disable", feature]),
       "--sandbox", "read-only", "--skip-git-repo-check", "--cd", "/owned/fresh",
       "--output-schema", "/owned/fresh/schema.json", "--json", "-",
     ]);
+  });
+
+  test("keeps Code Mode disabled while using the capability-owned direct-search model", () => {
+    const args = buildCodexExecArgs(invocation("medium", "codex-tools-web-search@2"), "/owned/fresh", "/owned/fresh/schema.json");
+
+    expect(args.slice(0, 2)).toEqual(["--search", "exec"]);
+    expect(args).toContain("gpt-5.4");
+    expect(args).not.toContain("--enable");
+    for (const feature of CODEX_DISABLED_FEATURES) {
+      expect(args).toContain(feature);
+    }
   });
 
   test("binds the complete retained disabled-feature tuple into argv and fingerprint", () => {

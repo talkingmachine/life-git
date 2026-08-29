@@ -5,7 +5,6 @@ import {
   CODEX_CLI_COMPATIBILITY_POLICY,
   CODEX_CLI_PROTOCOL_VERSION,
   CODEX_INVOCATION_VERSION,
-  CODEX_MODEL,
   CodexRuntimeError,
   type CodexJsonInvocation,
   type CodexJsonResult,
@@ -13,7 +12,7 @@ import {
 import { runCodexJsonProbe } from "./feasibility-probe";
 import { CodexFlightPool } from "./flight-pool";
 import { snapshotOwnedJson, type JsonValue } from "./owned-json";
-import { codexPolicyFingerprint } from "./policy";
+import { codexPolicyFingerprint, modelForCodexCapability } from "./policy";
 import { createClosedCodexEnvironment, type CodexPreflightResult } from "./preflight";
 import type { CodexProcessSpawner } from "./process";
 import type { ValidatedCodexTempRoot } from "./temp-directory";
@@ -143,7 +142,7 @@ export class CodexCliModelAdapter {
             childEnv: this.#childEnv,
             flightKey: key,
           });
-          if (input.toolPolicy === "codex-tools-web-search@1" &&
+          if ((input.toolPolicy === "codex-tools-web-search@1" || input.toolPolicy === "codex-tools-web-search@2") &&
             !isValidSearchCount(probe.webSearchCount, input.limits.maxEvents)) {
             throw new CodexRuntimeError("codex_tool_event");
           }
@@ -165,7 +164,7 @@ export class CodexCliModelAdapter {
             protocolVersion: CODEX_CLI_PROTOCOL_VERSION,
             compatibilityPolicy: CODEX_CLI_COMPATIBILITY_POLICY,
             cliVersion: this.#preflight.cliVersion,
-            model: CODEX_MODEL,
+            model: modelForCodexCapability(input.capability),
             reasoningEffort: input.reasoningEffort,
             toolPolicy: input.toolPolicy,
             templateVersion: input.templateVersion,
@@ -186,7 +185,7 @@ export function deriveCodexFlightKey(input: CodexJsonInvocation): string {
   const payload = canonicalJson({
     capability: input.capability,
     limits: input.limits,
-    model: CODEX_MODEL,
+    model: modelForCodexCapability(input.capability),
     outputSchemaHash: sha256(canonicalJson(input.outputSchema)),
     policyFingerprint: codexPolicyFingerprint,
     promptHash: sha256(input.prompt),
@@ -221,7 +220,7 @@ function classifyPressure(error: unknown): "rate_limited" | "provider_transient"
 function isZeroSearchRetryEligible(input: CodexJsonInvocation): boolean {
   return input.capability === "source.discover" &&
     input.reasoningEffort === "medium" &&
-    input.toolPolicy === "codex-tools-web-search@1";
+    (input.toolPolicy === "codex-tools-web-search@1" || input.toolPolicy === "codex-tools-web-search@2");
 }
 
 function isValidSearchCount(value: number, maximum: number): boolean {

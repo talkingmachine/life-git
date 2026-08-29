@@ -4,8 +4,10 @@ import { snapshotOwnedJson, type JsonObject, type JsonValue } from "./owned-json
 
 export const CODEX_CLI_PROTOCOL_VERSION = "codex-cli-protocol@2" as const;
 export const CODEX_INVOCATION_VERSION = "codex-cli-invocation@2" as const;
-export const CODEX_CLI_COMPATIBILITY_POLICY = "codex-cli-0.149.0-alpha.4-plus@1" as const;
+export const CODEX_CLI_COMPATIBILITY_POLICY = "codex-cli-0.149.0-alpha.4-plus@2" as const;
 export const CODEX_MODEL = "gpt-5.6-terra" as const;
+export const CODEX_DISCOVERY_MODEL = "gpt-5.4" as const;
+export type CodexModel = typeof CODEX_MODEL | typeof CODEX_DISCOVERY_MODEL;
 /** Supported fixture version; runtime metadata always uses the observed preflight version. */
 export const CODEX_CLI_VERSION = "codex-cli 0.149.0-alpha.4" as const;
 export const MAX_CODEX_TIMEOUT_MS = 120_000;
@@ -25,7 +27,8 @@ export type CodexCapabilityId =
   | "full-life.film";
 
 export type CodexReasoningEffort = "low" | "medium";
-export type CodexToolPolicyId = "codex-tools-none@2" | "codex-tools-web-search@1";
+/** @deprecated `@1` exists only so historical parser fixtures remain readable; invocation construction rejects it. */
+export type CodexToolPolicyId = "codex-tools-none@2" | "codex-tools-web-search@1" | "codex-tools-web-search@2";
 
 export interface CodexInvocationLimits {
   readonly timeoutMs: number;
@@ -51,7 +54,7 @@ export interface CodexInvocationMetadata {
   readonly protocolVersion: typeof CODEX_CLI_PROTOCOL_VERSION;
   readonly compatibilityPolicy: typeof CODEX_CLI_COMPATIBILITY_POLICY;
   readonly cliVersion: string;
-  readonly model: typeof CODEX_MODEL;
+  readonly model: CodexModel;
   readonly reasoningEffort: CodexReasoningEffort;
   readonly toolPolicy: CodexToolPolicyId;
   readonly templateVersion: string;
@@ -171,7 +174,7 @@ function requireReasoningEffort(value: unknown): CodexReasoningEffort {
 }
 
 function requireToolPolicy(value: unknown): CodexToolPolicyId {
-  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@1") return value;
+  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@1" || value === "codex-tools-web-search@2") return value;
   throw protocolInvalid();
 }
 
@@ -181,7 +184,7 @@ function isValidCapabilityPolicy(
   toolPolicy: CodexToolPolicyId,
 ): boolean {
   return capability === "source.discover"
-    ? reasoningEffort === "medium" && toolPolicy === "codex-tools-web-search@1"
+    ? reasoningEffort === "medium" && (toolPolicy === "codex-tools-web-search@1" || toolPolicy === "codex-tools-web-search@2")
     : (reasoningEffort === "low" || reasoningEffort === "medium") && toolPolicy === "codex-tools-none@2";
 }
 

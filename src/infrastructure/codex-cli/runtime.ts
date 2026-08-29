@@ -11,6 +11,7 @@ import {
 } from "./preflight";
 import type { CodexProcessSpawner } from "./process";
 import { scavengeStaleCodexDirectories, validateCodexTempRoot } from "./temp-directory";
+import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "./reviewed-installation";
 
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const NATIVE_REASON_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "reason")?.get;
@@ -18,7 +19,6 @@ const RUNTIME_STATE_KEY = Symbol.for("confirmed-life.codex-cli-runtime@1");
 
 export interface InitializeCodexCliRuntimeInput {
   readonly configuredExecutable?: string;
-  readonly pathValue?: string;
   readonly tempRootPath: string;
   readonly currentUid: number;
   readonly childEnv: Readonly<Record<string, string>>;
@@ -33,9 +33,25 @@ interface CodexCliRuntimeState {
 }
 
 export function initializeCodexCliRuntime(input: InitializeCodexCliRuntimeInput): Promise<void> {
+  return initializeCodexCliRuntimeWithVerifier(input, verifyReviewedLocalCodexInstallation, false);
+}
+
+/** Deterministic test seam; normal initialization always owns the reviewed-installation verifier. */
+export function initializeCodexCliRuntimeForTest(
+  input: InitializeCodexCliRuntimeInput,
+  verifyInstallation: () => Promise<void>,
+): Promise<void> {
+  return initializeCodexCliRuntimeWithVerifier(input, verifyInstallation, true);
+}
+
+function initializeCodexCliRuntimeWithVerifier(
+  input: InitializeCodexCliRuntimeInput,
+  verifyInstallation: () => Promise<void>,
+  testOnly: boolean,
+): Promise<void> {
   const state = runtimeState();
   if (state.initialization === undefined) {
-    const attempt = initializeOnce(snapshotInput(input), state);
+    const attempt = initializeOnce(snapshotInput(input), state, verifyInstallation, testOnly);
     state.initialization = attempt;
     void attempt.catch(() => {
       if (state.initialization === attempt) state.initialization = undefined;
@@ -76,8 +92,8 @@ export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<C
     const discovery = await adapter.invokeJsonWithEventProof(createCodexJsonInvocation({
       capability: "source.discover",
       reasoningEffort: "medium",
-      toolPolicy: "codex-tools-web-search@1",
-      templateVersion: "codex-runtime-discovery-smoke@2",
+      toolPolicy: "codex-tools-web-search@2",
+      templateVersion: "codex-runtime-discovery-smoke@3",
       schemaVersion: "codex-runtime-smoke@2",
       prompt: "Use native web search only to find the current official OpenAI developer documentation home. Return only the required synthetic status object.",
       outputSchema: smokeOutputSchema(),
@@ -115,7 +131,6 @@ function isValidSearchCount(value: unknown, maximum: number): value is number {
 
 interface OwnedInitializationInput {
   readonly configuredExecutable?: string;
-  readonly pathValue?: string;
   readonly tempRootPath: string;
   readonly currentUid: number;
   readonly childEnv: Readonly<Record<string, string>>;
@@ -127,7 +142,6 @@ interface OwnedInitializationInput {
 function snapshotInput(input: InitializeCodexCliRuntimeInput): OwnedInitializationInput {
   return Object.freeze({
     ...(input.configuredExecutable === undefined ? {} : { configuredExecutable: input.configuredExecutable }),
-    ...(input.pathValue === undefined ? {} : { pathValue: input.pathValue }),
     tempRootPath: input.tempRootPath,
     currentUid: input.currentUid,
     childEnv: Object.freeze(createClosedCodexEnvironment(input.childEnv)),
@@ -140,7 +154,14 @@ function snapshotInput(input: InitializeCodexCliRuntimeInput): OwnedInitializati
 async function initializeOnce(
   input: OwnedInitializationInput,
   state: CodexCliRuntimeState,
+  verifyInstallation: () => Promise<void>,
+  testOnly: boolean,
 ): Promise<void> {
+  throwIfAborted(input.signal);
+  if (!testOnly && input.configuredExecutable !== undefined && input.configuredExecutable !== REVIEWED_CODEX_EXECUTABLE) {
+    throw new CodexRuntimeError("codex_version_mismatch");
+  }
+  await verifyInstallation();
   throwIfAborted(input.signal);
   const tempRoot = await validateCodexTempRoot({
     path: input.tempRootPath,
@@ -162,8 +183,9 @@ async function initializeOnce(
   throwIfAborted(input.signal);
 
   const preflight = await preflightCodexCli({
-    ...(input.configuredExecutable === undefined ? {} : { configuredExecutable: input.configuredExecutable }),
-    ...(input.pathValue === undefined ? {} : { pathValue: input.pathValue }),
+    configuredExecutable: testOnly && input.configuredExecutable !== undefined
+      ? input.configuredExecutable
+      : REVIEWED_CODEX_EXECUTABLE,
     spawner: input.spawner,
     childEnv: input.childEnv,
     signal: input.signal,

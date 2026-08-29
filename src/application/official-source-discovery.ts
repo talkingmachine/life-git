@@ -26,12 +26,12 @@ export type OfficialSourceCandidate = Readonly<{
 export type OfficialSourceDiscoveryRuntimeMetadata = Readonly<{
   invocationVersion: "codex-cli-invocation@2";
   protocolVersion: "codex-cli-protocol@2";
-  compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1";
+  compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2";
   cliVersion: string;
-  model: "gpt-5.6-terra";
+  model: "gpt-5.4";
   reasoningEffort: "medium";
-  toolPolicy: "codex-tools-web-search@1";
-  templateVersion: "official-source-discover@2";
+  toolPolicy: "codex-tools-web-search@2";
+  templateVersion: "official-source-discover@3";
   schemaVersion: "official-source-candidates@1";
 }>;
 

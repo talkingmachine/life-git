@@ -5,7 +5,7 @@ import {
   type OnboardingExtractionAttemptContext,
   type OnboardingModelPort,
 } from "../../application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V9 } from "../../application/onboarding-model-versions";
+import { ONBOARDING_MODEL_VERSIONS_V10 } from "../../application/onboarding-model-versions";
 import { reconstructOnboardingQuestionnaireProjection } from "../../decision/onboarding-model-contract";
 import {
   parseLocalReviewOutput,
@@ -27,7 +27,7 @@ import {
   ONBOARDING_REVIEW_SCHEMA,
 } from "./onboarding-schema";
 
-export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V9;
+export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V10;
 
 export const ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES = 65_536;
 export const ONBOARDING_REVIEW_MAX_PROMPT_BYTES = 98_304;

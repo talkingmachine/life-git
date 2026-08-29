@@ -81,6 +81,15 @@ export interface OnboardingModelVersionsV9 {
   readonly reviewSchema: "onboarding-review-output@1";
 }
 
+export interface OnboardingModelVersionsV10 {
+  readonly invocation: "codex-cli-invocation@2";
+  readonly cliVersion: "codex-cli-0.149.0-alpha.4-plus@2";
+  readonly extractionPrompt: "onboarding-extract@9";
+  readonly reviewPrompt: "onboarding-review@2";
+  readonly extractionSchema: "onboarding-extraction-wire@3";
+  readonly reviewSchema: "onboarding-review-output@1";
+}
+
 export type OnboardingModelVersions =
   | OnboardingModelVersionsV1
   | OnboardingModelVersionsV2
@@ -90,7 +99,8 @@ export type OnboardingModelVersions =
   | OnboardingModelVersionsV6
   | OnboardingModelVersionsV7
   | OnboardingModelVersionsV8
-  | OnboardingModelVersionsV9;
+  | OnboardingModelVersionsV9
+  | OnboardingModelVersionsV10;
 
 export const ONBOARDING_MODEL_VERSIONS_V1 = Object.freeze({
   invocation: "codex-cli-invocation@1",
@@ -173,6 +183,15 @@ export const ONBOARDING_MODEL_VERSIONS_V9 = Object.freeze({
   reviewSchema: "onboarding-review-output@1",
 } as const satisfies OnboardingModelVersionsV9);
 
+export const ONBOARDING_MODEL_VERSIONS_V10 = Object.freeze({
+  invocation: "codex-cli-invocation@2",
+  cliVersion: "codex-cli-0.149.0-alpha.4-plus@2",
+  extractionPrompt: "onboarding-extract@9",
+  reviewPrompt: "onboarding-review@2",
+  extractionSchema: "onboarding-extraction-wire@3",
+  reviewSchema: "onboarding-review-output@1",
+} as const satisfies OnboardingModelVersionsV10);
+
 const VERSION_KEYS = Object.freeze([
   "invocation",
   "cliVersion",
@@ -210,6 +229,9 @@ export function reconstructOnboardingModelVersions(value: unknown): OnboardingMo
   }
   if (matchesTuple(versions, ONBOARDING_MODEL_VERSIONS_V9)) {
     return ONBOARDING_MODEL_VERSIONS_V9;
+  }
+  if (matchesTuple(versions, ONBOARDING_MODEL_VERSIONS_V10)) {
+    return ONBOARDING_MODEL_VERSIONS_V10;
   }
   throw invalidVersions();
 }

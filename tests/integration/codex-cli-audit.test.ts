@@ -48,9 +48,9 @@ describe("Codex runtime static audit", () => {
     await expect(auditCodexRuntime({ rootPath })).rejects.toThrow("codex_runtime_audit_failed");
   });
 
-  test("permits only the fixed Terra model argv in the policy owner", async () => {
+  test("permits only the capability-owned model argv in the policy owner", async () => {
     const rootPath = await createRuntimeFixture({
-      policySource: 'export const args = ["--model", "gpt-5.6-terra"];',
+      policySource: 'export const args = ["--model", modelForCodexCapability(invocation.capability)];',
     });
 
     await expect(auditCodexRuntime({ rootPath })).resolves.toMatchObject({

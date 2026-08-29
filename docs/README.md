@@ -194,7 +194,7 @@ Prerequisites: bundled Codex executable is available and `codex login status` re
 pnpm eval:local-codex-stage-a -- --live-local-subscription --artifact data/evals/local-codex-stage-a/result.json
 ```
 
-It writes the sanitized local artifact at `data/evals/local-codex-stage-a/result.json`. The gate fixes the model to Terra (`gpt-5.6-terra`) and never exceeds medium reasoning. Discovery candidates are untrusted planning hints, not Evidence.
+It writes the sanitized local artifact at `data/evals/local-codex-stage-a/result.json`. Extraction uses Terra (`gpt-5.6-terra`); discovery uses direct native search on `gpt-5.4` at medium reasoning. Code Mode remains disabled. Apply patch remains model-visible for the reviewed CLI but is denied by managed approval and the read-only sandbox, and the Stage A command runs its canary denial gate before discovery. Normal runtime attests the reviewed installation before any spawn. Discovery candidates are untrusted planning hints, not Evidence.
 
 The pinned local CLI makes native search available, but its selection remains model-selected: it has no supported forced-search selector. Candidate hints therefore require reviewed positive native-search proof. A schema-valid empty result is `yellow_no_candidate`; two exact zero-search attempts are `yellow_search_not_performed`. Both yellow outcomes write no replacement or other durable mutation.
 

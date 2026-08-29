@@ -95,7 +95,7 @@ describe("CodexCliModelAdapter", () => {
       metadata: {
         invocationVersion: "codex-cli-invocation@2",
         protocolVersion: "codex-cli-protocol@2",
-        compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1",
+        compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2",
         cliVersion: "codex-cli 0.149.0-alpha.4",
         model: "gpt-5.6-terra",
         reasoningEffort: "low",
@@ -206,8 +206,10 @@ describe("CodexCliModelAdapter", () => {
     const baseResult = adapter.invokeJson(base);
     const discoveryResult = adapter.invokeJson(discovery);
     await vi.waitFor(() => expect(probe.run).toHaveBeenCalledTimes(2));
-    expect(probe.run.mock.calls.map(([call]) => call.flightKey))
-      .toEqual([independentFlightKey(base), independentFlightKey(discovery)]);
+    expect(probe.run.mock.calls.map(([call]) => call.flightKey)[0])
+      .toBe(independentFlightKey(base));
+    expect(probe.run.mock.calls.map(([call]) => call.flightKey)[1])
+      .not.toBe(independentFlightKey(base));
     firstGate.resolve(successfulProbe('{"ok":true}'));
     secondGate.resolve(successfulProbe('{"ok":true}', 1));
     await Promise.all([baseResult, discoveryResult]);
@@ -235,9 +237,9 @@ describe("CodexCliModelAdapter", () => {
         metadata: {
           invocationVersion: "codex-cli-invocation@2",
           protocolVersion: "codex-cli-protocol@2",
-          compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1",
+          compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2",
           cliVersion: "codex-cli 0.149.0-alpha.4",
-          model: "gpt-5.6-terra",
+          model: "gpt-5.4",
           reasoningEffort: "medium",
           toolPolicy: "codex-tools-web-search@1",
           templateVersion: "source-discovery@1",
@@ -659,7 +661,7 @@ describe("Codex CLI runtime singleton", () => {
       schemaVersion: "codex-runtime-capabilities@1", low: { webSearchCount: 0 }, medium: { webSearchCount: 0 }, discovery: { availability: "available", selection: "model-selected", webSearchCount: 1 },
     });
     expect(probe.run.mock.calls.map(([call]) => [call.invocation.reasoningEffort, call.invocation.toolPolicy]))
-      .toEqual([["low", "codex-tools-none@2"], ["medium", "codex-tools-none@2"], ["medium", "codex-tools-web-search@1"]]);
+      .toEqual([["low", "codex-tools-none@2"], ["medium", "codex-tools-none@2"], ["medium", "codex-tools-web-search@2"]]);
     expect(probe.run.mock.calls[2]?.[0].invocation.prompt).toContain("official OpenAI developer documentation home");
   });
 
@@ -725,7 +727,6 @@ describe("Next instrumentation", () => {
     expect(initialize).toHaveBeenCalledTimes(1);
     expect(initialize).toHaveBeenCalledWith(expect.objectContaining({
       configuredExecutable: "/Applications/ChatGPT.app/Contents/Resources/codex",
-      pathValue: "/usr/bin:/bin",
       tempRootPath: "/tmp",
       childEnv: {
         CODEX_HOME: "/synthetic/codex-home",
@@ -844,7 +845,12 @@ function adapterOptions(cliVersion: string = CODEX_CLI_VERSION) {
 
 async function freshRuntime() {
   vi.resetModules();
-  return import("../../src/infrastructure/codex-cli/runtime");
+  const runtime = await import("../../src/infrastructure/codex-cli/runtime");
+  return Object.freeze({
+    ...runtime,
+    initializeCodexCliRuntime: (input: Parameters<typeof runtime.initializeCodexCliRuntime>[0]) =>
+      runtime.initializeCodexCliRuntimeForTest(input, async () => undefined),
+  });
 }
 
 async function runtimeFixture(options: {

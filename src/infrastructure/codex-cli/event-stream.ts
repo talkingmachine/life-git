@@ -184,8 +184,8 @@ function parseEvent(
       if ((!requireReviewedNotices && !hasExactKeys(event, ["type"])) ||
         (requireReviewedNotices && !hasReviewedUsageShape(event)) || !state.turnStarted || state.reasoningId !== undefined ||
         state.webSearchId !== undefined || (toolPolicy === "codex-tools-none@2" && state.message === undefined) ||
-        (toolPolicy === "codex-tools-web-search@1" && state.webCandidate === undefined)) throw protocolInvalid();
-      if (toolPolicy === "codex-tools-web-search@1") state.message = state.webCandidate;
+        (isWebSearchPolicy(toolPolicy) && state.webCandidate === undefined)) throw protocolInvalid();
+      if (isWebSearchPolicy(toolPolicy)) state.message = state.webCandidate;
       state.turnCompleted = true;
       return;
     case "turn.failed":
@@ -207,7 +207,7 @@ function completeReviewedPreTurnNotice(
 }
 
 function reviewedNotices(toolPolicy: CodexToolPolicyId): readonly (typeof REVIEWED_PRE_TURN_NOTICES)[number][] {
-  return toolPolicy === "codex-tools-web-search@1" ? REVIEWED_PRE_TURN_NOTICES.slice(0, 1) : REVIEWED_PRE_TURN_NOTICES;
+  return isWebSearchPolicy(toolPolicy) ? REVIEWED_PRE_TURN_NOTICES.slice(0, 1) : REVIEWED_PRE_TURN_NOTICES;
 }
 
 function startItem(event: Record<string, unknown>, state: StreamState, toolPolicy: CodexToolPolicyId): void {
@@ -275,7 +275,7 @@ function completeItem(
     if (state.seenItemIds.has(id)) throw protocolInvalid();
     state.seenItemIds.add(id);
   }
-  if (toolPolicy === "codex-tools-web-search@1") state.webCandidate = item.text;
+  if (isWebSearchPolicy(toolPolicy)) state.webCandidate = item.text;
   else state.message = item.text;
 }
 
@@ -362,7 +362,7 @@ function isToolItemType(type: string | undefined): boolean {
 }
 
 function readToolPolicy(value: unknown): CodexToolPolicyId {
-  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@1") return value;
+  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@1" || value === "codex-tools-web-search@2") return value;
   throw protocolInvalid();
 }
 
@@ -412,6 +412,10 @@ function isPositiveInteger(value: unknown): value is number {
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isWebSearchPolicy(value: CodexToolPolicyId): boolean {
+  return value === "codex-tools-web-search@1" || value === "codex-tools-web-search@2";
 }
 
 function isEnumerableDataDescriptor(

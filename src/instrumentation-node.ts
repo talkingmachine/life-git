@@ -20,7 +20,6 @@ export async function registerNodeCodexRuntime(): Promise<void> {
     ...(process.env.CODEX_EXECUTABLE === undefined
       ? {}
       : { configuredExecutable: process.env.CODEX_EXECUTABLE }),
-    ...(process.env.PATH === undefined ? {} : { pathValue: process.env.PATH }),
     tempRootPath,
     currentUid,
     childEnv,

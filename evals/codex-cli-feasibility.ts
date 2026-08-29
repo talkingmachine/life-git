@@ -1190,6 +1190,7 @@ function isFreshDirectChild(path: string, tempRoot: ValidatedCodexTempRoot): boo
 
 function hasExactExecArguments(args: readonly string[], cwd: string): boolean {
   return sameStrings(args, buildCodexExecArgs({
+    capability: "onboarding.extract",
     reasoningEffort: "low",
     toolPolicy: "codex-tools-none@2",
   }, cwd, join(cwd, "schema.json")));

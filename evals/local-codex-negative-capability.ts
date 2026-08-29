@@ -21,7 +21,7 @@ import {
 } from "../src/infrastructure/codex-cli/reviewed-installation";
 import { validateCodexTempRoot, withCodexTempDirectory } from "../src/infrastructure/codex-cli/temp-directory";
 
-const SCHEMA_VERSION = "local-codex-negative-capability-observation@1" as const;
+const SCHEMA_VERSION = "local-codex-negative-capability-observation@2" as const;
 const STABLE_SHAPE_UNREVIEWED = "codex_negative_capability_shape_unreviewed" as const;
 const STABLE_FAILED = "codex_negative_capability_failed" as const;
 const STABLE_PASSED = "codex_negative_capability_passed" as const;
@@ -191,7 +191,7 @@ export async function runLocalCodexNegativeCapability(
         const before = await canarySnapshot(canaryPath);
         const result = await runBoundedProcess({
           executable: preflight.executable,
-          args: buildCodexExecArgs({ reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1" }, directory.directoryPath, directory.schemaPath),
+          args: buildCodexExecArgs({ capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2" }, directory.directoryPath, directory.schemaPath),
           cwd: directory.directoryPath,
           env: childEnv,
           stdin: new TextEncoder().encode(livePrompt(canaryPath)),

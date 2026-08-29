@@ -193,8 +193,8 @@ describe("local Codex negative capability orchestration", () => {
     expect(fixture.calls[2]?.args.at(-1)).toBe("list");
     const final = fixture.calls[3]!;
     expect(final.args).toEqual(expect.arrayContaining([
-      "--search", "--enable", "code_mode", "--enable", "code_mode_host",
-      "--model", "gpt-5.6-terra", "--sandbox", "read-only", "--json", "-",
+      "--search", "--model", "gpt-5.4", "--disable", "code_mode", "--disable", "code_mode_host",
+      "--sandbox", "read-only", "--json", "-",
     ]));
     expect(final.env).toEqual({
       CODEX_HOME: join(fixture.root, "codex-home"),

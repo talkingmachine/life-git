@@ -67,7 +67,7 @@ describe("local Codex Stage A gate", () => {
 
     expect(result).toEqual({ exitCode: 0, stderr: "" });
     expect(writeArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json", expect.objectContaining({
-      schemaVersion: "local-codex-stage-a@2",
+      schemaVersion: "local-codex-stage-a@3",
       discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 },
       discovery: expectedDiscovery,
     }));
@@ -588,14 +588,7 @@ describe("local Codex Stage A gate", () => {
     const result = await runLocalCodexStageA(parseLocalCodexStageAArgs([
       "--live-local-subscription", "--artifact", "data/evals/local-codex-stage-a/result.json",
     ]), {
-      initializeRuntime: async () => ({
-        cliVersion: "codex-cli 0.149.0-alpha.4",
-        protocolVersion: "codex-cli-protocol@2",
-        compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1",
-        model: "gpt-5.6-terra",
-        noToolProbe: { passed: true, webSearchCount: 0 },
-        discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 },
-      }),
+      ...deterministicDependencies(),
       runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
       runDiscovery: async () => ({ outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false }),
       measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: requested * 1_000_000, effectiveCeiling: 5 }),
@@ -608,11 +601,12 @@ describe("local Codex Stage A gate", () => {
 
     expect(result).toEqual({ exitCode: 0, stderr: "" });
     expect(writeArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json", {
-      schemaVersion: "local-codex-stage-a@2",
+      schemaVersion: "local-codex-stage-a@3",
       cliVersion: "codex-cli 0.149.0-alpha.4",
       protocolVersion: "codex-cli-protocol@2",
-      compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1",
-      model: "gpt-5.6-terra",
+      compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2",
+      models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" },
+      writeIsolationProof: { model: "gpt-5.4", codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true },
       effortsProven: ["low", "medium"],
       noToolProbe: { passed: true, webSearchCount: 0 },
       discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 },
@@ -714,7 +708,7 @@ describe("local Codex Stage A gate", () => {
     await store.write(path, validArtifact());
     const target = resolve(directory, "result.json");
     expect((await lstat(target)).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(await readFile(target, "utf8"))).toMatchObject({ schemaVersion: "local-codex-stage-a@2" });
+    expect(JSON.parse(await readFile(target, "utf8"))).toMatchObject({ schemaVersion: "local-codex-stage-a@3" });
     const collision = resolve(directory, ".local-codex-stage-a-fixed.tmp");
     await writeFile(collision, "unrelated", { mode: 0o600 });
     await expect(createStageAArtifactStore({ workspaceRoot: root, randomId: () => "fixed" }).write(path, validArtifact())).rejects.toMatchObject({ code: "EEXIST" });
@@ -1098,7 +1092,7 @@ describe("local Codex Stage A gate", () => {
     const fixture = parseDiscoveryFixture(discoveryFixture);
     const discover = vi.fn(async () => ({
       candidates: [{ url: "https://www.beograd.rs/transport/", claimedPublisher: "City", expectedCoverage: "Transit", rationale: "Official" }],
-      metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "wrong", schemaVersion: "official-source-candidates@1" },
+      metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2", templateVersion: "wrong", schemaVersion: "official-source-candidates@1" },
     }));
     await expect(evaluateDiscoveryFixture(fixture, { discover })).rejects.toThrow("discovery_result_invalid");
     expect(discover).toHaveBeenCalledTimes(1);
@@ -1108,10 +1102,10 @@ describe("local Codex Stage A gate", () => {
     const fixture = parseDiscoveryFixture(discoveryFixture);
     const result = (templateVersion: string) => ({
       candidates: [{ url: "https://www.beograd.rs/transport/", claimedPublisher: "City", expectedCoverage: "Transit", rationale: "Official" }],
-      metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion, schemaVersion: "official-source-candidates@1" },
+      metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2", templateVersion, schemaVersion: "official-source-candidates@1" },
     });
 
-    await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result("official-source-discover@2") })).resolves.toEqual({
+    await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result("official-source-discover@3") })).resolves.toEqual({
       outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false,
     });
     for (const templateVersion of ["official-source-discover@1", "official-source-discover@999"]) {
@@ -1135,7 +1129,8 @@ function onboardingOutput(overrides: Readonly<{ typedValue?: unknown; sourceSpan
 
 function deterministicDependencies() {
   return {
-    initializeRuntime: async () => ({ cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2" as const, compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1" as const, model: "gpt-5.6-terra" as const, noToolProbe: { passed: true as const, webSearchCount: 0 as const }, discoveryProbe: { availability: "available" as const, selection: "model-selected" as const, webSearchCount: 1 } }),
+    runNegativeCapabilityGate: async () => ({ schemaVersion: "local-codex-negative-capability-observation@2" as const, mode: "strict" as const, stableCode: "codex_negative_capability_passed" as const, passed: true, webSearchCompleted: 1, applyPatchAttempts: 1, writePrevented: true, unknownEventSeen: false, protocolValid: true, canaryUnchanged: true, childExitClean: true, eventTypeCounts: {} }),
+    initializeRuntime: async () => ({ cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2" as const, compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, models: { extraction: "gpt-5.6-terra" as const, discovery: "gpt-5.4" as const }, noToolProbe: { passed: true as const, webSearchCount: 0 as const }, discoveryProbe: { availability: "available" as const, selection: "model-selected" as const, webSearchCount: 1 } }),
     runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
     runDiscovery: async () => ({ outcome: "candidate_hints" as const, candidateCount: 1, allCandidatesUntrusted: true as const, replacementPublished: false as const }),
     measureConcurrency: async (requested: 1 | 2 | 5) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: requested * 1_000_000, effectiveCeiling: 5 as const }),
@@ -1149,7 +1144,7 @@ function deterministicDependencies() {
 
 function validArtifact(): Parameters<ReturnType<typeof createStageAArtifactStore>["write"]>[1] {
   return {
-    schemaVersion: "local-codex-stage-a@2", cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", model: "gpt-5.6-terra", effortsProven: ["low", "medium"],
+    schemaVersion: "local-codex-stage-a@3", cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" }, writeIsolationProof: { model: "gpt-5.4", codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true }, effortsProven: ["low", "medium"],
     noToolProbe: { passed: true, webSearchCount: 0 }, discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 }, onboarding: { guardedProposalCount: 4, inventedValueCount: 0 }, discovery: { outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false },
     concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false, measurements: [
       { requested: 1, completed: 1, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },

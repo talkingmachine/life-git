@@ -39,8 +39,8 @@ export function createCodexOfficialSourceDiscovery(runtime: CodexCliModelAdapter
       if (isAborted(request.signal)) throw new OfficialSourceDiscoveryError("official_source_discovery_aborted");
       try {
         const outcome = await runtime.invokeJsonWithEventProof(createCodexJsonInvocation({
-          capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1",
-          templateVersion: "official-source-discover@2", schemaVersion: "official-source-candidates@1",
+          capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+          templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
           prompt: buildPrompt(request), outputSchema: OFFICIAL_SOURCE_CANDIDATES_SCHEMA,
           limits: OFFICIAL_SOURCE_DISCOVERY_LIMITS, signal: request.signal,
         }));
@@ -89,19 +89,19 @@ function decodeResult(result: CodexJsonResult): OfficialSourceDiscoveryResult {
 function requireMetadata(metadata: unknown): OfficialSourceDiscoveryRuntimeMetadata {
   const value = exactObject(metadata, ["invocationVersion", "protocolVersion", "compatibilityPolicy", "cliVersion", "model", "reasoningEffort", "toolPolicy", "templateVersion", "schemaVersion"]);
   if (value.invocationVersion !== "codex-cli-invocation@2" || value.protocolVersion !== "codex-cli-protocol@2" ||
-    value.compatibilityPolicy !== "codex-cli-0.149.0-alpha.4-plus@1" || value.model !== "gpt-5.6-terra" ||
-    value.reasoningEffort !== "medium" || value.toolPolicy !== "codex-tools-web-search@1" ||
-    value.templateVersion !== "official-source-discover@2" || value.schemaVersion !== "official-source-candidates@1" || typeof value.cliVersion !== "string") integrity();
+    value.compatibilityPolicy !== "codex-cli-0.149.0-alpha.4-plus@2" || value.model !== "gpt-5.4" ||
+    value.reasoningEffort !== "medium" || value.toolPolicy !== "codex-tools-web-search@2" ||
+    value.templateVersion !== "official-source-discover@3" || value.schemaVersion !== "official-source-candidates@1" || typeof value.cliVersion !== "string") integrity();
   parseSupportedCodexCliVersion(`${value.cliVersion}\n`);
   return Object.freeze({
     invocationVersion: "codex-cli-invocation@2",
     protocolVersion: "codex-cli-protocol@2",
-    compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1",
+    compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2",
     cliVersion: value.cliVersion,
-    model: "gpt-5.6-terra",
+    model: "gpt-5.4",
     reasoningEffort: "medium",
-    toolPolicy: "codex-tools-web-search@1",
-    templateVersion: "official-source-discover@2",
+    toolPolicy: "codex-tools-web-search@2",
+    templateVersion: "official-source-discover@3",
     schemaVersion: "official-source-candidates@1",
   });
 }
