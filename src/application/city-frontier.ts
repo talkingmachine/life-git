@@ -2188,7 +2188,7 @@ async function verifiedSafetyPrior(
   const accepted = ledger.result.kind === "verified" ? ledger.candidates[ledger.result.acceptedCandidateIndex] : undefined;
   const entry = replayed.genericEvidence.entries.filter(({ sourceId }) => sourceId === "si-city-safety");
   const planEntry = authority.trust.installed.safetySourcePlan.entries.find(({ cityId }) => cityId === authority.cityId);
-  if (accepted === undefined || accepted.disposition !== "usable" || accepted.periodDisposition !== "preferred" ||
+  if (accepted === undefined || accepted.disposition !== "usable" ||
     entry.length !== 1 || planEntry === undefined || replayed.snapshot.cityId !== authority.cityId ||
     replayed.snapshot.countryCode !== "SI" || replayed.snapshot.definitionIds.safety !== key.definitionId ||
     ledger.sourcePlanId !== authority.trust.installed.safetySourcePlan.id ||
@@ -2235,7 +2235,13 @@ async function runContinuationResearch(
   // Recovery is deliberately safety-first: exhausted recovery must not start unrelated routes.
   if (sourceRecovery !== undefined) {
     const safety = await safetyPromise;
-    if (safety.ledger.result.kind === "unknown") {
+    const accepted = safety.ledger.result.kind === "verified"
+      ? safety.ledger.candidates[safety.ledger.result.acceptedCandidateIndex]
+      : undefined;
+    // Only a fresh inspection of the authenticated prior may unlock unrelated routes.
+    // A replacement candidate is deliberately held pending; every other result is yellow.
+    if (accepted === undefined || accepted.origin.kind !== "previous" ||
+      accepted.disposition !== "usable" || accepted.periodDisposition !== "preferred") {
       const safetyEntry = citySafetyTerminalEntry({
         cityCheckRunId: authority.cityCheckRunId, ledger: safety.ledger, artifacts: safety.artifacts,
         sourcePlan: authority.trust.installed.safetySourcePlan,

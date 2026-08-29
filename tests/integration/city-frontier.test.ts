@@ -6,6 +6,7 @@ import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 
 import {
   createCityFrontierApplication,
+  type CityFrontierSourceRecoveryCapability,
   type CityFrontierApplication,
   type CityFrontierApplicationAssembly,
   type CityFrontierApplicationPorts,
@@ -74,6 +75,7 @@ import {
   sealCityRankingSnapshot,
 } from "../../src/application/city-frontier-contracts";
 import type {
+  CitySafetyCandidateInspectionInput,
   CitySafetyOfficialDocumentPort,
   CitySafetySearchPort,
 } from "../../src/application/city-safety-contracts";
@@ -2551,6 +2553,7 @@ function unavailablePorts(callback: () => never = NEVER): CityFrontierApplicatio
 
 interface SyntheticApplicationHarness {
   readonly assembly: Readonly<CityFrontierApplicationAssembly>;
+  createRecoveryApplication(capability: CityFrontierSourceRecoveryCapability): CityFrontierApplication;
   readonly fixture: SyntheticAuthorityFixture;
   readonly capabilities: {
     readonly fixedDeadlineScheduler: CityFixedDeadlineScheduler;
@@ -4006,6 +4009,12 @@ async function syntheticApplicationHarness(
   };
   return {
     assembly: createCityFrontierApplication(ports as unknown as CityFrontierApplicationPorts),
+    createRecoveryApplication(capability) {
+      return createCityFrontierApplication(
+        ports as unknown as CityFrontierApplicationPorts,
+        capability,
+      ).application;
+    },
     fixture,
     calls,
     capabilities: { fixedDeadlineScheduler, clock, installedPackageManifests: manifestReadPort },
@@ -4432,6 +4441,82 @@ function researchAndPublicationCounts(
     append: harness.calls.appends.length,
   };
 }
+
+function preferredSafetyInspection(
+  input: CitySafetyCandidateInspectionInput,
+): Awaited<ReturnType<CitySafetyOfficialDocumentPort["inspect"]>> {
+  const bytes = new TextEncoder().encode(`preferred:${input.candidateUrl}`);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const publisher = input.publisherContext;
+  if (publisher === undefined) throw new Error("missing_preferred_publisher");
+  const municipal: LiveCapturedArtifact<"si-city-safety"> = {
+    artifactId: `${input.runId}:preferred-municipal`, runId: input.runId,
+    sourceId: "si-city-safety", role: "municipal_source", origin: "live",
+    capturedAt: input.assessmentAt, responseStatus: 200, responseUrl: input.candidateUrl,
+    request: { method: "GET", url: input.candidateUrl }, url: input.candidateUrl,
+    mediaType: "application/pdf", sha256, bytes,
+  };
+  const populationBytes = new TextEncoder().encode(`population:${input.runId}`);
+  const populationSha = createHash("sha256").update(populationBytes).digest("hex");
+  const population: LiveCapturedArtifact<"si-city-safety"> = {
+    ...municipal, artifactId: `${input.runId}:preferred-population`, role: "surs_denominator",
+    url: "https://pxweb.stat.si/population", responseUrl: "https://pxweb.stat.si/population",
+    request: { method: "GET", url: "https://pxweb.stat.si/population" }, sha256: populationSha,
+    bytes: populationBytes,
+  };
+  return {
+    kind: "usable",
+    detail: {
+      publisherId: publisher.publisherId, dataAuthorityId: "police",
+      publisherNavigationUrl: publisher.publisherNavigationUrl, resolvedEvidenceUrl: input.candidateUrl,
+      officialTrace: { initialUrl: input.candidateUrl, edges: [], lastTrustedUrl: input.candidateUrl, officialHops: 0 },
+      mediaType: "application/pdf", retentionPolicyId: `${publisher.publisherId}-retention@1`,
+      transientRawDeleted: false,
+      artifactRefs: [
+        { role: "municipal_source", documentRole: "terminal_claim", artifactId: municipal.artifactId, artifactSha256: municipal.sha256, sourceSha256: municipal.sha256, locator: municipal.url },
+        { role: "surs_denominator", artifactId: population.artifactId, artifactSha256: population.sha256, sourceSha256: population.sha256, locator: population.url },
+      ],
+      disposition: "usable", referenceYear: 2025, periodDisposition: "preferred",
+      quantity: { offenceCount: "1200", population: "300000", rateBasis: "offences_per_100000_residents" },
+      denominator: { publisherId: "surs", municipalityCode: "061", referenceDate: "2025-01-01", population: "300000", artifactId: population.artifactId, mediaType: "application/pdf", retentionPolicyId: "surs-retention@1", transientRawDeleted: false },
+    }, artifacts: [municipal, population],
+  };
+}
+
+function rejectedSafetyInspection(
+  input: CitySafetyCandidateInspectionInput,
+): Awaited<ReturnType<CitySafetyOfficialDocumentPort["inspect"]>> {
+  const bytes = new TextEncoder().encode(`rejected:${input.candidateUrl}`);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const publisher = input.publisherContext;
+  if (publisher === undefined) throw new Error("missing_rejected_publisher");
+  const artifact: LiveCapturedArtifact<"si-city-safety"> = {
+    artifactId: `${input.runId}:rejected-municipal`, runId: input.runId,
+    sourceId: "si-city-safety", role: "municipal_source", origin: "live",
+    capturedAt: input.assessmentAt, responseStatus: 200, responseUrl: input.candidateUrl,
+    request: { method: "GET", url: input.candidateUrl }, url: input.candidateUrl,
+    mediaType: "application/pdf", sha256, bytes,
+  };
+  return { kind: "rejected", detail: {
+    officialTrace: { initialUrl: input.candidateUrl, edges: [{ kind: "confirmed_document_link",
+      fromUrl: input.candidateUrl, toUrl: `${input.candidateUrl}/missing.pdf` }],
+      lastTrustedUrl: `${input.candidateUrl}/missing.pdf`, officialHops: 1,
+      failure: { captureKind: "http_error", responseStatus: 404, responseUrl: `${input.candidateUrl}/missing.pdf` } },
+    artifactRefs: [{ role: "municipal_source", documentRole: "navigation", artifactId: artifact.artifactId,
+      artifactSha256: sha256, sourceSha256: sha256, locator: artifact.url }],
+    reviewedOfficial: { publisherId: publisher.publisherId, dataAuthorityId: "police",
+      publisherNavigationUrl: publisher.publisherNavigationUrl }, mediaType: "application/pdf",
+    retentionPolicyId: `${publisher.publisherId}-retention@1`, transientRawDeleted: false,
+    disposition: "rejected", reason: "http_not_found",
+  }, artifacts: [artifact] };
+}
+
+const FROZEN_OFFICIAL_DISCOVERY_METADATA = Object.freeze({
+  invocationVersion: "codex-cli-invocation@2" as const, protocolVersion: "codex-cli-protocol@2" as const,
+  compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, cliVersion: "codex-cli 0.149.0-alpha.4",
+  model: "gpt-5.4" as const, reasoningEffort: "medium" as const, toolPolicy: "codex-tools-web-search@2" as const,
+  templateVersion: "official-source-discover@3" as const, schemaVersion: "official-source-candidates@1" as const,
+});
 
 function recoveryAuthorityCounts(
   harness: SyntheticApplicationHarness,
@@ -11701,6 +11786,103 @@ describe("City Frontier Application public boundary", () => {
         }
       }
     }
+  });
+
+  test("replays an authentic verified prior and advances without official discovery or binding writes", async () => {
+    const harness = await syntheticApplicationHarness({
+      preserveRuns: true,
+      discriminatingClock: true,
+      safetyDocuments: { inspect: async (input) => preferredSafetyInspection(input) },
+    });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-prior",
+    });
+    const priorPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId, expectedRevisionId: started.revision.id, commandId: "continue:source-recovery-prior",
+    });
+    await harness.assembly.application.continueCityFrontier(priorPrepared, vi.fn(), new AbortController().signal);
+    const seal = harness.calls.evidenceSeals[0] as CityEvidenceSealInput;
+    const safety = seal.safetyAttemptLedger;
+    if (safety.result.kind !== "verified") throw new Error("missing_verified_prior");
+    const accepted = safety.candidates[safety.result.acceptedCandidateIndex]! as import("../../src/research/city-safety-evidence").CitySafetyUsableCandidateAttempt;
+    const priorEvidence = withInfrastructurePlanGateRead(() =>
+      harness.fixture.evidenceStore.loadVerified(`${seal.cityCheckRunId}:evidence`));
+    const entry = priorEvidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety")!;
+    const bindingKey = { schemaVersion: "city-source-binding-key@1" as const, countryCode: "SI" as const,
+      cityId: "ljubljana", factKey: "si-city-safety" as const,
+      definitionId: "si-municipal-police-offences-per-100000@1" as const };
+    const attempts: unknown[] = [];
+    const discovery = vi.fn();
+    const recovery = harness.createRecoveryApplication({
+      bindings: {
+        loadEffectiveVerified: () => ({ bindingKey, cursor: { schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: "a".repeat(64) }, revision: null,
+          sourceVersion: { schemaVersion: "source-version@1", id: "prior-source", bindingKey,
+            publisherId: accepted.publisherId, navigationUrl: accepted.publisherNavigationUrl,
+            requestedUrl: accepted.canonicalUrl, finalUrl: accepted.resolvedEvidenceUrl,
+            captureArtifactIds: entry.artifacts.map(({ artifactId }) => artifactId), captureSha256: entry.artifacts.map(({ sha256 }) => sha256),
+            evidenceSnapshotId: `${seal.cityCheckRunId}:evidence`, parserVersion: priorEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"], capturedAt: seal.completedAt } }),
+        appendYellowAttempt: (attempt) => { attempts.push(attempt); return attempt; },
+      },
+      officialDiscovery: { discover: async (input) => { discovery(input); throw new Error("unexpected_discovery"); } },
+    });
+    const recovering = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-replay",
+    });
+    expect(recovering.runId).not.toBe(started.runId);
+    expect(recovering.ranking.ordered[0]!.cityId).toBe("ljubljana");
+    expect(recovering.ranking.installedPackageContext).toEqual(started.ranking.installedPackageContext);
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: recovering.runId, expectedRevisionId: recovering.revision.id, commandId: "continue:source-recovery-replay",
+    });
+    const before = researchAndPublicationCounts(harness);
+    const outcome = await recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    expect(outcome.kind).toBe("advanced");
+    expect(discovery).not.toHaveBeenCalled();
+    expect(attempts).toEqual([]);
+    expect(researchAndPublicationCounts(harness)).toEqual({ ...before, fixed: before.fixed + 5,
+      generic: before.generic + 1, safetyDocument: before.safetyDocument + 1,
+      evidence: before.evidence + 1, knowledge: before.knowledge + 1, append: before.append + 1,
+      safetySearch: before.safetySearch });
+  });
+
+  test("returns yellow after an authenticated prior is rejected, without late truth writes", async () => {
+    let rejectPrior = false;
+    const harness = await syntheticApplicationHarness({ preserveRuns: true, discriminatingClock: true,
+      safetyDocuments: { inspect: async (input) => rejectPrior
+        ? rejectedSafetyInspection(input) : preferredSafetyInspection(input) },
+    });
+    const seed = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-yellow-seed",
+    });
+    const seeded = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: seed.runId, expectedRevisionId: seed.revision.id, commandId: "continue:source-recovery-yellow-seed",
+    });
+    await harness.assembly.application.continueCityFrontier(seeded, vi.fn(), new AbortController().signal);
+    const seal = harness.calls.evidenceSeals[0] as CityEvidenceSealInput;
+    const ledger = seal.safetyAttemptLedger;
+    if (ledger.result.kind !== "verified") throw new Error("missing_yellow_seed_prior");
+    const accepted = ledger.candidates[ledger.result.acceptedCandidateIndex]! as import("../../src/research/city-safety-evidence").CitySafetyUsableCandidateAttempt;
+    const evidence = withInfrastructurePlanGateRead(() => harness.fixture.evidenceStore.loadVerified(`${seal.cityCheckRunId}:evidence`));
+    const entry = evidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety")!;
+    const bindingKey = { schemaVersion: "city-source-binding-key@1" as const, countryCode: "SI" as const, cityId: "ljubljana", factKey: "si-city-safety" as const, definitionId: "si-municipal-police-offences-per-100000@1" as const };
+    const attempts: unknown[] = [];
+    const discovery = vi.fn(async () => Object.freeze({ kind: "candidates" as const, urls: Object.freeze([]), metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }));
+    const recovery = harness.createRecoveryApplication({ bindings: { loadEffectiveVerified: () => ({ bindingKey,
+      cursor: { schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: "a".repeat(64) }, revision: null,
+      sourceVersion: { schemaVersion: "source-version@1", id: "yellow-prior", bindingKey, publisherId: accepted.publisherId, navigationUrl: accepted.publisherNavigationUrl, requestedUrl: accepted.canonicalUrl, finalUrl: accepted.resolvedEvidenceUrl, captureArtifactIds: entry.artifacts.map(({ artifactId }) => artifactId), captureSha256: entry.artifacts.map(({ sha256 }) => sha256), evidenceSnapshotId: evidence.snapshot.id, parserVersion: evidence.genericEvidence.snapshot.parserVersions["si-city-safety"], capturedAt: seal.completedAt } }),
+      appendYellowAttempt: (attempt) => { attempts.push(attempt); return attempt; } }, officialDiscovery: { discover: discovery } });
+    rejectPrior = true;
+    const run = await harness.assembly.application.startCityFrontier({ resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI", criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-yellow" });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({ runId: run.runId, expectedRevisionId: run.revision.id, commandId: "continue:source-recovery-yellow" });
+    const before = researchAndPublicationCounts(harness);
+    const outcome = await recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    expect(outcome).toEqual({ schemaVersion: "city-source-recovery-outcome@1", kind: "yellow", source: { schemaVersion: "public-fact-source@1", factKey: "si-city-safety", status: "yellow", publisherName: null, sourceUrl: null, checkedAt: null } });
+    expect(discovery).toHaveBeenCalledTimes(2);
+    expect(attempts).toHaveLength(1);
+    expect(researchAndPublicationCounts(harness)).toEqual({ ...before, safetyDocument: before.safetyDocument + 1 });
   });
 
   test("authenticates the complete Continue chain before marker callbacks or effects", async () => {
