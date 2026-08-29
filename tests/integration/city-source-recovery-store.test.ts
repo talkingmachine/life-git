@@ -70,4 +70,14 @@ describe("SqliteCitySourceRecoveryStore", () => {
     database.exec("DROP TRIGGER official_source_replacement_events_no_update"); database.prepare("UPDATE official_source_replacement_events SET created_at = ? WHERE command_id = ?").run("2026-08-29T12:02:00.000Z", input.commandId);
     expect(() => store.appendReplacement(input, cursor)).toThrow("integrity_mismatch");
   });
+
+  test.each([
+    ["source version", "city_source_versions", "city_source_versions_no_update", "id", "source:replacement", "effective"],
+    ["binding revision", "city_source_binding_revisions", "city_source_binding_revisions_no_update", "id", "binding:one", "history"],
+    ["recovery attempt", "official_source_recovery_attempts", "official_source_recovery_attempts_no_update", "command_id", "command:one", "replay"],
+  ])("rejects a tampered %s SQL mirror", (_kind, table, trigger, lookup, value, operation) => {
+    const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement(); store.appendReplacement(input, cursor); const database = databases[0]!;
+    database.exec(`DROP TRIGGER ${trigger}`); database.prepare(`UPDATE ${table} SET created_at = ? WHERE ${lookup} = ?`).run("2026-08-29T12:02:00.000Z", value);
+    expect(() => { if (operation === "effective") store.loadEffectiveVerified(key); else if (operation === "history") store.loadHistoryVerified(key); else store.appendReplacement(input, cursor); }).toThrow("integrity_mismatch");
+  });
 });

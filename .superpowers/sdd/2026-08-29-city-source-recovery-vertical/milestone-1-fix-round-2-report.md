@@ -16,3 +16,13 @@
 - GREEN: focused contracts/store/schema run exited 0 with 120 tests; typecheck, lint and diff check exited 0.
 - Self-review: the negative FK test asserts literal zero rows in every recovery table; the event mirror test drops only its immutable trigger and changes only `created_at`.
 - Concern: comprehensive cross-store publication semantics remain M3 scope.
+
+## Fix round 4
+
+- RED: `pnpm exec vitest run tests/integration/city-source-recovery-store.test.ts --reporter=dot` exited 1 with exactly the three intended failures: tampered `created_at` mirrors on SourceVersion, binding revision, and recovery attempt were accepted by their respective verified read/replay paths.
+- Files: recovery store, recovery-store integration test, this report.
+- Implementation: narrow full-row interfaces and selector constants make every immutable mirror visible. SourceVersion verifies id, binding key, evidence snapshot, schema version, and captured-at mirror; revision verifies id, key, ordinal, predecessor, source/evidence/knowledge/frontier ids, schema version, and created-at mirror; attempt verifies id, command, key, schema version, and created-at mirror. The same complete attempt decoder is used for replay, owner-audit reads, and post-insert verification.
+- GREEN: `pnpm exec vitest run tests/application/city-source-recovery-contracts.test.ts tests/integration/city-source-recovery-store.test.ts tests/integration/database-schema.test.ts --reporter=dot` exited 0: 3 files, 123 tests. `pnpm typecheck`, `pnpm lint`, and `git diff --check` each exited 0.
+- Self-review: compared each selected/decoded SourceVersion, revision, and attempt mirror against the recovery DDL; all storage columns (including canonical payload, hash, and HMAC) are selected and validated. Event full-row validation remains unchanged.
+- Commit: local Git checkpoint created after the final verification.
+- Remaining concern: comprehensive cross-store publication semantics remain M3 scope.
