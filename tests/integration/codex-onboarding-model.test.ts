@@ -7,7 +7,7 @@ import {
   type OnboardingExtractionRetryReason,
   type OnboardingModelPort,
 } from "../../src/application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V10 } from
+import { ONBOARDING_MODEL_VERSIONS_V11 } from
   "../../src/application/onboarding-model-versions";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
 import { createOnboardingSession, type SessionMessage } from "../../src/decision/onboarding-session";
@@ -111,7 +111,7 @@ function extractionMetadata(): CodexJsonResult["metadata"] {
     model: CODEX_MODEL,
     reasoningEffort: "low",
     toolPolicy: "codex-tools-none@2",
-    templateVersion: "onboarding-extract@9",
+    templateVersion: "onboarding-extract@10",
     schemaVersion: "onboarding-extraction-wire@3",
   };
 }
@@ -211,7 +211,7 @@ describe("Codex onboarding model", () => {
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
       invocation: "codex-cli-invocation@2",
       cliVersion: "codex-cli-0.149.0-alpha.4-plus@2",
-      extractionPrompt: "onboarding-extract@9",
+      extractionPrompt: "onboarding-extract@10",
       reviewPrompt: "onboarding-review@2",
       extractionSchema: "onboarding-extraction-wire@3",
       reviewSchema: "onboarding-review-output@1",
@@ -232,7 +232,7 @@ describe("Codex onboarding model", () => {
     });
     expect(Object.keys(model)).toEqual(["versions", "extract", "review"]);
     expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS);
-    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V10);
+    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V11);
     expect(Object.isFrozen(model)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_EXTRACTION_LIMITS)).toBe(true);
@@ -258,7 +258,7 @@ describe("Codex onboarding model", () => {
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
       capability: "onboarding.extract",
-      templateVersion: "onboarding-extract@9",
+      templateVersion: "onboarding-extract@10",
       schemaVersion: "onboarding-extraction-wire@3",
       limits: ONBOARDING_EXTRACTION_LIMITS,
     });

@@ -5,7 +5,7 @@ import {
   type OnboardingExtractionAttemptContext,
   type OnboardingModelPort,
 } from "../../application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V10 } from "../../application/onboarding-model-versions";
+import { ONBOARDING_MODEL_VERSIONS_V11 } from "../../application/onboarding-model-versions";
 import { reconstructOnboardingQuestionnaireProjection } from "../../decision/onboarding-model-contract";
 import {
   parseLocalReviewOutput,
@@ -27,7 +27,7 @@ import {
   ONBOARDING_REVIEW_SCHEMA,
 } from "./onboarding-schema";
 
-export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V10;
+export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V11;
 
 export const ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES = 65_536;
 export const ONBOARDING_REVIEW_MAX_PROMPT_BYTES = 98_304;
@@ -123,7 +123,7 @@ export const ONBOARDING_EXTRACTION_PROMPT_TEMPLATE = [
   "Each t must occur exactly once in currentUserMessage.text. If the shortest complete whole-token evidence repeats, extend it with contiguous surrounding source text until it is unique; omit the proposal if no unique evidence exists.",
   "Use shortest complete whole-token t for v. Omit if unverifiable; never split a Unicode letter, combining mark, number, or surrogate pair.",
   ONBOARDING_EXTRACTION_WIRE_ALGEBRA,
-  "For a participants roster value, use self/self first, then companion.0, companion.1, and so on in mention order; never use self for a companion.",
+  "Roster only for explicit current people/relationship change; never from moving_party, pronouns, or questionnaire. Evidence uniquely names every person/relationship; no no-op roster. Use self/self then companions in order.",
   "Use those same participant descriptors in participant values. Never emit the same f twice.",
   "Normalize city names to their canonical nominative Russian form, for example: в Москве -> Москва, в Белграде -> Белград, в Сиднее -> Сидней.",
   "Omit guesses, ambiguity, '-', 'не знаю', 'неизвестно', 'unknown', 'n/a', and 'na'.",
