@@ -35,3 +35,9 @@
 - GREEN: `pnpm exec vitest run tests/application/city-source-recovery-contracts.test.ts tests/integration/city-source-recovery-store.test.ts tests/integration/database-schema.test.ts --reporter=dot` exited 0: 3 files, 125 tests. `pnpm typecheck`, `pnpm lint`, and `git diff --check` each exited 0.
 - Self-review: `appendReplacement` has no `input.` property reads; its only original-input use is the single top-level reconstructor call. Existing mirror, FK, and CAS paths remain unchanged.
 - Remaining concern: comprehensive cross-store publication semantics remain M3 scope.
+
+## Milestone closure inventory fix
+
+- Updated only the two stale exact table inventories to include the five source-recovery tables in canonical SQL order.
+- GREEN: `pnpm exec vitest run tests/branch/life-git.test.ts tests/integration/confirmed-life.test.ts tests/integration/city-frontier-experience.test.tsx --reporter=dot` exited 0: 3 files, 95 tests. `pnpm typecheck`, `pnpm lint`, and `git diff --check` each exited 0.
+- Concern: no new concern; the already-established full-suite RED remains outside this mechanical inventory correction.
