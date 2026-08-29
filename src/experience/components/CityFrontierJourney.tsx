@@ -341,7 +341,7 @@ export function CityFrontierJourney({ mode, onReload }: CityFrontierJourneyProps
             screenCursor.current === undefined) return;
           const next = reduceCityFrontierContinuationEvent(screenCursor.current, event);
           if (event.type === "city_revision_committed" ||
-            event.type === "city_continuation_completed") {
+            event.type === "city_continuation_completed" || event.type === "source_recovery_yellow") {
             continueRequest.current = undefined;
           }
           screenCursor.current = next;
@@ -403,8 +403,9 @@ export function CityFrontierJourney({ mode, onReload }: CityFrontierJourneyProps
     const current = screenCursor.current;
     const retryableTransportError = current?.kind === "transportError" &&
       current.stream.committedRevisionId === undefined;
+    const retryableYellow = current?.kind === "continuing" && current.stream.yellowSource !== undefined;
     if (current === undefined || continuePending ||
-      (current.kind !== "stable" && !retryableTransportError)) return;
+      (current.kind !== "stable" && !retryableTransportError && !retryableYellow)) return;
     const readModel = current.readModel;
     if (readModel.revision.kind !== "working" ||
       readModel.catalog.rulesVersion !== "city-catalog@2") return;
@@ -598,8 +599,9 @@ export function CityFrontierJourney({ mode, onReload }: CityFrontierJourneyProps
             <CityFrontierPanel
               canRetry={continueError !== undefined || (
                 screen.kind === "transportError" && !view.requiresVerifiedReload
-              )}
-              continuing={screen.kind === "continuing" || continuePending}
+              ) || (screen.kind === "continuing" && screen.stream.yellowSource !== undefined)}
+              continuing={(screen.kind === "continuing" && screen.stream.yellowSource === undefined) ||
+                continuePending}
               onContinue={continueFrontier}
               onReload={reload}
               readModel={screen.readModel}

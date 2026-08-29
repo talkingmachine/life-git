@@ -1426,6 +1426,33 @@ describe("closed City Frontier contracts", () => {
         }
       | ExpectedProgress
       | {
+          readonly type: "source_recovery_started";
+          readonly runId: string;
+          readonly baseRevisionId: string;
+          readonly sequence: number;
+          readonly occurredAt: string;
+          readonly cityId: string;
+        }
+      | {
+          readonly type: "source_recovery_yellow";
+          readonly runId: string;
+          readonly baseRevisionId: string;
+          readonly sequence: number;
+          readonly occurredAt: string;
+          readonly cityId: string;
+          readonly reason: "official_source_unavailable";
+          readonly source: import("../../src/application/city-frontier-contracts").PublicFactSourceV1;
+        }
+      | {
+          readonly type: "official_source_replaced";
+          readonly runId: string;
+          readonly baseRevisionId: string;
+          readonly sequence: number;
+          readonly occurredAt: string;
+          readonly cityId: string;
+          readonly source: import("../../src/application/city-frontier-contracts").PublicFactSourceV1;
+        }
+      | {
           readonly type: "city_revision_committed";
           readonly runId: string;
           readonly baseRevisionId: string;

@@ -5309,6 +5309,27 @@ function driftSemanticRankingResult(
 }
 
 describe("City Frontier Application public boundary", () => {
+  test("beta continuation advances the ordinary unconfigured deterministic path", async () => {
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:beta-unconfigured",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId, expectedRevisionId: started.revision.id,
+      commandId: "continue:beta-unconfigured",
+    });
+    const events: CityFrontierEvent[] = [];
+    const outcome = await harness.assembly.application.continueCityFrontierWithSourceRecovery(
+      prepared, (event) => { events.push(structuredClone(event)); }, new AbortController().signal,
+    );
+
+    expect(outcome).toMatchObject({ schemaVersion: "city-source-recovery-outcome@1", kind: "advanced" });
+    expect(events.map(({ type }) => type)).toContain("city_continuation_completed");
+  });
+
   test("compile-pins the exact closed DTO, assembly and least-authority port surfaces", () => {
     // Break caught: accepting client-derived run/package/time authority or exposing selection authority publicly.
     type ExpectedStart = {
@@ -11990,16 +12011,43 @@ describe("City Frontier Application public boundary", () => {
     });
     const count = (table: string) => harness.fixture.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
     const before = Object.fromEntries(["city_evidence_snapshots", "city_knowledge_revisions", "city_frontier_revisions", "city_source_versions", "city_source_binding_revisions", "city_source_binding_heads", "official_source_recovery_attempts", "official_source_replacement_events"].map((table) => [table, count(table).count]));
+    const failedEvents: CityFrontierEvent[] = [];
     await expect(application.continueCityFrontierWithSourceRecovery(
-      prepared, vi.fn(), new AbortController().signal,
+      prepared, (event) => { failedEvents.push(structuredClone(event)); }, new AbortController().signal,
     )).rejects.toThrow("injected_after_frontier");
+    expect(failedEvents.some(({ type }) => type === "source_recovery_started")).toBe(true);
+    expect(failedEvents.some(({ type }) => type === "official_source_replaced")).toBe(false);
+    expect(failedEvents.some((event) => event.type === "city_progress" &&
+      event.stage === "source_completed:si-city-safety")).toBe(false);
+    expect(JSON.stringify(failedEvents)).not.toContain("recovered");
     for (const table of Object.keys(before)) expect(count(table).count).toBe(before[table]!);
     expect(realFrontier.loadHeadVerified(started.runId)).toEqual(started.revision);
     const rolledBack = recoveryStore.loadEffectiveVerified(bindingKey);
     expect(rolledBack.cursor.kind).toBe("installed");
     expect(rolledBack.sourceVersion).toEqual(installedSource);
-    const outcome = await application.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    const successfulEvents: CityFrontierEvent[] = [];
+    const outcome = await application.continueCityFrontierWithSourceRecovery(
+      prepared, (event) => { successfulEvents.push(structuredClone(event)); }, new AbortController().signal,
+    );
     expect(outcome.kind).toBe("advanced");
+    expect(successfulEvents.map(({ type }) => type)).toEqual([
+      "city_activated", "city_progress", "city_progress", "city_progress", "city_progress",
+      "source_recovery_started", "official_source_replaced", "city_progress", "city_progress",
+      "city_progress", "city_progress", "city_progress", "city_progress",
+      "city_revision_committed", "city_continuation_completed",
+    ]);
+    const replacementEvent = successfulEvents.find(({ type }) => type === "official_source_replaced");
+    expect(replacementEvent).toMatchObject({
+      type: "official_source_replaced",
+      source: {
+        schemaVersion: "public-fact-source@1", factKey: "si-city-safety",
+        status: expect.stringMatching(/^(green|red)$/),
+      },
+    });
+    const replacementIndex = successfulEvents.findIndex(({ type }) => type === "official_source_replaced");
+    expect(JSON.stringify(successfulEvents.slice(0, replacementIndex))).not.toContain("recovered");
+    expect(successfulEvents.slice(replacementIndex + 1).filter((event) => event.type === "city_progress" &&
+      event.stage === "source_completed:si-city-safety")).toHaveLength(1);
     for (const table of Object.keys(before)) expect(count(table).count).toBe(before[table]! + 1);
     const effective = recoveryStore.loadEffectiveVerified(bindingKey);
     const history = recoveryStore.loadHistoryVerified(bindingKey);
@@ -12061,7 +12109,10 @@ describe("City Frontier Application public boundary", () => {
     const run = await harness.assembly.application.startCityFrontier({ resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI", criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-yellow" });
     const prepared = await harness.assembly.application.prepareCityFrontierContinuation({ runId: run.runId, expectedRevisionId: run.revision.id, commandId: "continue:source-recovery-yellow" });
     const before = researchAndPublicationCounts(harness);
-    const first = recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    const recoveryEvents: CityFrontierEvent[] = [];
+    const first = recovery.continueCityFrontierWithSourceRecovery(
+      prepared, (event) => { recoveryEvents.push(structuredClone(event)); }, new AbortController().signal,
+    );
     const second = recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
     const [outcome, follower] = await Promise.all([first, second]);
     const expected = { schemaVersion: "city-source-recovery-outcome@1", kind: "yellow" as const, source: { schemaVersion: "public-fact-source@1" as const, factKey: "si-city-safety", status: "yellow" as const, publisherName: null, sourceUrl: null, checkedAt: null } };
@@ -12071,6 +12122,12 @@ describe("City Frontier Application public boundary", () => {
     recursivelyFrozen(follower);
     expect(discovery).toHaveBeenCalledTimes(2);
     expect(attempts).toHaveLength(1);
+    expect(recoveryEvents.some(({ type }) => type === "source_recovery_started")).toBe(true);
+    expect(recoveryEvents.filter(({ type }) => type === "source_recovery_yellow")).toHaveLength(1);
+    expect(recoveryEvents.at(-1)).toMatchObject({
+      type: "source_recovery_yellow", reason: "official_source_unavailable", source: expected.source,
+    });
+    expect(JSON.stringify(recoveryEvents)).not.toContain("candidate");
     expect(researchAndPublicationCounts(harness)).toEqual({ ...before, safetyDocument: before.safetyDocument + 1 });
 
     const entered = deferred<void>();

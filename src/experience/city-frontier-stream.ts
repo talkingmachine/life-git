@@ -28,6 +28,9 @@ const webUrl = z.string().refine((value) => {
     return false;
   }
 });
+const canonicalHttpsUrl = z.string().refine((value) => {
+  try { const url = new URL(value); return url.protocol === "https:" && url.toString() === value; } catch { return false; }
+});
 const positiveInteger = z.number().int().positive();
 const contentIdentifier = (prefix: string) =>
   z.string().regex(new RegExp(`^${prefix}:[a-f0-9]{64}$`));
@@ -429,6 +432,20 @@ const eventBase = {
   sequence: positiveInteger,
   occurredAt: instant,
 };
+const publicFactSource = z.object({
+  schemaVersion: z.literal("public-fact-source@1"),
+  factKey: z.literal("si-city-safety"),
+  status: z.enum(["green", "red", "yellow"]),
+  publisherName: z.string().min(1).nullable(),
+  sourceUrl: canonicalHttpsUrl.nullable(),
+  checkedAt: instant.nullable(),
+}).strict().superRefine((value, context) => {
+  const allNull = value.publisherName === null && value.sourceUrl === null && value.checkedAt === null;
+  const allPresent = value.publisherName !== null && value.sourceUrl !== null && value.checkedAt !== null;
+  if (value.status === "yellow" ? !allNull : !allPresent) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "invalid_public_fact_source" });
+  }
+});
 const activatedEvent = z.object({
   ...eventBase,
   type: z.literal("city_activated"),
@@ -477,11 +494,22 @@ const completionEvent = z.object({
   type: z.literal("city_continuation_completed"),
   readModel,
 }).strict();
+const recoveryStartedEvent = z.object({ ...eventBase, type: z.literal("source_recovery_started"), cityId: nonEmptyString }).strict();
+const recoveryYellowEvent = z.object({
+  ...eventBase, type: z.literal("source_recovery_yellow"), cityId: nonEmptyString,
+  reason: z.literal("official_source_unavailable"), source: publicFactSource,
+}).strict().refine(({ source }) => source.status === "yellow", "invalid_yellow_source");
+const replacementEvent = z.object({
+  ...eventBase, type: z.literal("official_source_replaced"), cityId: nonEmptyString, source: publicFactSource,
+}).strict().refine(({ source }) => source.status !== "yellow", "invalid_replacement_source");
 const event = z.union([
   activatedEvent,
   progressWithoutUrl,
   safetyCompletedProgress,
   completedProgress,
+  recoveryStartedEvent,
+  recoveryYellowEvent,
+  replacementEvent,
   committedEvent,
   completionEvent,
 ]);
@@ -733,6 +761,10 @@ export interface CityFrontierEventState {
   readonly progress?: readonly CityFrontierEvent[];
   readonly committedRevisionId?: string;
   readonly terminal?: CityFrontierReadModel;
+  readonly currentSource?: import("../application/city-frontier-contracts").PublicFactSourceV1;
+  readonly sourceReplaced?: boolean;
+  readonly recoveryStarted?: boolean;
+  readonly yellowSource?: import("../application/city-frontier-contracts").PublicFactSourceV1;
 }
 
 export function initialCityFrontierEventState(
@@ -753,7 +785,7 @@ export function reduceCityFrontierEvent(
 ): CityFrontierEventState {
   const predecessorModel = normalizeCityFrontierReadModel(predecessorReadModel);
   const parsedEvent = normalizeEvent(rawEvent);
-  if (state.terminal !== undefined) throw new Error("event_after_continuation_completion");
+  if (state.terminal !== undefined || state.yellowSource !== undefined) throw new Error("event_after_continuation_completion");
   if (state.runId !== predecessorModel.runId || parsedEvent.runId !== state.runId) {
     throw new Error("changed_city_frontier_run_id");
   }
@@ -784,6 +816,9 @@ export function reduceCityFrontierEvent(
       lastSequence: parsedEvent.sequence,
       active: { cityId: parsedEvent.cityId, rank: parsedEvent.rank },
       ...(state.progress === undefined ? {} : { progress: state.progress }),
+      ...(state.currentSource === undefined ? {} : { currentSource: state.currentSource }),
+      ...(state.sourceReplaced === undefined ? {} : { sourceReplaced: state.sourceReplaced }),
+      ...(state.recoveryStarted === undefined ? {} : { recoveryStarted: state.recoveryStarted }),
     });
   }
 
@@ -798,7 +833,37 @@ export function reduceCityFrontierEvent(
       lastSequence: parsedEvent.sequence,
       active: state.active,
       progress: [...(state.progress ?? []), parsedEvent],
+      ...(state.currentSource === undefined ? {} : { currentSource: state.currentSource }),
+      ...(state.sourceReplaced === undefined ? {} : { sourceReplaced: state.sourceReplaced }),
+      ...(state.recoveryStarted === undefined ? {} : { recoveryStarted: state.recoveryStarted }),
     });
+  }
+
+  if (parsedEvent.type === "source_recovery_started") {
+    if (state.active?.cityId !== parsedEvent.cityId || state.recoveryStarted === true) {
+      throw new Error("invalid_source_recovery_start");
+    }
+    return freezeCopy({ ...state, lastSequence: parsedEvent.sequence, recoveryStarted: true });
+  }
+
+  if (parsedEvent.type === "official_source_replaced") {
+    if (state.active?.cityId !== parsedEvent.cityId || state.recoveryStarted !== true ||
+      state.sourceReplaced === true) {
+      throw new Error("invalid_source_replacement");
+    }
+    return freezeCopy({ ...state, lastSequence: parsedEvent.sequence, active: state.active,
+      ...(state.progress === undefined ? {} : { progress: state.progress }),
+      recoveryStarted: true, currentSource: parsedEvent.source, sourceReplaced: true });
+  }
+
+  if (parsedEvent.type === "source_recovery_yellow") {
+    if (state.active?.cityId !== parsedEvent.cityId || state.recoveryStarted !== true ||
+      state.sourceReplaced === true) {
+      throw new Error("invalid_source_recovery_yellow");
+    }
+    return freezeCopy({ ...state, lastSequence: parsedEvent.sequence, active: state.active,
+      ...(state.progress === undefined ? {} : { progress: state.progress }),
+      recoveryStarted: true, currentSource: parsedEvent.source, yellowSource: parsedEvent.source });
   }
 
   if (parsedEvent.type === "city_revision_committed") {
@@ -823,6 +888,9 @@ export function reduceCityFrontierEvent(
       lastSequence: parsedEvent.sequence,
       ...(state.progress === undefined ? {} : { progress: state.progress }),
       committedRevisionId: successor.id,
+      ...(state.currentSource === undefined ? {} : { currentSource: state.currentSource }),
+      ...(state.sourceReplaced === undefined ? {} : { sourceReplaced: state.sourceReplaced }),
+      ...(state.recoveryStarted === undefined ? {} : { recoveryStarted: state.recoveryStarted }),
     });
   }
 
@@ -838,6 +906,8 @@ export function reduceCityFrontierEvent(
     ...(state.committedRevisionId === undefined
       ? {}
       : { committedRevisionId: state.committedRevisionId }),
+    ...(state.currentSource === undefined ? {} : { currentSource: state.currentSource }),
+    ...(state.sourceReplaced === undefined ? {} : { sourceReplaced: state.sourceReplaced }),
     terminal: completedReadModel,
   });
 }
@@ -914,6 +984,9 @@ export async function* decodeCityFrontierStream(
     yield parsedEvent;
   }
 
-  if (pendingCompletion === undefined) throw new Error("missing_city_continuation_completion");
-  yield pendingCompletion;
+  if (pendingCompletion !== undefined) {
+    yield pendingCompletion;
+    return;
+  }
+  if (state.yellowSource === undefined) throw new Error("missing_city_continuation_completion");
 }

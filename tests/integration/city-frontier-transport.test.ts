@@ -501,13 +501,14 @@ describe("city-frontier Continue HTTP adapter", () => {
         preparedFirst = true;
         return prepared;
       }),
-      continueCityFrontier: vi.fn(async (_prepared, emit) => {
+      continueCityFrontierWithSourceRecovery: vi.fn(async (_prepared, emit) => {
         expect(preparedFirst).toBe(true);
         await gate;
         await emit(events[0]!);
         await emit(events[1]!);
         await emit(events[2]!);
-        return workingReadModel;
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "advanced" as const,
+          readModel: workingReadModel };
       }),
     };
     const POST = await loadPost("continue", application);
@@ -520,7 +521,7 @@ describe("city-frontier Continue HTTP adapter", () => {
     expect(responseOrTimeout).not.toBe("timeout");
     const response = responseOrTimeout as Response;
     expect(application.prepareCityFrontierContinuation).toHaveBeenCalledWith(continueBody);
-    expect(application.continueCityFrontier).toHaveBeenCalledOnce();
+    expect(application.continueCityFrontierWithSourceRecovery).toHaveBeenCalledOnce();
     expect(Object.fromEntries(response.headers.entries())).toEqual({
       "cache-control": "no-store, no-transform",
       "content-type": "application/x-ndjson; charset=utf-8",
@@ -562,12 +563,13 @@ describe("city-frontier Continue HTTP adapter", () => {
     const events = [activated(), committed(), completed()];
     const application = {
       prepareCityFrontierContinuation: async () => prepared,
-      continueCityFrontier: async (
+      continueCityFrontierWithSourceRecovery: async (
         _prepared: CityFrontierPrepared,
         emit: (event: CityFrontierEvent) => Promise<void>,
       ) => {
         for (const event of events) await emit(event);
-        return canonicalEqualReturn;
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "advanced" as const,
+          readModel: canonicalEqualReturn };
       },
     };
     const POST = await loadPost("continue", application);
@@ -575,6 +577,66 @@ describe("city-frontier Continue HTTP adapter", () => {
     const response = await POST(request("continue", continueBody));
 
     expect(await response.text()).toBe(events.map((event) => `${JSON.stringify(event)}\n`).join(""));
+  });
+
+  test("requires the beta recovery continuation entrypoint and never falls back to legacy Continue", async () => {
+    const continueCityFrontier = vi.fn(async () => workingReadModel);
+    const POST = await loadPost("continue", {
+      prepareCityFrontierContinuation: async () => prepared,
+      continueCityFrontier,
+    });
+
+    const response = await POST(request("continue", continueBody));
+
+    await expectGenericStreamError(response, []);
+    expect(continueCityFrontier).not.toHaveBeenCalled();
+  });
+
+  test("rejects a terminal yellow claim after a Frontier commit", async () => {
+    const yellow = { schemaVersion: "public-fact-source@1" as const, factKey: "si-city-safety",
+      status: "yellow" as const, publisherName: null, sourceUrl: null, checkedAt: null };
+    const application = {
+      prepareCityFrontierContinuation: async () => prepared,
+      continueCityFrontierWithSourceRecovery: async (
+        _prepared: CityFrontierPrepared, emit: (event: CityFrontierEvent) => Promise<void>,
+      ) => {
+        await emit(activated());
+        await emit(committed());
+        await emit({ type: "source_recovery_yellow", runId: prepared.runId,
+          baseRevisionId: prepared.baseRevisionId, sequence: 3, occurredAt: NOW, cityId: "ljubljana",
+          reason: "official_source_unavailable", source: yellow });
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "yellow" as const, source: yellow };
+      },
+    };
+    const POST = await loadPost("continue", application);
+
+    await expectGenericStreamError(await POST(request("continue", continueBody)), [activated(), committed()]);
+  });
+
+  test("rejects a proxied public source before serializing a recovery claim", async () => {
+    const source = new Proxy({ schemaVersion: "public-fact-source@1" as const, factKey: "si-city-safety",
+      status: "green" as const, publisherName: "Slovenian Police",
+      sourceUrl: "https://www.policija.si/statistics", checkedAt: NOW }, {});
+    const application = {
+      prepareCityFrontierContinuation: async () => prepared,
+      continueCityFrontierWithSourceRecovery: async (
+        _prepared: CityFrontierPrepared, emit: (event: CityFrontierEvent) => Promise<void>,
+      ) => {
+        await emit(activated());
+        await emit({ type: "source_recovery_started", runId: prepared.runId,
+          baseRevisionId: prepared.baseRevisionId, sequence: 2, occurredAt: NOW, cityId: "ljubljana" });
+        await emit({ type: "official_source_replaced", runId: prepared.runId,
+          baseRevisionId: prepared.baseRevisionId, sequence: 3, occurredAt: NOW, cityId: "ljubljana", source });
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "advanced" as const,
+          readModel: workingReadModel };
+      },
+    };
+    const POST = await loadPost("continue", application);
+
+    await expectGenericStreamError(await POST(request("continue", continueBody)), [activated(), {
+      type: "source_recovery_started", runId: prepared.runId, baseRevisionId: prepared.baseRevisionId,
+      sequence: 2, occurredAt: NOW, cityId: "ljubljana",
+    }]);
   });
 
   // Break caught: accepting a stream that omits, duplicates, reorders, or contradicts its sole
@@ -597,9 +659,10 @@ describe("city-frontier Continue HTTP adapter", () => {
   ) => {
     const application = {
       prepareCityFrontierContinuation: async () => prepared,
-      continueCityFrontier: async (_prepared: CityFrontierPrepared, emit: (event: CityFrontierEvent) => Promise<void>) => {
+      continueCityFrontierWithSourceRecovery: async (_prepared: CityFrontierPrepared, emit: (event: CityFrontierEvent) => Promise<void>) => {
         for (const event of events) await emit(event);
-        return returned;
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "advanced" as const,
+          readModel: returned };
       },
     };
     const POST = await loadPost("continue", application);
@@ -634,12 +697,13 @@ describe("city-frontier Continue HTTP adapter", () => {
   ] as const)("rejects malformed %s before serializing it", async (_name, rawEvents, expectedFrames) => {
     const application = {
       prepareCityFrontierContinuation: async () => prepared,
-      continueCityFrontier: async (
+      continueCityFrontierWithSourceRecovery: async (
         _prepared: CityFrontierPrepared,
         emit: (event: CityFrontierEvent) => Promise<void>,
       ) => {
         for (const event of rawEvents) await emit(event as CityFrontierEvent);
-        return workingReadModel;
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "advanced" as const,
+          readModel: workingReadModel };
       },
     };
     const POST = await loadPost("continue", application);
@@ -655,7 +719,7 @@ describe("city-frontier Continue HTTP adapter", () => {
     const providerError = new Error("provider token=secret sqlite=/private/db");
     const application = {
       prepareCityFrontierContinuation: async () => prepared,
-      continueCityFrontier: async () => { throw providerError; },
+      continueCityFrontierWithSourceRecovery: async () => { throw providerError; },
     };
     const POST = await loadPost("continue", application);
 
@@ -744,7 +808,7 @@ describe("city-frontier Continue HTTP adapter", () => {
     const events = [activated(), committed(), completed()];
     const application = {
       prepareCityFrontierContinuation: async () => mutablePrepared,
-      continueCityFrontier: async (
+      continueCityFrontierWithSourceRecovery: async (
         received: CityFrontierPrepared,
         emit: (event: CityFrontierEvent) => Promise<void>,
       ) => {
@@ -753,7 +817,8 @@ describe("city-frontier Continue HTTP adapter", () => {
         expect(received).toEqual(prepared);
         mutablePrepared.runId = "city-frontier:drifted";
         for (const event of events) await emit(event);
-        return workingReadModel;
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "advanced" as const,
+          readModel: workingReadModel };
       },
     };
     const POST = await loadPost("continue", application);
@@ -774,7 +839,7 @@ describe("city-frontier Continue HTTP adapter", () => {
     } as unknown as CityFrontierEvent;
     const application = {
       prepareCityFrontierContinuation: async () => prepared,
-      continueCityFrontier: async (
+      continueCityFrontierWithSourceRecovery: async (
         _prepared: CityFrontierPrepared,
         emit: (event: CityFrontierEvent) => Promise<void>,
       ) => {
@@ -790,7 +855,8 @@ describe("city-frontier Continue HTTP adapter", () => {
           emitterFailures += 1;
         }
         expect(emitterFailures).toBe(2);
-        return workingReadModel;
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "advanced" as const,
+          readModel: workingReadModel };
       },
     };
     const POST = await loadPost("continue", application);
@@ -807,7 +873,7 @@ describe("city-frontier Continue HTTP adapter", () => {
     const emitters: Array<(event: CityFrontierEvent) => Promise<void>> = [];
     const application = {
       prepareCityFrontierContinuation: async () => prepared,
-      continueCityFrontier: async (
+      continueCityFrontierWithSourceRecovery: async (
         _prepared: CityFrontierPrepared,
         emit: (event: CityFrontierEvent) => Promise<void>,
         signal: AbortSignal,
@@ -859,12 +925,13 @@ describe("city-frontier Continue HTTP adapter", () => {
     const events = [activated(), committed(), completed()];
     const application = {
       prepareCityFrontierContinuation: async () => prepared,
-      continueCityFrontier: async (
+      continueCityFrontierWithSourceRecovery: async (
         _prepared: CityFrontierPrepared,
         emit: (event: CityFrontierEvent) => Promise<void>,
       ) => {
         for (const event of events) await emit(event);
-        return workingReadModel;
+        return { schemaVersion: "city-source-recovery-outcome@1" as const, kind: "advanced" as const,
+          readModel: workingReadModel };
       },
     };
     const POST = await loadPost("continue", application);
@@ -1495,6 +1562,54 @@ describe("city-frontier finite browser decoder", () => {
     });
   });
 
+  test.each([
+    ["a partially-null green source", { publisherName: "Slovenian Police", sourceUrl: null,
+      checkedAt: "2026-08-27T12:00:00.000Z" }],
+    ["an HTTP replacement URL", { publisherName: "Slovenian Police", sourceUrl: "http://www.policija.si/statistics",
+      checkedAt: "2026-08-27T12:00:00.000Z" }],
+  ])("rejects %s at the strict browser boundary", async (_name, provenance) => {
+    const { decodeCityFrontierStream } = await loadCityFrontierStreamModule();
+    const [activation, commit, completion] = browserWireLines().map((line) => JSON.parse(line));
+    const frames = [
+      activation,
+      { type: "source_recovery_started", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 2, occurredAt: NOW, cityId: "ljubljana" },
+      { type: "official_source_replaced", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 3, occurredAt: NOW, cityId: "ljubljana", source: {
+          schemaVersion: "public-fact-source@1", factKey: "si-city-safety", status: "green", ...provenance,
+        } },
+      { ...commit, sequence: 4 }, { ...completion, sequence: 5 },
+    ];
+
+    await expect(async () => {
+      for await (const event of decodeCityFrontierStream(
+        finiteBrowserStream(frames.map((frame) => JSON.stringify(frame))), browserBaseReadModel,
+      )) { void event; }
+    }).rejects.toThrow();
+  });
+
+  test("accepts terminal yellow at clean EOF without inventing a continuation completion", async () => {
+    const { decodeCityFrontierStream } = await loadCityFrontierStreamModule();
+    const [activation] = browserWireLines().map((line) => JSON.parse(line));
+    const frames = [activation,
+      { type: "source_recovery_started", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 2, occurredAt: NOW, cityId: "ljubljana" },
+      { type: "source_recovery_yellow", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 3, occurredAt: NOW, cityId: "ljubljana", reason: "official_source_unavailable", source: {
+          schemaVersion: "public-fact-source@1", factKey: "si-city-safety", status: "yellow",
+          publisherName: null, sourceUrl: null, checkedAt: null,
+        } },
+    ];
+    const received: CityFrontierEvent[] = [];
+    for await (const event of decodeCityFrontierStream(
+      finiteBrowserStream(frames.map((frame) => JSON.stringify(frame))), browserBaseReadModel,
+    )) received.push(event);
+
+    expect(received.map(({ type }) => type)).toEqual([
+      "city_activated", "source_recovery_started", "source_recovery_yellow",
+    ]);
+  });
+
   // Break caught: publishing the completed read model as soon as its line arrives instead of waiting
   // for clean EOF to prove there are no trailing frames or bytes.
   test("withholds completion until clean EOF", async () => {
@@ -1997,6 +2112,56 @@ describe("city-frontier marker order and public reducer REDs", () => {
 });
 
 describe("city-frontier reducer flight-state REDs", () => {
+  test("retains a verified replacement through progress, commit, and completion", async () => {
+    const { initialCityFrontierEventState, reduceCityFrontierEvent } = await loadCityFrontierStreamModule();
+    const base = syntheticWorkingReadModel(2, 0, BROWSER_BASE_REVISION_ID);
+    const successor = syntheticSuccessor(base, { id: BROWSER_WORKING_REVISION_ID, kind: "working" });
+    const replacement = {
+      schemaVersion: "public-fact-source@1" as const, factKey: "si-city-safety",
+      status: "green" as const, publisherName: "Slovenian Police",
+      sourceUrl: "https://www.policija.si/statistics", checkedAt: "2026-08-27T12:00:01.000Z",
+    };
+    const frames: CityFrontierEvent[] = [
+      { type: "city_activated", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 1, occurredAt: "2026-08-27T12:00:00.000Z", cityId: syntheticCityId(1), rank: 1 },
+      { type: "source_recovery_started", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 2, occurredAt: "2026-08-27T12:00:01.000Z", cityId: syntheticCityId(1) },
+      { type: "official_source_replaced", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 3, occurredAt: "2026-08-27T12:00:02.000Z", cityId: syntheticCityId(1), source: replacement },
+      { type: "city_progress", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 4, occurredAt: "2026-08-27T12:00:03.000Z", cityId: syntheticCityId(1), stage: "evidence_verified" },
+      { type: "city_revision_committed", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 5, occurredAt: "2026-08-27T12:00:04.000Z", marker: successor.markers.at(-1)!, revision: successor },
+      { type: "city_continuation_completed", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 6, occurredAt: "2026-08-27T12:00:05.000Z", readModel: { ...base, revision: successor } },
+    ];
+    let state = initialCityFrontierEventState(base);
+    let predecessor: CityFrontierReadModel = base;
+    for (const frame of frames) {
+      state = reduceCityFrontierEvent(state, frame, predecessor);
+      if (frame.type === "city_revision_committed") predecessor = { ...base, revision: successor };
+    }
+
+    expect(state).toMatchObject({ currentSource: replacement, sourceReplaced: true,
+      terminal: { revision: successor } });
+    expect(Object.isFrozen(state.currentSource)).toBe(true);
+
+    const viewModule = await loadCityFrontierViewModelModule();
+    let screen = viewModule.beginCityFrontierContinuation(base);
+    for (const frame of frames) screen = viewModule.reduceCityFrontierContinuationEvent(screen, frame);
+    expect(viewModule.projectCityFrontierView(screen)).toMatchObject({
+      source: replacement, sourceReplaced: true,
+    });
+
+    let failedScreen = viewModule.beginCityFrontierContinuation(base);
+    for (const frame of frames.slice(0, 5)) {
+      failedScreen = viewModule.reduceCityFrontierContinuationEvent(failedScreen, frame);
+    }
+    expect(viewModule.projectCityFrontierView(
+      viewModule.failCityFrontierContinuation(failedScreen, "stream_failed"),
+    )).toMatchObject({ source: replacement, sourceReplaced: true, requiresVerifiedReload: true });
+  });
+
   // Break caught: clearing active after commit without latching that this finite continuation already
   // consumed its sole city, allowing a second activation against the same base revision stream.
   test("rejects a second activation after one valid activation and commit", async () => {

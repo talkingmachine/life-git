@@ -33,6 +33,7 @@ import type {
   CityFrontierStartPublication,
   CityFrontierStartPublicationResult,
   CitySelectionHistoryReadPort,
+  PublicFactSourceV1,
   TerminalCityShortlistSnapshot,
 } from "./city-frontier-contracts";
 import {
@@ -52,8 +53,8 @@ import type {
   CitySourceRecoveryOutcome,
   CityContinuationUnitOfWorkPort,
   EffectiveCitySourceBinding,
-  PublicFactSourceV1,
 } from "./city-source-recovery";
+import { reconstructPublicFactSourceV1 } from "./city-source-recovery";
 import {
   reconstructCitySourceBindingKeyV1,
   reconstructCitySourceBindingCursorV1,
@@ -3061,6 +3062,7 @@ interface ReplacementPublication {
   readonly knowledge: CityKnowledgeRevision;
   readonly commit: ContinuationCommit;
   readonly bindingRevision: CitySourceBindingRevisionV1;
+  readonly sourceVersion: CitySourceReplacementInput["sourceVersion"];
 }
 
 type ContinuationFlights = Map<string, ContinuationFlight>;
@@ -3175,7 +3177,7 @@ async function publishReplacement(
     const input = replacementInput(authority, recovery, verified, knowledge, commit);
     const bindingRevision = capability.bindings.appendReplacementInTransaction(input, recovery.cursor);
     if (!sameRecoveryValue(bindingRevision, input.revision, ports)) mismatch();
-    return Object.freeze({ evidence, knowledge, commit, bindingRevision });
+    return Object.freeze({ evidence, knowledge, commit, bindingRevision, sourceVersion: input.sourceVersion });
   });
 }
 
@@ -3377,9 +3379,39 @@ function yellowRecoveryOutcome(
   });
   const appended = reconstructOfficialSourceRecoveryAttemptV1(capability.bindings.appendYellowAttempt(attempt));
   if (ports.decisionIntegrity.canonical(appended) !== ports.decisionIntegrity.canonical(attempt)) mismatch();
-  const source: PublicFactSourceV1 = Object.freeze({ schemaVersion: "public-fact-source@1",
+  const source = reconstructPublicFactSourceV1({ schemaVersion: "public-fact-source@1",
     factKey: "si-city-safety", status: "yellow", publisherName: null, sourceUrl: null, checkedAt: null });
   return Object.freeze({ schemaVersion: "city-source-recovery-outcome@1", kind: "yellow", source });
+}
+
+function replacementPublicSource(
+  authority: ContinueAuthority,
+  published: ReplacementPublication,
+): PublicFactSourceV1 {
+  const safety = published.commit.marker.facts.find(({ criterionId }) => criterionId === "safety");
+  const result = published.evidence.verified.snapshot.safetyAttemptLedger.result;
+  const accepted = result.kind === "verified"
+    ? published.evidence.verified.snapshot.safetyAttemptLedger.candidates[result.acceptedCandidateIndex]
+    : undefined;
+  const verifiedAccepted = accepted !== undefined && accepted.disposition === "usable"
+    ? accepted : undefined;
+  const authorityPublisher = verifiedAccepted === undefined ? undefined :
+    authority.trust.installed.officialAuthorityDirectory.publishers.find(
+      ({ publisherId }) => publisherId === verifiedAccepted.publisherId,
+    );
+  if (safety === undefined || safety.outcome.kind !== "verified" || verifiedAccepted === undefined ||
+    authorityPublisher === undefined || published.sourceVersion.publisherId !== verifiedAccepted.publisherId ||
+    published.sourceVersion.finalUrl !== verifiedAccepted.resolvedEvidenceUrl ||
+    published.sourceVersion.capturedAt !== published.evidence.verified.snapshot.completedAt) mismatch();
+  return reconstructPublicFactSourceV1({
+    schemaVersion: "public-fact-source@1",
+    factKey: "si-city-safety",
+    status: published.commit.marker.requiredMismatches.some(({ criterionId }) => criterionId === "safety")
+      ? "red" : "green",
+    publisherName: authorityPublisher.publisherId,
+    sourceUrl: published.sourceVersion.finalUrl,
+    checkedAt: published.sourceVersion.capturedAt,
+  });
 }
 
 async function runContinuationWaiter(
@@ -3398,11 +3430,19 @@ async function runContinuationWaiter(
     flight.start();
     const outcome = await flight.research;
     if (outcome === undefined) mismatch();
-    if (outcome.kind === "yellow") return outcome.outcome;
-    await emitResearchCompletion(authority, outcome.research, pump);
+    if (outcome.kind === "yellow") {
+      await pump.emit({ type: "source_recovery_started", cityId: authority.cityId });
+      await pump.emit({ type: "source_recovery_yellow", cityId: authority.cityId,
+        reason: "official_source_unavailable", source: outcome.outcome.source });
+      return outcome.outcome;
+    }
     if (outcome.kind === "replacement") {
+      await pump.emit({ type: "source_recovery_started", cityId: authority.cityId });
       const published = await flight.replacementPublication;
       if (published === undefined) mismatch();
+      await pump.emit({ type: "official_source_replaced", cityId: authority.cityId,
+        source: replacementPublicSource(authority, published) });
+      await emitResearchCompletion(authority, outcome.research, pump);
       await pump.emit({ type: "city_progress", cityId: authority.cityId, stage: "evidence_verified" });
       await pump.emit({ type: "city_progress", cityId: authority.cityId, stage: "knowledge_published" });
       if (nativeSignalAborted(signal)) abortReason(signal);
@@ -3413,6 +3453,7 @@ async function runContinuationWaiter(
       await pump.emit({ type: "city_continuation_completed", readModel });
       return Object.freeze({ schemaVersion: "city-source-recovery-outcome@1", kind: "advanced", readModel });
     }
+    await emitResearchCompletion(authority, outcome.research, pump);
   }
   const evidence = await flight.evidence;
   if (evidence === undefined) mismatch();
@@ -3927,7 +3968,6 @@ export function createCityFrontierApplication(
       emit: (event: CityFrontierEvent) => void | Promise<void>,
       signal: AbortSignal,
     ) => {
-      if (capturedRecovery === undefined) throw new Error("city_source_recovery_unconfigured");
       const ownedPrepared = inputPrepared(prepared);
       if (typeof emit !== "function" || isBorrowedProxy(emit) ||
         isBorrowedProxy(signal) || !(signal instanceof AbortSignal)) mismatch();
