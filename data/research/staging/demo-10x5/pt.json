@@ -26,7 +26,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "The government page states the official name; alpha-2 PT is the fixed ISO identifier used by Portuguese official datasets.",
+        "limitations": [
+          "The government page states the official name; alpha-2 PT is the fixed ISO identifier used by Portuguese official datasets."
+        ],
         "rejectedAlternatives": [
           "Wikipedia and country-profile aggregators were excluded."
         ],
@@ -49,7 +51,9 @@
         "observedValue": "https://www.gov.pt/",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "None for portal identity.",
+        "limitations": [
+          "None for portal identity."
+        ],
         "rejectedAlternatives": [],
         "notes": "The page says ARTE develops, manages and maintains gov.pt."
       },
@@ -70,7 +74,9 @@
         "observedValue": "Instituto Nacional de Estatística",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Authority evidence is on gov.pt; statistical tables are on ine.pt.",
+        "limitations": [
+          "Authority evidence is on gov.pt; statistical tables are on ine.pt."
+        ],
         "rejectedAlternatives": [],
         "notes": "gov.pt defines INE's mission as producing official statistics independently and impartially."
       },
@@ -91,7 +97,9 @@
         "observedValue": "Polícia de Segurança Pública",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "DGPJ/INE, rather than the PSP site alone, publishes the harmonized municipality crime indicator used below.",
+        "limitations": [
+          "DGPJ/INE, rather than the PSP site alone, publishes the harmonized municipality crime indicator used below."
+        ],
         "rejectedAlternatives": [],
         "notes": "gov.pt links the official PSP site."
       },
@@ -112,7 +120,9 @@
         "observedValue": "Direção-Geral do Território",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Madeira CAOP is published as a region-specific artifact under the same official authority.",
+        "limitations": [
+          "Madeira CAOP is published as a region-specific artifact under the same official authority."
+        ],
         "rejectedAlternatives": [],
         "notes": "gov.pt links dgterritorio.gov.pt and states DGT is a central state-administration service."
       },
@@ -133,7 +143,9 @@
         "observedValue": "ANACOM",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Coverage values require GEO.ANACOM spatial extraction.",
+        "limitations": [
+          "Coverage values require GEO.ANACOM spatial extraction."
+        ],
         "rejectedAlternatives": [],
         "notes": "gov.pt links the ANACOM site and identifies its statutory regulatory role."
       },
@@ -154,7 +166,9 @@
         "observedValue": "Direção-Geral da Política de Justiça",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality crime values are delivered through DGPJ/INE dynamic datasets.",
+        "limitations": [
+          "Municipality crime values are delivered through DGPJ/INE dynamic datasets."
+        ],
         "rejectedAlternatives": [],
         "notes": "The DGPJ statistical request page explicitly lists municipality as an online query dimension."
       }
@@ -185,7 +199,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality identity; seed uses English display name.",
+        "limitations": [
+          "Municipality identity; seed uses English display name."
+        ],
         "rejectedAlternatives": [
           "Wikipedia identity was excluded."
         ],
@@ -212,7 +228,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality, not urban area or metropolitan area.",
+        "limitations": [
+          "Municipality, not urban area or metropolitan area."
+        ],
         "rejectedAlternatives": [],
         "notes": "Direct value observed in official INE municipal profile."
       },
@@ -232,7 +250,9 @@
         "exactLocator": "Unidades Administrativas WFS; concelho Lisboa/DICO 1106; deterministic point-on-surface in official geometry",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Coordinate not computed; parser must retain CAOP version and CRS transformation.",
+        "limitations": [
+          "Coordinate not computed; parser must retain CAOP version and CRS transformation."
+        ],
         "rejectedAlternatives": [
           "Wikipedia and commercial maps excluded."
         ],
@@ -255,7 +275,9 @@
           "exactLocator": "Indicator 0012260: Taxa de criminalidade by geographic location and crime category; filter Lisboa municipality",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value not staged until the dynamic table, category and reference year are captured deterministically.",
+          "limitations": [
+            "Value not staged until the dynamic table, category and reference year are captured deterministically."
+          ],
           "rejectedAlternatives": [
             "Numbeo and media rankings excluded."
           ],
@@ -277,7 +299,9 @@
           "exactLocator": "Indicator 19480, source Estatísticas de Rendas da Habitação ao nível local; filter Lisboa",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Observed rent value omitted until table filters, new-contract definition and period are sealed.",
+          "limitations": [
+            "Observed rent value omitted until table filters, new-contract definition and period are sealed."
+          ],
           "rejectedAlternatives": [
             "Commercial listing portals excluded."
           ],
@@ -303,7 +327,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Metrics need Carris route/timetable extraction.",
+          "limitations": [
+            "Metrics need Carris route/timetable extraction."
+          ],
           "rejectedAlternatives": [],
           "notes": "Lisbon municipality page proves the operator relationship and links carris.pt."
         },
@@ -323,7 +349,9 @@
           "exactLocator": "GEO.ANACOM Coberturas disponíveis; Rede Fixa; query locations within Lisboa/overlay CAOP geometry",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "No city aggregate is exposed on the landing page; requires geospatial overlay or point-sampling policy.",
+          "limitations": [
+            "No city aggregate is exposed on the landing page; requires geospatial overlay or point-sampling policy."
+          ],
           "rejectedAlternatives": [
             "ISP availability and speed-test aggregators excluded."
           ],
@@ -355,7 +383,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Code value must be re-read from the exact CAOP service response before import.",
+        "limitations": [
+          "Code value must be re-read from the exact CAOP service response before import."
+        ],
         "rejectedAlternatives": [
           "Wikipedia excluded."
         ],
@@ -377,7 +407,9 @@
         "exactLocator": "Indicator 0014584; filter Porto municipality, total sex",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "No numeric value copied because the filtered table was not stably exposed in this pass.",
+        "limitations": [
+          "No numeric value copied because the filtered table was not stably exposed in this pass."
+        ],
         "rejectedAlternatives": [
           "Secondary population tables excluded."
         ],
@@ -399,7 +431,9 @@
         "exactLocator": "Unidades Administrativas WFS; concelho Porto; deterministic point-on-surface",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Point not computed.",
+        "limitations": [
+          "Point not computed."
+        ],
         "rejectedAlternatives": [
           "Commercial maps excluded."
         ],
@@ -422,7 +456,9 @@
           "exactLocator": "Indicator 0012260; filter Porto",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value requires pinned year/category extraction.",
+          "limitations": [
+            "Value requires pinned year/category extraction."
+          ],
           "rejectedAlternatives": [
             "Aggregators excluded."
           ],
@@ -444,7 +480,9 @@
           "exactLocator": "Indicator 19480; filter Porto",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value omitted pending deterministic extraction.",
+          "limitations": [
+            "Value omitted pending deterministic extraction."
+          ],
           "rejectedAlternatives": [
             "Commercial listings excluded."
           ],
@@ -470,7 +508,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Network extends beyond Porto; city-only metrics need route geometry clipping.",
+          "limitations": [
+            "Network extends beyond Porto; city-only metrics need route geometry clipping."
+          ],
           "rejectedAlternatives": [],
           "notes": "gov.pt also exposes an official service to consult STCP lines and fares."
         },
@@ -490,7 +530,9 @@
           "exactLocator": "GEO.ANACOM Rede Fixa; query/overlay Porto",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Requires city aggregation policy.",
+          "limitations": [
+            "Requires city aggregation policy."
+          ],
           "rejectedAlternatives": [
             "ISP checkers excluded."
           ],
@@ -522,7 +564,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Code must be re-read from exact service response before import.",
+        "limitations": [
+          "Code must be re-read from exact service response before import."
+        ],
         "rejectedAlternatives": [
           "Wikipedia excluded."
         ],
@@ -544,7 +588,9 @@
         "exactLocator": "Indicator 0014584; filter Braga, total sex",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "No numeric value staged without stable filtered output.",
+        "limitations": [
+          "No numeric value staged without stable filtered output."
+        ],
         "rejectedAlternatives": [
           "Secondary tables excluded."
         ],
@@ -566,7 +612,9 @@
         "exactLocator": "Unidades Administrativas WFS; concelho Braga; deterministic point-on-surface",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Point not computed.",
+        "limitations": [
+          "Point not computed."
+        ],
         "rejectedAlternatives": [
           "Commercial maps excluded."
         ],
@@ -589,7 +637,9 @@
           "exactLocator": "Indicator 0012260; filter Braga",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value requires pinned extraction.",
+          "limitations": [
+            "Value requires pinned extraction."
+          ],
           "rejectedAlternatives": [
             "Aggregators excluded."
           ],
@@ -611,7 +661,9 @@
           "exactLocator": "Indicator 19480; filter Braga",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value omitted pending deterministic extraction.",
+          "limitations": [
+            "Value omitted pending deterministic extraction."
+          ],
           "rejectedAlternatives": [
             "Commercial listings excluded."
           ],
@@ -637,7 +689,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Timetables/routes require TUB parser.",
+          "limitations": [
+            "Timetables/routes require TUB parser."
+          ],
           "rejectedAlternatives": [],
           "notes": "Municipality page proves operator relation and links tub.pt."
         },
@@ -657,7 +711,9 @@
           "exactLocator": "GEO.ANACOM Rede Fixa; query/overlay Braga",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Requires city aggregation policy.",
+          "limitations": [
+            "Requires city aggregation policy."
+          ],
           "rejectedAlternatives": [
             "ISP checkers excluded."
           ],
@@ -689,7 +745,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Code must be re-read from exact service response before import.",
+        "limitations": [
+          "Code must be re-read from exact service response before import."
+        ],
         "rejectedAlternatives": [
           "Wikipedia excluded."
         ],
@@ -711,7 +769,9 @@
         "exactLocator": "Indicator 0014584; filter Coimbra, total sex",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "No numeric value staged without stable filtered output.",
+        "limitations": [
+          "No numeric value staged without stable filtered output."
+        ],
         "rejectedAlternatives": [
           "Secondary tables excluded."
         ],
@@ -733,7 +793,9 @@
         "exactLocator": "Unidades Administrativas WFS; concelho Coimbra; deterministic point-on-surface",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Point not computed.",
+        "limitations": [
+          "Point not computed."
+        ],
         "rejectedAlternatives": [
           "Commercial maps excluded."
         ],
@@ -756,7 +818,9 @@
           "exactLocator": "Indicator 0012260; filter Coimbra",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value requires pinned extraction.",
+          "limitations": [
+            "Value requires pinned extraction."
+          ],
           "rejectedAlternatives": [
             "Aggregators excluded."
           ],
@@ -778,7 +842,9 @@
           "exactLocator": "Indicator 19480; filter Coimbra",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value omitted pending deterministic extraction.",
+          "limitations": [
+            "Value omitted pending deterministic extraction."
+          ],
           "rejectedAlternatives": [
             "Commercial listings excluded."
           ],
@@ -804,7 +870,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Route metrics require timetable extraction.",
+          "limitations": [
+            "Route metrics require timetable extraction."
+          ],
           "rejectedAlternatives": [],
           "notes": "Municipalized first-party operator site."
         },
@@ -824,7 +892,9 @@
           "exactLocator": "GEO.ANACOM Rede Fixa; query/overlay Coimbra",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Requires city aggregation policy.",
+          "limitations": [
+            "Requires city aggregation policy."
+          ],
           "rejectedAlternatives": [
             "ISP checkers excluded."
           ],
@@ -856,7 +926,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality identity.",
+        "limitations": [
+          "Municipality identity."
+        ],
         "rejectedAlternatives": [
           "Wikipedia excluded."
         ],
@@ -883,7 +955,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality, not urban area.",
+        "limitations": [
+          "Municipality, not urban area."
+        ],
         "rejectedAlternatives": [],
         "notes": "Direct official INE value."
       },
@@ -903,7 +977,9 @@
         "exactLocator": "CAOP2025 RAM; município Funchal; deterministic point-on-surface",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Point not computed; use region-specific CAOP artifact.",
+        "limitations": [
+          "Point not computed; use region-specific CAOP artifact."
+        ],
         "rejectedAlternatives": [
           "Commercial maps excluded."
         ],
@@ -926,7 +1002,9 @@
           "exactLocator": "Indicator 0012260; filter Funchal",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value requires pinned extraction.",
+          "limitations": [
+            "Value requires pinned extraction."
+          ],
           "rejectedAlternatives": [
             "Aggregators excluded."
           ],
@@ -948,7 +1026,9 @@
           "exactLocator": "Indicator 19480; filter Funchal",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Value omitted pending deterministic extraction.",
+          "limitations": [
+            "Value omitted pending deterministic extraction."
+          ],
           "rejectedAlternatives": [
             "Commercial listings excluded."
           ],
@@ -974,7 +1054,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Detailed network map is a PDF-like asset and needs a parser.",
+          "limitations": [
+            "Detailed network map is a PDF-like asset and needs a parser."
+          ],
           "rejectedAlternatives": [],
           "notes": "First-party network map: https://cms.horariosdofunchal.pt/assets/14986353-8481-402a-8819-f3b473fd3b5e; Funchal municipality page was blocked by robots during this pass."
         },
@@ -994,7 +1076,9 @@
           "exactLocator": "GEO.ANACOM Rede Fixa; query/overlay Funchal",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Requires Madeira-aware city aggregation policy.",
+          "limitations": [
+            "Requires Madeira-aware city aggregation policy."
+          ],
           "rejectedAlternatives": [
             "ISP checkers excluded."
           ],

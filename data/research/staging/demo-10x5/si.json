@@ -26,7 +26,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "The page states the official name; the alpha-2 code is corroborated by the official GURS country-name publication referenced in notes.",
+        "limitations": [
+          "The page states the official name; the alpha-2 code is corroborated by the official GURS country-name publication referenced in notes."
+        ],
         "rejectedAlternatives": [
           "Wikipedia and commercial country profiles were excluded."
         ],
@@ -49,7 +51,9 @@
         "observedValue": "https://www.gov.si/en/",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "None for portal identity.",
+        "limitations": [
+          "None for portal identity."
+        ],
         "rejectedAlternatives": [],
         "notes": "The portal itself identifies its government-administration role."
       },
@@ -70,7 +74,9 @@
         "observedValue": "Statistical Office of the Republic of Slovenia",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "The authority evidence is on GOV.SI; data are published on stat.si.",
+        "limitations": [
+          "The authority evidence is on GOV.SI; data are published on stat.si."
+        ],
         "rejectedAlternatives": [],
         "notes": "GOV.SI describes SURS as an independent expert government office and names its statistical mission."
       },
@@ -91,7 +97,9 @@
         "observedValue": "Police of the Republic of Slovenia",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "The organisation page establishes authority; individual data artifacts remain separately scoped.",
+        "limitations": [
+          "The organisation page establishes authority; individual data artifacts remain separately scoped."
+        ],
         "rejectedAlternatives": [],
         "notes": "GOV.SI identifies the Police as an independent body within the Ministry of the Interior."
       },
@@ -112,7 +120,9 @@
         "observedValue": "Surveying and Mapping Authority of the Republic of Slovenia",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "The authority page establishes GURS; e-prostor is its data portal.",
+        "limitations": [
+          "The authority page establishes GURS; e-prostor is its data portal."
+        ],
         "rejectedAlternatives": [],
         "notes": "The e-prostor access page explicitly describes data as data from GURS and public information."
       },
@@ -133,7 +143,9 @@
         "observedValue": "AKOS Geoportal",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "The English page notes that the Slovenian text is the official information.",
+        "limitations": [
+          "The English page notes that the Slovenian text is the official information."
+        ],
         "rejectedAlternatives": [],
         "notes": "gis.akos-rs.si identifies AKOS in its copyright and exposes fixed-network municipality layers."
       }
@@ -164,7 +176,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Seed city is represented at municipality scope, not settlement-only scope.",
+        "limitations": [
+          "Seed city is represented at municipality scope, not settlement-only scope."
+        ],
         "rejectedAlternatives": [
           "Wikipedia city identity was excluded."
         ],
@@ -191,7 +205,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality population, not settlement or agglomeration population.",
+        "limitations": [
+          "Municipality population, not settlement or agglomeration population."
+        ],
         "rejectedAlternatives": [],
         "notes": "Stage B requires exact settlement/municipality distinction; this staging record is explicitly municipal."
       },
@@ -211,7 +227,9 @@
         "exactLocator": "Public GURS WFS, Register of Spatial Units, municipality 061; compute deterministic point-on-surface and transform from EPSG:3794",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Coordinates were not computed in this read-only catalog pass; parser must retain source geometry version and transformation.",
+        "limitations": [
+          "Coordinates were not computed in this read-only catalog pass; parser must retain source geometry version and transformation."
+        ],
         "rejectedAlternatives": [
           "Wikipedia and commercial map coordinates were excluded."
         ],
@@ -234,7 +252,9 @@
           "exactLocator": "Table 5, row Policijska uprava Ljubljana",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "Police-directorate counts cannot be attributed to Ljubljana municipality without a separately verified municipal extract and denominator.",
+          "limitations": [
+            "Police-directorate counts cannot be attributed to Ljubljana municipality without a separately verified municipal extract and denominator."
+          ],
           "rejectedAlternatives": [
             "Numbeo and media crime rankings were excluded."
           ],
@@ -256,7 +276,9 @@
           "exactLocator": "Introduction and rental-market limitations discussing ETN reporting completeness",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "GURS explicitly says available data are insufficient for satisfactory rental-market monitoring; no unambiguous city value is staged.",
+          "limitations": [
+            "GURS explicitly says available data are insufficient for satisfactory rental-market monitoring; no unambiguous city value is staged."
+          ],
           "rejectedAlternatives": [
             "Commercial listing portals and rental aggregators were excluded."
           ],
@@ -282,7 +304,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Service presence only; frequency/coverage metrics require route-feed parsing.",
+          "limitations": [
+            "Service presence only; frequency/coverage metrics require route-feed parsing."
+          ],
           "rejectedAlternatives": [],
           "notes": "Route schemes are available from the same first-party domain."
         },
@@ -302,7 +326,9 @@
           "exactLocator": "FIKSNO OMREŽJE; Občina layers for household broadband and >=100 Mbit/s shares; select Ljubljana",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Interactive layer requires a dedicated map/service parser and a captured reference period before importing a value.",
+          "limitations": [
+            "Interactive layer requires a dedicated map/service parser and a captured reference period before importing a value."
+          ],
           "rejectedAlternatives": [
             "Commercial ISP availability checkers were excluded."
           ],
@@ -334,7 +360,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality scope.",
+        "limitations": [
+          "Municipality scope."
+        ],
         "rejectedAlternatives": [
           "Wikipedia was excluded."
         ],
@@ -361,7 +389,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality, not settlement/agglomeration.",
+        "limitations": [
+          "Municipality, not settlement/agglomeration."
+        ],
         "rejectedAlternatives": [],
         "notes": "Exact official table row."
       },
@@ -381,7 +411,9 @@
         "exactLocator": "Register of Spatial Units WFS; municipality 070; deterministic point-on-surface; EPSG:3794",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Point not computed in this pass.",
+        "limitations": [
+          "Point not computed in this pass."
+        ],
         "rejectedAlternatives": [
           "Commercial maps excluded."
         ],
@@ -404,7 +436,9 @@
           "exactLocator": "Table 5, row Policijska uprava Maribor",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "Directorate is broader than municipality.",
+          "limitations": [
+            "Directorate is broader than municipality."
+          ],
           "rejectedAlternatives": [
             "Aggregators excluded."
           ],
@@ -426,7 +460,9 @@
           "exactLocator": "Rental-market data quality discussion",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "No reliable city value established.",
+          "limitations": [
+            "No reliable city value established."
+          ],
           "rejectedAlternatives": [
             "Commercial listings excluded."
           ],
@@ -453,7 +489,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Route/frequency detail needs timetable parser.",
+          "limitations": [
+            "Route/frequency detail needs timetable parser."
+          ],
           "rejectedAlternatives": [],
           "notes": "First-party public company page."
         },
@@ -473,7 +511,9 @@
           "exactLocator": "Občina fixed-network layers; select Maribor",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Needs map/service parser and reference period.",
+          "limitations": [
+            "Needs map/service parser and reference period."
+          ],
           "rejectedAlternatives": [
             "ISP checkers excluded."
           ],
@@ -505,7 +545,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality scope; bilingual official naming needs exact bundle review.",
+        "limitations": [
+          "Municipality scope; bilingual official naming needs exact bundle review."
+        ],
         "rejectedAlternatives": [
           "Wikipedia excluded."
         ],
@@ -532,7 +574,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality population.",
+        "limitations": [
+          "Municipality population."
+        ],
         "rejectedAlternatives": [],
         "notes": "Exact official table row."
       },
@@ -552,7 +596,9 @@
         "exactLocator": "Register of Spatial Units WFS; municipality 050; deterministic point-on-surface; EPSG:3794",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Point not computed.",
+        "limitations": [
+          "Point not computed."
+        ],
         "rejectedAlternatives": [
           "Commercial maps excluded."
         ],
@@ -575,7 +621,9 @@
           "exactLocator": "Table 5, row Policijska uprava Koper",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "Directorate broader than municipality.",
+          "limitations": [
+            "Directorate broader than municipality."
+          ],
           "rejectedAlternatives": [
             "Aggregators excluded."
           ],
@@ -597,7 +645,9 @@
           "exactLocator": "Rental-market data quality discussion",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "No reliable city value.",
+          "limitations": [
+            "No reliable city value."
+          ],
           "rejectedAlternatives": [
             "Commercial listings excluded."
           ],
@@ -623,7 +673,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Operator status should be pinned to the municipal concession/source plan before import.",
+          "limitations": [
+            "Operator status should be pinned to the municipal concession/source plan before import."
+          ],
           "rejectedAlternatives": [],
           "notes": "Page includes the public-service co-financing decision among its first-party documents."
         },
@@ -643,7 +695,9 @@
           "exactLocator": "Občina fixed-network layers; select Koper",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Needs map/service parser.",
+          "limitations": [
+            "Needs map/service parser."
+          ],
           "rejectedAlternatives": [
             "ISP checkers excluded."
           ],
@@ -675,7 +729,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality scope.",
+        "limitations": [
+          "Municipality scope."
+        ],
         "rejectedAlternatives": [
           "Wikipedia excluded."
         ],
@@ -702,7 +758,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality population.",
+        "limitations": [
+          "Municipality population."
+        ],
         "rejectedAlternatives": [],
         "notes": "Exact official table row."
       },
@@ -722,7 +780,9 @@
         "exactLocator": "Register of Spatial Units WFS; municipality 011; deterministic point-on-surface; EPSG:3794",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Point not computed.",
+        "limitations": [
+          "Point not computed."
+        ],
         "rejectedAlternatives": [
           "Commercial maps excluded."
         ],
@@ -745,7 +805,9 @@
           "exactLocator": "Table 5, row Policijska uprava Celje",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "Directorate broader than municipality.",
+          "limitations": [
+            "Directorate broader than municipality."
+          ],
           "rejectedAlternatives": [
             "Aggregators excluded."
           ],
@@ -767,7 +829,9 @@
           "exactLocator": "Rental-market data quality discussion",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "No reliable city value.",
+          "limitations": [
+            "No reliable city value."
+          ],
           "rejectedAlternatives": [
             "Commercial listings excluded."
           ],
@@ -792,7 +856,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Timetables include Word documents and require a format-specific parser.",
+          "limitations": [
+            "Timetables include Word documents and require a format-specific parser."
+          ],
           "rejectedAlternatives": [],
           "notes": "Municipal first-party source; Nomago is shown only as operator attribution within municipal material."
         },
@@ -812,7 +878,9 @@
           "exactLocator": "Občina fixed-network layers; select Celje",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Needs map/service parser.",
+          "limitations": [
+            "Needs map/service parser."
+          ],
           "rejectedAlternatives": [
             "ISP checkers excluded."
           ],
@@ -844,7 +912,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality scope.",
+        "limitations": [
+          "Municipality scope."
+        ],
         "rejectedAlternatives": [
           "Wikipedia excluded."
         ],
@@ -871,7 +941,9 @@
         },
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Municipality population.",
+        "limitations": [
+          "Municipality population."
+        ],
         "rejectedAlternatives": [],
         "notes": "Exact official table row."
       },
@@ -891,7 +963,9 @@
         "exactLocator": "Register of Spatial Units WFS; municipality 052; deterministic point-on-surface; EPSG:3794",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
-        "limitations": "Point not computed.",
+        "limitations": [
+          "Point not computed."
+        ],
         "rejectedAlternatives": [
           "Commercial maps excluded."
         ],
@@ -914,7 +988,9 @@
           "exactLocator": "Table 5, row Policijska uprava Kranj",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "Directorate broader than municipality.",
+          "limitations": [
+            "Directorate broader than municipality."
+          ],
           "rejectedAlternatives": [
             "Aggregators excluded."
           ],
@@ -936,7 +1012,9 @@
           "exactLocator": "Rental-market data quality discussion",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_source_ambiguous",
-          "limitations": "No reliable city value.",
+          "limitations": [
+            "No reliable city value."
+          ],
           "rejectedAlternatives": [
             "Commercial listings excluded."
           ],
@@ -963,7 +1041,9 @@
           },
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Operator status requires municipal concession pinning before import.",
+          "limitations": [
+            "Operator status requires municipal concession pinning before import."
+          ],
           "rejectedAlternatives": [],
           "notes": "First-party operator source."
         },
@@ -983,7 +1063,9 @@
           "exactLocator": "Občina fixed-network layers; select Kranj",
           "accessedAt": "2026-08-30",
           "candidateStatus": "official_candidate_found",
-          "limitations": "Needs map/service parser.",
+          "limitations": [
+            "Needs map/service parser."
+          ],
           "rejectedAlternatives": [
             "ISP checkers excluded."
           ],

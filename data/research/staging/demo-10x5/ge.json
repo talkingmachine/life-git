@@ -6,20 +6,990 @@
     "isoCode": "GE",
     "accessedAt": "2026-08-30",
     "authorities": [
-      {"authorityType":"official_name_iso","publisher":"Government of Georgia","publisherType":"national_government","authorityRootUrl":"https://www.gov.ge/","sourceUrl":"https://www.gov.ge/","finalUrl":"https://www.gov.ge/","factKey":"country_identity","cityId":null,"officialStatus":"official government portal","period":null,"geographicScope":"Georgia","format":"HTML","language":"ka","exactLocator":"portal homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":[],"rejectedAlternatives":[],"notes":"Government-owned .gov.ge domain is direct domain-ownership evidence; ISO code needs later machine validation."},
-      {"authorityType":"government_portal","publisher":"Government of Georgia","publisherType":"national_government","authorityRootUrl":"https://www.gov.ge/","sourceUrl":"https://www.gov.ge/","finalUrl":"https://www.gov.ge/","factKey":"government_portal","cityId":null,"officialStatus":"official government portal","period":null,"geographicScope":"Georgia","format":"HTML","language":"ka","exactLocator":"portal homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":[],"rejectedAlternatives":[],"notes":"The .gov.ge public-sector domain and portal publisher identify the authority."},
-      {"authorityType":"statistics","publisher":"National Statistics Office of Georgia (Geostat)","publisherType":"national_statistics_office","authorityRootUrl":"https://www.geostat.ge/","sourceUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","finalUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","factKey":"population","cityId":null,"officialStatus":"official statistical database","period":"as of 1 January; current series","geographicScope":"Georgia, cities and boroughs","format":"PXWeb HTML/API","language":"en","exactLocator":"Demography > Population > Population by cities and boroughs, as of 1 January","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":[],"rejectedAlternatives":[],"notes":"Geostat publisher and geostat.ge host provide domain-ownership evidence."},
-      {"authorityType":"police_safety","publisher":"Ministry of Internal Affairs of Georgia","publisherType":"national_police","authorityRootUrl":"https://info.police.ge/","sourceUrl":"https://info.police.ge/page?id=884&parent_id=115","finalUrl":"https://info.police.ge/page?id=884&parent_id=115","factKey":"safety","cityId":null,"officialStatus":"official public-information portal","period":"2024 registered-crime statistics","geographicScope":"Georgia","format":"HTML/PDF","language":"ka","exactLocator":"Registered Crime Statistics 2024","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":[],"rejectedAlternatives":[],"notes":"The Ministry's public-information subdomain identifies the publisher."},
-      {"authorityType":"cadastre_geography","publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"geography","cityId":null,"officialStatus":"official agency portal","period":null,"geographicScope":"Georgia","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":[],"rejectedAlternatives":[],"notes":"Agency-branded napr.gov.ge portal is the domain-ownership evidence; a public city-point endpoint was not established."},
-      {"authorityType":"telecom_regulator","publisher":"Georgian National Communications Commission (ComCom)","publisherType":"independent_regulator","authorityRootUrl":"https://comcom.ge/","sourceUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","finalUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","factKey":"fixed_broadband","cityId":null,"officialStatus":"official regulator publication","period":"2024 data","geographicScope":"Georgia","format":"HTML","language":"en","exactLocator":"statement that fixed broadband is accessible in all cities and towns","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":[],"rejectedAlternatives":[],"notes":"ComCom's regulator-branded comcom.ge publication identifies the domain owner."},
-      {"authorityType":"telecom_operator","publisher":"Georgian National Communications Commission (ComCom)","publisherType":"independent_regulator","authorityRootUrl":"https://www.comcom.ge/","sourceUrl":"https://www.comcom.ge/en/regulation/sixshiruli-da-numeraciis-resursi/frequency-management","finalUrl":"https://www.comcom.ge/en/regulation/sixshiruli-da-numeraciis-resursi/frequency-management","factKey":"telecom_operator_registry","cityId":null,"officialStatus":"official regulator page","period":null,"geographicScope":"Georgia","format":"HTML","language":"en","exactLocator":"Regulation > Frequency Management","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":[],"rejectedAlternatives":[],"notes":"Regulator is a source for operator/coverage discovery; it is not itself a retail operator."}
+      {
+        "authorityType": "official_name_iso",
+        "publisher": "Government of Georgia",
+        "publisherType": "national_government",
+        "authorityRootUrl": "https://www.gov.ge/",
+        "sourceUrl": "https://www.gov.ge/",
+        "finalUrl": "https://www.gov.ge/",
+        "factKey": "country_identity",
+        "cityId": null,
+        "officialStatus": "official government portal",
+        "period": null,
+        "geographicScope": "Georgia",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "portal homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Government-owned .gov.ge domain is direct domain-ownership evidence; ISO code needs later machine validation."
+      },
+      {
+        "authorityType": "government_portal",
+        "publisher": "Government of Georgia",
+        "publisherType": "national_government",
+        "authorityRootUrl": "https://www.gov.ge/",
+        "sourceUrl": "https://www.gov.ge/",
+        "finalUrl": "https://www.gov.ge/",
+        "factKey": "government_portal",
+        "cityId": null,
+        "officialStatus": "official government portal",
+        "period": null,
+        "geographicScope": "Georgia",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "portal homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "The .gov.ge public-sector domain and portal publisher identify the authority."
+      },
+      {
+        "authorityType": "statistics",
+        "publisher": "National Statistics Office of Georgia (Geostat)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.geostat.ge/",
+        "sourceUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "finalUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "factKey": "population",
+        "cityId": null,
+        "officialStatus": "official statistical database",
+        "period": "as of 1 January; current series",
+        "geographicScope": "Georgia, cities and boroughs",
+        "format": "PXWeb HTML/API",
+        "language": "en",
+        "exactLocator": "Demography > Population > Population by cities and boroughs, as of 1 January",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Geostat publisher and geostat.ge host provide domain-ownership evidence."
+      },
+      {
+        "authorityType": "police_safety",
+        "publisher": "Ministry of Internal Affairs of Georgia",
+        "publisherType": "national_police",
+        "authorityRootUrl": "https://info.police.ge/",
+        "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
+        "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+        "factKey": "safety",
+        "cityId": null,
+        "officialStatus": "official public-information portal",
+        "period": "2024 registered-crime statistics",
+        "geographicScope": "Georgia",
+        "format": "HTML/PDF",
+        "language": "ka",
+        "exactLocator": "Registered Crime Statistics 2024",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "The Ministry's public-information subdomain identifies the publisher."
+      },
+      {
+        "authorityType": "cadastre_geography",
+        "publisher": "National Agency of Public Registry",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.napr.gov.ge/",
+        "sourceUrl": "https://www.napr.gov.ge/",
+        "finalUrl": "https://www.napr.gov.ge/",
+        "factKey": "geography",
+        "cityId": null,
+        "officialStatus": "official agency portal",
+        "period": null,
+        "geographicScope": "Georgia",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "agency homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Agency-branded napr.gov.ge portal is the domain-ownership evidence; a public city-point endpoint was not established."
+      },
+      {
+        "authorityType": "telecom_regulator",
+        "publisher": "Georgian National Communications Commission (ComCom)",
+        "publisherType": "independent_regulator",
+        "authorityRootUrl": "https://comcom.ge/",
+        "sourceUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+        "finalUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+        "factKey": "fixed_broadband",
+        "cityId": null,
+        "officialStatus": "official regulator publication",
+        "period": "2024 data",
+        "geographicScope": "Georgia",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "statement that fixed broadband is accessible in all cities and towns",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "ComCom's regulator-branded comcom.ge publication identifies the domain owner."
+      },
+      {
+        "authorityType": "telecom_operator",
+        "publisher": "Georgian National Communications Commission (ComCom)",
+        "publisherType": "independent_regulator",
+        "authorityRootUrl": "https://www.comcom.ge/",
+        "sourceUrl": "https://www.comcom.ge/en/regulation/sixshiruli-da-numeraciis-resursi/frequency-management",
+        "finalUrl": "https://www.comcom.ge/en/regulation/sixshiruli-da-numeraciis-resursi/frequency-management",
+        "factKey": "telecom_operator_registry",
+        "cityId": null,
+        "officialStatus": "official regulator page",
+        "period": null,
+        "geographicScope": "Georgia",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Regulation > Frequency Management",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Regulator is a source for operator/coverage discovery; it is not itself a retail operator."
+      }
     ]
   },
   "cities": [
-    {"cityId":"tbilisi","seedName":"Tbilisi","officialIdentity":{"publisher":"Tbilisi City Hall","publisherType":"municipality","authorityRootUrl":"https://tbilisi.gov.ge/","sourceUrl":"https://tbilisi.gov.ge/","finalUrl":"https://tbilisi.gov.ge/","factKey":"official_identity","cityId":"tbilisi","officialStatus":"municipal official portal","period":null,"geographicScope":"Tbilisi municipality","format":"HTML","language":"ka","exactLocator":"homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Municipal code not extracted from an official register in this pass."],"rejectedAlternatives":[],"notes":"Municipal domain provides official identity candidate."},"population":{"publisher":"National Statistics Office of Georgia (Geostat)","publisherType":"national_statistics_office","authorityRootUrl":"https://www.geostat.ge/","sourceUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","finalUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","factKey":"population","cityId":"tbilisi","officialStatus":"official statistical database","period":"as of 1 January","geographicScope":"city","format":"PXWeb HTML/API","language":"en","exactLocator":"Population by cities and boroughs, as of 1 January; select Tbilisi","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Value intentionally left for a later reproducible table/API extraction."],"rejectedAlternatives":[],"notes":"Official city series located."},"coordinates":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"coordinates","cityId":"tbilisi","officialStatus":"official geography authority","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No public official city point or downloadable geometry endpoint was established."],"rejectedAlternatives":["Commercial and community map coordinates were excluded."],"notes":"No coordinate value recorded."},"facts":{"safety":{"publisher":"Ministry of Internal Affairs of Georgia","publisherType":"national_police","authorityRootUrl":"https://info.police.ge/","sourceUrl":"https://info.police.ge/page?id=884&parent_id=115","finalUrl":"https://info.police.ge/page?id=884&parent_id=115","factKey":"safety","cityId":"tbilisi","officialStatus":"official police publication","period":"2024","geographicScope":"Georgia","format":"HTML/PDF","language":"ka","exactLocator":"Registered Crime Statistics 2024","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["Located publication is national; city-level extraction not established."],"rejectedAlternatives":["Non-official safety rankings were excluded."],"notes":"No city value recorded."},"longTermRent":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"long_term_rent","cityId":"tbilisi","officialStatus":"official property agency portal","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"not_found","limitations":["No public official long-term residential-rent series located."],"rejectedAlternatives":["Commercial listing portals and price aggregators were excluded."],"notes":"No rent value recorded."},"urbanTransit":{"publisher":"Tbilisi Transport Company","publisherType":"municipal_operator","authorityRootUrl":"https://ttc.com.ge/","sourceUrl":"https://ttc.com.ge/","finalUrl":"https://ttc.com.ge/","factKey":"urban_transit","cityId":"tbilisi","officialStatus":"municipal transport operator portal","period":null,"geographicScope":"Tbilisi","format":"HTML","language":"ka","exactLocator":"operator homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Route/fare dataset not extracted in this pass."],"rejectedAlternatives":[],"notes":"Official operator candidate located."},"fixedBroadband":{"publisher":"Georgian National Communications Commission (ComCom)","publisherType":"independent_regulator","authorityRootUrl":"https://comcom.ge/","sourceUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","finalUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","factKey":"fixed_broadband","cityId":"tbilisi","officialStatus":"official regulator publication","period":"2024 data","geographicScope":"all Georgian cities and towns","format":"HTML","language":"en","exactLocator":"statement: fixed broadband accessible in all cities and towns","observedValue":"Fixed broadband accessible","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Does not establish address-level service or speed."],"rejectedAlternatives":[],"notes":"Country-wide official statement applies to Tbilisi."}}},
-    {"cityId":"batumi","seedName":"Batumi","officialIdentity":{"publisher":"Batumi City Hall","publisherType":"municipality","authorityRootUrl":"https://batumi.ge/","sourceUrl":"https://batumi.ge/","finalUrl":"https://batumi.ge/","factKey":"official_identity","cityId":"batumi","officialStatus":"municipal official portal","period":null,"geographicScope":"Batumi municipality","format":"HTML","language":"ka","exactLocator":"homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Municipal code not extracted."],"rejectedAlternatives":[],"notes":"Municipal identity candidate."},"population":{"publisher":"National Statistics Office of Georgia (Geostat)","publisherType":"national_statistics_office","authorityRootUrl":"https://www.geostat.ge/","sourceUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","finalUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","factKey":"population","cityId":"batumi","officialStatus":"official statistical database","period":"as of 1 January","geographicScope":"city","format":"PXWeb HTML/API","language":"en","exactLocator":"Population by cities and boroughs, as of 1 January; select Batumi","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Value left for reproducible extraction."],"rejectedAlternatives":[],"notes":"Official city series located."},"coordinates":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"coordinates","cityId":"batumi","officialStatus":"official geography authority","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No public official city point/geometry endpoint established."],"rejectedAlternatives":["Non-official map coordinates excluded."],"notes":"No coordinate value."},"facts":{"safety":{"publisher":"Ministry of Internal Affairs of Georgia","publisherType":"national_police","authorityRootUrl":"https://info.police.ge/","sourceUrl":"https://info.police.ge/page?id=884&parent_id=115","finalUrl":"https://info.police.ge/page?id=884&parent_id=115","factKey":"safety","cityId":"batumi","officialStatus":"official police publication","period":"2024","geographicScope":"Georgia","format":"HTML/PDF","language":"ka","exactLocator":"Registered Crime Statistics 2024","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No city-level extraction established."],"rejectedAlternatives":["Non-official rankings excluded."],"notes":"No city value."},"longTermRent":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"long_term_rent","cityId":"batumi","officialStatus":"official property agency portal","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"not_found","limitations":["No public official long-term rent series located."],"rejectedAlternatives":["Commercial portals excluded."],"notes":"No rent value."},"urbanTransit":{"publisher":"Batumi City Hall","publisherType":"municipality","authorityRootUrl":"https://batumi.ge/","sourceUrl":"https://batumi.ge/","finalUrl":"https://batumi.ge/","factKey":"urban_transit","cityId":"batumi","officialStatus":"municipal official portal","period":null,"geographicScope":"Batumi","format":"HTML","language":"ka","exactLocator":"homepage; transport section requires follow-up","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["Dedicated public operator dataset not established."],"rejectedAlternatives":[],"notes":"Municipal source candidate only."},"fixedBroadband":{"publisher":"Georgian National Communications Commission (ComCom)","publisherType":"independent_regulator","authorityRootUrl":"https://comcom.ge/","sourceUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","finalUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","factKey":"fixed_broadband","cityId":"batumi","officialStatus":"official regulator publication","period":"2024 data","geographicScope":"all Georgian cities and towns","format":"HTML","language":"en","exactLocator":"statement: fixed broadband accessible in all cities and towns","observedValue":"Fixed broadband accessible","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Not address-level."],"rejectedAlternatives":[],"notes":"Country-wide statement applies."}}},
-    {"cityId":"kutaisi","seedName":"Kutaisi","officialIdentity":{"publisher":"Kutaisi City Hall","publisherType":"municipality","authorityRootUrl":"https://kutaisi.gov.ge/","sourceUrl":"https://kutaisi.gov.ge/","finalUrl":"https://kutaisi.gov.ge/","factKey":"official_identity","cityId":"kutaisi","officialStatus":"municipal official portal","period":null,"geographicScope":"Kutaisi municipality","format":"HTML","language":"ka","exactLocator":"homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Municipal code not extracted."],"rejectedAlternatives":[],"notes":"Municipal identity candidate."},"population":{"publisher":"National Statistics Office of Georgia (Geostat)","publisherType":"national_statistics_office","authorityRootUrl":"https://www.geostat.ge/","sourceUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","finalUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","factKey":"population","cityId":"kutaisi","officialStatus":"official statistical database","period":"as of 1 January","geographicScope":"city","format":"PXWeb HTML/API","language":"en","exactLocator":"Population by cities and boroughs, as of 1 January; select Kutaisi","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Value left for reproducible extraction."],"rejectedAlternatives":[],"notes":"Official city series located."},"coordinates":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"coordinates","cityId":"kutaisi","officialStatus":"official geography authority","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No public official city point/geometry endpoint established."],"rejectedAlternatives":["Non-official map coordinates excluded."],"notes":"No coordinate value."},"facts":{"safety":{"publisher":"Ministry of Internal Affairs of Georgia","publisherType":"national_police","authorityRootUrl":"https://info.police.ge/","sourceUrl":"https://info.police.ge/page?id=884&parent_id=115","finalUrl":"https://info.police.ge/page?id=884&parent_id=115","factKey":"safety","cityId":"kutaisi","officialStatus":"official police publication","period":"2024","geographicScope":"Georgia","format":"HTML/PDF","language":"ka","exactLocator":"Registered Crime Statistics 2024","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No city-level extraction established."],"rejectedAlternatives":["Non-official rankings excluded."],"notes":"No city value."},"longTermRent":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"long_term_rent","cityId":"kutaisi","officialStatus":"official property agency portal","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"not_found","limitations":["No public official long-term rent series located."],"rejectedAlternatives":["Commercial portals excluded."],"notes":"No rent value."},"urbanTransit":{"publisher":"Kutaisi City Hall","publisherType":"municipality","authorityRootUrl":"https://kutaisi.gov.ge/","sourceUrl":"https://kutaisi.gov.ge/","finalUrl":"https://kutaisi.gov.ge/","factKey":"urban_transit","cityId":"kutaisi","officialStatus":"municipal official portal","period":null,"geographicScope":"Kutaisi","format":"HTML","language":"ka","exactLocator":"homepage; transport section requires follow-up","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["Dedicated public operator dataset not established."],"rejectedAlternatives":[],"notes":"Municipal source candidate only."},"fixedBroadband":{"publisher":"Georgian National Communications Commission (ComCom)","publisherType":"independent_regulator","authorityRootUrl":"https://comcom.ge/","sourceUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","finalUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","factKey":"fixed_broadband","cityId":"kutaisi","officialStatus":"official regulator publication","period":"2024 data","geographicScope":"all Georgian cities and towns","format":"HTML","language":"en","exactLocator":"statement: fixed broadband accessible in all cities and towns","observedValue":"Fixed broadband accessible","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Not address-level."],"rejectedAlternatives":[],"notes":"Country-wide statement applies."}}},
-    {"cityId":"rustavi","seedName":"Rustavi","officialIdentity":{"publisher":"Rustavi City Hall","publisherType":"municipality","authorityRootUrl":"https://rustavi.gov.ge/","sourceUrl":"https://rustavi.gov.ge/","finalUrl":"https://rustavi.gov.ge/","factKey":"official_identity","cityId":"rustavi","officialStatus":"municipal official portal","period":null,"geographicScope":"Rustavi municipality","format":"HTML","language":"ka","exactLocator":"homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Municipal code not extracted."],"rejectedAlternatives":[],"notes":"Municipal identity candidate."},"population":{"publisher":"National Statistics Office of Georgia (Geostat)","publisherType":"national_statistics_office","authorityRootUrl":"https://www.geostat.ge/","sourceUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","finalUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","factKey":"population","cityId":"rustavi","officialStatus":"official statistical database","period":"as of 1 January","geographicScope":"city","format":"PXWeb HTML/API","language":"en","exactLocator":"Population by cities and boroughs, as of 1 January; select Rustavi","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Value left for reproducible extraction."],"rejectedAlternatives":[],"notes":"Official city series located."},"coordinates":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"coordinates","cityId":"rustavi","officialStatus":"official geography authority","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No public official city point/geometry endpoint established."],"rejectedAlternatives":["Non-official map coordinates excluded."],"notes":"No coordinate value."},"facts":{"safety":{"publisher":"Ministry of Internal Affairs of Georgia","publisherType":"national_police","authorityRootUrl":"https://info.police.ge/","sourceUrl":"https://info.police.ge/page?id=884&parent_id=115","finalUrl":"https://info.police.ge/page?id=884&parent_id=115","factKey":"safety","cityId":"rustavi","officialStatus":"official police publication","period":"2024","geographicScope":"Georgia","format":"HTML/PDF","language":"ka","exactLocator":"Registered Crime Statistics 2024","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No city-level extraction established."],"rejectedAlternatives":["Non-official rankings excluded."],"notes":"No city value."},"longTermRent":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"long_term_rent","cityId":"rustavi","officialStatus":"official property agency portal","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"not_found","limitations":["No public official long-term rent series located."],"rejectedAlternatives":["Commercial portals excluded."],"notes":"No rent value."},"urbanTransit":{"publisher":"Rustavi City Hall","publisherType":"municipality","authorityRootUrl":"https://rustavi.gov.ge/","sourceUrl":"https://rustavi.gov.ge/","finalUrl":"https://rustavi.gov.ge/","factKey":"urban_transit","cityId":"rustavi","officialStatus":"municipal official portal","period":null,"geographicScope":"Rustavi","format":"HTML","language":"ka","exactLocator":"homepage; transport section requires follow-up","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["Dedicated public operator dataset not established."],"rejectedAlternatives":[],"notes":"Municipal source candidate only."},"fixedBroadband":{"publisher":"Georgian National Communications Commission (ComCom)","publisherType":"independent_regulator","authorityRootUrl":"https://comcom.ge/","sourceUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","finalUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","factKey":"fixed_broadband","cityId":"rustavi","officialStatus":"official regulator publication","period":"2024 data","geographicScope":"all Georgian cities and towns","format":"HTML","language":"en","exactLocator":"statement: fixed broadband accessible in all cities and towns","observedValue":"Fixed broadband accessible","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Not address-level."],"rejectedAlternatives":[],"notes":"Country-wide statement applies."}}},
-    {"cityId":"poti","seedName":"Poti","officialIdentity":{"publisher":"Poti City Hall","publisherType":"municipality","authorityRootUrl":"https://poti.gov.ge/","sourceUrl":"https://poti.gov.ge/","finalUrl":"https://poti.gov.ge/","factKey":"official_identity","cityId":"poti","officialStatus":"municipal official portal","period":null,"geographicScope":"Poti municipality","format":"HTML","language":"ka","exactLocator":"homepage","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Municipal code not extracted."],"rejectedAlternatives":[],"notes":"Municipal identity candidate."},"population":{"publisher":"National Statistics Office of Georgia (Geostat)","publisherType":"national_statistics_office","authorityRootUrl":"https://www.geostat.ge/","sourceUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","finalUrl":"https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/","factKey":"population","cityId":"poti","officialStatus":"official statistical database","period":"as of 1 January","geographicScope":"city","format":"PXWeb HTML/API","language":"en","exactLocator":"Population by cities and boroughs, as of 1 January; select Poti","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Value left for reproducible extraction."],"rejectedAlternatives":[],"notes":"Official city series located."},"coordinates":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"coordinates","cityId":"poti","officialStatus":"official geography authority","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No public official city point/geometry endpoint established."],"rejectedAlternatives":["Non-official map coordinates excluded."],"notes":"No coordinate value."},"facts":{"safety":{"publisher":"Ministry of Internal Affairs of Georgia","publisherType":"national_police","authorityRootUrl":"https://info.police.ge/","sourceUrl":"https://info.police.ge/page?id=884&parent_id=115","finalUrl":"https://info.police.ge/page?id=884&parent_id=115","factKey":"safety","cityId":"poti","officialStatus":"official police publication","period":"2024","geographicScope":"Georgia","format":"HTML/PDF","language":"ka","exactLocator":"Registered Crime Statistics 2024","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["No city-level extraction established."],"rejectedAlternatives":["Non-official rankings excluded."],"notes":"No city value."},"longTermRent":{"publisher":"National Agency of Public Registry","publisherType":"national_cadastre","authorityRootUrl":"https://www.napr.gov.ge/","sourceUrl":"https://www.napr.gov.ge/","finalUrl":"https://www.napr.gov.ge/","factKey":"long_term_rent","cityId":"poti","officialStatus":"official property agency portal","period":null,"geographicScope":"city","format":"HTML","language":"ka","exactLocator":"agency homepage","accessedAt":"2026-08-30","candidateStatus":"not_found","limitations":["No public official long-term rent series located."],"rejectedAlternatives":["Commercial portals excluded."],"notes":"No rent value."},"urbanTransit":{"publisher":"Poti City Hall","publisherType":"municipality","authorityRootUrl":"https://poti.gov.ge/","sourceUrl":"https://poti.gov.ge/","finalUrl":"https://poti.gov.ge/","factKey":"urban_transit","cityId":"poti","officialStatus":"municipal official portal","period":null,"geographicScope":"Poti","format":"HTML","language":"ka","exactLocator":"homepage; transport section requires follow-up","accessedAt":"2026-08-30","candidateStatus":"official_source_ambiguous","limitations":["Dedicated public operator dataset not established."],"rejectedAlternatives":[],"notes":"Municipal source candidate only."},"fixedBroadband":{"publisher":"Georgian National Communications Commission (ComCom)","publisherType":"independent_regulator","authorityRootUrl":"https://comcom.ge/","sourceUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","finalUrl":"https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page","factKey":"fixed_broadband","cityId":"poti","officialStatus":"official regulator publication","period":"2024 data","geographicScope":"all Georgian cities and towns","format":"HTML","language":"en","exactLocator":"statement: fixed broadband accessible in all cities and towns","observedValue":"Fixed broadband accessible","accessedAt":"2026-08-30","candidateStatus":"official_candidate_found","limitations":["Not address-level."],"rejectedAlternatives":[],"notes":"Country-wide statement applies."}}}
+    {
+      "cityId": "tbilisi",
+      "seedName": "Tbilisi",
+      "officialIdentity": {
+        "publisher": "Tbilisi City Hall",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://tbilisi.gov.ge/",
+        "sourceUrl": "https://tbilisi.gov.ge/",
+        "finalUrl": "https://tbilisi.gov.ge/",
+        "factKey": "official_identity",
+        "cityId": "tbilisi",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Tbilisi municipality",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Municipal code not extracted from an official register in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal domain provides official identity candidate."
+      },
+      "population": {
+        "publisher": "National Statistics Office of Georgia (Geostat)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.geostat.ge/",
+        "sourceUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "finalUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "factKey": "population",
+        "cityId": "tbilisi",
+        "officialStatus": "official statistical database",
+        "period": "as of 1 January",
+        "geographicScope": "city",
+        "format": "PXWeb HTML/API",
+        "language": "en",
+        "exactLocator": "Population by cities and boroughs, as of 1 January; select Tbilisi",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Value intentionally left for a later reproducible table/API extraction."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official city series located."
+      },
+      "coordinates": {
+        "publisher": "National Agency of Public Registry",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.napr.gov.ge/",
+        "sourceUrl": "https://www.napr.gov.ge/",
+        "finalUrl": "https://www.napr.gov.ge/",
+        "factKey": "coordinates",
+        "cityId": "tbilisi",
+        "officialStatus": "official geography authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "agency homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official city point or downloadable geometry endpoint was established."
+        ],
+        "rejectedAlternatives": [
+          "Commercial and community map coordinates were excluded."
+        ],
+        "notes": "No coordinate value recorded."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Internal Affairs of Georgia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://info.police.ge/",
+          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "factKey": "safety",
+          "cityId": "tbilisi",
+          "officialStatus": "official police publication",
+          "period": "2024",
+          "geographicScope": "Georgia",
+          "format": "HTML/PDF",
+          "language": "ka",
+          "exactLocator": "Registered Crime Statistics 2024",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "Located publication is national; city-level extraction not established."
+          ],
+          "rejectedAlternatives": [
+            "Non-official safety rankings were excluded."
+          ],
+          "notes": "No city value recorded."
+        },
+        "longTermRent": {
+          "publisher": "National Agency of Public Registry",
+          "publisherType": "national_cadastre",
+          "authorityRootUrl": "https://www.napr.gov.ge/",
+          "sourceUrl": "https://www.napr.gov.ge/",
+          "finalUrl": "https://www.napr.gov.ge/",
+          "factKey": "long_term_rent",
+          "cityId": "tbilisi",
+          "officialStatus": "official property agency portal",
+          "period": null,
+          "geographicScope": "city",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "agency homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No public official long-term residential-rent series located."
+          ],
+          "rejectedAlternatives": [
+            "Commercial listing portals and price aggregators were excluded."
+          ],
+          "notes": "No rent value recorded."
+        },
+        "urbanTransit": {
+          "publisher": "Tbilisi Transport Company",
+          "publisherType": "municipal_operator",
+          "authorityRootUrl": "https://ttc.com.ge/",
+          "sourceUrl": "https://ttc.com.ge/",
+          "finalUrl": "https://ttc.com.ge/",
+          "factKey": "urban_transit",
+          "cityId": "tbilisi",
+          "officialStatus": "municipal transport operator portal",
+          "period": null,
+          "geographicScope": "Tbilisi",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "operator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Route/fare dataset not extracted in this pass."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official operator candidate located."
+        },
+        "fixedBroadband": {
+          "publisher": "Georgian National Communications Commission (ComCom)",
+          "publisherType": "independent_regulator",
+          "authorityRootUrl": "https://comcom.ge/",
+          "sourceUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "finalUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "factKey": "fixed_broadband",
+          "cityId": "tbilisi",
+          "officialStatus": "official regulator publication",
+          "period": "2024 data",
+          "geographicScope": "all Georgian cities and towns",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "statement: fixed broadband accessible in all cities and towns",
+          "observedValue": "Fixed broadband accessible",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Does not establish address-level service or speed."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Country-wide official statement applies to Tbilisi."
+        }
+      }
+    },
+    {
+      "cityId": "batumi",
+      "seedName": "Batumi",
+      "officialIdentity": {
+        "publisher": "Batumi City Hall",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://batumi.ge/",
+        "sourceUrl": "https://batumi.ge/",
+        "finalUrl": "https://batumi.ge/",
+        "factKey": "official_identity",
+        "cityId": "batumi",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Batumi municipality",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Municipal code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal identity candidate."
+      },
+      "population": {
+        "publisher": "National Statistics Office of Georgia (Geostat)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.geostat.ge/",
+        "sourceUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "finalUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "factKey": "population",
+        "cityId": "batumi",
+        "officialStatus": "official statistical database",
+        "period": "as of 1 January",
+        "geographicScope": "city",
+        "format": "PXWeb HTML/API",
+        "language": "en",
+        "exactLocator": "Population by cities and boroughs, as of 1 January; select Batumi",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Value left for reproducible extraction."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official city series located."
+      },
+      "coordinates": {
+        "publisher": "National Agency of Public Registry",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.napr.gov.ge/",
+        "sourceUrl": "https://www.napr.gov.ge/",
+        "finalUrl": "https://www.napr.gov.ge/",
+        "factKey": "coordinates",
+        "cityId": "batumi",
+        "officialStatus": "official geography authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "agency homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official city point/geometry endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official map coordinates excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Internal Affairs of Georgia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://info.police.ge/",
+          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "factKey": "safety",
+          "cityId": "batumi",
+          "officialStatus": "official police publication",
+          "period": "2024",
+          "geographicScope": "Georgia",
+          "format": "HTML/PDF",
+          "language": "ka",
+          "exactLocator": "Registered Crime Statistics 2024",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-level extraction established."
+          ],
+          "rejectedAlternatives": [
+            "Non-official rankings excluded."
+          ],
+          "notes": "No city value."
+        },
+        "longTermRent": {
+          "publisher": "National Agency of Public Registry",
+          "publisherType": "national_cadastre",
+          "authorityRootUrl": "https://www.napr.gov.ge/",
+          "sourceUrl": "https://www.napr.gov.ge/",
+          "finalUrl": "https://www.napr.gov.ge/",
+          "factKey": "long_term_rent",
+          "cityId": "batumi",
+          "officialStatus": "official property agency portal",
+          "period": null,
+          "geographicScope": "city",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "agency homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No public official long-term rent series located."
+          ],
+          "rejectedAlternatives": [
+            "Commercial portals excluded."
+          ],
+          "notes": "No rent value."
+        },
+        "urbanTransit": {
+          "publisher": "Batumi City Hall",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://batumi.ge/",
+          "sourceUrl": "https://batumi.ge/",
+          "finalUrl": "https://batumi.ge/",
+          "factKey": "urban_transit",
+          "cityId": "batumi",
+          "officialStatus": "municipal official portal",
+          "period": null,
+          "geographicScope": "Batumi",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "homepage; transport section requires follow-up",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "Dedicated public operator dataset not established."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Municipal source candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "Georgian National Communications Commission (ComCom)",
+          "publisherType": "independent_regulator",
+          "authorityRootUrl": "https://comcom.ge/",
+          "sourceUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "finalUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "factKey": "fixed_broadband",
+          "cityId": "batumi",
+          "officialStatus": "official regulator publication",
+          "period": "2024 data",
+          "geographicScope": "all Georgian cities and towns",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "statement: fixed broadband accessible in all cities and towns",
+          "observedValue": "Fixed broadband accessible",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Not address-level."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Country-wide statement applies."
+        }
+      }
+    },
+    {
+      "cityId": "kutaisi",
+      "seedName": "Kutaisi",
+      "officialIdentity": {
+        "publisher": "Kutaisi City Hall",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://kutaisi.gov.ge/",
+        "sourceUrl": "https://kutaisi.gov.ge/",
+        "finalUrl": "https://kutaisi.gov.ge/",
+        "factKey": "official_identity",
+        "cityId": "kutaisi",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Kutaisi municipality",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Municipal code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal identity candidate."
+      },
+      "population": {
+        "publisher": "National Statistics Office of Georgia (Geostat)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.geostat.ge/",
+        "sourceUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "finalUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "factKey": "population",
+        "cityId": "kutaisi",
+        "officialStatus": "official statistical database",
+        "period": "as of 1 January",
+        "geographicScope": "city",
+        "format": "PXWeb HTML/API",
+        "language": "en",
+        "exactLocator": "Population by cities and boroughs, as of 1 January; select Kutaisi",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Value left for reproducible extraction."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official city series located."
+      },
+      "coordinates": {
+        "publisher": "National Agency of Public Registry",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.napr.gov.ge/",
+        "sourceUrl": "https://www.napr.gov.ge/",
+        "finalUrl": "https://www.napr.gov.ge/",
+        "factKey": "coordinates",
+        "cityId": "kutaisi",
+        "officialStatus": "official geography authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "agency homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official city point/geometry endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official map coordinates excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Internal Affairs of Georgia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://info.police.ge/",
+          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "factKey": "safety",
+          "cityId": "kutaisi",
+          "officialStatus": "official police publication",
+          "period": "2024",
+          "geographicScope": "Georgia",
+          "format": "HTML/PDF",
+          "language": "ka",
+          "exactLocator": "Registered Crime Statistics 2024",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-level extraction established."
+          ],
+          "rejectedAlternatives": [
+            "Non-official rankings excluded."
+          ],
+          "notes": "No city value."
+        },
+        "longTermRent": {
+          "publisher": "National Agency of Public Registry",
+          "publisherType": "national_cadastre",
+          "authorityRootUrl": "https://www.napr.gov.ge/",
+          "sourceUrl": "https://www.napr.gov.ge/",
+          "finalUrl": "https://www.napr.gov.ge/",
+          "factKey": "long_term_rent",
+          "cityId": "kutaisi",
+          "officialStatus": "official property agency portal",
+          "period": null,
+          "geographicScope": "city",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "agency homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No public official long-term rent series located."
+          ],
+          "rejectedAlternatives": [
+            "Commercial portals excluded."
+          ],
+          "notes": "No rent value."
+        },
+        "urbanTransit": {
+          "publisher": "Kutaisi City Hall",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://kutaisi.gov.ge/",
+          "sourceUrl": "https://kutaisi.gov.ge/",
+          "finalUrl": "https://kutaisi.gov.ge/",
+          "factKey": "urban_transit",
+          "cityId": "kutaisi",
+          "officialStatus": "municipal official portal",
+          "period": null,
+          "geographicScope": "Kutaisi",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "homepage; transport section requires follow-up",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "Dedicated public operator dataset not established."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Municipal source candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "Georgian National Communications Commission (ComCom)",
+          "publisherType": "independent_regulator",
+          "authorityRootUrl": "https://comcom.ge/",
+          "sourceUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "finalUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "factKey": "fixed_broadband",
+          "cityId": "kutaisi",
+          "officialStatus": "official regulator publication",
+          "period": "2024 data",
+          "geographicScope": "all Georgian cities and towns",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "statement: fixed broadband accessible in all cities and towns",
+          "observedValue": "Fixed broadband accessible",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Not address-level."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Country-wide statement applies."
+        }
+      }
+    },
+    {
+      "cityId": "rustavi",
+      "seedName": "Rustavi",
+      "officialIdentity": {
+        "publisher": "Rustavi City Hall",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://rustavi.gov.ge/",
+        "sourceUrl": "https://rustavi.gov.ge/",
+        "finalUrl": "https://rustavi.gov.ge/",
+        "factKey": "official_identity",
+        "cityId": "rustavi",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Rustavi municipality",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Municipal code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal identity candidate."
+      },
+      "population": {
+        "publisher": "National Statistics Office of Georgia (Geostat)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.geostat.ge/",
+        "sourceUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "finalUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "factKey": "population",
+        "cityId": "rustavi",
+        "officialStatus": "official statistical database",
+        "period": "as of 1 January",
+        "geographicScope": "city",
+        "format": "PXWeb HTML/API",
+        "language": "en",
+        "exactLocator": "Population by cities and boroughs, as of 1 January; select Rustavi",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Value left for reproducible extraction."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official city series located."
+      },
+      "coordinates": {
+        "publisher": "National Agency of Public Registry",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.napr.gov.ge/",
+        "sourceUrl": "https://www.napr.gov.ge/",
+        "finalUrl": "https://www.napr.gov.ge/",
+        "factKey": "coordinates",
+        "cityId": "rustavi",
+        "officialStatus": "official geography authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "agency homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official city point/geometry endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official map coordinates excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Internal Affairs of Georgia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://info.police.ge/",
+          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "factKey": "safety",
+          "cityId": "rustavi",
+          "officialStatus": "official police publication",
+          "period": "2024",
+          "geographicScope": "Georgia",
+          "format": "HTML/PDF",
+          "language": "ka",
+          "exactLocator": "Registered Crime Statistics 2024",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-level extraction established."
+          ],
+          "rejectedAlternatives": [
+            "Non-official rankings excluded."
+          ],
+          "notes": "No city value."
+        },
+        "longTermRent": {
+          "publisher": "National Agency of Public Registry",
+          "publisherType": "national_cadastre",
+          "authorityRootUrl": "https://www.napr.gov.ge/",
+          "sourceUrl": "https://www.napr.gov.ge/",
+          "finalUrl": "https://www.napr.gov.ge/",
+          "factKey": "long_term_rent",
+          "cityId": "rustavi",
+          "officialStatus": "official property agency portal",
+          "period": null,
+          "geographicScope": "city",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "agency homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No public official long-term rent series located."
+          ],
+          "rejectedAlternatives": [
+            "Commercial portals excluded."
+          ],
+          "notes": "No rent value."
+        },
+        "urbanTransit": {
+          "publisher": "Rustavi City Hall",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://rustavi.gov.ge/",
+          "sourceUrl": "https://rustavi.gov.ge/",
+          "finalUrl": "https://rustavi.gov.ge/",
+          "factKey": "urban_transit",
+          "cityId": "rustavi",
+          "officialStatus": "municipal official portal",
+          "period": null,
+          "geographicScope": "Rustavi",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "homepage; transport section requires follow-up",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "Dedicated public operator dataset not established."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Municipal source candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "Georgian National Communications Commission (ComCom)",
+          "publisherType": "independent_regulator",
+          "authorityRootUrl": "https://comcom.ge/",
+          "sourceUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "finalUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "factKey": "fixed_broadband",
+          "cityId": "rustavi",
+          "officialStatus": "official regulator publication",
+          "period": "2024 data",
+          "geographicScope": "all Georgian cities and towns",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "statement: fixed broadband accessible in all cities and towns",
+          "observedValue": "Fixed broadband accessible",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Not address-level."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Country-wide statement applies."
+        }
+      }
+    },
+    {
+      "cityId": "poti",
+      "seedName": "Poti",
+      "officialIdentity": {
+        "publisher": "Poti City Hall",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://poti.gov.ge/",
+        "sourceUrl": "https://poti.gov.ge/",
+        "finalUrl": "https://poti.gov.ge/",
+        "factKey": "official_identity",
+        "cityId": "poti",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Poti municipality",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Municipal code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal identity candidate."
+      },
+      "population": {
+        "publisher": "National Statistics Office of Georgia (Geostat)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.geostat.ge/",
+        "sourceUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "finalUrl": "https://pc-axis.geostat.ge/PXweb/pxweb/en/Database/Database__Demography__Population/",
+        "factKey": "population",
+        "cityId": "poti",
+        "officialStatus": "official statistical database",
+        "period": "as of 1 January",
+        "geographicScope": "city",
+        "format": "PXWeb HTML/API",
+        "language": "en",
+        "exactLocator": "Population by cities and boroughs, as of 1 January; select Poti",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Value left for reproducible extraction."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official city series located."
+      },
+      "coordinates": {
+        "publisher": "National Agency of Public Registry",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.napr.gov.ge/",
+        "sourceUrl": "https://www.napr.gov.ge/",
+        "finalUrl": "https://www.napr.gov.ge/",
+        "factKey": "coordinates",
+        "cityId": "poti",
+        "officialStatus": "official geography authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "ka",
+        "exactLocator": "agency homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official city point/geometry endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official map coordinates excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Internal Affairs of Georgia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://info.police.ge/",
+          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "factKey": "safety",
+          "cityId": "poti",
+          "officialStatus": "official police publication",
+          "period": "2024",
+          "geographicScope": "Georgia",
+          "format": "HTML/PDF",
+          "language": "ka",
+          "exactLocator": "Registered Crime Statistics 2024",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-level extraction established."
+          ],
+          "rejectedAlternatives": [
+            "Non-official rankings excluded."
+          ],
+          "notes": "No city value."
+        },
+        "longTermRent": {
+          "publisher": "National Agency of Public Registry",
+          "publisherType": "national_cadastre",
+          "authorityRootUrl": "https://www.napr.gov.ge/",
+          "sourceUrl": "https://www.napr.gov.ge/",
+          "finalUrl": "https://www.napr.gov.ge/",
+          "factKey": "long_term_rent",
+          "cityId": "poti",
+          "officialStatus": "official property agency portal",
+          "period": null,
+          "geographicScope": "city",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "agency homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No public official long-term rent series located."
+          ],
+          "rejectedAlternatives": [
+            "Commercial portals excluded."
+          ],
+          "notes": "No rent value."
+        },
+        "urbanTransit": {
+          "publisher": "Poti City Hall",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://poti.gov.ge/",
+          "sourceUrl": "https://poti.gov.ge/",
+          "finalUrl": "https://poti.gov.ge/",
+          "factKey": "urban_transit",
+          "cityId": "poti",
+          "officialStatus": "municipal official portal",
+          "period": null,
+          "geographicScope": "Poti",
+          "format": "HTML",
+          "language": "ka",
+          "exactLocator": "homepage; transport section requires follow-up",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "Dedicated public operator dataset not established."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Municipal source candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "Georgian National Communications Commission (ComCom)",
+          "publisherType": "independent_regulator",
+          "authorityRootUrl": "https://comcom.ge/",
+          "sourceUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "finalUrl": "https://comcom.ge/en/yvela-siaxle/comcom-fixed-internet-is-available-in-2571-villages.page",
+          "factKey": "fixed_broadband",
+          "cityId": "poti",
+          "officialStatus": "official regulator publication",
+          "period": "2024 data",
+          "geographicScope": "all Georgian cities and towns",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "statement: fixed broadband accessible in all cities and towns",
+          "observedValue": "Fixed broadband accessible",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Not address-level."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Country-wide statement applies."
+        }
+      }
+    }
   ]
 }

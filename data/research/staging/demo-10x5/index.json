@@ -1,0 +1,451 @@
+{
+  "schemaVersion": "demo-10x5-index@1",
+  "accessedAt": "2026-08-30",
+  "coverageDefinition": {
+    "full": "all four city fact records are official_candidate_found",
+    "partial": "one to three city fact records are official_candidate_found",
+    "zero": "none of the four city fact records is official_candidate_found",
+    "note": "Coverage measures source candidates, not verified production values."
+  },
+  "totals": {
+    "countries": 10,
+    "cities": 50,
+    "coverage": {
+      "full": 5,
+      "partial": 40,
+      "zero": 5
+    }
+  },
+  "countries": [
+    {
+      "countryCode": "SI",
+      "officialName": "Republic of Slovenia",
+      "sourceFile": "si.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 5,
+        "zero": 0
+      },
+      "cities": [
+        {
+          "cityId": "ljubljana",
+          "seedName": "Ljubljana",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "maribor",
+          "seedName": "Maribor",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "koper",
+          "seedName": "Koper",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "celje",
+          "seedName": "Celje",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "kranj",
+          "seedName": "Kranj",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        }
+      ]
+    },
+    {
+      "countryCode": "PT",
+      "officialName": "República Portuguesa",
+      "sourceFile": "pt.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 5,
+        "partial": 0,
+        "zero": 0
+      },
+      "cities": [
+        {
+          "cityId": "lisbon",
+          "seedName": "Lisbon",
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
+        },
+        {
+          "cityId": "porto",
+          "seedName": "Porto",
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
+        },
+        {
+          "cityId": "braga",
+          "seedName": "Braga",
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
+        },
+        {
+          "cityId": "coimbra",
+          "seedName": "Coimbra",
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
+        },
+        {
+          "cityId": "funchal",
+          "seedName": "Funchal",
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
+        }
+      ]
+    },
+    {
+      "countryCode": "ES",
+      "officialName": "Kingdom of Spain",
+      "sourceFile": "es.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 5,
+        "zero": 0
+      },
+      "cities": [
+        {
+          "cityId": "madrid",
+          "seedName": "Madrid",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "barcelona",
+          "seedName": "Barcelona",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "valencia",
+          "seedName": "Valencia",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "alicante",
+          "seedName": "Alicante",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "malaga",
+          "seedName": "Malaga",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        }
+      ]
+    },
+    {
+      "countryCode": "DE",
+      "officialName": "Federal Republic of Germany",
+      "sourceFile": "de.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 5,
+        "zero": 0
+      },
+      "cities": [
+        {
+          "cityId": "berlin",
+          "seedName": "Berlin",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "munich",
+          "seedName": "Munich",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "hamburg",
+          "seedName": "Hamburg",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "frankfurt-am-main",
+          "seedName": "Frankfurt am Main",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "dusseldorf",
+          "seedName": "Dusseldorf",
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
+        }
+      ]
+    },
+    {
+      "countryCode": "RS",
+      "officialName": "Republic of Serbia",
+      "sourceFile": "rs.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 3,
+        "zero": 2
+      },
+      "cities": [
+        {
+          "cityId": "belgrade",
+          "seedName": "Belgrade",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "novi-sad",
+          "seedName": "Novi Sad",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "nis",
+          "seedName": "Niš",
+          "officialCandidateFactCount": 0,
+          "coverageStatus": "zero"
+        },
+        {
+          "cityId": "subotica",
+          "seedName": "Subotica",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "kragujevac",
+          "seedName": "Kragujevac",
+          "officialCandidateFactCount": 0,
+          "coverageStatus": "zero"
+        }
+      ]
+    },
+    {
+      "countryCode": "ME",
+      "officialName": "Montenegro",
+      "sourceFile": "me.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 2,
+        "zero": 3
+      },
+      "cities": [
+        {
+          "cityId": "podgorica",
+          "seedName": "Podgorica",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "budva",
+          "seedName": "Budva",
+          "officialCandidateFactCount": 0,
+          "coverageStatus": "zero"
+        },
+        {
+          "cityId": "bar",
+          "seedName": "Bar",
+          "officialCandidateFactCount": 0,
+          "coverageStatus": "zero"
+        },
+        {
+          "cityId": "herceg-novi",
+          "seedName": "Herceg Novi",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "tivat",
+          "seedName": "Tivat",
+          "officialCandidateFactCount": 0,
+          "coverageStatus": "zero"
+        }
+      ]
+    },
+    {
+      "countryCode": "GE",
+      "officialName": "Georgia",
+      "sourceFile": "ge.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 5,
+        "zero": 0
+      },
+      "cities": [
+        {
+          "cityId": "tbilisi",
+          "seedName": "Tbilisi",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "batumi",
+          "seedName": "Batumi",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "kutaisi",
+          "seedName": "Kutaisi",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "rustavi",
+          "seedName": "Rustavi",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "poti",
+          "seedName": "Poti",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        }
+      ]
+    },
+    {
+      "countryCode": "TR",
+      "officialName": "Republic of Türkiye",
+      "sourceFile": "tr.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 5,
+        "zero": 0
+      },
+      "cities": [
+        {
+          "cityId": "ankara",
+          "seedName": "Ankara",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "istanbul",
+          "seedName": "Istanbul",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "izmir",
+          "seedName": "Izmir",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "antalya",
+          "seedName": "Antalya",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "mersin",
+          "seedName": "Mersin",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        }
+      ]
+    },
+    {
+      "countryCode": "AE",
+      "officialName": "United Arab Emirates",
+      "sourceFile": "ae.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 5,
+        "zero": 0
+      },
+      "cities": [
+        {
+          "cityId": "abu-dhabi",
+          "seedName": "Abu Dhabi",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "dubai",
+          "seedName": "Dubai",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "sharjah",
+          "seedName": "Sharjah",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "ajman",
+          "seedName": "Ajman",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "ras-al-khaimah",
+          "seedName": "Ras Al Khaimah",
+          "officialCandidateFactCount": 2,
+          "coverageStatus": "partial"
+        }
+      ]
+    },
+    {
+      "countryCode": "TH",
+      "officialName": "Kingdom of Thailand",
+      "sourceFile": "th.json",
+      "cityCount": 5,
+      "coverage": {
+        "full": 0,
+        "partial": 5,
+        "zero": 0
+      },
+      "cities": [
+        {
+          "cityId": "bangkok",
+          "seedName": "Bangkok",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "chiang-mai",
+          "seedName": "Chiang Mai",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "phuket-city",
+          "seedName": "Phuket City",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "pattaya",
+          "seedName": "Pattaya",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        },
+        {
+          "cityId": "hua-hin",
+          "seedName": "Hua Hin",
+          "officialCandidateFactCount": 1,
+          "coverageStatus": "partial"
+        }
+      ]
+    }
+  ]
+}
