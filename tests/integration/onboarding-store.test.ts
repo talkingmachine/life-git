@@ -13,6 +13,7 @@ import {
   ONBOARDING_MODEL_VERSIONS_V3,
   ONBOARDING_MODEL_VERSIONS_V4,
   ONBOARDING_MODEL_VERSIONS_V5,
+  ONBOARDING_MODEL_VERSIONS_V6,
 } from "../../src/application/onboarding-model-versions";
 import { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from
   "../../src/decision/onboarding-catalog";
@@ -56,6 +57,10 @@ const V5_VERSIONS_JSON =
   '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@5",' +
   '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2",' +
   '"reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V6_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@6",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2",' +
+  '"reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
 const V1_CONFIRMATION_DIGEST =
   "f1714bd3354b4a05f2f6ebee7ad6d28d2fd1d6f1702aa21d7856fa3e15e5ff32";
 const V2_CONFIRMATION_DIGEST =
@@ -66,6 +71,8 @@ const V4_CONFIRMATION_DIGEST =
   "ae493ed941ffcf8ff40d24faee1257d976cc4a3bcdfd7e6ffa5f471cf618a300";
 const V5_CONFIRMATION_DIGEST =
   "38f273ef80ef283c828824c1dbca79e7c5f716eeb897f4ebe593f580fc1c2681";
+const V6_CONFIRMATION_DIGEST =
+  "f4e60f72adc5c0203fd1c7160c77bce72aa7ac332d2215fcef5a83266751f7e9";
 
 const databases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
@@ -236,9 +243,10 @@ describe("SQLite onboarding confirmation persistence", () => {
 
   test.each([
     ["historical V1", ONBOARDING_MODEL_VERSIONS_V1, V1_VERSIONS_JSON, V1_CONFIRMATION_DIGEST],
-    ["current V2", ONBOARDING_MODEL_VERSIONS_V2, V2_VERSIONS_JSON, V2_CONFIRMATION_DIGEST],
-    ["current V3", ONBOARDING_MODEL_VERSIONS_V3, V3_VERSIONS_JSON, V3_CONFIRMATION_DIGEST],
+    ["historical V2", ONBOARDING_MODEL_VERSIONS_V2, V2_VERSIONS_JSON, V2_CONFIRMATION_DIGEST],
+    ["historical V3", ONBOARDING_MODEL_VERSIONS_V3, V3_VERSIONS_JSON, V3_CONFIRMATION_DIGEST],
     ["historical V4", ONBOARDING_MODEL_VERSIONS_V4, V4_VERSIONS_JSON, V4_CONFIRMATION_DIGEST],
+    ["historical V5", ONBOARDING_MODEL_VERSIONS_V5, V5_VERSIONS_JSON, V5_CONFIRMATION_DIGEST],
   ] as const)("persists and reopens the exact %s tuple without rewriting its row", async (
     _lineage,
     versions,
@@ -276,19 +284,19 @@ describe("SQLite onboarding confirmation persistence", () => {
     expect(reopened.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
   });
 
-  test("round-trips the current V5 tuple while retaining the six-key persistence shape", async () => {
-    const database = track(openEvidenceDatabase(temporaryDatabasePath("onboarding-v5-lineage-")));
+  test("round-trips the current V6 tuple while retaining the six-key persistence shape", async () => {
+    const database = track(openEvidenceDatabase(temporaryDatabasePath("onboarding-v6-lineage-")));
     const store = createStore(database);
-    const receipt = await commit(store, COMMAND_1, confirmedValues(), ONBOARDING_MODEL_VERSIONS_V5);
+    const receipt = await commit(store, COMMAND_1, confirmedValues(), ONBOARDING_MODEL_VERSIONS_V6);
     const row = database.prepare("SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId) as { versions_json: string };
 
-    expect(JSON.parse(row.versions_json)).toEqual(ONBOARDING_MODEL_VERSIONS_V5);
-    expect(row.versions_json).toBe(V5_VERSIONS_JSON);
-    expect(receipt.confirmationDigest).toBe(V5_CONFIRMATION_DIGEST);
+    expect(JSON.parse(row.versions_json)).toEqual(ONBOARDING_MODEL_VERSIONS_V6);
+    expect(row.versions_json).toBe(V6_VERSIONS_JSON);
+    expect(receipt.confirmationDigest).toBe(V6_CONFIRMATION_DIGEST);
     expect((await store.loadBySnapshotBindingsVerified({
       profileId: receipt.profileId,
       preferenceProfileId: receipt.preferenceProfileId,
-    })).versions).toBe(ONBOARDING_MODEL_VERSIONS_V5);
+    })).versions).toBe(ONBOARDING_MODEL_VERSIONS_V6);
     expect(Object.keys(JSON.parse(row.versions_json))).toEqual([
       "cliVersion", "extractionPrompt", "extractionSchema", "invocation", "reviewPrompt", "reviewSchema",
     ]);

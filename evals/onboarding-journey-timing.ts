@@ -12,9 +12,9 @@ import {
 import type { OnboardingModelPort } from
   "../src/application/onboarding-contracts";
 import {
-  ONBOARDING_MODEL_VERSIONS_V5,
+  ONBOARDING_MODEL_VERSIONS_V6,
   reconstructOnboardingModelVersions,
-  type OnboardingModelVersionsV5,
+  type OnboardingModelVersionsV6,
 } from "../src/application/onboarding-model-versions";
 import {
   createOnboardingSession,
@@ -48,7 +48,7 @@ export interface OnboardingJourneyTimingArtifact {
   readonly schemaVersion: typeof ARTIFACT_VERSION;
   readonly fixtureVersion: typeof FIXTURE_VERSION;
   readonly fixtureDigest: string;
-  readonly modelVersions: OnboardingModelVersionsV5;
+  readonly modelVersions: OnboardingModelVersionsV6;
   readonly protocolVersion: "codex-cli-protocol@2";
   readonly model: "gpt-5.6-terra";
   readonly reasoningEffort: "low";
@@ -88,7 +88,7 @@ interface BorrowedCanonicalJourneyResult {
 interface CanonicalJourneyResult {
   readonly acceptedFrontierHandoff: boolean;
   readonly modelInvocationCount: number;
-  readonly modelVersions: OnboardingModelVersionsV5;
+  readonly modelVersions: OnboardingModelVersionsV6;
 }
 
 export class OnboardingJourneyTimingError extends Error {
@@ -272,7 +272,7 @@ export async function runOnboardingJourneyTimingForTest(input: {
     const fixtureBytes = Uint8Array.from(input.fixtureBytes);
     const fixture = readOnboardingCanonicalJourneyFixture(fixtureBytes);
     const expectedModelVersions = reconstructOnboardingModelVersions(input.modelVersions);
-    if (expectedModelVersions !== ONBOARDING_MODEL_VERSIONS_V5) throw failed();
+    if (expectedModelVersions !== ONBOARDING_MODEL_VERSIONS_V6) throw failed();
     const startedAt = readMonotonicClock(input.monotonicNowMs);
     const result = readCanonicalJourneyResult(await input.runCanonicalJourney());
     if (result.modelVersions !== expectedModelVersions) throw failed();
@@ -663,7 +663,7 @@ function readCanonicalJourneyResult(value: unknown): CanonicalJourneyResult {
     typeof result.modelInvocationCount !== "number"
   ) throw failed();
   const modelVersions = reconstructOnboardingModelVersions(result.modelVersions);
-  if (modelVersions !== ONBOARDING_MODEL_VERSIONS_V5) throw failed();
+  if (modelVersions !== ONBOARDING_MODEL_VERSIONS_V6) throw failed();
   return Object.freeze({
     acceptedFrontierHandoff: result.acceptedFrontierHandoff,
     modelInvocationCount: result.modelInvocationCount,

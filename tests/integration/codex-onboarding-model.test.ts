@@ -5,9 +5,10 @@ import { describe, expect, test, vi } from "vitest";
 
 import {
   OnboardingModelError,
+  type OnboardingExtractionRetryReason,
   type OnboardingModelPort,
 } from "../../src/application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V5 } from
+import { ONBOARDING_MODEL_VERSIONS_V6 } from
   "../../src/application/onboarding-model-versions";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
 import { createOnboardingSession, type SessionMessage } from "../../src/decision/onboarding-session";
@@ -63,6 +64,7 @@ function message(): SessionMessage {
 
 function extractionResult(
   metadata: CodexJsonResult["metadata"] = extractionMetadata(),
+  nextQuestion = "Где вы живёте сейчас?",
 ): CodexJsonResult {
   return {
     value: {
@@ -73,7 +75,7 @@ function extractionResult(
         s: 0,
         e: MESSAGE_TEXT.length,
       }],
-      nextQuestion: "Где вы живёте сейчас?",
+      nextQuestion,
     },
     metadata,
   };
@@ -111,7 +113,7 @@ function extractionMetadata(): CodexJsonResult["metadata"] {
     model: CODEX_MODEL,
     reasoningEffort: "low",
     toolPolicy: "codex-tools-none@2",
-    templateVersion: "onboarding-extract@5",
+    templateVersion: "onboarding-extract@6",
     schemaVersion: "onboarding-extraction-wire@2",
   };
 }
@@ -183,6 +185,13 @@ function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
+function extractionPromptPayload(prompt: string): Record<string, unknown> {
+  const payload = prompt.match(
+    /BEGIN_ONBOARDING_INPUT_JSON\n([\s\S]+)\nEND_ONBOARDING_INPUT_JSON/,
+  )?.[1];
+  return JSON.parse(payload ?? "null") as Record<string, unknown>;
+}
+
 describe("Codex onboarding model", () => {
   test("accepts the null-prototype owned JSON returned by the real runtime adapter", async () => {
     const baseline = extractionResult();
@@ -204,7 +213,7 @@ describe("Codex onboarding model", () => {
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
       invocation: "codex-cli-invocation@2",
       cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
-      extractionPrompt: "onboarding-extract@5",
+      extractionPrompt: "onboarding-extract@6",
       reviewPrompt: "onboarding-review@2",
       extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
@@ -225,7 +234,7 @@ describe("Codex onboarding model", () => {
     });
     expect(Object.keys(model)).toEqual(["versions", "extract", "review"]);
     expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS);
-    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V5);
+    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V6);
     expect(Object.isFrozen(model)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_EXTRACTION_LIMITS)).toBe(true);
@@ -251,7 +260,7 @@ describe("Codex onboarding model", () => {
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
       capability: "onboarding.extract",
-      templateVersion: "onboarding-extract@5",
+      templateVersion: "onboarding-extract@6",
       schemaVersion: "onboarding-extraction-wire@2",
       limits: ONBOARDING_EXTRACTION_LIMITS,
     });
@@ -264,9 +273,9 @@ describe("Codex onboarding model", () => {
     expect(invocation?.prompt).not.toContain("messageId");
     expect(invocation?.prompt).toContain("onboarding-questionnaire-projection@1");
     const staticTemplate = ONBOARDING_EXTRACTION_PROMPT_TEMPLATE;
-    expect(utf8Bytes(staticTemplate)).toBe(2_150);
+    expect(utf8Bytes(staticTemplate)).toBe(2_489);
     expect(createHash("sha256").update(staticTemplate).digest("hex")).toBe(
-      "bb578761419ad936e9ea069d369e21184111e2d59a9cd289ca48031aa5fa3a85",
+      "526b2f2d76dcc1389760cbd84b32b7746e523a0412c489a74671b5be041a8708",
     );
     expect(utf8Bytes(staticTemplate)).toBeLessThanOrEqual(2_500);
     expect(staticTemplate).toContain(ONBOARDING_EXTRACTION_WIRE_ALGEBRA);
@@ -274,6 +283,11 @@ describe("Codex onboarding model", () => {
       expect(staticTemplate).toContain(line);
     }
     expect(staticTemplate).not.toContain("Exact catalog-order codebook:");
+    expect(staticTemplate).toContain("none,schema_invalid,guard_invalid,canonical_mismatch,evidence_mismatch");
+    expect(staticTemplate).toContain("schema_invalid: return schema-valid wire JSON");
+    expect(staticTemplate).toContain("guard_invalid: keep only explicit current-message facts");
+    expect(staticTemplate).toContain("canonical_mismatch: re-normalize explicit values");
+    expect(staticTemplate).toContain("evidence_mismatch: correct every span");
     for (const { code, fieldId } of ONBOARDING_EXTRACTION_WIRE_CODEBOOK) {
       expect(staticTemplate).not.toContain(`${code}=${fieldId}`);
     }
@@ -293,9 +307,13 @@ describe("Codex onboarding model", () => {
       JSON.stringify({
         currentUserMessage: { text: canonicalFixture.messages[0].text },
         questionnaire: projectQuestionnaireForModel(emptySession),
+        retryFeedback: "none",
       }),
     );
-    expect(utf8Bytes(canonicalPrompt)).toBe(8_346);
+    expect(utf8Bytes(canonicalPrompt)).toBe(8_708);
+    expect(createHash("sha256").update(canonicalPrompt).digest("hex")).toBe(
+      "e5a1e439b5c712ddfad81536caf4138acad5f92c972716622115d0adab8644e2",
+    );
     expect(utf8Bytes(canonicalPrompt)).toBeLessThanOrEqual(9_000);
     expect(invocation?.prompt).toContain("Never emit the same f twice");
     expect(invocation?.prompt).toContain(
@@ -306,36 +324,53 @@ describe("Codex onboarding model", () => {
     );
     expect(invocation?.prompt).not.toContain(SELF_ID);
     expect(invocation?.prompt).not.toContain(COMMAND_ID);
-    const payloadText = invocation?.prompt.match(
-      /BEGIN_ONBOARDING_INPUT_JSON\n([\s\S]+)\nEND_ONBOARDING_INPUT_JSON/,
-    )?.[1];
-    expect(JSON.parse(payloadText ?? "null")).toEqual({
+    expect(extractionPromptPayload(invocation?.prompt ?? "")).toEqual({
       currentUserMessage: { text: MESSAGE_TEXT },
       questionnaire: questionnaire(),
+      retryFeedback: "none",
     });
     expect(utf8Bytes(invocation?.prompt ?? "")).toBeLessThanOrEqual(
       ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES,
     );
   });
 
-  test("retries one invalid extraction at medium effort with the same zero-tool contract", async () => {
-    // Break caught: accepting a malformed low-effort wire response without its one allowed retry.
-    const { runtime, invokeJson } = fakeRuntime(vi.fn()
-      .mockResolvedValueOnce({ value: { invalid: true }, metadata: extractionMetadata() })
-      .mockResolvedValueOnce({
-        ...extractionResult(),
-        metadata: { ...extractionMetadata(), reasoningEffort: "medium" },
-      }));
+  test.each([
+    "schema_invalid",
+    "guard_invalid",
+    "canonical_mismatch",
+    "evidence_mismatch",
+  ] as const)("rebuilds medium prompt with exact %s feedback", async (retryFeedback) => {
+    const rejectedSentinel = `${SECRET}-${retryFeedback}`;
+    const { runtime, invokeJson } = fakeRuntime(async (invocation) => {
+      if (invocation.reasoningEffort === "medium") {
+        return extractionResult({ ...extractionMetadata(), reasoningEffort: "medium" });
+      }
+      return retryFeedback === "schema_invalid"
+        ? { value: { invalid: true, rejectedSentinel }, metadata: extractionMetadata() }
+        : extractionResult(extractionMetadata(), rejectedSentinel);
+    });
     const model = createCodexOnboardingModel(runtime);
+    const acceptExtraction = retryFeedback === "schema_invalid"
+      ? undefined
+      : vi.fn((_output, attempt) => attempt.attempt === "initial"
+        ? Object.freeze({ kind: "retryable" as const, reason: retryFeedback as OnboardingExtractionRetryReason })
+        : Object.freeze({ kind: "accepted" as const }));
 
     await expect(model.extract({
       message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
+      ...(acceptExtraction === undefined ? {} : { acceptExtraction }),
     })).resolves.toEqual(decodedExtractionResult());
 
-    expect(invokeJson.mock.calls.map(([call]) => [call.reasoningEffort, call.toolPolicy])).toEqual([
-      ["low", "codex-tools-none@2"],
-      ["medium", "codex-tools-none@2"],
-    ]);
+    expect(invokeJson).toHaveBeenCalledTimes(2);
+    const low = invokeJson.mock.calls[0]![0];
+    const medium = invokeJson.mock.calls[1]![0];
+    expect([low.reasoningEffort, medium.reasoningEffort]).toEqual(["low", "medium"]);
+    expect(low.toolPolicy).toBe("codex-tools-none@2");
+    expect(medium.toolPolicy).toBe("codex-tools-none@2");
+    expect(extractionPromptPayload(low.prompt).retryFeedback).toBe("none");
+    expect(extractionPromptPayload(medium.prompt).retryFeedback).toBe(retryFeedback);
+    expect(medium.prompt).not.toBe(low.prompt);
+    expect(medium.prompt).not.toContain(rejectedSentinel);
   });
 
   test("shares one low-to-medium budget with a semantic acceptance retry", async () => {
@@ -490,6 +525,16 @@ describe("Codex onboarding model", () => {
   test.each([
     ["throws", () => { throw new Error(SECRET); }],
     ["returns a malformed outcome", () => "retryable" as unknown],
+    ["returns an unknown reason", () => ({ kind: "retryable", reason: "unknown" })],
+    ["returns an accessor reason", () => Object.defineProperty(
+      { kind: "retryable" },
+      "reason",
+      { enumerable: true, get: () => { throw new Error(SECRET); } },
+    )],
+    ["returns a proxied reason", () => new Proxy(
+      { kind: "retryable", reason: "guard_invalid" },
+      {},
+    )],
   ] as const)("maps an acceptance callback that %s to integrity failure without retry", async (_case, implementation) => {
     // Break caught: callback bugs become retries/fallbacks or leak their thrown content.
     const { runtime, invokeJson } = fakeRuntime(async () => extractionResult());
@@ -573,24 +618,57 @@ describe("Codex onboarding model", () => {
     expect(invokeJson).toHaveBeenCalledOnce();
   });
 
-  test.each([
-    ["extraction", ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES],
-    ["review", ONBOARDING_REVIEW_MAX_PROMPT_BYTES],
-  ] as const)("accepts the exact %s prompt byte limit and rejects one byte more", async (kind, maximum) => {
-    const result = kind === "extraction" ? extractionResult() : reviewResult();
-    const { model, invokeJson } = successfulModel(result);
-    const controller = new AbortController();
-    const call = (value: unknown) => kind === "extraction"
-      ? model.extract({ message: message(), questionnaire: value, signal: controller.signal })
-      : model.review({ questionnaire: value, signal: controller.signal });
+  test("reserves the longest retry feedback at the extraction prompt boundary", async () => {
+    const { runtime, invokeJson } = fakeRuntime(async (invocation) => ({
+      ...extractionResult(),
+      metadata: { ...extractionMetadata(), reasoningEffort: invocation.reasoningEffort },
+    }));
+    const model = createCodexOnboardingModel(runtime);
+    const acceptExtraction = vi.fn((_output, attempt) => attempt.attempt === "initial"
+      ? Object.freeze({ kind: "retryable" as const, reason: "canonical_mismatch" as const })
+      : Object.freeze({ kind: "accepted" as const }));
+    const call = (value: unknown) => model.extract({
+      message: message(), questionnaire: value,
+      signal: new AbortController().signal, acceptExtraction,
+    });
+
+    await call(projectionWithSavingsDigits(1));
+    const baselineMedium = invokeJson.mock.calls[1]?.[0].prompt ?? "";
+    const addedBytes = ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES - utf8Bytes(baselineMedium);
+    expect(addedBytes).toBeGreaterThan(0);
+
+    invokeJson.mockClear();
+    acceptExtraction.mockClear();
+    await call(projectionWithSavingsDigits(1 + addedBytes));
+    expect(invokeJson).toHaveBeenCalledTimes(2);
+    expect(utf8Bytes(invokeJson.mock.calls[1]?.[0].prompt ?? ""))
+      .toBe(ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES);
+    expect(extractionPromptPayload(invokeJson.mock.calls[1]?.[0].prompt ?? "").retryFeedback)
+      .toBe("canonical_mismatch");
+
+    invokeJson.mockClear();
+    acceptExtraction.mockClear();
+    const error = await modelError(call(projectionWithSavingsDigits(2 + addedBytes)));
+    expectContentFreeError(error, "onboarding_model_invalid");
+    expect(invokeJson).not.toHaveBeenCalled();
+    expect(acceptExtraction).not.toHaveBeenCalled();
+  });
+
+  test("accepts the exact review prompt byte limit and rejects one byte more", async () => {
+    const { model, invokeJson } = successfulModel(reviewResult());
+    const call = (value: unknown) => model.review({
+      questionnaire: value,
+      signal: new AbortController().signal,
+    });
 
     await call(projectionWithSavingsDigits(1));
     const baseline = invokeJson.mock.calls[0]?.[0].prompt ?? "";
-    const addedBytes = maximum - utf8Bytes(baseline);
+    const addedBytes = ONBOARDING_REVIEW_MAX_PROMPT_BYTES - utf8Bytes(baseline);
     expect(addedBytes).toBeGreaterThan(0);
 
     await call(projectionWithSavingsDigits(1 + addedBytes));
-    expect(utf8Bytes(invokeJson.mock.calls[1]?.[0].prompt ?? "")).toBe(maximum);
+    expect(utf8Bytes(invokeJson.mock.calls[1]?.[0].prompt ?? ""))
+      .toBe(ONBOARDING_REVIEW_MAX_PROMPT_BYTES);
 
     const error = await modelError(call(projectionWithSavingsDigits(2 + addedBytes)));
     expectContentFreeError(error, "onboarding_model_invalid");
