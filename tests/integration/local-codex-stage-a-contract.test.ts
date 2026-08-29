@@ -179,7 +179,7 @@ describe("local Codex Stage A gate", () => {
     const localError = await evaluateDiscoveryFixture(fixture, {
       discover: async () => ({
         candidates: [],
-        metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "official-source-discover@1", schemaVersion: "official-source-candidates@1" },
+        metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "official-source-discover@2", schemaVersion: "official-source-candidates@1" },
       }),
     }).then(
       () => { throw new Error("expected invalid local discovery result"); },
@@ -1034,6 +1034,22 @@ describe("local Codex Stage A gate", () => {
     }));
     await expect(evaluateDiscoveryFixture(fixture, { discover })).rejects.toThrow("discovery_result_invalid");
     expect(discover).toHaveBeenCalledTimes(1);
+  });
+
+  test("accepts only the current compact discovery template version", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const result = (templateVersion: string) => ({
+      candidates: [{ url: "https://www.beograd.rs/transport/", claimedPublisher: "City", expectedCoverage: "Transit", rationale: "Official" }],
+      metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion, schemaVersion: "official-source-candidates@1" },
+    });
+
+    await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result("official-source-discover@2") })).resolves.toEqual({
+      candidateCount: 1,
+      allCandidatesUntrusted: true,
+    });
+    for (const templateVersion of ["official-source-discover@1", "official-source-discover@999"]) {
+      await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result(templateVersion) })).rejects.toThrow("discovery_result_invalid");
+    }
   });
 });
 

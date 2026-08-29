@@ -31,7 +31,7 @@ export type OfficialSourceDiscoveryRuntimeMetadata = Readonly<{
   model: "gpt-5.6-terra";
   reasoningEffort: "medium";
   toolPolicy: "codex-tools-web-search@1";
-  templateVersion: "official-source-discover@1";
+  templateVersion: "official-source-discover@2";
   schemaVersion: "official-source-candidates@1";
 }>;
 

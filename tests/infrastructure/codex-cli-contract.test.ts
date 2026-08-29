@@ -104,7 +104,7 @@ describe("createCodexJsonInvocation", () => {
       capability: "source.discover",
       reasoningEffort: "medium",
       toolPolicy: "codex-tools-web-search@1",
-      templateVersion: "official-source-discover@1",
+      templateVersion: "official-source-discover@2",
       schemaVersion: "official-source-candidates@1",
       prompt: "synthetic public input",
       outputSchema: { type: "object", additionalProperties: false, properties: {} },

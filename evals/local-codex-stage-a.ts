@@ -805,7 +805,7 @@ export async function evaluateDiscoveryFixture(fixture: StageADiscoveryFixture, 
     if (candidates.length < 1 || candidates.length > fixture.candidateLimit ||
       metadata.invocationVersion !== "codex-cli-invocation@2" || metadata.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || metadata.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY ||
       typeof metadata.cliVersion !== "string" || metadata.model !== CODEX_MODEL || metadata.reasoningEffort !== "medium" || metadata.toolPolicy !== "codex-tools-web-search@1" ||
-      metadata.templateVersion !== "official-source-discover@1" || metadata.schemaVersion !== "official-source-candidates@1") throw new TypeError("local_codex_stage_a_discovery_invalid");
+      metadata.templateVersion !== "official-source-discover@2" || metadata.schemaVersion !== "official-source-candidates@1") throw new TypeError("local_codex_stage_a_discovery_invalid");
     return Object.freeze({ candidateCount: candidates.length, allCandidatesUntrusted: fixture.candidatesUntrusted });
   } catch {
     throw new StageADiscoveryDiagnosticError();
