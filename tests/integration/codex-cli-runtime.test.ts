@@ -564,6 +564,19 @@ describe("CodexCliModelAdapter", () => {
 });
 
 describe("Codex CLI runtime singleton", () => {
+  test("ignores a caller-preseeded global symbol instead of bypassing reviewed initialization", async () => {
+    const target = globalThis as typeof globalThis & { [key: symbol]: unknown };
+    const fakeAdapter = Object.freeze({ invokeJson: vi.fn() });
+    target[RUNTIME_STATE_KEY] = { initialization: Promise.resolve(), installedAdapter: fakeAdapter };
+    const runtime = await import("../../src/infrastructure/codex-cli/runtime");
+    const fixture = await runtimeFixture();
+
+    expect(() => runtime.getCodexCliModelAdapter()).toThrowError(expect.objectContaining({ code: "codex_process_failed" }));
+    await expect(runtime.initializeCodexCliRuntime(fixture.input)).rejects.toMatchObject({ code: "codex_version_mismatch" });
+    expect(fixture.spawner.spawn).not.toHaveBeenCalled();
+    expect(fakeAdapter.invokeJson).not.toHaveBeenCalled();
+  });
+
   test("shares one startup chain and publishes one stable adapter only after all checks", async () => {
     const fixture = await runtimeFixture();
     const runtime = await freshRuntime();

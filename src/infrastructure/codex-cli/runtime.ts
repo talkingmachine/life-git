@@ -17,7 +17,6 @@ import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from 
 
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const NATIVE_REASON_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "reason")?.get;
-const RUNTIME_STATE_KEY = Symbol.for("confirmed-life.codex-cli-runtime@1");
 
 export interface InitializeCodexCliRuntimeInput {
   readonly configuredExecutable?: string;
@@ -34,8 +33,15 @@ interface CodexCliRuntimeState {
   installedAdapter: CodexCliModelAdapter | undefined;
 }
 
+// Deliberately module-private: untrusted application code must not be able to
+// pre-seed startup completion or an adapter through a global registry.
+const productionRuntimeState: CodexCliRuntimeState = {
+  initialization: undefined,
+  installedAdapter: undefined,
+};
+
 export function initializeCodexCliRuntime(input: InitializeCodexCliRuntimeInput): Promise<void> {
-  const state = runtimeState();
+  const state = productionRuntimeState;
   if (state.initialization === undefined) {
     const attempt = initializeOnce(snapshotInput(input), state);
     state.initialization = attempt;
@@ -47,7 +53,7 @@ export function initializeCodexCliRuntime(input: InitializeCodexCliRuntimeInput)
 }
 
 export function getCodexCliModelAdapter(): CodexCliModelAdapter {
-  const adapter = runtimeState().installedAdapter;
+  const adapter = productionRuntimeState.installedAdapter;
   if (adapter === undefined) throw new CodexRuntimeError("codex_process_failed");
   return adapter;
 }
@@ -287,18 +293,6 @@ function assertSmokeResult(value: unknown): void {
   if (Object.keys(object).length !== 2 || object.schemaVersion !== "codex-runtime-smoke@2" || object.status !== "ok") {
     throw new CodexRuntimeError("codex_json_invalid");
   }
-}
-
-function runtimeState(): CodexCliRuntimeState {
-  const target = globalThis as typeof globalThis & { [key: symbol]: unknown };
-  const existing = target[RUNTIME_STATE_KEY];
-  if (existing !== undefined) return existing as CodexCliRuntimeState;
-  const created: CodexCliRuntimeState = {
-    initialization: undefined,
-    installedAdapter: undefined,
-  };
-  target[RUNTIME_STATE_KEY] = created;
-  return created;
 }
 
 function throwIfAborted(signal: AbortSignal): void {
