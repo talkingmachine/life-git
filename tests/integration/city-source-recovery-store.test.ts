@@ -58,4 +58,16 @@ describe("SqliteCitySourceRecoveryStore", () => {
     expect(() => store.appendReplacement(replacement(), cursor)).toThrow("integrity_mismatch");
     expect(databases[0]!.prepare("SELECT COUNT(*) AS count FROM city_source_binding_heads").get()).toEqual({ count: 0 });
   });
+
+  test("rolls every recovery write back when a truth FK is missing", () => {
+    const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement();
+    expect(() => store.appendReplacement({ ...input, revision: { ...input.revision, knowledgeRevisionId: "knowledge:missing" } }, cursor)).toThrow("FOREIGN KEY constraint failed");
+    for (const table of ["city_source_versions", "city_source_binding_revisions", "city_source_binding_heads", "official_source_recovery_attempts", "official_source_replacement_events"]) expect(databases[0]!.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+  });
+
+  test("rejects a tampered persisted replacement event mirror", () => {
+    const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement(); store.appendReplacement(input, cursor); const database = databases[0]!;
+    database.exec("DROP TRIGGER official_source_replacement_events_no_update"); database.prepare("UPDATE official_source_replacement_events SET created_at = ? WHERE command_id = ?").run("2026-08-29T12:02:00.000Z", input.commandId);
+    expect(() => store.appendReplacement(input, cursor)).toThrow("integrity_mismatch");
+  });
 });
