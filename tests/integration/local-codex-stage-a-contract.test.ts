@@ -890,6 +890,23 @@ describe("local Codex Stage A gate", () => {
     }) })).resolves.toEqual({ guardedProposalCount: 4, inventedValueCount: 0 });
   });
 
+  test("accepts complete overlapping evidence that starts with punctuation beside a prior token", async () => {
+    // Break caught: a punctuation edge is mistaken for a split merely because its outside neighbor is a token.
+    const fixture = await readOnboardingFixture();
+    const proposals = fixture.expected.proposals.map((proposal, index) => ({
+      fieldId: proposal.fieldId,
+      typedValue: proposal.typedValue,
+      messageId: fixture.message.messageId,
+      sourceSpan: index === 0 ? { start: 22, end: 30 } : proposal.sourceSpan,
+    }));
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).resolves.toEqual({ guardedProposalCount: 4, inventedValueCount: 0 });
+  });
+
   test.each([
     ["од", "moving_party"],
     ["россий", "participants.self.citizenships"],

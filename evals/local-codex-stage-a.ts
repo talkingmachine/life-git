@@ -782,12 +782,18 @@ function assertFixtureEvidenceCoverage(
     const overlap = Math.max(0, Math.min(proposal.sourceSpan.end, expected.sourceSpan.end) - Math.max(proposal.sourceSpan.start, expected.sourceSpan.start));
     const shorter = Math.min(proposal.sourceSpan.end - proposal.sourceSpan.start, expected.sourceSpan.end - expected.sourceSpan.start);
     const evidence = fixture.message.text.slice(proposal.sourceSpan.start, proposal.sourceSpan.end);
-    const splitsToken = (proposal.sourceSpan.start > 0 && UNICODE_TOKEN_CONTINUATION_AT_END.test(fixture.message.text.slice(0, proposal.sourceSpan.start))) ||
-      (proposal.sourceSpan.end < fixture.message.text.length && UNICODE_TOKEN_CONTINUATION_AT_START.test(fixture.message.text.slice(proposal.sourceSpan.end)));
+    const splitsToken = splitsUnicodeTokenAt(fixture.message.text, proposal.sourceSpan.start) ||
+      splitsUnicodeTokenAt(fixture.message.text, proposal.sourceSpan.end);
     if (overlap === 0 || overlap * 2 < shorter || splitsToken || !INFORMATIVE_EVIDENCE_TOKEN.test(evidence)) {
       throw new TypeError("local_codex_stage_a_onboarding_invalid");
     }
   }
+}
+
+function splitsUnicodeTokenAt(text: string, offset: number): boolean {
+  return offset > 0 && offset < text.length &&
+    UNICODE_TOKEN_CONTINUATION_AT_END.test(text.slice(0, offset)) &&
+    UNICODE_TOKEN_CONTINUATION_AT_START.test(text.slice(offset));
 }
 
 export async function evaluateDiscoveryFixture(fixture: StageADiscoveryFixture, port: Readonly<{ discover(input: OfficialSourceDiscoveryRequest): Promise<unknown> }>): Promise<Artifact["discovery"]> {
