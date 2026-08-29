@@ -253,6 +253,15 @@ describe("runBoundedProcess", () => {
     expect(result).toEqual({ pid: 19, stdout: [encoder.encode("jsonl\n")], stderrByteCount: 0 });
   });
 
+  test("rejects an impossible zero-code exit that also reports a terminating signal", async () => {
+    const spawner = fakeSpawner(processWith({
+      exit: Promise.resolve({ code: 0, signal: "SIGTERM" }),
+    }));
+
+    await expect(runBoundedProcess(validBoundedRequest(), spawner))
+      .rejects.toMatchObject({ code: "codex_process_failed" });
+  });
+
   test("retains owned bounded stderr only when explicitly requested", async () => {
     const source = encoder.encode("known preflight status\n");
     const spawner = fakeSpawner(processWith({ stderr: stream(source) }));

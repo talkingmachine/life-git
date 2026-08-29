@@ -136,7 +136,7 @@ export async function runBoundedProcess(
     });
     const [stdoutChunks, stderrResult, exit] = await Promise.race([completion, abort.promise, timeout]);
     throwIfAborted(request.signal);
-    if (exit.code !== 0) throw processFailed();
+    if (exit.code !== 0 || exit.signal !== null) throw processFailed();
     const result: BoundedProcessResult = {
       pid: process.pid,
       stdout: stdoutChunks,
