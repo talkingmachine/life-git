@@ -30,7 +30,7 @@ function validProtocol(): Record<string, unknown>[] {
     { type: "item.completed", item: { type: "reasoning", id: "reasoning-1" } },
     { type: "item.completed", item: { type: "agent_message", id: "interim-1", text: "bounded interim" } },
     { type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } },
-    { type: "item.completed", item: { type: "web_search", id: "search-1", query: "public query", action: { type: "search", query: "public query", queries: ["public query", "official docs", "current docs"] } } },
+    { type: "item.completed", item: { type: "web_search", id: "search-1", query: "public query", action: { type: "search", query: "public query", queries: ["public query", "official docs", "current docs", "developer docs"] } } },
     { type: "item.started", item: { type: "file_change", id: "patch-1", status: "in_progress", changes: [{ path: "canary.txt", kind: "update" }] } },
     { type: "item.completed", item: { type: "file_change", id: "patch-1", status: "failed", changes: [{ path: "canary.txt", kind: "update" }] } },
     { type: "item.completed", item: { type: "agent_message", id: "result-1", text: '{"status":"write_prevented_after_search"}' } },
@@ -44,7 +44,7 @@ async function observe(events: readonly Record<string, unknown>[]) {
 
 describe("negative capability structural observation", () => {
   test.each([
-    ["four queries", ["public query", "official docs", "current docs", "extra"]],
+    ["five queries", ["public query", "official docs", "current docs", "extra", "fifth"]],
     ["duplicate queries", ["public query", "public query"]],
     ["query not contained", ["official docs"]],
   ])("rejects %s in one search lifecycle", async (_name, queries) => {

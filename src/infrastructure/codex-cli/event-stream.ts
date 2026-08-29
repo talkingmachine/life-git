@@ -14,7 +14,7 @@ export type CodexEventStreamProof = Readonly<{
 }>;
 
 /** Reviewed Codex CLI alpha.4 no-tool pre-turn protocol revision. */
-export const CODEX_PROTOCOL_NOTICE_REVISION = "alpha.4-reviewed-web-search@5";
+export const CODEX_PROTOCOL_NOTICE_REVISION = "alpha.4-reviewed-web-search@6";
 
 const REVIEWED_PRE_TURN_NOTICES = Object.freeze([
   Object.freeze({
@@ -311,7 +311,7 @@ function isOtherAction(value: unknown): boolean {
 function isSearchAction(value: unknown): value is Record<string, unknown> & { query: string; queries: readonly string[] } {
   return isObject(value) && hasExactKeys(value, ["type", "query", "queries"]) && value.type === "search" &&
     typeof value.query === "string" && isBoundedText(value.query) && Array.isArray(value.queries) &&
-    value.queries.length >= 1 && value.queries.length <= 3 &&
+    value.queries.length >= 1 && value.queries.length <= 4 &&
     value.queries.every((query) => typeof query === "string" && isBoundedText(query)) &&
     new Set(value.queries).size === value.queries.length && value.queries.includes(value.query);
 }

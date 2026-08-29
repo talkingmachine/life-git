@@ -5,6 +5,6 @@
 {"type":"item.completed","item":{"type":"reasoning","id":"reasoning-1"}}
 {"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"interim"}}
 {"type":"item.started","item":{"type":"web_search","id":"search-1","query":"","action":{"type":"other"}}}
-{"type":"item.completed","item":{"type":"web_search","id":"search-1","query":"official municipal source","action":{"type":"search","query":"official municipal source","queries":["official municipal source","official municipal source transit","official municipal source current"]}}}
+{"type":"item.completed","item":{"type":"web_search","id":"search-1","query":"official municipal source","action":{"type":"search","query":"official municipal source","queries":["official municipal source","official municipal source transit","official municipal source current","official municipal source documentation"]}}}
 {"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"{\"schemaVersion\":\"fixture@1\"}"}}
 {"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}

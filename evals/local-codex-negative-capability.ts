@@ -437,7 +437,7 @@ function isWebSearchCompletion(item: Record<string, unknown>, state: EventState)
   return hasExactKeys(item, ["type", "id", "query", "action"]) && item.id === state.activeSearchId &&
     boundedText(item.query) && isObject(item.action) && hasExactKeys(item.action, ["type", "query", "queries"]) &&
     item.action.type === "search" && item.action.query === item.query && Array.isArray(item.action.queries) &&
-    item.action.queries.length >= 1 && item.action.queries.length <= 3 &&
+    item.action.queries.length >= 1 && item.action.queries.length <= 4 &&
     item.action.queries.every((query) => boundedText(query)) && new Set(item.action.queries).size === item.action.queries.length &&
     item.action.queries.includes(item.action.query);
 }
