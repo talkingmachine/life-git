@@ -117,7 +117,7 @@ export class CodexCliModelAdapter {
             throwIfAborted(signal);
             const remainingMs = requireDiscoveryDeadlineOpen(deadline);
             if (candidate.webSearchCount === 0) {
-              if (attempt === 1) throw new CodexRuntimeError("codex_tool_event");
+              if (attempt === 1) throw new CodexRuntimeError("codex_search_not_performed");
               throwIfAborted(signal);
               invocation = createLeaderInvocation(
                 input,
@@ -132,7 +132,7 @@ export class CodexCliModelAdapter {
             acceptedProbe = candidate;
             break;
           }
-          if (acceptedProbe === undefined) throw new CodexRuntimeError("codex_tool_event");
+          if (acceptedProbe === undefined) throw new CodexRuntimeError("codex_search_not_performed");
           probe = acceptedProbe;
         } else {
           probe = await runCodexJsonProbe({

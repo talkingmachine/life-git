@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { types } from "node:util";
 
 import { CodexRuntimeError, createCodexJsonInvocation, type CodexReasoningEffort } from "./contracts";
 import { CodexFlightPool } from "./flight-pool";
@@ -50,10 +51,14 @@ export function getCodexCliModelAdapter(): CodexCliModelAdapter {
 }
 
 export interface CodexCliCapabilityVerification {
-  readonly schemaVersion: "codex-runtime-smoke@2";
+  readonly schemaVersion: "codex-runtime-capabilities@1";
   readonly low: Readonly<{ webSearchCount: 0 }>;
   readonly medium: Readonly<{ webSearchCount: 0 }>;
-  readonly discovery: Readonly<{ webSearchCount: number }>;
+  readonly discovery: Readonly<{
+    availability: "available";
+    selection: "model-selected";
+    webSearchCount: number;
+  }>;
 }
 
 /** Explicit subscription-consuming gate; startup itself intentionally remains static. */
@@ -66,20 +71,42 @@ export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<C
     if (outcome.eventProof.webSearchCount !== 0) throw new CodexRuntimeError("codex_tool_event");
     zeroToolCounts[reasoningEffort] = 0;
   }
-  const discovery = await adapter.invokeJsonWithEventProof(createCodexJsonInvocation({
-    capability: "source.discover",
-    reasoningEffort: "medium",
-    toolPolicy: "codex-tools-web-search@1",
-    templateVersion: "codex-runtime-discovery-smoke@2",
-    schemaVersion: "codex-runtime-smoke@2",
-    prompt: "Use native web search only to find the current official OpenAI developer documentation home. Return only the required synthetic status object.",
-    outputSchema: smokeOutputSchema(),
-    limits: smokeLimits(),
-    signal,
-  }));
-  assertSmokeResult(discovery.result.value);
-  if (!isValidSearchCount(discovery.eventProof.webSearchCount, smokeLimits().maxEvents)) throw new CodexRuntimeError("codex_tool_event");
-  return Object.freeze({ schemaVersion: "codex-runtime-smoke@2", low: Object.freeze({ webSearchCount: zeroToolCounts.low! }), medium: Object.freeze({ webSearchCount: zeroToolCounts.medium! }), discovery: Object.freeze({ webSearchCount: discovery.eventProof.webSearchCount }) });
+  let discoveryCount = 0;
+  try {
+    const discovery = await adapter.invokeJsonWithEventProof(createCodexJsonInvocation({
+      capability: "source.discover",
+      reasoningEffort: "medium",
+      toolPolicy: "codex-tools-web-search@1",
+      templateVersion: "codex-runtime-discovery-smoke@2",
+      schemaVersion: "codex-runtime-smoke@2",
+      prompt: "Use native web search only to find the current official OpenAI developer documentation home. Return only the required synthetic status object.",
+      outputSchema: smokeOutputSchema(),
+      limits: smokeLimits(),
+      signal,
+    }));
+    assertSmokeResult(discovery.result.value);
+    if (!isValidSearchCount(discovery.eventProof.webSearchCount, smokeLimits().maxEvents)) throw new CodexRuntimeError("codex_tool_event");
+    discoveryCount = discovery.eventProof.webSearchCount;
+  } catch (error) {
+    if (!isExactNativeSearchNotPerformed(error)) throw error;
+  }
+  return Object.freeze({ schemaVersion: "codex-runtime-capabilities@1", low: Object.freeze({ webSearchCount: zeroToolCounts.low! }), medium: Object.freeze({ webSearchCount: zeroToolCounts.medium! }), discovery: Object.freeze({ availability: "available", selection: "model-selected", webSearchCount: discoveryCount }) });
+}
+
+function isExactNativeSearchNotPerformed(error: unknown): boolean {
+  try {
+    if (types.isProxy(error) || !types.isNativeError(error) ||
+      Object.getPrototypeOf(error) !== CodexRuntimeError.prototype ||
+      Object.getOwnPropertySymbols(error).length !== 0) return false;
+    const code = Object.getOwnPropertyDescriptor(error, "code");
+    const message = Object.getOwnPropertyDescriptor(error, "message");
+    const name = Object.getOwnPropertyDescriptor(error, "name");
+    return code?.enumerable === true && "value" in code && code.value === "codex_search_not_performed" &&
+      message?.enumerable === false && "value" in message && message.value === code.value &&
+      name?.enumerable === true && "value" in name && name.value === "CodexRuntimeError";
+  } catch {
+    return false;
+  }
 }
 
 function isValidSearchCount(value: unknown, maximum: number): value is number {

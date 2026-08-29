@@ -69,6 +69,7 @@ export type CodexRuntimeErrorCode =
   | "codex_not_authenticated"
   | "codex_protocol_invalid"
   | "codex_tool_event"
+  | "codex_search_not_performed"
   | "codex_output_too_large"
   | "codex_event_limit"
   | "codex_timeout"

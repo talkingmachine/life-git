@@ -196,6 +196,8 @@ pnpm eval:local-codex-stage-a -- --live-local-subscription --artifact data/evals
 
 It writes the sanitized local artifact at `data/evals/local-codex-stage-a/result.json`. The gate fixes the model to Terra (`gpt-5.6-terra`) and never exceeds medium reasoning. Discovery candidates are untrusted planning hints, not Evidence.
 
+The pinned local CLI makes native search available, but its selection remains model-selected: it has no supported forced-search selector. Candidate hints therefore require reviewed positive native-search proof. A schema-valid empty result is `yellow_no_candidate`; two exact zero-search attempts are `yellow_search_not_performed`. Both yellow outcomes write no replacement or other durable mutation.
+
 Для локального UI создайте каталог `data`, скопируйте `.env.example` в игнорируемый `.env.local`,
 задайте непустой `EVIDENCE_HMAC_KEY` и запустите `pnpm dev`. Для VS-2 provider-free walkthrough
 используются только эти две переменные и current official HTTPS sources.

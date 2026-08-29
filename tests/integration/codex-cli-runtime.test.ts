@@ -261,7 +261,7 @@ describe("CodexCliModelAdapter", () => {
   });
 
   test.each([
-    ["before the deadline", [0, 1, 2], "codex_tool_event"],
+    ["before the deadline", [0, 1, 2], "codex_search_not_performed"],
     ["at the deadline", [0, 1, 15_000], "codex_timeout"],
   ])("rejects a second returned zero-search discovery %s", async (_name, readings, code) => {
     probe.run.mockResolvedValue(successfulProbe('{"ok":true}', 0));
@@ -275,6 +275,18 @@ describe("CodexCliModelAdapter", () => {
     await expect(adapter.invokeJson(discoveryInvocation()))
       .rejects.toMatchObject({ code });
     expect(probe.run).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps an invalid nonzero discovery proof terminal", async () => {
+    probe.run.mockResolvedValueOnce(successfulProbe('{"ok":true}', 1.5));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: () => 0,
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation()))
+      .rejects.toMatchObject({ code: "codex_tool_event" });
+    expect(probe.run).toHaveBeenCalledTimes(1);
   });
 
   test("does not retry a thrown discovery tool-event failure", async () => {
@@ -644,7 +656,7 @@ describe("Codex CLI runtime singleton", () => {
       .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 1));
 
     await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal)).resolves.toEqual({
-      schemaVersion: "codex-runtime-smoke@2", low: { webSearchCount: 0 }, medium: { webSearchCount: 0 }, discovery: { webSearchCount: 1 },
+      schemaVersion: "codex-runtime-capabilities@1", low: { webSearchCount: 0 }, medium: { webSearchCount: 0 }, discovery: { availability: "available", selection: "model-selected", webSearchCount: 1 },
     });
     expect(probe.run.mock.calls.map(([call]) => [call.invocation.reasoningEffort, call.invocation.toolPolicy]))
       .toEqual([["low", "codex-tools-none@2"], ["medium", "codex-tools-none@2"], ["medium", "codex-tools-web-search@1"]]);

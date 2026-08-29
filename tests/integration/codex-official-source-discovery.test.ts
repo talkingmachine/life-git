@@ -99,6 +99,16 @@ describe("Codex official source discovery", () => {
     });
   });
 
+  test("wraps an exact native exhausted zero-search runtime failure", async () => {
+    const invoke = vi.fn(async () => { throw new CodexRuntimeError("codex_search_not_performed"); });
+    const adapter = { invokeJsonWithEventProof: invoke } as unknown as CodexCliModelAdapter;
+
+    await expect(createCodexOfficialSourceDiscovery(adapter).discover(request())).rejects.toMatchObject({
+      code: "official_source_discovery_runtime_failed",
+      runtimeCode: "codex_search_not_performed",
+    });
+  });
+
   test.each([
     { candidates: Array.from({ length: 6 }, () => ({ url: "https://example.com/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" })) },
     { candidates: [{ url: "https://example.com/", claimedPublisher: "A", expectedCoverage: "B", rationale: "C" }, { url: "https://example.com/", claimedPublisher: "D", expectedCoverage: "E", rationale: "F" }] },

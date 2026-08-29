@@ -591,6 +591,9 @@ function mapModelError(error: unknown, signal: AbortSignal | undefined): Onboard
     return new OnboardingModelError("onboarding_model_integrity_failed");
   }
   if (error instanceof CodexRuntimeError) {
+    if (error.code === "codex_search_not_performed") {
+      return new OnboardingModelError("onboarding_model_invalid");
+    }
     return new OnboardingModelError("onboarding_model_runtime_failed", error.code);
   }
   return new OnboardingModelError("onboarding_model_invalid");
