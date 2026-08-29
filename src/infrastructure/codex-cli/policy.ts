@@ -13,6 +13,7 @@ import {
   REVIEWED_INSTALLATION_DIGESTS,
   REVIEWED_INSTALLATION_REVISION,
 } from "./reviewed-installation";
+import { isSupportedCodexCliVersion } from "../../application/codex-cli-version-policy";
 
 export const CODEX_DISABLED_FEATURES = Object.freeze([
   "apps",
@@ -68,8 +69,7 @@ export function deriveCodexPolicyFingerprintForTest(
 }
 
 export function parseSupportedCodexCliVersion(stdout: string): string {
-  const match = /^codex-cli 0\.149\.0-alpha\.((?:[4-9]|[1-9][0-9]{1,5}))\n$/.exec(stdout);
-  if (match === null || match[1] === undefined || Number(match[1]) < 4) {
+  if (!stdout.endsWith("\n") || !isSupportedCodexCliVersion(stdout.slice(0, -1))) {
     throw new CodexRuntimeError("codex_version_mismatch");
   }
   return stdout.slice(0, -1);

@@ -5,6 +5,7 @@ import type { CitySafetyOfficialDiscoveryPort, CitySafetyOfficialDiscoveryResult
 import type { CityCatalogRevision } from "../decision/city-catalog";
 import type { CityDecisionIntegrity } from "../decision/city-integrity";
 import type { CitySafetySourcePlan, OfficialAuthorityDirectory } from "../research/city-safety-source-plan";
+import { isSupportedCodexCliVersion } from "./codex-cli-version-policy";
 
 const YELLOW = new Set(["codex_search_not_performed", "codex_timeout", "codex_rate_limited", "codex_provider_transient"]);
 const RESULT = ["candidates", "metadata"] as const;
@@ -34,7 +35,9 @@ function text(value: unknown): string { if (typeof value !== "string" || value.l
 function reviewedResult(value: unknown): Readonly<{ urls: readonly string[]; metadata: OfficialSourceDiscoveryRuntimeMetadata }> {
   const result = exactObject(value, RESULT); const metadata = exactObject(result.metadata, METADATA);
   if (metadata.invocationVersion !== "codex-cli-invocation@2" || metadata.protocolVersion !== "codex-cli-protocol@2" || metadata.compatibilityPolicy !== "codex-cli-0.149.0-alpha.4-plus@2" || metadata.model !== "gpt-5.4" || metadata.reasoningEffort !== "medium" || metadata.toolPolicy !== "codex-tools-web-search@2" || metadata.templateVersion !== "official-source-discover@3" || metadata.schemaVersion !== "official-source-candidates@1") integrity();
-  const frozenMetadata = Object.freeze({ invocationVersion: metadata.invocationVersion, protocolVersion: metadata.protocolVersion, compatibilityPolicy: metadata.compatibilityPolicy, cliVersion: text(metadata.cliVersion), model: metadata.model, reasoningEffort: metadata.reasoningEffort, toolPolicy: metadata.toolPolicy, templateVersion: metadata.templateVersion, schemaVersion: metadata.schemaVersion }) as OfficialSourceDiscoveryRuntimeMetadata;
+  const cliVersion = text(metadata.cliVersion);
+  if (!isSupportedCodexCliVersion(cliVersion)) integrity();
+  const frozenMetadata = Object.freeze({ invocationVersion: metadata.invocationVersion, protocolVersion: metadata.protocolVersion, compatibilityPolicy: metadata.compatibilityPolicy, cliVersion, model: metadata.model, reasoningEffort: metadata.reasoningEffort, toolPolicy: metadata.toolPolicy, templateVersion: metadata.templateVersion, schemaVersion: metadata.schemaVersion }) as OfficialSourceDiscoveryRuntimeMetadata;
   const urls = Object.freeze(denseArray(result.candidates, 5).map((candidate) => { const fields = exactObject(candidate, CANDIDATE); text(fields.claimedPublisher); text(fields.expectedCoverage); text(fields.rationale); return canonicalHttpsUrl(fields.url); }));
   return Object.freeze({ urls: Object.freeze([...new Set(urls)]), metadata: frozenMetadata });
 }
@@ -50,7 +53,12 @@ export function createCitySafetyOfficialDiscoveryAdapter(port: OfficialSourceDis
     const directory = reconstructOfficialAuthorityDirectory(input.authorityDirectory, input.catalog, input.integrity);
     const plan = reconstructCitySafetySourcePlan(input.sourcePlan, input.catalog, directory, input.integrity);
     const city = plan.entries.find((entry) => entry.cityId === input.cityId); if (city === undefined) integrity();
-    const authorityRoots = directory.publishers.map(({ publisherId, navigationUrl }) => ({ publisherName: publisherId, url: navigationUrl }));
+    const authorityRoots = Object.freeze(city.publisherIds.map((publisherId) => {
+      const publisher = directory.publishers.find((candidate) => candidate.publisherId === publisherId);
+      if (publisher === undefined) integrity();
+      return Object.freeze({ publisherName: publisher.publisherId, url: publisher.navigationUrl });
+    }).filter((root, index, all) => all.findIndex((candidate) => candidate.publisherName === root.publisherName) === index));
+    if (authorityRoots.length > 8) integrity();
     try {
       const result = reviewedResult(await port.discover(reconstructOfficialSourceDiscoveryRequest({ schemaVersion: "official-source-discovery-request@1", entity: { entityId: city.cityId, kind: "city", countryCode: "SI", displayName: city.officialCityNames[0]! }, fact: { factKey: "si-city-safety", definitionId: plan.definitionId, description: "Municipal police offences per 100000 residents" }, failedSource: { url: canonicalHttpsUrl(input.failedUrl), reason: input.reason }, authorityRoots, localeHints: ["sl", "en"], round: input.round, signal: input.signal })) as OfficialSourceDiscoveryResult);
       return Object.freeze({ kind: "candidates", urls: result.urls, metadata: result.metadata });

@@ -31,6 +31,7 @@ import type {
   CitySafetyOfficialDiscoveryResult,
   RunCitySafetyDiscoveryInput,
 } from "./city-safety-contracts";
+import { isSupportedCodexCliVersion } from "./codex-cli-version-policy";
 
 const MAX_CANDIDATES = 10;
 const OFFICIAL_HOP_LIMIT = 2 as const;
@@ -140,13 +141,99 @@ function priorRecoveryReason(attempt: CitySafetyCandidateAttempt | undefined):
   return "unavailable";
 }
 
-function freezeOfficialDiscoveryResult(value: CitySafetyOfficialDiscoveryResult): CitySafetyOfficialDiscoveryResult {
-  if (value.kind === "yellow") return Object.freeze({ kind: "yellow", reason: value.reason });
-  return Object.freeze({
-    kind: "candidates",
-    urls: Object.freeze([...value.urls]),
-    metadata: Object.freeze({ ...value.metadata }),
-  });
+const OFFICIAL_DISCOVERY_METADATA_KEYS = [
+  "invocationVersion", "protocolVersion", "compatibilityPolicy", "cliVersion", "model",
+  "reasoningEffort", "toolPolicy", "templateVersion", "schemaVersion",
+] as const;
+
+function isProxy(value: object): boolean {
+  const processLike = (globalThis as typeof globalThis & {
+    process?: { getBuiltinModule?: (name: string) => { types?: { isProxy?: (candidate: object) => boolean } } };
+  }).process;
+  return processLike?.getBuiltinModule?.("node:util")?.types?.isProxy?.(value) ?? false;
+}
+
+function invalidOfficialDiscovery(): never {
+  throw new Error("invalid_city_safety_official_discovery");
+}
+
+function readOfficialDiscoveryObject(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || isProxy(value) ||
+    (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) ||
+    Object.getOwnPropertySymbols(value).length !== 0) invalidOfficialDiscovery();
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Object.keys(descriptors).length !== keys.length || !keys.every((key) => Object.hasOwn(descriptors, key))) {
+    invalidOfficialDiscovery();
+  }
+  const owned = Object.create(null) as Record<string, unknown>;
+  for (const key of keys) {
+    const descriptor = descriptors[key];
+    if (descriptor?.enumerable !== true || !("value" in descriptor)) invalidOfficialDiscovery();
+    owned[key] = descriptor.value;
+  }
+  return owned;
+}
+
+function readOfficialDiscoveryKind(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value) || isProxy(value) ||
+    (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) ||
+    Object.getOwnPropertySymbols(value).length !== 0) invalidOfficialDiscovery();
+  const descriptor = Object.getOwnPropertyDescriptor(value, "kind");
+  if (descriptor?.enumerable !== true || !("value" in descriptor)) invalidOfficialDiscovery();
+  return descriptor.value;
+}
+
+function readOfficialDiscoveryArray(value: unknown, maximum: number): readonly unknown[] {
+  if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype ||
+    value.length > maximum || Object.getOwnPropertySymbols(value).length !== 0) invalidOfficialDiscovery();
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Object.keys(descriptors).length !== value.length + 1) invalidOfficialDiscovery();
+  const owned: unknown[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor?.enumerable !== true || !("value" in descriptor)) invalidOfficialDiscovery();
+    owned.push(descriptor.value);
+  }
+  return owned;
+}
+
+function snapshotOfficialDiscoveryResult(value: unknown): CitySafetyOfficialDiscoveryResult {
+  try {
+    if (readOfficialDiscoveryKind(value) === "yellow") {
+      const yellow = readOfficialDiscoveryObject(value, ["kind", "reason"]);
+      if (yellow.kind !== "yellow" || ![
+        "codex_search_not_performed", "codex_timeout", "codex_rate_limited", "codex_provider_transient",
+      ].includes(yellow.reason as string)) invalidOfficialDiscovery();
+      return Object.freeze({ kind: "yellow", reason: yellow.reason as Extract<CitySafetyOfficialDiscoveryResult, { kind: "yellow" }>["reason"] });
+    }
+    const result = readOfficialDiscoveryObject(value, ["kind", "urls", "metadata"]);
+    if (result.kind !== "candidates") invalidOfficialDiscovery();
+    const metadata = readOfficialDiscoveryObject(result.metadata, OFFICIAL_DISCOVERY_METADATA_KEYS);
+    if (metadata.invocationVersion !== "codex-cli-invocation@2" || metadata.protocolVersion !== "codex-cli-protocol@2" ||
+      metadata.compatibilityPolicy !== "codex-cli-0.149.0-alpha.4-plus@2" ||
+      !isSupportedCodexCliVersion(metadata.cliVersion) || metadata.model !== "gpt-5.4" ||
+      metadata.reasoningEffort !== "medium" || metadata.toolPolicy !== "codex-tools-web-search@2" ||
+      metadata.templateVersion !== "official-source-discover@3" || metadata.schemaVersion !== "official-source-candidates@1") {
+      invalidOfficialDiscovery();
+    }
+    const urls = readOfficialDiscoveryArray(result.urls, 5).map((url) => {
+      if (typeof url !== "string") invalidOfficialDiscovery();
+      return canonicalizeCitySafetyCandidateUrl(url);
+    });
+    return Object.freeze({
+      kind: "candidates",
+      urls: Object.freeze([...urls]),
+      metadata: Object.freeze({
+        invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
+        compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: metadata.cliVersion,
+        model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+        templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "invalid_city_safety_official_discovery") throw error;
+    invalidOfficialDiscovery();
+  }
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -1048,7 +1135,7 @@ async function executeDiscovery(
   if (recoveryReason !== undefined && acceptedPreferred === undefined && ports.officialDiscovery !== undefined) {
     for (const round of [1, 2] as const) {
       if (candidateAttempts.length >= MAX_CANDIDATES || acceptedPreferred !== undefined) break;
-      const discovery = freezeOfficialDiscoveryResult(await ports.officialDiscovery.discover({
+      const discovery = snapshotOfficialDiscoveryResult(await ports.officialDiscovery.discover({
         runId: input.runId,
         catalog: input.catalog,
         integrity: input.integrity,
