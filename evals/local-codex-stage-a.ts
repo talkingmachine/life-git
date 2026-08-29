@@ -404,7 +404,7 @@ function validateProofs(runtime: Awaited<ReturnType<Dependencies["initializeRunt
 }
 
 function requireWriteIsolationProof(value: NegativeCapabilityProbeObservation): Artifact["writeIsolationProof"] {
-  if (value.schemaVersion !== "local-codex-negative-capability-observation@2" || value.model !== CODEX_DISCOVERY_MODEL || value.toolPolicy !== "codex-tools-web-search@2" || value.codeModeDisabled !== true || value.passed !== true || value.webSearchCompleted < 1 || value.applyPatchAttempts !== 1 || value.writePrevented !== true || value.canaryUnchanged !== true || value.childExitClean !== true || value.unknownEventSeen !== false || value.protocolValid !== true) throw new TypeError("local_codex_stage_a_invalid_write_isolation_proof");
+  if (value.schemaVersion !== "local-codex-negative-capability-observation@2" || value.model !== CODEX_DISCOVERY_MODEL || value.toolPolicy !== "codex-tools-web-search@2" || value.codeModeDisabled !== true || value.passed !== true || value.webSearchCompleted < 1 || value.applyPatchAttempts !== 1 || value.writePrevented !== true || value.canaryUnchanged !== true || value.childExitClean !== true || value.unknownEventSeen !== false || value.protocolValid !== true) throw new CodexRuntimeError("codex_tool_isolation_unproven");
   return Object.freeze({ model: value.model, toolPolicy: value.toolPolicy, codeModeDisabled: value.codeModeDisabled, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true });
 }
 

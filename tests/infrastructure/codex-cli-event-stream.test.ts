@@ -83,7 +83,7 @@ function webPrefix(): Uint8Array[] {
 function webSearch(id: string, query: string): Uint8Array[] {
   return [
     line({ type: "item.started", item: { type: "web_search", id, query: "", action: { type: "other" } } }),
-    line({ type: "item.completed", item: { type: "web_search", id, query, action: { type: "search", query } } }),
+    line({ type: "item.completed", item: { type: "web_search", id, query, action: { type: "search", query, queries: [query] } } }),
   ];
 }
 
@@ -113,6 +113,20 @@ describe("parseCodexEventStream", () => {
       maxStdoutBytes: 65_536,
       maxEvents: 4,
     })).rejects.toMatchObject({ code: "codex_event_limit" });
+  });
+
+  test.each([
+    ["a missing action queries array", { type: "search", query: "synthetic-query" }],
+    ["an extra action field", { type: "search", query: "synthetic-query", queries: ["synthetic-query"], extra: true }],
+    ["multiple action queries", { type: "search", query: "synthetic-query", queries: ["synthetic-query", "other"] }],
+    ["an empty action query", { type: "search", query: "", queries: [""] }],
+    ["a mismatched action queries value", { type: "search", query: "synthetic-query", queries: ["other"] }],
+  ])("rejects %s without retaining query text", async (_name, action) => {
+    await expect(parseCodexEventStreamWithProof(streamOf(
+      ...webPrefix(),
+      ...webSearch("search-1", "synthetic-query").slice(0, 1),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "synthetic-query", action } }),
+    ), LIMITS, "codex-tools-web-search@2")).rejects.toMatchObject({ code: "codex_tool_event" });
   });
 
   test.each([
@@ -241,12 +255,12 @@ describe("parseCodexEventStreamWithProof", () => {
     ["a start/completion ID mismatch", [
       ...webPrefix(),
       ...webSearch("search-1", "synthetic-query").slice(0, 1),
-      line({ type: "item.completed", item: { type: "web_search", id: "search-2", query: "synthetic-query", action: { type: "search", query: "synthetic-query" } } }),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-2", query: "synthetic-query", action: { type: "search", query: "synthetic-query", queries: ["synthetic-query"] } } }),
     ]],
     ["an item/action query mismatch", [
       ...webPrefix(),
       ...webSearch("search-1", "synthetic-query").slice(0, 1),
-      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "synthetic-query", action: { type: "search", query: "different-query" } } }),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "synthetic-query", action: { type: "search", query: "different-query", queries: ["different-query"] } } }),
     ]],
     ["a candidate cleared by a second search without a later candidate", [
       ...webPrefix(),

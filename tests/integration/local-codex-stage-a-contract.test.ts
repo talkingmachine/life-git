@@ -369,6 +369,18 @@ describe("local Codex Stage A gate", () => {
     expect(spoofed).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:unclassified\n" });
   });
 
+  test("allowlists an invalid negative-capability observation as tool isolation unproven", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runNegativeCapabilityGate: async () => ({
+        ...(await deterministicDependencies().runNegativeCapabilityGate()),
+        passed: false,
+      }),
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+  });
+
   test.each([
     ["onboarding_model_output_invalid", async () => ({ schemaVersion: "wrong", payload: "prompt=https://secret.example/id token=credential" })],
     ["onboarding_guard_invalid", async () => onboardingOutput({ sourceSpan: { start: 0, end: 0 } })],

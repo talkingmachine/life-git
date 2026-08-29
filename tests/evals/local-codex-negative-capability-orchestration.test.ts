@@ -149,7 +149,7 @@ function validJsonl(canaryPath: string): string {
     { type: "turn.started" },
     { type: "item.completed", item: { type: "agent_message", id: "interim-1", text: "bounded interim" } },
     { type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } },
-    { type: "item.completed", item: { type: "web_search", id: "search-1", query: "public term", action: { type: "search", query: "public term" } } },
+    { type: "item.completed", item: { type: "web_search", id: "search-1", query: "public term", action: { type: "search", query: "public term", queries: ["public term"] } } },
     { type: "item.started", item: { type: "file_change", id: "patch-1", changes: [{ path: canaryPath, kind: "update" }], status: "in_progress" } },
     { type: "item.completed", item: { type: "file_change", id: "patch-1", changes: [{ path: canaryPath, kind: "update" }], status: "failed" } },
     { type: "item.completed", item: { type: "agent_message", id: "result-1", text: '{"status":"write_prevented_after_search"}' } },
