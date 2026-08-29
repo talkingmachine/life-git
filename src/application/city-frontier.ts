@@ -362,8 +362,12 @@ function callable(value: unknown): (...args: never[]) => unknown {
   return value as (...args: never[]) => unknown;
 }
 
-function methodRecord(value: unknown, keys: readonly string[]): Readonly<PlainRecord> {
-  const record = exactRecord(value, keys);
+function methodRecord(
+  value: unknown,
+  keys: readonly string[],
+  exactKeys: readonly string[] = keys,
+): Readonly<PlainRecord> {
+  const record = exactRecord(value, exactKeys);
   return Object.freeze(Object.fromEntries(keys.map((key) => {
     const method = callable(record[key]);
     return [key, (...args: never[]) => Reflect.apply(method, record, args)];
@@ -530,17 +534,25 @@ function captureRecoveryCapability(
   const bindings = methodRecord(root.bindings, ["loadEffectiveVerified", "appendYellowAttempt", "appendReplacementInTransaction"]);
   const publication = exactRecord(root.publication, ["uow", "sealInTransaction", "evidenceReplayInTransaction", "publishFromEvidenceInTransaction", "appendRevisionInTransaction"]);
   const uow = methodRecord(publication.uow, ["run"]);
-  for (const key of ["sealInTransaction", "publishFromEvidenceInTransaction", "appendRevisionInTransaction"] as const) {
-    if (typeof publication[key] !== "function") mismatch();
-  }
+  const publicationMethods = methodRecord(publication, [
+    "sealInTransaction", "publishFromEvidenceInTransaction", "appendRevisionInTransaction",
+  ], ["uow", "sealInTransaction", "evidenceReplayInTransaction", "publishFromEvidenceInTransaction", "appendRevisionInTransaction"]);
   const replay = exactRecord(publication.evidenceReplayInTransaction, ["read", "integrity", "package"]);
-  methodRecord(replay.read, ["loadVerified", "findVerifiedByCheckRunId"]);
-  methodRecord(replay.integrity, ["canonical", "hash", "hashBytes"]);
-  methodRecord(replay.package, ["loadExactReplayContract"]);
+  const replayRead = methodRecord(replay.read, ["loadVerified", "findVerifiedByCheckRunId"]);
+  const replayIntegrity = methodRecord(replay.integrity, ["canonical", "hash", "hashBytes"]);
+  const replayPackage = methodRecord(replay.package, ["loadExactReplayContract"]);
   const officialDiscovery = methodRecord(root.officialDiscovery, ["discover"]);
   return Object.freeze({
     bindings: bindings as unknown as CityFrontierSourceRecoveryCapability["bindings"],
-    publication: Object.freeze({ ...publication, uow, evidenceReplayInTransaction: replay }) as unknown as CityFrontierSourceRecoveryCapability["publication"],
+    publication: Object.freeze({
+      uow,
+      ...publicationMethods,
+      evidenceReplayInTransaction: Object.freeze({
+        read: replayRead,
+        integrity: replayIntegrity,
+        package: replayPackage,
+      }),
+    }) as unknown as CityFrontierSourceRecoveryCapability["publication"],
     officialDiscovery: officialDiscovery as unknown as CitySafetyOfficialDiscoveryPort,
   });
 }

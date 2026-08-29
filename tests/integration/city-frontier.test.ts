@@ -192,6 +192,10 @@ import {
 import { SqliteCityCatalogStore } from "../../src/infrastructure/sqlite/city-catalog-store";
 import { SqliteCityEvidenceStore } from "../../src/infrastructure/sqlite/city-evidence-store";
 import { SqliteCityKnowledgeStore } from "../../src/infrastructure/sqlite/city-knowledge-store";
+import { SqliteCityFrontierStore } from "../../src/infrastructure/sqlite/city-frontier-store";
+import { SqliteCitySourceRecoveryStore } from "../../src/infrastructure/sqlite/city-source-recovery-store";
+import { SqliteCityContinuationUnitOfWork } from "../../src/infrastructure/sqlite/city-continuation-unit-of-work";
+import { createCitySourceTruthPublicationAuthority } from "../../src/infrastructure/city-source-truth-publication-authority";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-store";
 import {
@@ -2555,6 +2559,9 @@ function unavailablePorts(callback: () => never = NEVER): CityFrontierApplicatio
 interface SyntheticApplicationHarness {
   readonly assembly: Readonly<CityFrontierApplicationAssembly>;
   createRecoveryApplication(capability: CityFrontierSourceRecoveryCapability): CityFrontierApplication;
+  createRealFrontierApplication(
+    recovery: (frontier: SqliteCityFrontierStore) => CityFrontierSourceRecoveryCapability,
+  ): CityFrontierApplication;
   readonly fixture: SyntheticAuthorityFixture;
   readonly capabilities: {
     readonly fixedDeadlineScheduler: CityFixedDeadlineScheduler;
@@ -4015,6 +4022,33 @@ async function syntheticApplicationHarness(
         ports as unknown as CityFrontierApplicationPorts,
         capability,
       ).application;
+    },
+    createRealFrontierApplication(recovery) {
+      const frontier = new SqliteCityFrontierStore(fixture.database, EVIDENCE_INTEGRITY, {
+        criteria: ports.criteria as CityCriteriaReadPort,
+        branches: ports.branches as CityBranchReadPort,
+        catalogs: ports.historicalCatalogs as CityCatalogStorePort,
+      });
+      const publication = calls.publications.at(-1);
+      if (publication === undefined) throw new Error("missing_synthetic_start_publication");
+      fixture.database.pragma("foreign_keys = OFF");
+      try {
+        frontier.publishStart(publication);
+      } finally {
+        fixture.database.pragma("foreign_keys = ON");
+      }
+      return createCityFrontierApplication({
+        ...ports,
+        rankings: Object.freeze({ loadRankingVerified: frontier.loadRankingVerified.bind(frontier) }),
+        frontierRead: Object.freeze({
+          loadRevisionVerified: frontier.loadRevisionVerified.bind(frontier),
+          loadHeadVerified: frontier.loadHeadVerified.bind(frontier),
+          loadChainVerified: frontier.loadChainVerified.bind(frontier),
+          findCommandVerified: frontier.findCommandVerified.bind(frontier),
+        }),
+        frontierAppend: Object.freeze({ appendRevision: frontier.appendRevision.bind(frontier) }),
+        startWriter: Object.freeze({ publishStart: frontier.publishStart.bind(frontier) }),
+      } as CityFrontierApplicationPorts, recovery(frontier)).application;
     },
     fixture,
     calls,
@@ -11817,7 +11851,7 @@ describe("City Frontier Application public boundary", () => {
     const attempts: unknown[] = [];
     const discovery = vi.fn();
     let tamperPrior = false;
-    const recovery = harness.createRecoveryApplication({
+    const recoveryCapability = {
       bindings: {
         loadEffectiveVerified: () => ({ bindingKey, cursor: { schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: "a".repeat(64) }, revision: null,
           sourceVersion: { schemaVersion: "source-version@1", id: "prior-source", bindingKey,
@@ -11831,7 +11865,8 @@ describe("City Frontier Application public boundary", () => {
       },
       publication: { uow: { run: (operation) => operation() }, sealInTransaction: () => { throw new Error("unexpected_replacement"); }, evidenceReplayInTransaction: { read: { loadVerified: () => { throw new Error("unexpected_replacement"); }, findVerifiedByCheckRunId: () => undefined }, integrity: { canonical: JSON.stringify, hash: () => DIGEST, hashBytes: () => DIGEST }, package: { loadExactReplayContract: () => { throw new Error("unexpected_replacement"); } } }, publishFromEvidenceInTransaction: () => { throw new Error("unexpected_replacement"); }, appendRevisionInTransaction: () => { throw new Error("unexpected_replacement"); } },
       officialDiscovery: { discover: async (input) => { discovery(input); throw new Error("unexpected_discovery"); } },
-    });
+    } satisfies CityFrontierSourceRecoveryCapability;
+    const recovery = harness.createRecoveryApplication(recoveryCapability);
     const recovering = await harness.assembly.application.startCityFrontier({
       resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI",
       criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-replay",
@@ -11843,6 +11878,9 @@ describe("City Frontier Application public boundary", () => {
       runId: recovering.runId, expectedRevisionId: recovering.revision.id, commandId: "continue:source-recovery-replay",
     });
     const tamperBefore = researchAndPublicationCounts(harness);
+    recoveryCapability.bindings.loadEffectiveVerified = () => {
+      throw new Error("borrowed_recovery_binding_invoked");
+    };
     tamperPrior = true;
     await expect(recovery.continueCityFrontierWithSourceRecovery(
       prepared, vi.fn(), new AbortController().signal,
@@ -11860,6 +11898,114 @@ describe("City Frontier Application public boundary", () => {
       generic: before.generic + 1, safetyDocument: before.safetyDocument + 1,
       evidence: before.evidence + 1, knowledge: before.knowledge + 1, append: before.append + 1,
       safetySearch: before.safetySearch });
+  });
+
+  test("atomically publishes a discovered replacement through real SQLite continuation participants", async () => {
+    let replacementMode = false;
+    const harness = await syntheticApplicationHarness({ preserveRuns: true, discriminatingClock: true,
+      safetyDocuments: { inspect: async (input) => replacementMode &&
+        !input.candidateUrl.includes("recovered")
+        ? rejectedSafetyInspection(input)
+        : preferredSafetyInspection(input.publisherContext === undefined
+          ? { ...input, publisherContext: { publisherId: "municipality-ljubljana",
+            publisherNavigationUrl: "https://ljubljana.si/" } }
+          : input) },
+    });
+    const seed = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:sqlite-recovery-seed",
+    });
+    const seedPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: seed.runId, expectedRevisionId: seed.revision.id, commandId: "continue:sqlite-recovery-seed",
+    });
+    await harness.assembly.application.continueCityFrontier(seedPrepared, vi.fn(), new AbortController().signal);
+    const seedSeal = harness.calls.evidenceSeals.at(-1) as CityEvidenceSealInput;
+    const seedEvidence = harness.fixture.evidenceStore.loadVerified(`${seedSeal.cityCheckRunId}:evidence`);
+    const accepted = seedEvidence.snapshot.safetyAttemptLedger.result;
+    if (accepted.kind !== "verified") throw new Error("missing_sqlite_recovery_prior");
+    const candidate = seedEvidence.snapshot.safetyAttemptLedger.candidates[accepted.acceptedCandidateIndex]!;
+    const safetyEntry = seedEvidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety");
+    if (candidate.disposition !== "usable" || safetyEntry === undefined) throw new Error("invalid_sqlite_recovery_prior");
+    const bindingKey = Object.freeze({ schemaVersion: "city-source-binding-key@1" as const, countryCode: "SI" as const,
+      cityId: "ljubljana", factKey: "si-city-safety" as const,
+      definitionId: "si-municipal-police-offences-per-100000@1" as const });
+    const installedSource = Object.freeze({ schemaVersion: "source-version@1" as const,
+      id: "sqlite-recovery:installed-source", bindingKey, publisherId: candidate.publisherId,
+      navigationUrl: candidate.publisherNavigationUrl, requestedUrl: candidate.canonicalUrl,
+      finalUrl: candidate.resolvedEvidenceUrl,
+      captureArtifactIds: Object.freeze(safetyEntry.artifacts.map(({ artifactId }) => artifactId)),
+      captureSha256: Object.freeze(safetyEntry.artifacts.map(({ sha256 }) => sha256)),
+      evidenceSnapshotId: seedEvidence.snapshot.id,
+      parserVersion: seedEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"],
+      capturedAt: seedEvidence.snapshot.completedAt });
+    replacementMode = true;
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:sqlite-recovery",
+    });
+    const profiles = new SqliteProfileStore(harness.fixture.database);
+    await profiles.appendRelocation(harness.fixture.alternateRelocation);
+    await profiles.appendPreference(harness.fixture.alternatePreference);
+    let recoveryStore!: SqliteCitySourceRecoveryStore;
+    const unitOfWork = new SqliteCityContinuationUnitOfWork(harness.fixture.database);
+    const application = harness.createRealFrontierApplication((frontier) => {
+      recoveryStore = new SqliteCitySourceRecoveryStore(harness.fixture.database, EVIDENCE_INTEGRITY,
+        Object.freeze({ loadVerified: () => Object.freeze({ bindingKey, sourceVersion: installedSource }) }),
+        createCitySourceTruthPublicationAuthority(harness.fixture.evidenceStore, harness.fixture.knowledgeStore, frontier));
+      return Object.freeze({
+      bindings: Object.freeze({
+        loadEffectiveVerified: recoveryStore.loadEffectiveVerified.bind(recoveryStore),
+        appendYellowAttempt: recoveryStore.appendYellowAttempt.bind(recoveryStore),
+        appendReplacementInTransaction: recoveryStore.appendReplacementInTransaction.bind(recoveryStore),
+      }),
+      publication: Object.freeze({
+        uow: Object.freeze({ run: unitOfWork.run.bind(unitOfWork) }),
+        sealInTransaction: harness.fixture.evidenceStore.sealInTransaction.bind(harness.fixture.evidenceStore),
+        evidenceReplayInTransaction: Object.freeze({
+          read: Object.freeze({
+            loadVerified: harness.fixture.evidenceStore.loadVerifiedInTransaction.bind(harness.fixture.evidenceStore),
+            findVerifiedByCheckRunId: harness.fixture.evidenceStore.findVerifiedByCheckRunIdInTransaction.bind(harness.fixture.evidenceStore),
+          }), integrity: createCityEvidenceReplayIntegrity(DECISION_INTEGRITY),
+          package: Object.freeze({ loadExactReplayContract: harness.fixture.installedPackages.loadExactReplayContract.bind(harness.fixture.installedPackages) }),
+        }),
+        publishFromEvidenceInTransaction: harness.fixture.knowledgeStore.publishFromEvidenceInTransaction.bind(harness.fixture.knowledgeStore),
+        appendRevisionInTransaction: frontier.appendRevisionInTransaction.bind(frontier),
+      }),
+      officialDiscovery: Object.freeze({ discover: async () => Object.freeze({ kind: "candidates" as const,
+        urls: Object.freeze(["https://ljubljana.si/recovered"]), metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }) }),
+      } satisfies CityFrontierSourceRecoveryCapability);
+    });
+    const prepared = await application.prepareCityFrontierContinuation({
+      runId: started.runId, expectedRevisionId: started.revision.id, commandId: "continue:sqlite-recovery",
+    });
+    const count = (table: string) => harness.fixture.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
+    const before = Object.fromEntries(["city_evidence_snapshots", "city_knowledge_revisions", "city_frontier_revisions", "city_source_versions", "city_source_binding_revisions", "city_source_binding_heads", "official_source_recovery_attempts", "official_source_replacement_events"].map((table) => [table, count(table).count]));
+    const outcome = await application.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    expect(outcome.kind).toBe("advanced");
+    for (const table of Object.keys(before)) expect(count(table).count).toBe(before[table]! + 1);
+    const effective = recoveryStore.loadEffectiveVerified(bindingKey);
+    const history = recoveryStore.loadHistoryVerified(bindingKey);
+    const audit = recoveryStore.loadOwnerAuditVerified(bindingKey);
+    expect(effective.cursor.kind).toBe("override");
+    expect(history).toHaveLength(1);
+    expect(audit).toHaveLength(1);
+    const revision = history[0]!;
+    const source = effective.sourceVersion!;
+    const recoveredEvidence = harness.fixture.evidenceStore.loadVerified(source.evidenceSnapshotId);
+    const recoveredResult = recoveredEvidence.snapshot.safetyAttemptLedger.result;
+    if (recoveredResult.kind !== "verified") throw new Error("missing_recovered_candidate");
+    const recovered = recoveredEvidence.snapshot.safetyAttemptLedger.candidates[recoveredResult.acceptedCandidateIndex]!;
+    const recoveredEntry = recoveredEvidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety")!;
+    if (recovered.origin.kind !== "search" || recovered.disposition !== "usable") throw new Error("invalid_recovered_candidate");
+    expect(source).toMatchObject({ publisherId: recovered.publisherId, navigationUrl: recovered.publisherNavigationUrl,
+      requestedUrl: recovered.canonicalUrl, finalUrl: recovered.resolvedEvidenceUrl,
+      evidenceSnapshotId: recoveredEvidence.snapshot.id, capturedAt: recoveredEvidence.snapshot.completedAt });
+    expect(source.parserVersion).toBe(recoveredEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"]);
+    expect(source.captureArtifactIds).toEqual(recoveredEntry.artifacts.map(({ artifactId }) => artifactId));
+    expect(source.captureSha256).toEqual(recoveredEntry.artifacts.map(({ sha256 }) => sha256));
+    expect(revision).toMatchObject({ sourceVersionId: source.id, evidenceSnapshotId: source.evidenceSnapshotId,
+      parentRunId: started.runId, policyVersion: "official-source-recovery@1", actor: "local_codex_recovery" });
+    expect(audit[0]!.commandId).toBe(prepared.commandId);
   });
 
   test("returns yellow after an authenticated prior is rejected, without late truth writes", async () => {

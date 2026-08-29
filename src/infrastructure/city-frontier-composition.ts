@@ -10,7 +10,7 @@ import {
   type CityFrontierResolvedCountryReadPort,
   type CityFrontierSourceRecoveryCapability,
 } from "../application/city-frontier";
-import type { CitySourceInstalledAuthorityPort, CitySourceTruthPublicationAuthorityPort } from "../application/city-source-recovery";
+import type { CitySourceInstalledAuthorityPort } from "../application/city-source-recovery";
 import type { OfficialSourceDiscoveryPort } from "../application/official-source-discovery";
 import { createCitySafetyOfficialDiscoveryAdapter } from "../application/city-safety-official-discovery";
 import {
@@ -50,6 +50,7 @@ import { SqliteCityKnowledgeStore } from "./sqlite/city-knowledge-store";
 import { SqliteCitySelectionWriter } from "./sqlite/city-selection-writer";
 import { SqliteCitySourceRecoveryStore } from "./sqlite/city-source-recovery-store";
 import { SqliteCityContinuationUnitOfWork } from "./sqlite/city-continuation-unit-of-work";
+import { createCitySourceTruthPublicationAuthority } from "./city-source-truth-publication-authority";
 import { SqliteCityPackageManifestStore } from "./sqlite/city-package-manifest-store";
 import { SqliteCountryResolutionStore } from "./sqlite/country-resolution-store";
 
@@ -127,6 +128,14 @@ function exactMethodObject(value: unknown, keys: readonly string[]): PlainRecord
   const record = exactRecord(value, keys);
   for (const key of keys) functionValue(record[key]);
   return record;
+}
+
+function captureMethodObject(value: unknown, keys: readonly string[]): Readonly<PlainRecord> {
+  const record = exactMethodObject(value, keys);
+  return Object.freeze(Object.fromEntries(keys.map((key) => {
+    const method = functionValue(record[key]);
+    return [key, (...args: never[]) => Reflect.apply(method, record, args)];
+  }))) as Readonly<PlainRecord>;
 }
 
 function captureSearchConfig(value: unknown): HttpCitySafetySearchConfig {
@@ -263,10 +272,12 @@ export function createCityFrontierComposition(
   const recoveryOptions = options.sourceRecovery === undefined ? undefined : exactRecord(
     options.sourceRecovery, ["installedAuthority", "officialDiscovery"],
   );
-  if (recoveryOptions !== undefined) {
-    exactMethodObject(recoveryOptions.installedAuthority, ["loadVerified"]);
-    exactMethodObject(recoveryOptions.officialDiscovery, ["discover"]);
-  }
+  const installedAuthority = recoveryOptions === undefined ? undefined : captureMethodObject(
+    recoveryOptions.installedAuthority, ["loadVerified"],
+  ) as unknown as CitySourceInstalledAuthorityPort;
+  const officialDiscovery = recoveryOptions === undefined ? undefined : captureMethodObject(
+    recoveryOptions.officialDiscovery, ["discover"],
+  ) as unknown as OfficialSourceDiscoveryPort;
   const liveSources = captureLiveSources(options.liveSources);
   const database = options.database as Database.Database;
   const integrity = createEvidenceIntegrity(options.hmacKey as string);
@@ -298,41 +309,8 @@ export function createCityFrontierComposition(
   const knowledgeStore = new SqliteCityKnowledgeStore(database, integrity, installedPackages);
   const recoveryStore = recoveryOptions === undefined ? undefined : new SqliteCitySourceRecoveryStore(
     database, integrity,
-    recoveryOptions.installedAuthority as CitySourceInstalledAuthorityPort,
-    Object.freeze({ requireVerified: (input: Parameters<CitySourceTruthPublicationAuthorityPort["requireVerified"]>[0]) => {
-      const evidence = evidenceStore.loadVerifiedInTransaction(input.sourceVersion.evidenceSnapshotId);
-      const knowledge = knowledgeStore.loadVerified(input.revision.knowledgeRevisionId);
-      const frontier = frontierStore.loadRevisionVerified(input.revision.frontierRevisionId);
-      const safety = evidence.snapshot.safetyAttemptLedger;
-      const accepted = safety.result.kind === "verified"
-        ? safety.candidates[safety.result.acceptedCandidateIndex]
-        : undefined;
-      const entry = evidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety");
-      if (evidence.snapshot.id !== input.revision.evidenceSnapshotId ||
-        knowledge.id !== input.revision.knowledgeRevisionId ||
-        knowledge.evidenceSnapshotId !== evidence.snapshot.id ||
-        frontier.id !== input.revision.frontierRevisionId ||
-        input.revision.sourceVersionId !== input.sourceVersion.id ||
-        accepted === undefined || accepted.origin.kind === "previous" ||
-        accepted.disposition !== "usable" || accepted.periodDisposition !== "preferred" ||
-        entry === undefined || evidence.snapshot.cityId !== input.bindingKey.cityId ||
-        knowledge.cityId !== input.bindingKey.cityId ||
-        input.sourceVersion.evidenceSnapshotId !== evidence.snapshot.id ||
-        input.sourceVersion.publisherId !== accepted.publisherId ||
-        input.sourceVersion.navigationUrl !== accepted.publisherNavigationUrl ||
-        input.sourceVersion.requestedUrl !== accepted.canonicalUrl ||
-        input.sourceVersion.finalUrl !== accepted.resolvedEvidenceUrl ||
-        input.sourceVersion.parserVersion !== evidence.genericEvidence.snapshot.parserVersions["si-city-safety"] ||
-        input.sourceVersion.capturedAt !== evidence.snapshot.completedAt ||
-        input.sourceVersion.captureArtifactIds.length !== entry.artifacts.length ||
-        input.sourceVersion.captureArtifactIds.some((id, index) => id !== entry.artifacts[index]?.artifactId) ||
-        input.sourceVersion.captureSha256.some((hash, index) => hash !== entry.artifacts[index]?.sha256) ||
-        frontier.runId !== input.revision.parentRunId || frontier.operation.kind !== "city_completed" ||
-        frontier.operation.cityId !== input.bindingKey.cityId ||
-        frontier.operation.cityCheckRunId !== evidence.snapshot.cityCheckRunId ||
-        !frontier.markers.some((marker) => marker.cityId === input.bindingKey.cityId &&
-          marker.knowledgeRevisionId === knowledge.id && marker.evidenceSnapshotId === evidence.snapshot.id)) mismatch();
-    } }),
+    installedAuthority!,
+    createCitySourceTruthPublicationAuthority(evidenceStore, knowledgeStore, frontierStore),
   );
   const selectionWriter = new SqliteCitySelectionWriter(database, integrity, {
     catalogs: catalogStore,
@@ -363,6 +341,7 @@ export function createCityFrontierComposition(
   const fixedTiming = options.fixedTiming as CityFrontierFixedTiming | undefined;
   const clock = options.clock as (() => Date) | undefined ?? defaultClock;
 
+  const continuationUnitOfWork = new SqliteCityContinuationUnitOfWork(database);
   const recoveryCapability = recoveryStore === undefined ? undefined : Object.freeze({
     bindings: Object.freeze({
       loadEffectiveVerified: recoveryStore.loadEffectiveVerified.bind(recoveryStore),
@@ -370,7 +349,7 @@ export function createCityFrontierComposition(
       appendReplacementInTransaction: recoveryStore.appendReplacementInTransaction.bind(recoveryStore),
     }),
     publication: Object.freeze({
-      uow: new SqliteCityContinuationUnitOfWork(database),
+      uow: Object.freeze({ run: continuationUnitOfWork.run.bind(continuationUnitOfWork) }),
       sealInTransaction: evidenceStore.sealInTransaction.bind(evidenceStore),
       evidenceReplayInTransaction: Object.freeze({
         read: Object.freeze({
@@ -383,7 +362,7 @@ export function createCityFrontierComposition(
       appendRevisionInTransaction: frontierStore.appendRevisionInTransaction.bind(frontierStore),
     }),
     officialDiscovery: createCitySafetyOfficialDiscoveryAdapter(
-      recoveryOptions!.officialDiscovery as OfficialSourceDiscoveryPort,
+      officialDiscovery!,
     ),
   } satisfies CityFrontierSourceRecoveryCapability);
   const assembly = createCityFrontierApplication({

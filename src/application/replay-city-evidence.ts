@@ -865,7 +865,11 @@ function validateChronology(
   }
   const acquired = new Set<string>();
   for (const candidate of safetyLedger.candidates) {
-    const originAt = candidate.origin.kind === "search"
+    const recoveryOrigin = candidate.origin.kind === "search" && (
+      candidate.origin.queryId === `official-source-recovery:${context.cityCheckRunId}:1` ||
+      candidate.origin.queryId === `official-source-recovery:${context.cityCheckRunId}:2`
+    );
+    const originAt = candidate.origin.kind === "search" && !recoveryOrigin
       ? searchTimes.get(candidate.origin.queryId)
       : context.assessmentAt;
     if (originAt === undefined) mismatch();

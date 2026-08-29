@@ -1009,6 +1009,31 @@ export function reconstructCitySafetyAttemptLedger(
       }
     };
     inspectQueue();
+    // Recovery discovery is deliberately not represented as an ordinary search query: its
+    // untrusted proposal is retained only as the candidate URL, then independently captured
+    // and parsed.  Replay therefore accepts this tightly bounded, explicit origin segment.
+    if (previousAccepted !== undefined && !acceptedPreferred) {
+      let previousRound = 0;
+      const urlsByRound = new Map<number, Set<string>>();
+      while (candidates.length < rawCandidates.length && candidates.length < 10 && !acceptedPreferred) {
+        const raw = rawCandidates[candidates.length];
+        if (!record(raw) || !record(raw.origin) || raw.origin.kind !== "search" ||
+          typeof raw.origin.queryId !== "string") break;
+        const round = raw.origin.queryId === `official-source-recovery:${context.runId}:1`
+          ? 1
+          : raw.origin.queryId === `official-source-recovery:${context.runId}:2` ? 2 : undefined;
+        if (round === undefined) break;
+        if (round < previousRound || typeof raw.canonicalUrl !== "string" ||
+          canonicalizeCitySafetyCandidateUrl(raw.canonicalUrl) !== raw.canonicalUrl) mismatch();
+        const urls = urlsByRound.get(round) ?? new Set<string>();
+        if (urls.size >= 5 || urls.has(raw.canonicalUrl)) mismatch();
+        urls.add(raw.canonicalUrl);
+        urlsByRound.set(round, urls);
+        previousRound = round;
+        queue.push({ url: raw.canonicalUrl, origin: { kind: "search", queryId: raw.origin.queryId } });
+        inspectQueue();
+      }
+    }
     for (const query of queries) {
       if (candidates.length >= 10 || acceptedPreferred) mismatch();
       if (query.outcome.kind === "completed") {
