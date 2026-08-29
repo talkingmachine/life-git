@@ -32,7 +32,7 @@ import type { OnboardingModelPort } from "../../src/application/onboarding-contr
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
-  ONBOARDING_MODEL_VERSIONS_V6 as ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V7 as ONBOARDING_MODEL_VERSIONS_V3,
 } from "../../src/application/onboarding-model-versions";
 import type {
   GuardedExtractionProposal,
@@ -170,7 +170,7 @@ describe("onboarding feasibility contract", () => {
       reasoningEffort: "low",
       toolPolicy: "codex-tools-none@2",
       cliVersion: ONBOARDING_MODEL_VERSIONS_V3.cliVersion,
-      extractionPromptVersion: "onboarding-extract@6",
+      extractionPromptVersion: "onboarding-extract@7",
       reviewPromptVersion: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt,
       extractionSchemaVersion: "onboarding-extraction-wire@2",
       reviewSchemaVersion: ONBOARDING_MODEL_VERSIONS_V3.reviewSchema,

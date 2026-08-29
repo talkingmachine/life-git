@@ -8,7 +8,7 @@ import {
   type OnboardingExtractionRetryReason,
   type OnboardingModelPort,
 } from "../../src/application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V6 } from
+import { ONBOARDING_MODEL_VERSIONS_V7 } from
   "../../src/application/onboarding-model-versions";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
 import { createOnboardingSession, type SessionMessage } from "../../src/decision/onboarding-session";
@@ -113,7 +113,7 @@ function extractionMetadata(): CodexJsonResult["metadata"] {
     model: CODEX_MODEL,
     reasoningEffort: "low",
     toolPolicy: "codex-tools-none@2",
-    templateVersion: "onboarding-extract@6",
+    templateVersion: "onboarding-extract@7",
     schemaVersion: "onboarding-extraction-wire@2",
   };
 }
@@ -213,7 +213,7 @@ describe("Codex onboarding model", () => {
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
       invocation: "codex-cli-invocation@2",
       cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
-      extractionPrompt: "onboarding-extract@6",
+      extractionPrompt: "onboarding-extract@7",
       reviewPrompt: "onboarding-review@2",
       extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
@@ -234,7 +234,7 @@ describe("Codex onboarding model", () => {
     });
     expect(Object.keys(model)).toEqual(["versions", "extract", "review"]);
     expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS);
-    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V6);
+    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V7);
     expect(Object.isFrozen(model)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_EXTRACTION_LIMITS)).toBe(true);
@@ -260,7 +260,7 @@ describe("Codex onboarding model", () => {
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
       capability: "onboarding.extract",
-      templateVersion: "onboarding-extract@6",
+      templateVersion: "onboarding-extract@7",
       schemaVersion: "onboarding-extraction-wire@2",
       limits: ONBOARDING_EXTRACTION_LIMITS,
     });
@@ -273,9 +273,9 @@ describe("Codex onboarding model", () => {
     expect(invocation?.prompt).not.toContain("messageId");
     expect(invocation?.prompt).toContain("onboarding-questionnaire-projection@1");
     const staticTemplate = ONBOARDING_EXTRACTION_PROMPT_TEMPLATE;
-    expect(utf8Bytes(staticTemplate)).toBe(2_489);
+    expect(utf8Bytes(staticTemplate)).toBe(2_498);
     expect(createHash("sha256").update(staticTemplate).digest("hex")).toBe(
-      "526b2f2d76dcc1389760cbd84b32b7746e523a0412c489a74671b5be041a8708",
+      "b8bf125e10c9ca173b8a73113c45dfdf8162a3daaa5eb5f8053636b204f509e2",
     );
     expect(utf8Bytes(staticTemplate)).toBeLessThanOrEqual(2_500);
     expect(staticTemplate).toContain(ONBOARDING_EXTRACTION_WIRE_ALGEBRA);
@@ -287,7 +287,7 @@ describe("Codex onboarding model", () => {
     expect(staticTemplate).toContain("schema_invalid: return schema-valid wire JSON");
     expect(staticTemplate).toContain("guard_invalid: keep only explicit current-message facts");
     expect(staticTemplate).toContain("canonical_mismatch: re-normalize explicit values");
-    expect(staticTemplate).toContain("evidence_mismatch: correct every span");
+    expect(staticTemplate).toContain("evidence_mismatch: recompute whole-token s,e");
     for (const { code, fieldId } of ONBOARDING_EXTRACTION_WIRE_CODEBOOK) {
       expect(staticTemplate).not.toContain(`${code}=${fieldId}`);
     }
@@ -310,14 +310,17 @@ describe("Codex onboarding model", () => {
         retryFeedback: "none",
       }),
     );
-    expect(utf8Bytes(canonicalPrompt)).toBe(8_708);
+    expect(utf8Bytes(canonicalPrompt)).toBe(8_717);
     expect(createHash("sha256").update(canonicalPrompt).digest("hex")).toBe(
-      "e5a1e439b5c712ddfad81536caf4138acad5f92c972716622115d0adab8644e2",
+      "04c4ff8b01c9d6d5ed8cc3749d9014065d08a6296aeeb83e520f014e56974431",
     );
     expect(utf8Bytes(canonicalPrompt)).toBeLessThanOrEqual(9_000);
     expect(invocation?.prompt).toContain("Never emit the same f twice");
     expect(invocation?.prompt).toContain(
-      "Every s:e must be the smallest exact value-bearing phrase in currentUserMessage.text that independently supports v; never point to adjacent/general context that does not itself support v.",
+      "s,e are 0-based, end-exclusive UTF-16 code-unit offsets in currentUserMessage.text; self-check currentUserMessage.text.slice(s,e).",
+    );
+    expect(invocation?.prompt).toContain(
+      "Choose the shortest complete phrase that independently bears v; neither edge may cut a Unicode letter, combining mark, number, or surrogate pair.",
     );
     expect(invocation?.prompt).toContain(
       "Normalize city names to their canonical nominative Russian form",
