@@ -426,14 +426,14 @@ describe("local Codex Stage A gate", () => {
     expect(() => parseDiscoveryFixture(sparse)).toThrow("local_codex_stage_a_invalid_fixture");
   });
 
-  test("calls the onboarding port with the canonical projection and rejects an exact-looking duplicate slice", async () => {
+  test("calls the onboarding port with the canonical projection and rejects an empty evidence span", async () => {
     const fixture = parseOnboardingFixture(onboardingFixture);
     const extract = vi.fn<(input: unknown) => Promise<unknown>>(async () => ({
       schemaVersion: "onboarding-model-output@1",
-      proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Москва" }, messageId: onboardingFixture.message.messageId, sourceSpan: { start: 0, end: 8 } }],
+      proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Москва" }, messageId: onboardingFixture.message.messageId, sourceSpan: { start: 0, end: 0 } }],
       nextQuestion: onboardingFixture.expected.nextQuestion,
     }));
-    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toThrow("local_codex_stage_a_onboarding_invalid");
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toThrow("Invalid onboarding model contract");
     expect(extract).toHaveBeenCalledTimes(1);
     const input = extract.mock.calls[0]![0] as { questionnaire: unknown; message: unknown };
     expect(input.message).toEqual(onboardingFixture.message);
@@ -441,6 +441,77 @@ describe("local Codex Stage A gate", () => {
       nextParticipantId: () => "00000000-0000-4000-8000-000000000001",
       nextCompletionCommandId: () => "00000000-0000-4000-8000-000000000002",
     })));
+  });
+
+  test("accepts canonical guarded facts with alternative valid evidence and a filtered no-op roster", async () => {
+    const fixture = await readOnboardingFixture();
+    const evidence = ["я живу в Москве, Россия", "переезжать одна", "российское гражданство", "опыт — 5 лет"];
+    const proposals = fixture.expected.proposals.map((proposal, index) => {
+      const start = fixture.message.text.indexOf(evidence[index]!);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return {
+        fieldId: proposal.fieldId,
+        typedValue: proposal.typedValue,
+        messageId: fixture.message.messageId,
+        sourceSpan: { start, end: start + evidence[index]!.length },
+      };
+    });
+    proposals.push({
+      fieldId: "participants",
+      typedValue: [{ descriptor: "self", relationship: "self" }],
+      messageId: fixture.message.messageId,
+      sourceSpan: { start: 0, end: 6 },
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).resolves.toEqual({ guardedProposalCount: 4, inventedValueCount: 0 });
+  });
+
+  test("rejects canonical facts when every field points to the same unrelated valid evidence", async () => {
+    const fixture = await readOnboardingFixture();
+    const proposals = fixture.expected.proposals.map(({ fieldId, typedValue }) => ({
+      fieldId,
+      typedValue,
+      messageId: fixture.message.messageId,
+      sourceSpan: { start: 0, end: 6 },
+    }));
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).rejects.toThrow("local_codex_stage_a_onboarding_invalid");
+  });
+
+  test.each([
+    ["missing", (proposals: Record<string, unknown>[]) => proposals.slice(0, -1)],
+    ["extra", (proposals: Record<string, unknown>[]) => [...proposals, {
+      fieldId: "move_horizon", typedValue: "within_3_months", messageId: "00000000-0000-4000-8000-000000000081", sourceSpan: { start: 32, end: 40 },
+    }]],
+    ["wrong value", (proposals: Record<string, unknown>[]) => proposals.map((proposal) => proposal.fieldId === "current_location"
+      ? { ...proposal, typedValue: { countryCode: "RU", city: "Тверь" } }
+      : proposal)],
+  ] as const)("rejects %s retained canonical guarded proposals", async (_case, mutate) => {
+    const fixture = await readOnboardingFixture();
+    const proposals = fixture.expected.proposals.map(({ fieldId, typedValue, messageId, sourceSpan }) => structuredClone({ fieldId, typedValue, messageId, sourceSpan }) as Record<string, unknown>);
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1", proposals: mutate(proposals), nextQuestion: fixture.expected.nextQuestion,
+    }) })).rejects.toThrow("local_codex_stage_a_onboarding_invalid");
+  });
+
+  test.each([
+    ["out-of-bounds", { messageId: onboardingFixture.message.messageId, sourceSpan: { start: 0, end: onboardingFixture.message.text.length + 1 } }],
+    ["non-current message", { messageId: "00000000-0000-4000-8000-000000000082", sourceSpan: { start: 0, end: 8 } }],
+  ] as const)("rejects %s evidence before canonical guarded acceptance", async (_case, evidence) => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Москва" }, ...evidence }],
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).rejects.toThrow();
   });
 
   test("rejects a same-count guarded projection with one altered normalized value", async () => {

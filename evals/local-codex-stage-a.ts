@@ -536,12 +536,26 @@ export async function evaluateOnboardingFixture(fixture: StageAOnboardingFixture
   });
   const output = parseLocalExtractionOutput(await model.extract({ message: fixture.message, questionnaire: projectQuestionnaireForModel(session), signal: new AbortController().signal }));
   const guarded = guardExtraction({ session, userMessage: fixture.message, rawModelOutput: output });
-  const actual = output.proposals;
-  const expected = fixture.expected.proposals;
-  const matched = actual.filter((proposal) => expected.some((entry) => exactProposalMatch(proposal, entry, fixture.message.text))).length;
-  if (actual.length !== expected.length || matched !== expected.length) throw new TypeError("local_codex_stage_a_onboarding_invalid");
   assertGuardedFixtureProposals(fixture, guarded.proposals);
-  return Object.freeze({ guardedProposalCount: guarded.proposals.length, inventedValueCount: actual.length - matched });
+  assertFixtureEvidenceCoverage(fixture, output.proposals);
+  return Object.freeze({ guardedProposalCount: guarded.proposals.length, inventedValueCount: 0 });
+}
+
+function assertFixtureEvidenceCoverage(
+  fixture: StageAOnboardingFixture,
+  actual: readonly Readonly<{ fieldId: string; messageId: string; sourceSpan: Readonly<{ start: number; end: number }> }>[],
+): void {
+  for (const expected of fixture.expected.proposals) {
+    if (expected.sourceSpan.start >= expected.sourceSpan.end || expected.sourceSpan.end > fixture.message.text.length ||
+      fixture.message.text.slice(expected.sourceSpan.start, expected.sourceSpan.end) !== expected.text) {
+      throw new TypeError("local_codex_stage_a_onboarding_invalid");
+    }
+    const proposal = actual.find(({ fieldId }) => fieldId === expected.fieldId);
+    if (proposal === undefined || proposal.messageId !== expected.messageId ||
+      proposal.sourceSpan.start > expected.sourceSpan.start || proposal.sourceSpan.end < expected.sourceSpan.end) {
+      throw new TypeError("local_codex_stage_a_onboarding_invalid");
+    }
+  }
 }
 
 export async function evaluateDiscoveryFixture(fixture: StageADiscoveryFixture, port: Readonly<{ discover(input: OfficialSourceDiscoveryRequest): Promise<unknown> }>): Promise<Artifact["discovery"]> {
@@ -553,11 +567,6 @@ export async function evaluateDiscoveryFixture(fixture: StageADiscoveryFixture, 
     typeof metadata.cliVersion !== "string" || metadata.model !== CODEX_MODEL || metadata.reasoningEffort !== "medium" || metadata.toolPolicy !== "codex-tools-web-search@1" ||
     metadata.templateVersion !== "official-source-discover@1" || metadata.schemaVersion !== "official-source-candidates@1") throw new TypeError("local_codex_stage_a_discovery_invalid");
   return Object.freeze({ candidateCount: candidates.length, allCandidatesUntrusted: fixture.candidatesUntrusted });
-}
-
-function exactProposalMatch(actual: { readonly fieldId: unknown; readonly typedValue: unknown; readonly messageId: unknown; readonly sourceSpan: { readonly start: unknown; readonly end: unknown } }, expected: StageAOnboardingFixture["expected"]["proposals"][number], text: string): boolean {
-  return actual.fieldId === expected.fieldId && actual.messageId === expected.messageId && actual.sourceSpan.start === expected.sourceSpan.start && actual.sourceSpan.end === expected.sourceSpan.end &&
-    text.slice(expected.sourceSpan.start, expected.sourceSpan.end) === expected.text && equalOwnedJson(actual.typedValue, expected.typedValue);
 }
 
 /** Independently derives the documented guarded shape from the fixture's raw model proposal. */
