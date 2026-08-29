@@ -1129,7 +1129,7 @@ function onboardingOutput(overrides: Readonly<{ typedValue?: unknown; sourceSpan
 
 function deterministicDependencies() {
   return {
-    runNegativeCapabilityGate: async () => ({ schemaVersion: "local-codex-negative-capability-observation@2" as const, mode: "strict" as const, stableCode: "codex_negative_capability_passed" as const, passed: true, webSearchCompleted: 1, applyPatchAttempts: 1, writePrevented: true, unknownEventSeen: false, protocolValid: true, canaryUnchanged: true, childExitClean: true, eventTypeCounts: {} }),
+    runNegativeCapabilityGate: async () => ({ schemaVersion: "local-codex-negative-capability-observation@2" as const, model: "gpt-5.4" as const, toolPolicy: "codex-tools-web-search@2" as const, codeModeDisabled: true as const, mode: "strict" as const, stableCode: "codex_negative_capability_passed" as const, passed: true, webSearchCompleted: 1, applyPatchAttempts: 1, writePrevented: true, unknownEventSeen: false, protocolValid: true, canaryUnchanged: true, childExitClean: true, eventTypeCounts: {} }),
     initializeRuntime: async () => ({ cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2" as const, compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, models: { extraction: "gpt-5.6-terra" as const, discovery: "gpt-5.4" as const }, noToolProbe: { passed: true as const, webSearchCount: 0 as const }, discoveryProbe: { availability: "available" as const, selection: "model-selected" as const, webSearchCount: 1 } }),
     runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
     runDiscovery: async () => ({ outcome: "candidate_hints" as const, candidateCount: 1, allCandidatesUntrusted: true as const, replacementPublished: false as const }),
@@ -1144,7 +1144,7 @@ function deterministicDependencies() {
 
 function validArtifact(): Parameters<ReturnType<typeof createStageAArtifactStore>["write"]>[1] {
   return {
-    schemaVersion: "local-codex-stage-a@3", cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" }, writeIsolationProof: { model: "gpt-5.4", codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true }, effortsProven: ["low", "medium"],
+    schemaVersion: "local-codex-stage-a@3", cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" }, writeIsolationProof: { model: "gpt-5.4", toolPolicy: "codex-tools-web-search@2", codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true }, effortsProven: ["low", "medium"],
     noToolProbe: { passed: true, webSearchCount: 0 }, discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 }, onboarding: { guardedProposalCount: 4, inventedValueCount: 0 }, discovery: { outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false },
     concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false, measurements: [
       { requested: 1, completed: 1, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },

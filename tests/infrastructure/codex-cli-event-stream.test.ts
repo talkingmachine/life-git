@@ -195,7 +195,7 @@ describe("parseCodexEventStreamWithProof", () => {
 
   test("proves the reviewed discovery lifecycle without retaining its query", async () => {
     const proof = await parseCodexEventStreamWithProof(
-      await fixture("protocol-v2-web-search.jsonl"), LIMITS, "codex-tools-web-search@1",
+      await fixture("protocol-v2-web-search.jsonl"), LIMITS, "codex-tools-web-search@2",
     );
 
     expect(proof).toEqual({
@@ -219,7 +219,7 @@ describe("parseCodexEventStreamWithProof", () => {
       line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } }),
       line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: "final" } }),
       ...webTerminal(),
-    ), LIMITS, "codex-tools-web-search@1");
+    ), LIMITS, "codex-tools-web-search@2");
     expect(proof.webSearchCount).toBe(0);
   });
 
@@ -232,7 +232,7 @@ describe("parseCodexEventStreamWithProof", () => {
       ...webSearch("search-2", "synthetic-query-two"),
       line({ type: "item.completed", item: { type: "agent_message", id: "item_4", text: "final" } }),
       ...webTerminal(),
-    ), LIMITS, "codex-tools-web-search@1");
+    ), LIMITS, "codex-tools-web-search@2");
     expect(proof).toMatchObject({ finalMessage: "final", webSearchCount: 2 });
     expect(JSON.stringify(proof)).not.toContain("synthetic-query");
   });
@@ -258,7 +258,7 @@ describe("parseCodexEventStreamWithProof", () => {
     ]],
   ])("rejects %s", async (_name, events) => {
     await expect(parseCodexEventStreamWithProof(
-      streamOf(...events), LIMITS, "codex-tools-web-search@1",
+      streamOf(...events), LIMITS, "codex-tools-web-search@2",
     )).rejects.toMatchObject({ code: _name === "an item/action query mismatch" ? "codex_tool_event" : "codex_protocol_invalid" });
   });
 
@@ -298,7 +298,7 @@ describe("parseCodexEventStreamWithProof", () => {
     ]],
   ])("rejects %s", async (_name, events) => {
     await expect(parseCodexEventStreamWithProof(
-      streamOf(...events), LIMITS, "codex-tools-web-search@1",
+      streamOf(...events), LIMITS, "codex-tools-web-search@2",
     )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
@@ -332,7 +332,7 @@ describe("parseCodexEventStreamWithProof", () => {
     ]],
   ])("rejects %s from the reviewed notice prefix", async (_name, events) => {
     await expect(parseCodexEventStreamWithProof(
-      streamOf(...events), LIMITS, "codex-tools-web-search@1",
+      streamOf(...events), LIMITS, "codex-tools-web-search@2",
     )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
@@ -344,7 +344,7 @@ describe("parseCodexEventStreamWithProof", () => {
         line({ type: "item.started", item: { type, id: "tool-1" } }),
       ];
       await expect(parseCodexEventStreamWithProof(
-        streamOf(...events), LIMITS, "codex-tools-web-search@1",
+        streamOf(...events), LIMITS, "codex-tools-web-search@2",
       )).rejects.toMatchObject({ code: "codex_tool_event" });
     },
   );
@@ -356,7 +356,7 @@ describe("parseCodexEventStreamWithProof", () => {
       ...webProofEvents().slice(5),
     ];
     await expect(parseCodexEventStreamWithProof(
-      streamOf(...events), LIMITS, "codex-tools-web-search@1",
+      streamOf(...events), LIMITS, "codex-tools-web-search@2",
     )).rejects.toMatchObject({ code: "codex_tool_event" });
   });
 });

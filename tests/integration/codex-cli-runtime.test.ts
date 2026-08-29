@@ -50,7 +50,7 @@ describe("CodexCliModelAdapter", () => {
       ...validInvocation(),
       capability: "source.discover",
       reasoningEffort: "medium",
-      toolPolicy: "codex-tools-web-search@1",
+      toolPolicy: "codex-tools-web-search@2",
     });
 
     await expect(adapter.invokeJson(invocation)).rejects.toMatchObject({ code: "codex_version_mismatch" });
@@ -201,7 +201,7 @@ describe("CodexCliModelAdapter", () => {
       ...validInvocation(),
       capability: "source.discover",
       reasoningEffort: "medium",
-      toolPolicy: "codex-tools-web-search@1",
+      toolPolicy: "codex-tools-web-search@2",
     });
     const baseResult = adapter.invokeJson(base);
     const discoveryResult = adapter.invokeJson(discovery);
@@ -780,7 +780,7 @@ function discoveryInvocation(signal: AbortSignal = new AbortController().signal)
     ...validInvocation(signal),
     capability: "source.discover",
     reasoningEffort: "medium",
-    toolPolicy: "codex-tools-web-search@1",
+    toolPolicy: "codex-tools-web-search@2",
     templateVersion: "source-discovery@1",
     schemaVersion: "source-discovery@1",
   });
@@ -845,12 +845,7 @@ function adapterOptions(cliVersion: string = CODEX_CLI_VERSION) {
 
 async function freshRuntime() {
   vi.resetModules();
-  const runtime = await import("../../src/infrastructure/codex-cli/runtime");
-  return Object.freeze({
-    ...runtime,
-    initializeCodexCliRuntime: (input: Parameters<typeof runtime.initializeCodexCliRuntime>[0]) =>
-      runtime.initializeCodexCliRuntimeForTest(input, async () => undefined),
-  });
+  return import("../../src/infrastructure/codex-cli/runtime");
 }
 
 async function runtimeFixture(options: {

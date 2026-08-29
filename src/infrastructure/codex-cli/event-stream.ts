@@ -362,7 +362,7 @@ function isToolItemType(type: string | undefined): boolean {
 }
 
 function readToolPolicy(value: unknown): CodexToolPolicyId {
-  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@1" || value === "codex-tools-web-search@2") return value;
+  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@2") return value;
   throw protocolInvalid();
 }
 
@@ -415,7 +415,7 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
 }
 
 function isWebSearchPolicy(value: CodexToolPolicyId): boolean {
-  return value === "codex-tools-web-search@1" || value === "codex-tools-web-search@2";
+  return value === "codex-tools-web-search@2";
 }
 
 function isEnumerableDataDescriptor(

@@ -33,25 +33,16 @@ interface CodexCliRuntimeState {
 }
 
 export function initializeCodexCliRuntime(input: InitializeCodexCliRuntimeInput): Promise<void> {
-  return initializeCodexCliRuntimeWithVerifier(input, verifyReviewedLocalCodexInstallation, false);
-}
-
-/** Deterministic test seam; normal initialization always owns the reviewed-installation verifier. */
-export function initializeCodexCliRuntimeForTest(
-  input: InitializeCodexCliRuntimeInput,
-  verifyInstallation: () => Promise<void>,
-): Promise<void> {
-  return initializeCodexCliRuntimeWithVerifier(input, verifyInstallation, true);
+  return initializeCodexCliRuntimeWithVerifier(input, verifyReviewedLocalCodexInstallation);
 }
 
 function initializeCodexCliRuntimeWithVerifier(
   input: InitializeCodexCliRuntimeInput,
   verifyInstallation: () => Promise<void>,
-  testOnly: boolean,
 ): Promise<void> {
   const state = runtimeState();
   if (state.initialization === undefined) {
-    const attempt = initializeOnce(snapshotInput(input), state, verifyInstallation, testOnly);
+    const attempt = initializeOnce(snapshotInput(input), state, verifyInstallation);
     state.initialization = attempt;
     void attempt.catch(() => {
       if (state.initialization === attempt) state.initialization = undefined;
@@ -155,10 +146,9 @@ async function initializeOnce(
   input: OwnedInitializationInput,
   state: CodexCliRuntimeState,
   verifyInstallation: () => Promise<void>,
-  testOnly: boolean,
 ): Promise<void> {
   throwIfAborted(input.signal);
-  if (!testOnly && input.configuredExecutable !== undefined && input.configuredExecutable !== REVIEWED_CODEX_EXECUTABLE) {
+  if (input.configuredExecutable !== undefined && input.configuredExecutable !== REVIEWED_CODEX_EXECUTABLE) {
     throw new CodexRuntimeError("codex_version_mismatch");
   }
   await verifyInstallation();
@@ -183,9 +173,7 @@ async function initializeOnce(
   throwIfAborted(input.signal);
 
   const preflight = await preflightCodexCli({
-    configuredExecutable: testOnly && input.configuredExecutable !== undefined
-      ? input.configuredExecutable
-      : REVIEWED_CODEX_EXECUTABLE,
+    configuredExecutable: REVIEWED_CODEX_EXECUTABLE,
     spawner: input.spawner,
     childEnv: input.childEnv,
     signal: input.signal,

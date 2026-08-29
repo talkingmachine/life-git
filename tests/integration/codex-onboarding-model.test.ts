@@ -686,7 +686,7 @@ describe("Codex onboarding model", () => {
   test("maps review metadata mismatch to a content-free integrity failure", async () => {
     const { runtime, invokeJson } = fakeRuntime(async () => reviewResult({
       ...reviewMetadata(),
-      toolPolicy: "codex-tools-web-search@1",
+      toolPolicy: "codex-tools-web-search@2",
     }));
     const model = createCodexOnboardingModel(runtime);
 

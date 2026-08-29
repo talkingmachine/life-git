@@ -89,9 +89,6 @@ export class CodexCliModelAdapter {
   }
 
   private invokeFlightOutcome(input: CodexJsonInvocation): Promise<CodexCliInvocationOutcome> {
-    if (input.toolPolicy === "codex-tools-web-search@1" && this.#preflight.cliVersion !== "codex-cli 0.149.0-alpha.4") {
-      return Promise.reject(new CodexRuntimeError("codex_version_mismatch"));
-    }
     const key = deriveCodexFlightKey(input);
     return this.#flightPool.run({
       key,
@@ -142,7 +139,7 @@ export class CodexCliModelAdapter {
             childEnv: this.#childEnv,
             flightKey: key,
           });
-          if ((input.toolPolicy === "codex-tools-web-search@1" || input.toolPolicy === "codex-tools-web-search@2") &&
+          if (input.toolPolicy === "codex-tools-web-search@2" &&
             !isValidSearchCount(probe.webSearchCount, input.limits.maxEvents)) {
             throw new CodexRuntimeError("codex_tool_event");
           }
@@ -220,7 +217,7 @@ function classifyPressure(error: unknown): "rate_limited" | "provider_transient"
 function isZeroSearchRetryEligible(input: CodexJsonInvocation): boolean {
   return input.capability === "source.discover" &&
     input.reasoningEffort === "medium" &&
-    (input.toolPolicy === "codex-tools-web-search@1" || input.toolPolicy === "codex-tools-web-search@2");
+    input.toolPolicy === "codex-tools-web-search@2";
 }
 
 function isValidSearchCount(value: number, maximum: number): boolean {

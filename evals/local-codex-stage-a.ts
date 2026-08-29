@@ -50,7 +50,7 @@ type Artifact = Readonly<{
   protocolVersion: typeof CODEX_CLI_PROTOCOL_VERSION;
   compatibilityPolicy: typeof CODEX_CLI_COMPATIBILITY_POLICY;
   models: Readonly<{ extraction: typeof CODEX_MODEL; discovery: typeof CODEX_DISCOVERY_MODEL }>;
-  writeIsolationProof: Readonly<{ model: typeof CODEX_DISCOVERY_MODEL; codeModeDisabled: true; applyPatchAttempts: 1; writePrevented: true; canaryUnchanged: true }>;
+  writeIsolationProof: Readonly<{ model: typeof CODEX_DISCOVERY_MODEL; toolPolicy: "codex-tools-web-search@2"; codeModeDisabled: true; applyPatchAttempts: 1; writePrevented: true; canaryUnchanged: true }>;
   effortsProven: readonly ["low", "medium"];
   noToolProbe: NoToolProbe;
   discoveryProbe: DiscoveryProbe;
@@ -404,8 +404,8 @@ function validateProofs(runtime: Awaited<ReturnType<Dependencies["initializeRunt
 }
 
 function requireWriteIsolationProof(value: NegativeCapabilityProbeObservation): Artifact["writeIsolationProof"] {
-  if (value.schemaVersion !== "local-codex-negative-capability-observation@2" || value.passed !== true || value.webSearchCompleted < 1 || value.applyPatchAttempts !== 1 || value.writePrevented !== true || value.canaryUnchanged !== true || value.childExitClean !== true || value.unknownEventSeen !== false || value.protocolValid !== true) throw new TypeError("local_codex_stage_a_invalid_write_isolation_proof");
-  return Object.freeze({ model: CODEX_DISCOVERY_MODEL, codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true });
+  if (value.schemaVersion !== "local-codex-negative-capability-observation@2" || value.model !== CODEX_DISCOVERY_MODEL || value.toolPolicy !== "codex-tools-web-search@2" || value.codeModeDisabled !== true || value.passed !== true || value.webSearchCompleted < 1 || value.applyPatchAttempts !== 1 || value.writePrevented !== true || value.canaryUnchanged !== true || value.childExitClean !== true || value.unknownEventSeen !== false || value.protocolValid !== true) throw new TypeError("local_codex_stage_a_invalid_write_isolation_proof");
+  return Object.freeze({ model: value.model, toolPolicy: value.toolPolicy, codeModeDisabled: value.codeModeDisabled, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true });
 }
 
 function validDiscoveryProof(value: DiscoveryProof): boolean {

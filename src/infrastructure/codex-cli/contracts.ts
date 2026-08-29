@@ -27,8 +27,7 @@ export type CodexCapabilityId =
   | "full-life.film";
 
 export type CodexReasoningEffort = "low" | "medium";
-/** @deprecated `@1` exists only so historical parser fixtures remain readable; invocation construction rejects it. */
-export type CodexToolPolicyId = "codex-tools-none@2" | "codex-tools-web-search@1" | "codex-tools-web-search@2";
+export type CodexToolPolicyId = "codex-tools-none@2" | "codex-tools-web-search@2";
 
 export interface CodexInvocationLimits {
   readonly timeoutMs: number;
@@ -174,7 +173,7 @@ function requireReasoningEffort(value: unknown): CodexReasoningEffort {
 }
 
 function requireToolPolicy(value: unknown): CodexToolPolicyId {
-  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@1" || value === "codex-tools-web-search@2") return value;
+  if (value === "codex-tools-none@2" || value === "codex-tools-web-search@2") return value;
   throw protocolInvalid();
 }
 
@@ -184,7 +183,7 @@ function isValidCapabilityPolicy(
   toolPolicy: CodexToolPolicyId,
 ): boolean {
   return capability === "source.discover"
-    ? reasoningEffort === "medium" && (toolPolicy === "codex-tools-web-search@1" || toolPolicy === "codex-tools-web-search@2")
+    ? reasoningEffort === "medium" && toolPolicy === "codex-tools-web-search@2"
     : (reasoningEffort === "low" || reasoningEffort === "medium") && toolPolicy === "codex-tools-none@2";
 }
 

@@ -99,11 +99,17 @@ describe("snapshotOwnedJson", () => {
 });
 
 describe("createCodexJsonInvocation", () => {
+  test("rejects the superseded web-search policy revision", () => {
+    expect(() => createCodexJsonInvocation({
+      ...validInvocation(), capability: "source.discover", reasoningEffort: "medium",
+      toolPolicy: "codex-tools-web-search@1" as never,
+    })).toThrowError("codex_protocol_invalid");
+  });
   test("allows web search only for medium source discovery", () => {
     const invocation = createCodexJsonInvocation({
       capability: "source.discover",
       reasoningEffort: "medium",
-      toolPolicy: "codex-tools-web-search@1",
+      toolPolicy: "codex-tools-web-search@2",
       templateVersion: "official-source-discover@2",
       schemaVersion: "official-source-candidates@1",
       prompt: "synthetic public input",

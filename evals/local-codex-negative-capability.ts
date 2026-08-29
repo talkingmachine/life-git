@@ -35,6 +35,9 @@ const MAX_INTERIM_MESSAGES = 4;
 
 export type NegativeCapabilityProbeObservation = Readonly<{
   schemaVersion: typeof SCHEMA_VERSION;
+  model: "gpt-5.4";
+  toolPolicy: "codex-tools-web-search@2";
+  codeModeDisabled: true;
   mode: "structural_observation" | "strict";
   stableCode: typeof STABLE_SHAPE_UNREVIEWED | typeof STABLE_FAILED | typeof STABLE_PASSED;
   passed: boolean;
@@ -473,6 +476,9 @@ function strictObservation(
 function failedObservation(): NegativeCapabilityProbeObservation {
   return Object.freeze({
     schemaVersion: SCHEMA_VERSION,
+    model: "gpt-5.4",
+    toolPolicy: "codex-tools-web-search@2",
+    codeModeDisabled: true,
     mode: "strict",
     stableCode: STABLE_FAILED,
     passed: false,
@@ -498,6 +504,9 @@ function freezeObservation(
   const finalSchemaValid = state.finalMessage === undefined ? false : isFinalSchema(state.finalMessage);
   return Object.freeze({
     schemaVersion: SCHEMA_VERSION,
+    model: "gpt-5.4",
+    toolPolicy: "codex-tools-web-search@2",
+    codeModeDisabled: true,
     mode,
     stableCode,
     passed,
