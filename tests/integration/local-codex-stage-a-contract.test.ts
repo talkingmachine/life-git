@@ -18,6 +18,7 @@ import {
   initializeReviewedStageARuntimeForTest,
 } from "../../evals/local-codex-stage-a";
 import { CodexRuntimeError } from "../../src/infrastructure/codex-cli/contracts";
+import { OnboardingModelError, type OnboardingModelErrorCode } from "../../src/application/onboarding-contracts";
 import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
@@ -146,6 +147,74 @@ describe("local Codex Stage A gate", () => {
       ...deterministicDependencies(), initializeRuntime: async () => { throw spoof; },
     });
     expect(spoofed).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:unclassified\n" });
+  });
+
+  test.each([
+    ["onboarding_model_output_invalid", async () => ({ schemaVersion: "wrong", payload: "prompt=https://secret.example/id token=credential" })],
+    ["onboarding_guard_invalid", async () => onboardingOutput({ sourceSpan: { start: 0, end: 0 } })],
+    ["onboarding_canonical_mismatch", async () => onboardingOutput({ typedValue: { countryCode: "RU", city: "Тверь" } })],
+    ["onboarding_evidence_mismatch", async () => onboardingOutput({ sourceSpan: { start: 0, end: 6 } })],
+  ] as const)("reports content-free onboarding diagnostic %s through the real evaluator", async (code, extract) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract }),
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:onboarding:${code}\n` });
+    expect(result.stderr).not.toMatch(/secret|private|https:|token|credential|prompt|response|query|stdout|stderr|path|payload/i);
+  });
+
+  test.each([
+    "onboarding_model_aborted",
+    "onboarding_model_integrity_failed",
+    "onboarding_model_invalid",
+    "onboarding_model_runtime_failed",
+  ] as const)("allowlists exact native typed onboarding error %s", async (code: OnboardingModelErrorCode) => {
+    const typed = new OnboardingModelError(code, code === "onboarding_model_runtime_failed" ? "codex_timeout" : undefined);
+    const dependencies = {
+      ...deterministicDependencies(),
+      runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract: async () => { throw typed; } }),
+    };
+    await expect(runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], dependencies))
+      .resolves.toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:onboarding:${code}\n` });
+    await expect(runLocalCodexStageAEntrypoint(["--live-local-subscription"], dependencies))
+      .resolves.toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  });
+
+  test.each([
+    ["runtime code missing", new OnboardingModelError("onboarding_model_runtime_failed")],
+    ["runtime code on non-runtime error", new OnboardingModelError("onboarding_model_aborted", "codex_timeout")],
+    ["runtime code outside allowlist", new OnboardingModelError("onboarding_model_runtime_failed", "codex_secret_payload" as never)],
+  ] as const)("classifies typed onboarding error with %s as unclassified", async (_case, typed) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract: async () => { throw typed; } }),
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:onboarding:unclassified\n" });
+    expect(result.stderr).not.toMatch(/secret|payload/i);
+  });
+
+  test("rejects hostile onboarding error lookalikes and never leaks their content", async () => {
+    const proxy = new Proxy(Object.create(null), {
+      get: () => { throw new Error("proxy token=secret"); },
+      getPrototypeOf: () => { throw new Error("prototype token=secret"); },
+      ownKeys: () => { throw new Error("keys token=secret"); },
+    });
+    const spoof = Object.create(OnboardingModelError.prototype) as object;
+    Object.defineProperties(spoof, {
+      code: { value: "onboarding_model_invalid", writable: true, enumerable: true, configurable: true },
+      runtimeCode: { value: undefined, writable: true, enumerable: true, configurable: true },
+      name: { value: "OnboardingModelError", writable: true, enumerable: true, configurable: true },
+      message: { value: "onboarding_model_invalid", writable: true, enumerable: false, configurable: true },
+    });
+    for (const error of [new Error("prompt=https://secret.example response token=credential"), proxy, spoof]) {
+      const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+        ...deterministicDependencies(),
+        runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract: async () => { throw error; } }),
+      });
+      expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:onboarding:unclassified\n" });
+      expect(result.stderr).not.toMatch(/secret|https:|token|credential|prompt|response/i);
+    }
   });
 
   test("accepts diagnostic only with a single live opt-in and keeps successful output unchanged", async () => {
@@ -433,7 +502,7 @@ describe("local Codex Stage A gate", () => {
       proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Москва" }, messageId: onboardingFixture.message.messageId, sourceSpan: { start: 0, end: 0 } }],
       nextQuestion: onboardingFixture.expected.nextQuestion,
     }));
-    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toThrow("Invalid onboarding model contract");
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toThrow("onboarding_guard_invalid");
     expect(extract).toHaveBeenCalledTimes(1);
     const input = extract.mock.calls[0]![0] as { questionnaire: unknown; message: unknown };
     expect(input.message).toEqual(onboardingFixture.message);
@@ -483,7 +552,7 @@ describe("local Codex Stage A gate", () => {
       schemaVersion: "onboarding-model-output@1",
       proposals,
       nextQuestion: fixture.expected.nextQuestion,
-    }) })).rejects.toThrow("local_codex_stage_a_onboarding_invalid");
+    }) })).rejects.toThrow("onboarding_evidence_mismatch");
   });
 
   test.each([
@@ -499,7 +568,7 @@ describe("local Codex Stage A gate", () => {
     const proposals = fixture.expected.proposals.map(({ fieldId, typedValue, messageId, sourceSpan }) => structuredClone({ fieldId, typedValue, messageId, sourceSpan }) as Record<string, unknown>);
     await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
       schemaVersion: "onboarding-model-output@1", proposals: mutate(proposals), nextQuestion: fixture.expected.nextQuestion,
-    }) })).rejects.toThrow("local_codex_stage_a_onboarding_invalid");
+    }) })).rejects.toThrow("onboarding_canonical_mismatch");
   });
 
   test.each([
@@ -544,6 +613,19 @@ describe("local Codex Stage A gate", () => {
     expect(discover).toHaveBeenCalledTimes(1);
   });
 });
+
+function onboardingOutput(overrides: Readonly<{ typedValue?: unknown; sourceSpan?: Readonly<{ start: number; end: number }> }> = {}) {
+  return {
+    schemaVersion: "onboarding-model-output@1",
+    proposals: [{
+      fieldId: "current_location",
+      typedValue: overrides.typedValue ?? { countryCode: "RU", city: "Москва" },
+      messageId: onboardingFixture.message.messageId,
+      sourceSpan: overrides.sourceSpan ?? onboardingFixture.expected.proposals[0]!.sourceSpan,
+    }],
+    nextQuestion: onboardingFixture.expected.nextQuestion,
+  };
+}
 
 function deterministicDependencies() {
   return {

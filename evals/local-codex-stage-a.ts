@@ -14,6 +14,7 @@ import { guardExtraction, projectQuestionnaireForModel } from "../src/decision/o
 import { parseLocalExtractionOutput } from "../src/decision/onboarding-model-output";
 import type { SessionMessage } from "../src/decision/onboarding-session";
 import { reconstructOfficialSourceDiscoveryRequest, type OfficialSourceDiscoveryRequest } from "../src/application/official-source-discovery";
+import { OnboardingModelError, type OnboardingModelErrorCode } from "../src/application/onboarding-contracts";
 
 const OPT_IN_ERROR = "local_codex_live_opt_in_required\n";
 const ARTIFACT_SCHEMA = "local-codex-stage-a@1" as const;
@@ -73,8 +74,20 @@ type Dependencies = Readonly<{
 }>;
 
 type StageADiagnosticStage = "prepare_artifact" | "initialize_runtime" | "onboarding" | "discovery" | "concurrency_1" | "concurrency_2" | "concurrency_5" | "abort" | "proof_validation" | "artifact_write" | "cleanup";
+type StageAOnboardingDiagnosticCode = "onboarding_model_output_invalid" | "onboarding_guard_invalid" | "onboarding_canonical_mismatch" | "onboarding_evidence_mismatch";
+type StageADiagnosticCode = CodexRuntimeErrorCode | OnboardingModelErrorCode | StageAOnboardingDiagnosticCode | "unclassified";
 type FailureObserver = (stage: StageADiagnosticStage, error: unknown) => void;
 const DIAGNOSTIC_CODES: readonly CodexRuntimeErrorCode[] = ["codex_missing", "codex_version_mismatch", "codex_not_authenticated", "codex_protocol_invalid", "codex_tool_event", "codex_output_too_large", "codex_event_limit", "codex_timeout", "codex_aborted", "codex_process_failed", "codex_json_invalid", "codex_temp_root_invalid", "codex_tool_isolation_unproven", "codex_rate_limited", "codex_provider_transient"];
+const ONBOARDING_MODEL_DIAGNOSTIC_CODES: readonly OnboardingModelErrorCode[] = ["onboarding_model_aborted", "onboarding_model_integrity_failed", "onboarding_model_invalid", "onboarding_model_runtime_failed"];
+const STAGE_A_ONBOARDING_DIAGNOSTIC_CODES: readonly StageAOnboardingDiagnosticCode[] = ["onboarding_model_output_invalid", "onboarding_guard_invalid", "onboarding_canonical_mismatch", "onboarding_evidence_mismatch"];
+
+class StageAOnboardingDiagnosticError extends Error {
+  readonly name = "StageAOnboardingDiagnosticError";
+
+  constructor(readonly code: StageAOnboardingDiagnosticCode) {
+    super(code);
+  }
+}
 
 type ReviewedStageARuntimeInitialization<T> = Readonly<{
   executableOverride: string | undefined;
@@ -190,7 +203,7 @@ export async function runLocalCodexStageAEntrypoint(
 ): Promise<LocalCodexStageAEntrypointResult> {
   try {
     const args = parseLocalCodexStageAArgs(argv);
-    let diagnostic: Readonly<{ stage: StageADiagnosticStage; code: CodexRuntimeErrorCode | "unclassified" }> | undefined;
+    let diagnostic: Readonly<{ stage: StageADiagnosticStage; code: StageADiagnosticCode }> | undefined;
     try {
       return await runLocalCodexStageAWithFailureObserver(args, supplied, (stage, error) => {
         diagnostic = Object.freeze({ stage, code: safeDiagnosticCode(error) });
@@ -215,20 +228,37 @@ function readArgs(value: unknown): LocalCodexStageAArguments {
   return Object.freeze(object.diagnostic === true ? { live: object.live, diagnostic: true as const, artifactPath: validateArtifactPath(object.artifactPath) } : { live: object.live, artifactPath: validateArtifactPath(object.artifactPath) });
 }
 
-function safeDiagnosticCode(error: unknown): CodexRuntimeErrorCode | "unclassified" {
+function safeDiagnosticCode(error: unknown): StageADiagnosticCode {
   try {
-    if (types.isProxy(error) || !types.isNativeError(error) || !(error instanceof CodexRuntimeError)) return "unclassified";
-    const descriptor = Object.getOwnPropertyDescriptor(error, "code");
-    const message = Object.getOwnPropertyDescriptor(error, "message");
-    const name = Object.getOwnPropertyDescriptor(error, "name");
-    if (descriptor?.enumerable !== true || !("value" in descriptor) || typeof descriptor.value !== "string" ||
-      message?.enumerable !== false || !("value" in message) || message.value !== descriptor.value ||
-      name?.enumerable !== true || !("value" in name) || name.value !== "CodexRuntimeError" ||
-      !DIAGNOSTIC_CODES.includes(descriptor.value as CodexRuntimeErrorCode)) return "unclassified";
-    return descriptor.value as CodexRuntimeErrorCode;
+    if (types.isProxy(error) || !types.isNativeError(error)) return "unclassified";
+    const codexCode = exactNativeErrorCode(error, CodexRuntimeError.prototype, "CodexRuntimeError", DIAGNOSTIC_CODES);
+    if (codexCode !== undefined) return codexCode as CodexRuntimeErrorCode;
+    const onboardingCode = exactNativeErrorCode(error, OnboardingModelError.prototype, "OnboardingModelError", ONBOARDING_MODEL_DIAGNOSTIC_CODES);
+    if (onboardingCode !== undefined) {
+      const runtimeCode = Object.getOwnPropertyDescriptor(error, "runtimeCode");
+      if (runtimeCode?.enumerable !== true || !("value" in runtimeCode)) return "unclassified";
+      if (onboardingCode === "onboarding_model_runtime_failed"
+        ? !DIAGNOSTIC_CODES.includes(runtimeCode.value as CodexRuntimeErrorCode)
+        : runtimeCode.value !== undefined) return "unclassified";
+      return onboardingCode as OnboardingModelErrorCode;
+    }
+    const localCode = exactNativeErrorCode(error, StageAOnboardingDiagnosticError.prototype, "StageAOnboardingDiagnosticError", STAGE_A_ONBOARDING_DIAGNOSTIC_CODES);
+    return localCode === undefined ? "unclassified" : localCode as StageAOnboardingDiagnosticCode;
   } catch {
     return "unclassified";
   }
+}
+
+function exactNativeErrorCode(error: Error, prototype: object, expectedName: string, allowlist: readonly string[]): string | undefined {
+  if (Object.getPrototypeOf(error) !== prototype || Object.getOwnPropertySymbols(error).length !== 0) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "code");
+  const message = Object.getOwnPropertyDescriptor(error, "message");
+  const name = Object.getOwnPropertyDescriptor(error, "name");
+  if (descriptor?.enumerable !== true || !("value" in descriptor) || typeof descriptor.value !== "string" ||
+    message?.enumerable !== false || !("value" in message) || message.value !== descriptor.value ||
+    name?.enumerable !== true || !("value" in name) || name.value !== expectedName ||
+    !allowlist.includes(descriptor.value)) return undefined;
+  return descriptor.value;
 }
 
 function readDependencies(value: unknown): Dependencies {
@@ -534,11 +564,20 @@ export async function evaluateOnboardingFixture(fixture: StageAOnboardingFixture
     nextParticipantId: () => "00000000-0000-4000-8000-000000000001",
     nextCompletionCommandId: () => "00000000-0000-4000-8000-000000000002",
   });
-  const output = parseLocalExtractionOutput(await model.extract({ message: fixture.message, questionnaire: projectQuestionnaireForModel(session), signal: new AbortController().signal }));
-  const guarded = guardExtraction({ session, userMessage: fixture.message, rawModelOutput: output });
-  assertGuardedFixtureProposals(fixture, guarded.proposals);
-  assertFixtureEvidenceCoverage(fixture, output.proposals);
+  const rawOutput = await model.extract({ message: fixture.message, questionnaire: projectQuestionnaireForModel(session), signal: new AbortController().signal });
+  const output = onboardingDiagnosticBoundary("onboarding_model_output_invalid", () => parseLocalExtractionOutput(rawOutput));
+  const guarded = onboardingDiagnosticBoundary("onboarding_guard_invalid", () => guardExtraction({ session, userMessage: fixture.message, rawModelOutput: output }));
+  onboardingDiagnosticBoundary("onboarding_canonical_mismatch", () => assertGuardedFixtureProposals(fixture, guarded.proposals));
+  onboardingDiagnosticBoundary("onboarding_evidence_mismatch", () => assertFixtureEvidenceCoverage(fixture, output.proposals));
   return Object.freeze({ guardedProposalCount: guarded.proposals.length, inventedValueCount: 0 });
+}
+
+function onboardingDiagnosticBoundary<T>(code: StageAOnboardingDiagnosticCode, operation: () => T): T {
+  try {
+    return operation();
+  } catch {
+    throw new StageAOnboardingDiagnosticError(code);
+  }
 }
 
 function assertFixtureEvidenceCoverage(
