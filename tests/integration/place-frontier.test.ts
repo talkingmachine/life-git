@@ -31,6 +31,7 @@ import {
   ONBOARDING_MODEL_VERSIONS_V5,
   ONBOARDING_MODEL_VERSIONS_V6,
   ONBOARDING_MODEL_VERSIONS_V7,
+  ONBOARDING_MODEL_VERSIONS_V8,
   ONBOARDING_MODEL_VERSIONS_V9,
 } from "../../src/application/onboarding-model-versions";
 import type { ColdStartEvent } from "../../src/application/cold-start";
@@ -1226,6 +1227,7 @@ describe("Onboarding receipt Place Frontier", () => {
     ["historical V5", ONBOARDING_MODEL_VERSIONS_V5],
     ["historical V6", ONBOARDING_MODEL_VERSIONS_V6],
     ["historical V7", ONBOARDING_MODEL_VERSIONS_V7],
+    ["historical V8", ONBOARDING_MODEL_VERSIONS_V8],
     ["current V9", ONBOARDING_MODEL_VERSIONS_V9],
   ] as const)("prepares the exact %s lineage at its fixed run and time, then fast-replays it", async (
     _lineage,

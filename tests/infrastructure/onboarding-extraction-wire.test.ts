@@ -445,7 +445,7 @@ describe("onboarding extraction wire decoder", () => {
     expectInvalid(wire([
       proposal("b2", "alone", "first"),
       proposal("b2", "with_companions", "second"),
-    ]), MESSAGE_ID, "first first second");
+    ]), MESSAGE_ID, "first second");
   });
 
   test.each([
@@ -457,7 +457,6 @@ describe("onboarding extraction wire decoder", () => {
     ["old offset wire", wire([{ f: "b2", v: "alone", s: 0, e: 1 }])],
     ["empty evidence", wire([proposal("b2", "alone", "")])],
     ["absent evidence", wire([proposal("b2", "alone", "missing")])],
-    ["duplicate evidence", wire([proposal("b2", "alone", "ana")])],
     ["mismatched typed family", wire([proposal("b0", "alone")])],
     ["invalid roster descriptor order", wire([proposal("b3", [
       { descriptor: "self", relationship: "self" },
@@ -514,6 +513,36 @@ describe("onboarding extraction wire decoder", () => {
     expect(getter).not.toHaveBeenCalled();
   });
 
+  test("rejects cyclic wire, proposal, and typed-value objects", () => {
+    const cyclicWire = wire([]);
+    cyclicWire.cycle = cyclicWire;
+    const cyclicProposal = proposal("b2", "alone");
+    cyclicProposal.cycle = cyclicProposal;
+    const cyclicTypedValue = {} as Record<string, unknown>;
+    cyclicTypedValue.cycle = cyclicTypedValue;
+
+    expectInvalid(cyclicWire);
+    expectInvalid(wire([cyclicProposal]));
+    expectInvalid(wire([proposal("b0", cyclicTypedValue)]));
+  });
+
+  test("rejects throwing Proxy wire, proposal, and typed-value objects without invoking traps", () => {
+    const trap = vi.fn(() => { throw new Error("proxy trap must not run"); });
+    const wireProxy = new Proxy(wire([]), { get: trap, getOwnPropertyDescriptor: trap, getPrototypeOf: trap, ownKeys: trap });
+    const proposalProxy = new Proxy(proposal("b2", "alone"), { get: trap, getOwnPropertyDescriptor: trap, getPrototypeOf: trap, ownKeys: trap });
+    const typedValueProxy = new Proxy({ countryCode: "RS", city: "Белград" }, { get: trap, getOwnPropertyDescriptor: trap, getPrototypeOf: trap, ownKeys: trap });
+
+    expectInvalid(wireProxy);
+    expectInvalid(wire([proposalProxy]));
+    expectInvalid(wire([proposal("b0", typedValueProxy)]));
+    expect(trap).not.toHaveBeenCalled();
+  });
+
+  test("rejects oversized message text and UTF-8 evidence", () => {
+    expectInvalid(wire([]), MESSAGE_ID, "a".repeat(8_193));
+    expectInvalid(wire([proposal("b2", "alone", "€".repeat(2_731))]));
+  });
+
   test.each([
     ["Cyrillic", "Я живу в Москве", "в Москве", 7, 15],
     ["astral UTF-16", "A😀Б", "😀", 1, 3],
@@ -526,6 +555,7 @@ describe("onboarding extraction wire decoder", () => {
   });
 
   test.each([
+    ["ordinary duplicate", "one one", "one"],
     ["overlapping", "banana", "ana"],
     ["visually similar but distinct", "е e", "é"],
   ])("rejects %s non-unique or non-exact evidence", (_name, messageText, t) => {
