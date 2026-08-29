@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS evidence_snapshots (
   rules_version TEXT NOT NULL
 );
 
+-- city-source-recovery-ddl:start
 CREATE TABLE IF NOT EXISTS city_source_versions (
   id TEXT PRIMARY KEY,
   country_code TEXT NOT NULL CHECK (country_code = 'SI'),
@@ -91,6 +92,7 @@ CREATE TRIGGER IF NOT EXISTS official_source_recovery_attempts_no_update BEFORE 
 CREATE TRIGGER IF NOT EXISTS official_source_recovery_attempts_no_delete BEFORE DELETE ON official_source_recovery_attempts BEGIN SELECT RAISE(ABORT, 'official_source_recovery_attempt_is_immutable'); END;
 CREATE TRIGGER IF NOT EXISTS official_source_replacement_events_no_update BEFORE UPDATE ON official_source_replacement_events BEGIN SELECT RAISE(ABORT, 'official_source_replacement_event_is_immutable'); END;
 CREATE TRIGGER IF NOT EXISTS official_source_replacement_events_no_delete BEFORE DELETE ON official_source_replacement_events BEGIN SELECT RAISE(ABORT, 'official_source_replacement_event_is_immutable'); END;
+-- city-source-recovery-ddl:end
 
 CREATE TABLE IF NOT EXISTS city_evidence_snapshots (
   id TEXT PRIMARY KEY REFERENCES evidence_snapshots(id),

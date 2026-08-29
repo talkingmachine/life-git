@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
@@ -8,7 +8,6 @@ import { afterEach, describe, expect, test } from "vitest";
 import type { CitySourceBindingKeyV1, CitySourceVersionV1 } from "../../src/application/city-source-recovery-contracts";
 import { SqliteCitySourceRecoveryStore } from "../../src/infrastructure/sqlite/city-source-recovery-store";
 import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
-import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 
 const directories: string[] = [];
 const databases: Database.Database[] = [];
@@ -17,8 +16,8 @@ const version = (id: string): CitySourceVersionV1 => Object.freeze({ schemaVersi
 const integrity = createEvidenceIntegrity("source-recovery-test-key");
 function authority() { return Object.freeze({ bindingKey: key, sourceVersion: version("source:installed") }); }
 function digest() { const value = authority(); return integrity.hash(integrity.canonical(value)); }
-function seedTruth(db: Database.Database) { const h = "a".repeat(64); db.pragma("foreign_keys = OFF"); db.prepare("INSERT INTO evidence_snapshots VALUES(?,?,?,?,?,?,?,?)").run("evidence:one", "2026-08-29", "{}", "{}", h, h, "{}", "rules@1"); db.prepare("INSERT INTO city_evidence_snapshots VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run("evidence:one", "check:one", "run:one", "ljubljana", "SI", "package:one", "package@1", "catalog:one", "criteria:one", "ranking:one", "rules@1", h, "2026-08-29T12:00:00.000Z", "2026-08-29T12:00:00.000Z", "{}", h, h); db.prepare("INSERT INTO city_knowledge_revisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run("knowledge:one", "ljubljana", "SI", "package:one", "package@1", "rules@1", null, "evidence:one", "2026-08-29T12:00:00.000Z", "2026-08-29T12:00:00.000Z", "2026-08-29T12:00:00.000Z", "{}", h, h); db.prepare("INSERT INTO city_frontier_revisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run("frontier:one", "run:one", "working", null, "ranking:one", "start", "command:frontier", "city-frontier@1", "{}", h, "{}", h, h, "2026-08-29T12:00:00.000Z"); db.pragma("foreign_keys = ON"); }
-function open(truthFails = false) { const dir = mkdtempSync(join(tmpdir(), "source-recovery-")); directories.push(dir); const path = join(dir, "db.sqlite"); const db = openEvidenceDatabase(path); seedTruth(db); databases.push(db); return { store: new SqliteCitySourceRecoveryStore(db, integrity, Object.freeze({ loadVerified: (requested: CitySourceBindingKeyV1) => requested.cityId === key.cityId ? authority() : undefined }), Object.freeze({ requireVerified: () => { if (truthFails) throw new Error("truth_missing"); } })), path }; }
+function recoveryDdl(): string { const schema = readFileSync(resolve("src/infrastructure/sqlite/schema.sql"), "utf8"); return schema.split("-- city-source-recovery-ddl:start\n")[1]!.split("-- city-source-recovery-ddl:end")[0]!; }
+function open(truthFails = false) { const dir = mkdtempSync(join(tmpdir(), "source-recovery-")); directories.push(dir); const path = join(dir, "db.sqlite"); const db = new Database(path); db.pragma("foreign_keys = ON"); db.exec("CREATE TABLE city_evidence_snapshots(id TEXT PRIMARY KEY); CREATE TABLE city_knowledge_revisions(id TEXT PRIMARY KEY); CREATE TABLE city_frontier_revisions(id TEXT PRIMARY KEY);"); db.exec(recoveryDdl()); db.prepare("INSERT INTO city_evidence_snapshots VALUES(?)").run("evidence:one"); db.prepare("INSERT INTO city_knowledge_revisions VALUES(?)").run("knowledge:one"); db.prepare("INSERT INTO city_frontier_revisions VALUES(?)").run("frontier:one"); databases.push(db); return { store: new SqliteCitySourceRecoveryStore(db, integrity, Object.freeze({ loadVerified: (requested: CitySourceBindingKeyV1) => requested.cityId === key.cityId ? authority() : undefined }), Object.freeze({ requireVerified: () => { if (truthFails) throw new Error("truth_missing"); } })), path }; }
 function replacement(commandId = "command:one") { const source = version("source:replacement"); const revision = { schemaVersion: "source-binding@1" as const, id: "binding:one", bindingKey: key, revisionOrdinal: 1, predecessorRevisionId: null, sourceVersionId: source.id, evidenceSnapshotId: source.evidenceSnapshotId, knowledgeRevisionId: "knowledge:one", frontierRevisionId: "frontier:one", policyVersion: "official-source-recovery@1" as const, actor: "local_codex_recovery" as const, parentRunId: "run:one", createdAt: "2026-08-29T12:01:00.000Z" }; const attempt = { schemaVersion: "official-source-recovery-attempt@1" as const, id: "attempt:one", commandId, bindingKey: key, cursor: { schemaVersion: "city-source-binding-cursor@1" as const, kind: "installed" as const, installedBindingDigest: digest() }, outcome: "replaced" as const, createdAt: "2026-08-29T12:01:00.000Z" }; return { commandId, sourceVersion: source, revision, attempt }; }
 afterEach(() => { for (const db of databases.splice(0)) db.close(); for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
@@ -32,6 +31,16 @@ describe("SqliteCitySourceRecoveryStore", () => {
     expect(store.loadHistoryVerified(key).map((item) => item.revisionOrdinal)).toEqual([1]);
   });
 
+  test("rejects a changed source version under an existing command", () => {
+    const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement(); store.appendReplacement(input, cursor);
+    expect(() => store.appendReplacement({ ...input, sourceVersion: { ...input.sourceVersion, finalUrl: "https://www.policija.si/changed" } }, cursor)).toThrow("integrity_mismatch");
+  });
+
+  test("rejects a changed attempt under an existing command", () => {
+    const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement(); store.appendReplacement(input, cursor);
+    expect(() => store.appendReplacement({ ...input, attempt: { ...input.attempt, id: "attempt:changed" } }, cursor)).toThrow("integrity_mismatch");
+  });
+
   test("rejects a tampered immutable schema when reopened", () => {
     const { store, path } = open(); const cursor = store.loadEffectiveVerified(key).cursor;
     store.appendReplacement(replacement(), cursor);
@@ -40,7 +49,8 @@ describe("SqliteCitySourceRecoveryStore", () => {
     database.exec("DROP TRIGGER city_source_versions_no_update");
     database.prepare("UPDATE city_source_versions SET payload_json = '{}' WHERE id = ?").run("source:replacement");
     database.close();
-    expect(() => openEvidenceDatabase(path)).toThrow("database_schema_reset_required");
+    const reopened = new Database(path); reopened.pragma("foreign_keys = ON");
+    expect(() => new SqliteCitySourceRecoveryStore(reopened, integrity, Object.freeze({ loadVerified: () => authority() }), Object.freeze({ requireVerified: () => undefined })).loadEffectiveVerified(key)).toThrow("integrity_mismatch"); reopened.close();
   });
 
   test("does not create a head when the truth authority rejects the lineage", () => {
