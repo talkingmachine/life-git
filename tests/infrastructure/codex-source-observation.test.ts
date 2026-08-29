@@ -147,6 +147,46 @@ describe("Codex source observation", () => {
     await expect(second).resolves.toMatchObject({ offenceCount: "1234" }); expect(invoke).toHaveBeenCalledTimes(1);
   });
 
+  it.each([1, 2, 5])("isolates %i distinct city observations completed out of order", async (batchSize) => {
+    const { projector, request } = fixture();
+    const observations = Array.from({ length: batchSize }, (_, index) => {
+      const municipalityCode = String(index + 1).padStart(3, "0"); const offenceCount = String(1200 + index);
+      const text = `definitionId=${DEFINITION}\nperiodKind=annual\nmunicipalityCode=${municipalityCode}\nreferenceYear=${2020 + index}\noffenceCount=${offenceCount}\nnumeratorUnit=offences`;
+      const bytes = new TextEncoder().encode(text);
+      const projection = projector.project({ schemaVersion: "city-safety-public-capture@1", mediaType: "text/plain", sha256: createHash("sha256").update(bytes).digest("hex"), bytes, provenance: { kind: "official_public", authenticated: false, personalized: false, containsPii: false } });
+      return { cityId: `city-${index + 1}`, municipalityCode, offenceCount, referenceYear: 2020 + index, projection, text };
+    });
+    const release = new Map<string, (value: unknown) => void>();
+    const invoke = vi.fn().mockImplementation((invocation) => new Promise((resolve) => {
+      const cityId = JSON.parse(invocation.prompt.match(/BEGIN_SOURCE_EXCERPT\n(.*)\nEND_SOURCE_EXCERPT/s)![1]).entity.cityId as string;
+      release.set(cityId, resolve);
+    }));
+    const port = createCodexSourceObservation({ invokeJsonWithEventProof: invoke } as never, projector);
+    const controllers = Array.from({ length: batchSize }, () => new AbortController());
+    const pending = observations.map((observation, index) => port.observe(request({ cityId: observation.cityId, municipalityCode: observation.municipalityCode, projection: observation.projection, signal: controllers[index]!.signal })));
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(batchSize));
+    for (const observation of [...observations].reverse()) release.get(observation.cityId)!({ result: { value: { ...wire(), offenceCount: observation.offenceCount, referenceYear: observation.referenceYear, quote: observation.text }, metadata: metadata("low") }, eventProof: { webSearchCount: 0 } });
+    const results = await Promise.all(pending);
+    expect(results).toHaveLength(batchSize);
+    expect(new Set(results).size).toBe(batchSize);
+    for (const [index, resultValue] of results.entries()) expect(resultValue).toMatchObject({ offenceCount: observations[index]!.offenceCount, referenceYear: observations[index]!.referenceYear });
+  });
+
+  it("does not let an aborted city cancel an unrelated source-observation identity", async () => {
+    const { projector, request } = fixture(); let releaseSecond!: (value: unknown) => void;
+    const invoke = vi.fn().mockImplementation((invocation) => new Promise((resolve) => {
+      if (invocation.prompt.includes('"cityId":"second"')) releaseSecond = resolve;
+    }));
+    const port = createCodexSourceObservation({ invokeJsonWithEventProof: invoke } as never, projector);
+    const firstController = new AbortController(); const secondController = new AbortController();
+    const first = port.observe(request({ cityId: "first", signal: firstController.signal }));
+    const second = port.observe(request({ cityId: "second", signal: secondController.signal }));
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2)); firstController.abort();
+    await expect(first).rejects.toMatchObject({ code: "source_observation_aborted" });
+    releaseSecond({ result: { value: wire(), metadata: metadata("low") }, eventProof: { webSearchCount: 0 } });
+    await expect(second).resolves.toMatchObject({ offenceCount: "1234" });
+  });
+
   it("omits raw ignored fields and source hashes from prompt and deeply freezes schema", async () => {
     const projector = createCitySafetyPublicExcerptProjector(); const raw = JSON.stringify({ definitionId: DEFINITION, periodKind: "annual", municipalityCode: "061", referenceYear: 2024, offenceCount: "1234", numeratorUnit: "offences", ignored: "RAW_PRIVATE_MARKER" }); const bytes = new TextEncoder().encode(raw);
     const projection = projector.project({ schemaVersion: "city-safety-public-capture@1", mediaType: "application/json", sha256: createHash("sha256").update(bytes).digest("hex"), bytes, provenance: { kind: "official_public", authenticated: false, personalized: false, containsPii: false } });

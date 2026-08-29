@@ -27,7 +27,7 @@ describe("city source recovery contracts", () => {
     expect(Object.isFrozen(cursor)).toBe(true);
   });
 
-  test("accepts revision ordinal 999 without accepting an unknown contract schema", () => {
+  test("accepts source-binding ordinal 999 without accepting an unknown binding contract schema", () => {
     const version = reconstructCitySourceVersionV1({
       schemaVersion: "source-version@1",
       id: "source-version:999",
@@ -48,8 +48,16 @@ describe("city source recovery contracts", () => {
       parserVersion: "city-safety-parser@1",
       capturedAt: "2026-08-29T12:00:00.000Z",
     });
-    expect(version.id).toBe("source-version:999");
-    expect(() => reconstructCitySourceVersionV1({ ...version, schemaVersion: "source-version@999" })).toThrow("integrity_mismatch");
+    const revision = reconstructCitySourceBindingRevisionV1({
+      schemaVersion: "source-binding@1", id: "binding:999", bindingKey: version.bindingKey,
+      revisionOrdinal: 999, predecessorRevisionId: "binding:998", sourceVersionId: version.id,
+      evidenceSnapshotId: version.evidenceSnapshotId, knowledgeRevisionId: "knowledge:999",
+      frontierRevisionId: "frontier:999", policyVersion: "official-source-recovery@1",
+      actor: "local_codex_recovery", parentRunId: "run:999", createdAt: "2026-08-29T12:01:00.000Z",
+    });
+    expect(revision.revisionOrdinal).toBe(999);
+    expect(Object.isFrozen(revision)).toBe(true);
+    expect(() => reconstructCitySourceBindingRevisionV1({ ...revision, schemaVersion: "source-binding@999" })).toThrow("integrity_mismatch");
   });
 
   test("rejects unsafe URLs and non-data capture arrays", () => {

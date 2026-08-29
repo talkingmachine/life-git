@@ -67,7 +67,8 @@ import {
   type CitySourceReplacementInput,
   type OfficialSourceRecoveryAttemptV1,
 } from "./city-source-recovery-contracts";
-import { replayCityEvidence, replayCityEvidenceInTransaction } from "./replay-city-evidence";
+import { replayCityEvidence } from "./replay-city-evidence";
+import { replayCityEvidenceInTransaction } from "./replay-city-evidence-internal";
 import { runCitySafetyDiscovery } from "./run-city-safety-discovery";
 import type { ResolvedCountryShortlistSnapshot } from "./country-resolution-contracts";
 import {
@@ -291,7 +292,7 @@ export interface CityFrontierApplication {
 export interface CityFrontierSourceRecoveryCapability {
   readonly bindings: Readonly<{
     loadEffectiveVerified(bindingKey: CitySourceBindingKeyV1): EffectiveCitySourceBinding;
-    appendYellowAttempt(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1;
+    appendYellowAttemptInTransaction(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1;
     appendReplacementInTransaction(
       input: import("./city-source-recovery-contracts").CitySourceReplacementInput,
       expectedCursor: ReturnType<typeof reconstructCitySourceBindingCursorV1>,
@@ -532,7 +533,7 @@ function captureRecoveryCapability(
 ): Readonly<CityFrontierSourceRecoveryCapability> | undefined {
   if (value === undefined) return undefined;
   const root = exactRecord(value, ["bindings", "publication", "officialDiscovery"]);
-  const bindings = methodRecord(root.bindings, ["loadEffectiveVerified", "appendYellowAttempt", "appendReplacementInTransaction"]);
+  const bindings = methodRecord(root.bindings, ["loadEffectiveVerified", "appendYellowAttemptInTransaction", "appendReplacementInTransaction"]);
   const publication = exactRecord(root.publication, ["uow", "sealInTransaction", "evidenceReplayInTransaction", "publishFromEvidenceInTransaction", "appendRevisionInTransaction"]);
   const uow = methodRecord(publication.uow, ["run"]);
   const publicationMethods = methodRecord(publication, [
@@ -3176,7 +3177,9 @@ async function publishReplacement(
       capability.publication.appendRevisionInTransaction);
     const input = replacementInput(authority, recovery, verified, knowledge, commit);
     const bindingRevision = capability.bindings.appendReplacementInTransaction(input, recovery.cursor);
+    requireContinuationWaiter(flight);
     if (!sameRecoveryValue(bindingRevision, input.revision, ports)) mismatch();
+    requireContinuationWaiter(flight);
     return Object.freeze({ evidence, knowledge, commit, bindingRevision, sourceVersion: input.sourceVersion });
   });
 }
@@ -3223,7 +3226,7 @@ function createContinuationFlight(
     if (capability === undefined) mismatch();
     requireContinuationWaiter(flight);
     if (nativeSignalAborted(controller.signal)) abortReason(controller.signal);
-    return Object.freeze({ kind: "yellow", outcome: yellowRecoveryOutcome(authority, prior, capability, ports) });
+    return Object.freeze({ kind: "yellow", outcome: yellowRecoveryOutcome(authority, prior, flight, capability, ports) });
   }).catch((error: unknown) => {
     abortContinuationFlight(flight);
     throw error;
@@ -3368,6 +3371,7 @@ async function emitResearchCompletion(
 function yellowRecoveryOutcome(
   authority: ContinueAuthority,
   recovery: VerifiedSafetyPrior,
+  flight: ContinuationFlight,
   capability: Readonly<CityFrontierSourceRecoveryCapability>,
   ports: Readonly<CityFrontierApplicationPorts>,
 ): Extract<CitySourceRecoveryOutcome, { kind: "yellow" }> {
@@ -3377,8 +3381,13 @@ function yellowRecoveryOutcome(
     id: `${authority.cityCheckRunId}:source-recovery-yellow`, commandId: authority.prepared.commandId,
     bindingKey: recovery.key, cursor: recovery.cursor, outcome: "yellow", createdAt,
   });
-  const appended = reconstructOfficialSourceRecoveryAttemptV1(capability.bindings.appendYellowAttempt(attempt));
-  if (ports.decisionIntegrity.canonical(appended) !== ports.decisionIntegrity.canonical(attempt)) mismatch();
+  capability.publication.uow.run(() => {
+    requireContinuationWaiter(flight);
+    const persisted = reconstructOfficialSourceRecoveryAttemptV1(capability.bindings.appendYellowAttemptInTransaction(attempt));
+    if (ports.decisionIntegrity.canonical(persisted) !== ports.decisionIntegrity.canonical(attempt)) mismatch();
+    requireContinuationWaiter(flight);
+    return persisted;
+  });
   const source = reconstructPublicFactSourceV1({ schemaVersion: "public-fact-source@1",
     factKey: "si-city-safety", status: "yellow", publisherName: null, sourceUrl: null, checkedAt: null });
   return Object.freeze({ schemaVersion: "city-source-recovery-outcome@1", kind: "yellow", source });

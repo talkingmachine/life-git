@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-import type { CitySourceInstalledAuthority, CitySourceInstalledAuthorityPort, CitySourceRecoveryStorePort, CitySourceReplacementInput, CitySourceTruthPublicationAuthorityPort, EffectiveCitySourceBinding } from "../../application/city-source-recovery";
+import type { CitySourceInstalledAuthority, CitySourceInstalledAuthorityPort, CitySourceRecoveryStorePort, CitySourceReplacementInput, CitySourceTruthPublicationAuthorityPort, EffectiveCitySourceBinding, HistoricalCitySourceBinding } from "../../application/city-source-recovery";
 import { reconstructCitySourceBindingCursorV1, reconstructCitySourceBindingKeyV1, reconstructCitySourceBindingRevisionV1, reconstructCitySourceReplacementInputV1, reconstructCitySourceVersionV1, reconstructOfficialSourceRecoveryAttemptV1, reconstructOfficialSourceReplacedEventV1, type CitySourceBindingCursorV1, type CitySourceBindingKeyV1, type CitySourceBindingRevisionV1, type CitySourceVersionV1, type OfficialSourceRecoveryAttemptV1 } from "../../application/city-source-recovery-contracts";
 import type { EvidenceIntegrity } from "../../research/run";
 import { secureHexEqual } from "../integrity";
@@ -31,7 +31,9 @@ export class SqliteCitySourceRecoveryStore implements CitySourceRecoveryStorePor
     const history = this.loadHistoryVerified(installed.bindingKey); if (history.at(-1)?.id !== revision.id) mismatch();
     return Object.freeze({ bindingKey: installed.bindingKey, cursor: reconstructCitySourceBindingCursorV1({ schemaVersion: "city-source-binding-cursor@1", kind: "override", revisionId: revision.id, revisionOrdinal: revision.revisionOrdinal }), sourceVersion, revision });
   }
-  appendYellowAttempt(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1 { const owned = reconstructOfficialSourceRecoveryAttemptV1(attempt); this.authority(owned.bindingKey); return this.database.transaction(() => this.insertAttempt(owned))(); }
+  appendYellowAttempt(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1 { return this.database.transaction(() => this.appendYellowAttemptInTransaction(attempt))(); }
+  /** Caller owns the surrounding SQLite immediate transaction. */
+  appendYellowAttemptInTransaction(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1 { const owned = reconstructOfficialSourceRecoveryAttemptV1(attempt); this.authority(owned.bindingKey); return this.insertAttempt(owned); }
   appendReplacement(input: CitySourceReplacementInput, expectedCursor: CitySourceBindingCursorV1): CitySourceBindingRevisionV1 {
     return this.database.transaction(() => this.appendReplacementInTransaction(input, expectedCursor)).immediate();
   }
@@ -60,6 +62,20 @@ export class SqliteCitySourceRecoveryStore implements CitySourceRecoveryStorePor
   }
   loadHistoryVerified(bindingKey: CitySourceBindingKeyV1): readonly CitySourceBindingRevisionV1[] {
     const installed = this.authority(bindingKey); const key = reconstructCitySourceBindingKeyV1(bindingKey); if (!sameKey(key, installed.bindingKey)) mismatch();
+    return this.historyVerified(key);
+  }
+  /** Historical replay deliberately does not inspect the mutable head or installed authority. */
+  loadRevisionVerified(bindingKey: CitySourceBindingKeyV1, revisionId: string): HistoricalCitySourceBinding {
+    const key = reconstructCitySourceBindingKeyV1(bindingKey);
+    const id = typeof revisionId === "string" ? revisionId : mismatch();
+    const history = this.historyVerified(key);
+    const revision = history.find((candidate) => candidate.id === id);
+    if (revision === undefined) mismatch();
+    const sourceVersion = this.version(revision.sourceVersionId);
+    if (!sameKey(sourceVersion.bindingKey, key) || sourceVersion.evidenceSnapshotId !== revision.evidenceSnapshotId) mismatch();
+    return Object.freeze({ bindingKey: key, revision, sourceVersion });
+  }
+  private historyVerified(key: CitySourceBindingKeyV1): readonly CitySourceBindingRevisionV1[] {
     const history = (this.database.prepare("SELECT id FROM city_source_binding_revisions WHERE country_code=? AND city_id=? AND fact_key=? AND definition_id=? ORDER BY revision_ordinal").all(...args(key)) as { id: string }[]).map(({ id }) => this.revision(id));
     for (let index = 0; index < history.length; index += 1) {
       const revision = history[index]!; if (revision.revisionOrdinal !== index + 1 || revision.predecessorRevisionId !== (index === 0 ? null : history[index - 1]!.id)) mismatch();

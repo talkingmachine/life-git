@@ -1143,7 +1143,7 @@ describe("replayCityEvidence", () => {
     expectTypeOf(compileBoundary).toBeFunction();
 
     const source = readFileSync(
-      join(process.cwd(), "src/application/replay-city-evidence.ts"),
+      join(process.cwd(), "src/application/replay-city-evidence-internal.ts"),
       "utf8",
     );
     expect(source).not.toMatch(/node:crypto|\/infrastructure\/|canonicalJson|createEvidenceIntegrity/);

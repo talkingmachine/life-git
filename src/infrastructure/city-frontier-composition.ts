@@ -345,7 +345,7 @@ export function createCityFrontierComposition(
   const recoveryCapability = recoveryStore === undefined ? undefined : Object.freeze({
     bindings: Object.freeze({
       loadEffectiveVerified: recoveryStore.loadEffectiveVerified.bind(recoveryStore),
-      appendYellowAttempt: recoveryStore.appendYellowAttempt.bind(recoveryStore),
+      appendYellowAttemptInTransaction: recoveryStore.appendYellowAttemptInTransaction.bind(recoveryStore),
       appendReplacementInTransaction: recoveryStore.appendReplacementInTransaction.bind(recoveryStore),
     }),
     publication: Object.freeze({
