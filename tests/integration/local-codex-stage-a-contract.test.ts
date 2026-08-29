@@ -602,6 +602,15 @@ describe("local Codex Stage A gate", () => {
     expect(stageA).toContain('jobId: { type: "string", enum: [id] }');
   });
 
+  test("production Stage A reuses capability runtime metadata without a fourth version probe", async () => {
+    const stageA = await readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8");
+    expect(stageA).not.toContain("stage-a-version@1");
+    expect(stageA).toContain("cliVersion: capabilityProof.runtime.cliVersion");
+    expect(stageA).toContain("protocolVersion: capabilityProof.runtime.protocolVersion");
+    expect(stageA).toContain("compatibilityPolicy: capabilityProof.runtime.compatibilityPolicy");
+    expect(stageA).toContain("models: capabilityProof.runtime.models");
+  });
+
   test("accepts exactly one leading pnpm separator and preserves passive no-flag parsing", async () => {
     expect(parseLocalCodexStageAArgs(["--", "--live-local-subscription", "--artifact", "data/evals/local-codex-stage-a/result.json"]))
       .toEqual({ live: true, artifactPath: "data/evals/local-codex-stage-a/result.json" });

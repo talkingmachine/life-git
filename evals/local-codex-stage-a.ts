@@ -507,9 +507,7 @@ const productionDependencies: Dependencies = Object.freeze({
       registerRuntime: registerNodeCodexRuntime,
       consumeSubscription: async () => {
         const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
-        const adapter = getCodexCliModelAdapter();
-        const result = await adapter.invokeJson(invocation("onboarding.extract", "low", "codex-tools-none@2", "stage-a-version@1", { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean", enum: [true] } } }, "Return only {ok:true}."));
-        return Object.freeze({ cliVersion: result.metadata.cliVersion, protocolVersion: result.metadata.protocolVersion, compatibilityPolicy: result.metadata.compatibilityPolicy, models: Object.freeze({ extraction: CODEX_MODEL, discovery: CODEX_DISCOVERY_MODEL }), noToolProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.low.webSearchCount }), discoveryProbe: Object.freeze({ availability: capabilityProof.discovery.availability, selection: capabilityProof.discovery.selection, webSearchCount: capabilityProof.discovery.webSearchCount }) });
+        return Object.freeze({ cliVersion: capabilityProof.runtime.cliVersion, protocolVersion: capabilityProof.runtime.protocolVersion, compatibilityPolicy: capabilityProof.runtime.compatibilityPolicy, models: capabilityProof.runtime.models, noToolProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.low.webSearchCount }), discoveryProbe: Object.freeze({ availability: capabilityProof.discovery.availability, selection: capabilityProof.discovery.selection, webSearchCount: capabilityProof.discovery.webSearchCount }) });
       },
     });
   },

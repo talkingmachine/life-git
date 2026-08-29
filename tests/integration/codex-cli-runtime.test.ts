@@ -670,8 +670,16 @@ describe("Codex CLI runtime singleton", () => {
       .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0))
       .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 1));
 
-    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal)).resolves.toEqual({
-      schemaVersion: "codex-runtime-capabilities@1", low: { webSearchCount: 0 }, medium: { webSearchCount: 0 }, discovery: { availability: "available", selection: "model-selected", webSearchCount: 1 },
+    const capability = await runtime.verifyCodexCliCapabilities(new AbortController().signal);
+    expect(capability).toEqual({
+      schemaVersion: "codex-runtime-capabilities@2",
+      runtime: {
+        cliVersion: "codex-cli 0.149.0-alpha.4",
+        protocolVersion: "codex-cli-protocol@2",
+        compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2",
+        models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" },
+      },
+      low: { webSearchCount: 0 }, medium: { webSearchCount: 0 }, discovery: { availability: "available", selection: "model-selected", webSearchCount: 1 },
     });
     expect(probe.run.mock.calls.map(([call]) => [call.invocation.reasoningEffort, call.invocation.toolPolicy]))
       .toEqual([["low", "codex-tools-none@2"], ["medium", "codex-tools-none@2"], ["medium", "codex-tools-web-search@2"]]);
@@ -694,18 +702,19 @@ describe("Codex CLI runtime singleton", () => {
       expect(prompt).toMatch(/return.*synthetic status object.*directly/i);
     }
     expect(discoveryProbe).toMatchObject({
-      templateVersion: "codex-runtime-discovery-smoke@4",
+      templateVersion: "codex-runtime-discovery-smoke@5",
       schemaVersion: "codex-runtime-smoke@2",
     });
-    expect(discoveryProbe?.prompt).toMatch(/native web-search tool only/i);
-    expect(discoveryProbe?.prompt).toMatch(/at least one native web search/i);
-    expect(discoveryProbe?.prompt).toContain("official OpenAI developer documentation home");
-    expect(discoveryProbe?.prompt).toMatch(/do not use apply_patch/i);
-    expect(discoveryProbe?.prompt).toMatch(/do not make file changes/i);
-    expect(discoveryProbe?.prompt).toMatch(/do not use shell or command tools/i);
-    expect(discoveryProbe?.prompt).toMatch(/do not use any other tool/i);
-    expect(discoveryProbe?.prompt).toMatch(/do not create, edit, inspect, or write files/i);
-    expect(discoveryProbe?.prompt).toMatch(/return.*synthetic status object.*directly/i);
+    expect(discoveryProbe?.prompt).toBe("Use exactly one native web-search tool call for the current official OpenAI developer documentation home. Do not use apply_patch, file changes, shell, command tools, or any other tool. Return the required synthetic status object directly in the final response.");
+    expect(Object.keys(capability)).toEqual(["schemaVersion", "runtime", "low", "medium", "discovery"]);
+    expect(Object.keys(capability.runtime)).toEqual(["cliVersion", "protocolVersion", "compatibilityPolicy", "models"]);
+    expect(Object.keys(capability.runtime.models)).toEqual(["extraction", "discovery"]);
+    expect(Object.isFrozen(capability)).toBe(true);
+    expect(Object.isFrozen(capability.runtime)).toBe(true);
+    expect(Object.isFrozen(capability.runtime.models)).toBe(true);
+    expect(Object.isFrozen(capability.low)).toBe(true);
+    expect(Object.isFrozen(capability.medium)).toBe(true);
+    expect(Object.isFrozen(capability.discovery)).toBe(true);
   });
 
   test("rejects capability verification when zero-tool or discovery event proof is missing", async () => {

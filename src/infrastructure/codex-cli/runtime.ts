@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { types } from "node:util";
 
-import { CodexRuntimeError, createCodexJsonInvocation, type CodexReasoningEffort } from "./contracts";
+import { CODEX_CLI_COMPATIBILITY_POLICY, CODEX_CLI_PROTOCOL_VERSION, CODEX_DISCOVERY_MODEL, CODEX_MODEL, CodexRuntimeError, createCodexJsonInvocation, type CodexReasoningEffort, type CodexInvocationMetadata } from "./contracts";
 import { CodexFlightPool } from "./flight-pool";
 import { CodexCliModelAdapter, createCodexCliModelAdapterForTest, createReviewedCodexCliModelAdapter } from "./model-adapter";
 import {
@@ -77,7 +77,13 @@ export function createCodexCliRuntimeForTest(): Readonly<{
 }
 
 export interface CodexCliCapabilityVerification {
-  readonly schemaVersion: "codex-runtime-capabilities@1";
+  readonly schemaVersion: "codex-runtime-capabilities@2";
+  readonly runtime: Readonly<{
+    cliVersion: string;
+    protocolVersion: typeof CODEX_CLI_PROTOCOL_VERSION;
+    compatibilityPolicy: typeof CODEX_CLI_COMPATIBILITY_POLICY;
+    models: Readonly<{ extraction: typeof CODEX_MODEL; discovery: typeof CODEX_DISCOVERY_MODEL }>;
+  }>;
   readonly low: Readonly<{ webSearchCount: 0 }>;
   readonly medium: Readonly<{ webSearchCount: 0 }>;
   readonly discovery: Readonly<{
@@ -98,11 +104,13 @@ async function verifyCapabilities(
 ): Promise<CodexCliCapabilityVerification> {
   const adapter = getAdapter();
   const zeroToolCounts: { low?: 0; medium?: 0 } = {};
+  let lowMetadata: CodexInvocationMetadata | undefined;
   for (const reasoningEffort of ["low", "medium"] as const) {
     const outcome = await adapter.invokeJsonWithEventProof(smokeInvocation(reasoningEffort, signal));
     assertSmokeResult(outcome.result.value);
     if (outcome.eventProof.webSearchCount !== 0) throw new CodexRuntimeError("codex_tool_event");
     zeroToolCounts[reasoningEffort] = 0;
+    if (reasoningEffort === "low") lowMetadata = outcome.result.metadata;
   }
   let discoveryCount = 0;
   try {
@@ -110,9 +118,9 @@ async function verifyCapabilities(
       capability: "source.discover",
       reasoningEffort: "medium",
       toolPolicy: "codex-tools-web-search@2",
-      templateVersion: "codex-runtime-discovery-smoke@4",
+      templateVersion: "codex-runtime-discovery-smoke@5",
       schemaVersion: "codex-runtime-smoke@2",
-      prompt: "Use the native web-search tool only and execute at least one native web search to find the current official OpenAI developer documentation home. Do not use apply_patch, do not make file changes, do not use shell or command tools, and do not use any other tool. Do not create, edit, inspect, or write files. Return the required synthetic status object directly in the final response.",
+      prompt: "Use exactly one native web-search tool call for the current official OpenAI developer documentation home. Do not use apply_patch, file changes, shell, command tools, or any other tool. Return the required synthetic status object directly in the final response.",
       outputSchema: smokeOutputSchema(),
       limits: smokeLimits(),
       signal,
@@ -123,7 +131,19 @@ async function verifyCapabilities(
   } catch (error) {
     if (!isExactNativeSearchNotPerformed(error)) throw error;
   }
-  return Object.freeze({ schemaVersion: "codex-runtime-capabilities@1", low: Object.freeze({ webSearchCount: zeroToolCounts.low! }), medium: Object.freeze({ webSearchCount: zeroToolCounts.medium! }), discovery: Object.freeze({ availability: "available", selection: "model-selected", webSearchCount: discoveryCount }) });
+  if (lowMetadata === undefined) throw new CodexRuntimeError("codex_process_failed");
+  return Object.freeze({
+    schemaVersion: "codex-runtime-capabilities@2",
+    runtime: Object.freeze({
+      cliVersion: lowMetadata.cliVersion,
+      protocolVersion: lowMetadata.protocolVersion,
+      compatibilityPolicy: lowMetadata.compatibilityPolicy,
+      models: Object.freeze({ extraction: CODEX_MODEL, discovery: CODEX_DISCOVERY_MODEL }),
+    }),
+    low: Object.freeze({ webSearchCount: zeroToolCounts.low! }),
+    medium: Object.freeze({ webSearchCount: zeroToolCounts.medium! }),
+    discovery: Object.freeze({ availability: "available", selection: "model-selected", webSearchCount: discoveryCount }),
+  });
 }
 
 function initializeTestRuntime(input: InitializeCodexCliRuntimeInput, state: CodexCliRuntimeState): Promise<void> {

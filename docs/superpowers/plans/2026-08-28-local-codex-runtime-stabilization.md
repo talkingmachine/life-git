@@ -1394,6 +1394,28 @@ git commit -m "fix: attest direct local search"
 
 - [ ] **Step 7: Fresh live gate for the new transport**
 
+Live correction discovered after the first offline-reviewed checkpoint: one run passed completely,
+then the next run failed closed at `initialize_runtime:codex_tool_event` and published no artifact.
+Two subsequent sanitized four-call probes showed that Terra low, Terra medium, discovery search and
+the separate Stage A version call can each pass, so the historical failure cannot honestly be
+attributed to one model invocation. Treat it as an intermittent tool-selection surface, not as a
+reason to retry or widen the event parser.
+
+Before restarting the three-run series, use one focused RED/GREEN correction:
+
+- version capability verification to `codex-runtime-capabilities@2` and return the frozen reviewed
+  CLI/protocol/compatibility/model metadata already produced by the successful Terra-low smoke;
+- consume that metadata in Stage A and remove the redundant `stage-a-version@1` subscription call;
+- version the discovery smoke to `codex-runtime-discovery-smoke@5` and use the already live-proven
+  search-only tool-selection clause: exactly one native web-search call and no apply-patch, file,
+  shell, command or other tool;
+- keep `codex_tool_event` terminal with no retry, keep all public Stage A/artifact shapes closed, and
+  do not change the strict JSONL allowlist.
+
+Run the runtime and Stage A contract suites to RED before implementation, then GREEN plus the full
+offline gate and focused runtime/integrity review. Commit the correction and restart the required
+three consecutive live runs from zero; the earlier pass remains diagnostic history only.
+
 The three previous Code-Mode-backed runs are historical diagnostics and do not approve this
 transport. With the owner's existing live subscription/network authorization, run the exact Stage A
 command three fresh times. Each run must pass installation attestation, direct-search canary denial,
