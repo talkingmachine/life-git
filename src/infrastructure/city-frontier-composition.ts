@@ -8,7 +8,11 @@ import {
   type CityFrontierFixedRoutePorts,
   type CityFrontierProfileReadPort,
   type CityFrontierResolvedCountryReadPort,
+  type CityFrontierSourceRecoveryCapability,
 } from "../application/city-frontier";
+import type { CitySourceInstalledAuthorityPort, CitySourceTruthPublicationAuthorityPort } from "../application/city-source-recovery";
+import type { OfficialSourceDiscoveryPort } from "../application/official-source-discovery";
+import { createCitySafetyOfficialDiscoveryAdapter } from "../application/city-safety-official-discovery";
 import {
   createCitySelectionApplication,
   type CitySelectionApplication,
@@ -44,6 +48,8 @@ import { SqliteCityEvidenceStore } from "./sqlite/city-evidence-store";
 import { SqliteCityFrontierStore } from "./sqlite/city-frontier-store";
 import { SqliteCityKnowledgeStore } from "./sqlite/city-knowledge-store";
 import { SqliteCitySelectionWriter } from "./sqlite/city-selection-writer";
+import { SqliteCitySourceRecoveryStore } from "./sqlite/city-source-recovery-store";
+import { SqliteCityContinuationUnitOfWork } from "./sqlite/city-continuation-unit-of-work";
 import { SqliteCityPackageManifestStore } from "./sqlite/city-package-manifest-store";
 import { SqliteCountryResolutionStore } from "./sqlite/country-resolution-store";
 
@@ -73,6 +79,11 @@ export interface CityFrontierCompositionOptions {
   readonly resolveAvailability?: typeof getCityResearchPackageAvailability;
   readonly clock?: () => Date;
   readonly fixedTiming?: CityFrontierFixedTiming;
+  /** Explicit local-beta authority; omitted in normal and unconfigured compositions. */
+  readonly sourceRecovery?: Readonly<{
+    installedAuthority: CitySourceInstalledAuthorityPort;
+    officialDiscovery: OfficialSourceDiscoveryPort;
+  }>;
 }
 
 type PlainRecord = Record<string, unknown>;
@@ -81,7 +92,7 @@ const REQUIRED_OPTIONS = [
   "database", "hmacKey", "resolvedCountries", "profiles", "liveSources",
 ] as const;
 const OPTIONAL_OPTIONS = [
-  "resolveAvailability", "clock", "fixedTiming",
+  "resolveAvailability", "clock", "fixedTiming", "sourceRecovery",
 ] as const;
 
 function mismatch(): never {
@@ -249,6 +260,13 @@ export function createCityFrontierComposition(
     functionValue(timing.fixedSourceDeadlineAt);
     exactMethodObject(timing.fixedDeadlineScheduler, ["schedule"]);
   }
+  const recoveryOptions = options.sourceRecovery === undefined ? undefined : exactRecord(
+    options.sourceRecovery, ["installedAuthority", "officialDiscovery"],
+  );
+  if (recoveryOptions !== undefined) {
+    exactMethodObject(recoveryOptions.installedAuthority, ["loadVerified"]);
+    exactMethodObject(recoveryOptions.officialDiscovery, ["discover"]);
+  }
   const liveSources = captureLiveSources(options.liveSources);
   const database = options.database as Database.Database;
   const integrity = createEvidenceIntegrity(options.hmacKey as string);
@@ -278,6 +296,44 @@ export function createCityFrontierComposition(
   });
   const evidenceStore = new SqliteCityEvidenceStore(database, integrity, installedPackages);
   const knowledgeStore = new SqliteCityKnowledgeStore(database, integrity, installedPackages);
+  const recoveryStore = recoveryOptions === undefined ? undefined : new SqliteCitySourceRecoveryStore(
+    database, integrity,
+    recoveryOptions.installedAuthority as CitySourceInstalledAuthorityPort,
+    Object.freeze({ requireVerified: (input: Parameters<CitySourceTruthPublicationAuthorityPort["requireVerified"]>[0]) => {
+      const evidence = evidenceStore.loadVerifiedInTransaction(input.sourceVersion.evidenceSnapshotId);
+      const knowledge = knowledgeStore.loadVerified(input.revision.knowledgeRevisionId);
+      const frontier = frontierStore.loadRevisionVerified(input.revision.frontierRevisionId);
+      const safety = evidence.snapshot.safetyAttemptLedger;
+      const accepted = safety.result.kind === "verified"
+        ? safety.candidates[safety.result.acceptedCandidateIndex]
+        : undefined;
+      const entry = evidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety");
+      if (evidence.snapshot.id !== input.revision.evidenceSnapshotId ||
+        knowledge.id !== input.revision.knowledgeRevisionId ||
+        knowledge.evidenceSnapshotId !== evidence.snapshot.id ||
+        frontier.id !== input.revision.frontierRevisionId ||
+        input.revision.sourceVersionId !== input.sourceVersion.id ||
+        accepted === undefined || accepted.origin.kind === "previous" ||
+        accepted.disposition !== "usable" || accepted.periodDisposition !== "preferred" ||
+        entry === undefined || evidence.snapshot.cityId !== input.bindingKey.cityId ||
+        knowledge.cityId !== input.bindingKey.cityId ||
+        input.sourceVersion.evidenceSnapshotId !== evidence.snapshot.id ||
+        input.sourceVersion.publisherId !== accepted.publisherId ||
+        input.sourceVersion.navigationUrl !== accepted.publisherNavigationUrl ||
+        input.sourceVersion.requestedUrl !== accepted.canonicalUrl ||
+        input.sourceVersion.finalUrl !== accepted.resolvedEvidenceUrl ||
+        input.sourceVersion.parserVersion !== evidence.genericEvidence.snapshot.parserVersions["si-city-safety"] ||
+        input.sourceVersion.capturedAt !== evidence.snapshot.completedAt ||
+        input.sourceVersion.captureArtifactIds.length !== entry.artifacts.length ||
+        input.sourceVersion.captureArtifactIds.some((id, index) => id !== entry.artifacts[index]?.artifactId) ||
+        input.sourceVersion.captureSha256.some((hash, index) => hash !== entry.artifacts[index]?.sha256) ||
+        frontier.runId !== input.revision.parentRunId || frontier.operation.kind !== "city_completed" ||
+        frontier.operation.cityId !== input.bindingKey.cityId ||
+        frontier.operation.cityCheckRunId !== evidence.snapshot.cityCheckRunId ||
+        !frontier.markers.some((marker) => marker.cityId === input.bindingKey.cityId &&
+          marker.knowledgeRevisionId === knowledge.id && marker.evidenceSnapshotId === evidence.snapshot.id)) mismatch();
+    } }),
+  );
   const selectionWriter = new SqliteCitySelectionWriter(database, integrity, {
     catalogs: catalogStore,
     historicalPackages: manifestStore,
@@ -307,6 +363,29 @@ export function createCityFrontierComposition(
   const fixedTiming = options.fixedTiming as CityFrontierFixedTiming | undefined;
   const clock = options.clock as (() => Date) | undefined ?? defaultClock;
 
+  const recoveryCapability = recoveryStore === undefined ? undefined : Object.freeze({
+    bindings: Object.freeze({
+      loadEffectiveVerified: recoveryStore.loadEffectiveVerified.bind(recoveryStore),
+      appendYellowAttempt: recoveryStore.appendYellowAttempt.bind(recoveryStore),
+      appendReplacementInTransaction: recoveryStore.appendReplacementInTransaction.bind(recoveryStore),
+    }),
+    publication: Object.freeze({
+      uow: new SqliteCityContinuationUnitOfWork(database),
+      sealInTransaction: evidenceStore.sealInTransaction.bind(evidenceStore),
+      evidenceReplayInTransaction: Object.freeze({
+        read: Object.freeze({
+          loadVerified: evidenceStore.loadVerifiedInTransaction.bind(evidenceStore),
+          findVerifiedByCheckRunId: evidenceStore.findVerifiedByCheckRunIdInTransaction.bind(evidenceStore),
+        }), integrity: createCityEvidenceReplayIntegrity(decisionIntegrity),
+        package: Object.freeze({ loadExactReplayContract: installedPackages.loadExactReplayContract.bind(installedPackages) }),
+      }),
+      publishFromEvidenceInTransaction: knowledgeStore.publishFromEvidenceInTransaction.bind(knowledgeStore),
+      appendRevisionInTransaction: frontierStore.appendRevisionInTransaction.bind(frontierStore),
+    }),
+    officialDiscovery: createCitySafetyOfficialDiscoveryAdapter(
+      recoveryOptions!.officialDiscovery as OfficialSourceDiscoveryPort,
+    ),
+  } satisfies CityFrontierSourceRecoveryCapability);
   const assembly = createCityFrontierApplication({
     resolveAvailability: options.resolveAvailability as
       typeof getCityResearchPackageAvailability | undefined ?? getCityResearchPackageAvailability,
@@ -372,7 +451,7 @@ export function createCityFrontierComposition(
     evidenceIntegrity: integrity,
     clock,
     fixedSourceDeadlineAt: fixedTiming?.fixedSourceDeadlineAt ?? defaultDeadlineAt,
-  });
+  }, recoveryCapability);
   const selection = createCitySelectionApplication({
     frontier: assembly.selectionAuthority,
     writer: selectionWriter,

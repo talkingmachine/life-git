@@ -5410,6 +5410,7 @@ describe("City Frontier Application public boundary", () => {
       readonly resolveAvailability?: typeof getCityResearchPackageAvailability;
       readonly clock?: () => Date;
       readonly fixedTiming?: CityFrontierFixedTiming;
+      readonly sourceRecovery?: CityFrontierCompositionOptions["sourceRecovery"];
     };
     type OptionValue<T, K extends PropertyKey> = K extends keyof T
       ? T[K & keyof T]
@@ -11826,7 +11827,9 @@ describe("City Frontier Application public boundary", () => {
             captureArtifactIds: entry.artifacts.map(({ artifactId }) => artifactId), captureSha256: entry.artifacts.map(({ sha256 }) => sha256),
             evidenceSnapshotId: `${seal.cityCheckRunId}:evidence`, parserVersion: priorEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"], capturedAt: seal.completedAt } }),
         appendYellowAttempt: (attempt) => { attempts.push(attempt); return attempt; },
+        appendReplacementInTransaction: () => { throw new Error("unexpected_replacement"); },
       },
+      publication: { uow: { run: (operation) => operation() }, sealInTransaction: () => { throw new Error("unexpected_replacement"); }, evidenceReplayInTransaction: { read: { loadVerified: () => { throw new Error("unexpected_replacement"); }, findVerifiedByCheckRunId: () => undefined }, integrity: { canonical: JSON.stringify, hash: () => DIGEST, hashBytes: () => DIGEST }, package: { loadExactReplayContract: () => { throw new Error("unexpected_replacement"); } } }, publishFromEvidenceInTransaction: () => { throw new Error("unexpected_replacement"); }, appendRevisionInTransaction: () => { throw new Error("unexpected_replacement"); } },
       officialDiscovery: { discover: async (input) => { discovery(input); throw new Error("unexpected_discovery"); } },
     });
     const recovering = await harness.assembly.application.startCityFrontier({
@@ -11887,7 +11890,9 @@ describe("City Frontier Application public boundary", () => {
     const recovery = harness.createRecoveryApplication({ bindings: { loadEffectiveVerified: () => ({ bindingKey,
       cursor: { schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: "a".repeat(64) }, revision: null,
       sourceVersion: { schemaVersion: "source-version@1", id: "yellow-prior", bindingKey, publisherId: accepted.publisherId, navigationUrl: accepted.publisherNavigationUrl, requestedUrl: accepted.canonicalUrl, finalUrl: accepted.resolvedEvidenceUrl, captureArtifactIds: entry.artifacts.map(({ artifactId }) => artifactId), captureSha256: entry.artifacts.map(({ sha256 }) => sha256), evidenceSnapshotId: evidence.snapshot.id, parserVersion: evidence.genericEvidence.snapshot.parserVersions["si-city-safety"], capturedAt: seal.completedAt } }),
-      appendYellowAttempt: (attempt) => { attempts.push(attempt); return attempt; } }, officialDiscovery: { discover: discovery } });
+      appendYellowAttempt: (attempt) => { attempts.push(attempt); return attempt; },
+      appendReplacementInTransaction: () => { throw new Error("unexpected_replacement"); },
+    }, publication: { uow: { run: (operation) => operation() }, sealInTransaction: () => { throw new Error("unexpected_replacement"); }, evidenceReplayInTransaction: { read: { loadVerified: () => { throw new Error("unexpected_replacement"); }, findVerifiedByCheckRunId: () => undefined }, integrity: { canonical: JSON.stringify, hash: () => DIGEST, hashBytes: () => DIGEST }, package: { loadExactReplayContract: () => { throw new Error("unexpected_replacement"); } } }, publishFromEvidenceInTransaction: () => { throw new Error("unexpected_replacement"); }, appendRevisionInTransaction: () => { throw new Error("unexpected_replacement"); } }, officialDiscovery: { discover: discovery } });
     rejectPrior = true;
     const run = await harness.assembly.application.startCityFrontier({ resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI", criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-yellow" });
     const prepared = await harness.assembly.application.prepareCityFrontierContinuation({ runId: run.runId, expectedRevisionId: run.revision.id, commandId: "continue:source-recovery-yellow" });

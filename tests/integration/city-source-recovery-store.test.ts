@@ -89,6 +89,18 @@ describe("SqliteCitySourceRecoveryStore", () => {
     }
   });
 
+  test("rejects a thenable operation before committing its transaction", () => {
+    const { store } = open(); const database = databases[0]!;
+    const cursor = store.loadEffectiveVerified(key).cursor;
+    expect(() => new SqliteCityContinuationUnitOfWork(database).run(() => {
+      store.appendReplacementInTransaction(replacement(), cursor);
+      return { then: () => undefined };
+    })).toThrow("city_continuation_uow_async_operation");
+    expect(database.prepare("SELECT COUNT(*) AS count FROM city_source_binding_heads").get())
+      .toEqual({ count: 0 });
+    expect(cursor.kind).toBe("installed");
+  });
+
   test("rejects a tampered persisted replacement event mirror", () => {
     const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement(); store.appendReplacement(input, cursor); const database = databases[0]!;
     database.exec("DROP TRIGGER official_source_replacement_events_no_update"); database.prepare("UPDATE official_source_replacement_events SET created_at = ? WHERE command_id = ?").run("2026-08-29T12:02:00.000Z", input.commandId);

@@ -1183,9 +1183,14 @@ export class SqliteCityEvidenceStore {
   }
 
   findVerifiedByCheckRunId(borrowedRunId: string): VerifiedCityEvidence | undefined {
+    return this.database.transaction(() => this.findVerifiedByCheckRunIdInTransaction(borrowedRunId))();
+  }
+
+  /** Caller owns the surrounding SQLite transaction. */
+  findVerifiedByCheckRunIdInTransaction(borrowedRunId: string): VerifiedCityEvidence | undefined {
     const runId = ownSnapshot(borrowedRunId);
     if (!identifier(runId)) mismatch();
     const row = rowByCheckRunId(this.database, runId);
-    return row === undefined ? undefined : this.loadVerified(row.id);
+    return row === undefined ? undefined : this.loadVerifiedInTransaction(row.id);
   }
 }

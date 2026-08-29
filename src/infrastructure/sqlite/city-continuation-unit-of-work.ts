@@ -8,6 +8,13 @@ export class SqliteCityContinuationUnitOfWork implements CityContinuationUnitOfW
   constructor(private readonly database: Database.Database) {}
 
   run<T>(operation: () => T): T {
-    return this.database.transaction(operation).immediate();
+    return this.database.transaction(() => {
+      const result = operation();
+      if (result !== null && (typeof result === "object" || typeof result === "function") &&
+        typeof (result as { then?: unknown }).then === "function") {
+        throw new Error("city_continuation_uow_async_operation");
+      }
+      return result;
+    }).immediate();
   }
 }
