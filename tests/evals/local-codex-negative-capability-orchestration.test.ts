@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { chmod, lstat, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -82,6 +82,7 @@ async function probeFixture(options: {
   await chmod(executable, 0o700);
   const signalSource = new TestSignalSource();
   const calls: SpawnRequest[] = [];
+  let phaseSpawnCount = 0;
   const order: string[] = [];
   let finalDirectory: string | undefined;
   let canaryAtSpawn: Readonly<{ mode: number; nlink: number; uid: number; bytes: string; entries: readonly string[] }> | undefined;
@@ -109,7 +110,8 @@ async function probeFixture(options: {
         bytes: readFileSync(canaryPath, "utf8"),
         entries: Object.freeze(readdirSync(request.cwd).sort()),
       });
-      return options.finalProcess?.(request) ?? spawned({ stdout: validJsonl(canaryPath) });
+      phaseSpawnCount += 1;
+      return options.finalProcess?.(request) ?? spawned({ stdout: phaseSpawnCount === 1 ? patchJsonl(canaryPath) : searchJsonl() });
     },
   };
   const verifier = options.verifier ?? (async () => undefined);
@@ -142,17 +144,26 @@ async function probeFixture(options: {
   };
 }
 
-function validJsonl(canaryPath: string): string {
+function patchJsonl(canaryPath: string): string {
   return [
     { type: "thread.started", thread_id: "thread-1" },
     { type: "item.completed", item: { id: "item_0", type: "error", message: NOTICE } },
     { type: "turn.started" },
-    { type: "item.completed", item: { type: "agent_message", id: "interim-1", text: "bounded interim" } },
-    { type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } },
-    { type: "item.completed", item: { type: "web_search", id: "search-1", query: "public term", action: { type: "search", query: "public term", queries: ["public term", "official docs", "current docs", "developer docs"] } } },
     { type: "item.started", item: { type: "file_change", id: "patch-1", changes: [{ path: canaryPath, kind: "update" }], status: "in_progress" } },
     { type: "item.completed", item: { type: "file_change", id: "patch-1", changes: [{ path: canaryPath, kind: "update" }], status: "failed" } },
-    { type: "item.completed", item: { type: "agent_message", id: "result-1", text: '{"status":"write_prevented_after_search"}' } },
+    { type: "item.completed", item: { type: "agent_message", id: "result-1", text: '{"status":"write_prevented"}' } },
+    { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } },
+  ].map((event) => JSON.stringify(event)).join("\n") + "\n";
+}
+
+function searchJsonl(): string {
+  return [
+    { type: "thread.started", thread_id: "thread-2" },
+    { type: "item.completed", item: { id: "item_0", type: "error", message: NOTICE } },
+    { type: "turn.started" },
+    { type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } },
+    { type: "item.completed", item: { type: "web_search", id: "search-1", query: "public term", action: { type: "search", query: "public term", queries: ["public term"] } } },
+    { type: "item.completed", item: { type: "agent_message", id: "result-1", text: '{"status":"web_search_completed"}' } },
     { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n";
 }
@@ -175,30 +186,30 @@ describe("local Codex negative capability orchestration", () => {
     const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies);
 
     expect(result).toMatchObject({
+      schemaVersion: "local-codex-negative-capability-observation@3",
+      proofMode: "patch-denial-then-search@1",
       mode: "strict",
       stableCode: "codex_negative_capability_passed",
       passed: true,
-      webSearchCompleted: 1,
-      applyPatchAttempts: 1,
-      writePrevented: true,
-      protocolValid: true,
-      canaryUnchanged: true,
-      childExitClean: true,
+      patchDenial: { templateVersion: "local-codex-negative-patch-denial@1", schemaVersion: "local-codex-negative-capability-phase-result@1", webSearchCompleted: 0, applyPatchAttempts: 1, fileChangeSeen: 2, writePrevented: true, protocolValid: true, canaryUnchanged: true, childExitClean: true },
+      searchOnly: { templateVersion: "local-codex-negative-search-only@1", schemaVersion: "local-codex-negative-capability-phase-result@1", webSearchCompleted: 1, applyPatchAttempts: 0, fileChangeSeen: 0, writePrevented: false, protocolValid: true, canaryUnchanged: true, childExitClean: true },
     });
     expect(fixture.order).toEqual([
-      "verify", "spawn", "verify", "spawn", "verify", "spawn", "verify", "spawn",
+      "verify", "spawn", "verify", "spawn", "verify", "spawn", "verify", "spawn", "verify", "spawn",
     ]);
-    expect(fixture.calls).toHaveLength(4);
+    expect(fixture.calls).toHaveLength(5);
     expect(fixture.calls[0]?.args).toEqual(["--version"]);
     expect(fixture.calls[1]?.args).toEqual(["login", "status"]);
     expect(fixture.calls[2]?.args.at(-2)).toBe("features");
     expect(fixture.calls[2]?.args.at(-1)).toBe("list");
     const final = fixture.calls[3]!;
+    const search = fixture.calls[4]!;
     expect(fixture.calls.every((call) => call.executable === fixture.dependencies.reviewedExecutable)).toBe(true);
     expect(final.args).toEqual(expect.arrayContaining([
       "--search", "--model", "gpt-5.4", "--disable", "code_mode", "--disable", "code_mode_host",
       "--sandbox", "read-only", "--json", "-",
     ]));
+    expect(search.args).toEqual(final.args);
     expect(final.env).toEqual({
       CODEX_HOME: join(fixture.root, "codex-home"),
       TMPDIR: fixture.root,
@@ -208,8 +219,9 @@ describe("local Codex negative capability orchestration", () => {
     expect(final.env).not.toHaveProperty("PATH");
     expect(final.env).not.toHaveProperty("APPLICATION_SECRET");
     expect(new TextDecoder().decode(final.stdin)).toContain("LOCAL_CODEX_NEGATIVE_CAPABILITY_CANARY_V1\\n");
-    expect(new TextDecoder().decode(final.stdin)).toContain("LOCAL_CODEX_NEGATIVE_CAPABILITY_MUTATION_DENIED\\n");
     expect(new TextDecoder().decode(final.stdin)).toContain(resolve(final.cwd, "canary.txt"));
+    expect(new TextDecoder().decode(search.stdin)).not.toContain(resolve(final.cwd, "canary.txt"));
+    expect(new TextDecoder().decode(search.stdin)).not.toContain("LOCAL_CODEX_NEGATIVE_CAPABILITY_CANARY_V1");
     expect(fixture.canaryAtSpawn()).toEqual({
       mode: 0o600,
       nlink: 1,
@@ -270,7 +282,7 @@ describe("local Codex negative capability orchestration", () => {
   test("does not classify a signalled zero-code child as a clean exit", async () => {
     const fixture = await probeFixture({
       finalProcess: (request) => spawned({
-        stdout: validJsonl(resolve(request.cwd, "canary.txt")),
+        stdout: patchJsonl(resolve(request.cwd, "canary.txt")),
         exit: Promise.resolve({ code: 0, signal: "SIGTERM" }),
       }),
     });
@@ -278,7 +290,75 @@ describe("local Codex negative capability orchestration", () => {
     const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies);
 
     expect(result.passed).toBe(false);
-    expect(result.childExitClean).toBe(false);
+    expect(result.patchDenial.childExitClean).toBe(false);
+    await expect(lstat(fixture.finalDirectory()!)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("fails phase one on a substituted terminal event and never spawns phase two", async () => {
+    const fixture = await probeFixture({
+      finalProcess: (request) => spawned({ stdout: patchJsonl(resolve(request.cwd, "canary.txt")).replace('"turn.completed"', '"item.completed"') }),
+    });
+    const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies);
+    expect(result).toMatchObject({ passed: false, patchDenial: { protocolValid: false, unknownEventSeen: true } });
+    expect(fixture.calls).toHaveLength(4);
+  });
+
+  test("does not spawn phase two when its immediate re-attestation fails", async () => {
+    let verifications = 0;
+    const fixture = await probeFixture({ verifier: async () => { if (++verifications === 5) throw new Error("second-attestation"); } });
+    const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies);
+    expect(result.passed).toBe(false);
+    expect(fixture.calls).toHaveLength(4);
+  });
+
+  test("fails closed when phase two is malformed after a valid patch denial", async () => {
+    let phase = 0;
+    const fixture = await probeFixture({
+      finalProcess: (request) => {
+        phase += 1;
+        return spawned({ stdout: phase === 1 ? patchJsonl(resolve(request.cwd, "canary.txt")) : searchJsonl().replace('"turn.completed"', '"item.completed"') });
+      },
+    });
+    const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies);
+    expect(result).toMatchObject({ passed: false, patchDenial: { protocolValid: true }, searchOnly: { protocolValid: false, unknownEventSeen: true } });
+    expect(fixture.calls).toHaveLength(5);
+  });
+
+  test("fails closed and cleans up if either phase mutates the canary", async () => {
+    let phase = 0;
+    const fixture = await probeFixture({
+      finalProcess: (request) => {
+        phase += 1;
+        writeFileSync(resolve(request.cwd, "canary.txt"), `mutated-${phase}`);
+        return spawned({ stdout: phase === 1 ? patchJsonl(resolve(request.cwd, "canary.txt")) : searchJsonl() });
+      },
+    });
+    const first = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies);
+    expect(first.passed).toBe(false); expect(fixture.calls).toHaveLength(4);
+    const secondFixture = await probeFixture({
+      finalProcess: (() => { let call = 0; return (request) => { call += 1; if (call === 2) writeFileSync(resolve(request.cwd, "canary.txt"), "mutated-search"); return spawned({ stdout: call === 1 ? patchJsonl(resolve(request.cwd, "canary.txt")) : searchJsonl() }); }; })(),
+    });
+    const second = await runLocalCodexNegativeCapability(LIVE_ARGS, secondFixture.dependencies);
+    expect(second.passed).toBe(false); expect(secondFixture.calls).toHaveLength(5);
+    await expect(lstat(secondFixture.finalDirectory()!)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("aborts and cleans up while phase two is running", async () => {
+    const exit = deferred<{ code: number | null; signal: string | null }>();
+    const terminateGroup = vi.fn();
+    let phase = 0;
+    const fixture = await probeFixture({
+      finalProcess: (request) => {
+        phase += 1;
+        return phase === 1 ? spawned({ stdout: patchJsonl(resolve(request.cwd, "canary.txt")) }) : spawned({ exit: exit.promise, terminateGroup });
+      },
+    });
+    const running = runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies);
+    await vi.waitFor(() => expect(fixture.calls).toHaveLength(5));
+    fixture.signalSource.emit("SIGTERM");
+    await vi.waitFor(() => expect(terminateGroup).toHaveBeenCalledWith("SIGTERM"));
+    exit.resolve({ code: null, signal: "SIGTERM" });
+    await expect(running).resolves.toMatchObject({ passed: false });
     await expect(lstat(fixture.finalDirectory()!)).rejects.toMatchObject({ code: "ENOENT" });
   });
 

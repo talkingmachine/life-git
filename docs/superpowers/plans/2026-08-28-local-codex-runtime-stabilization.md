@@ -1228,8 +1228,8 @@ git commit -m "fix: derive onboarding evidence offsets"
 - Produces: exact `CodexModel = "gpt-5.6-terra" | "gpt-5.4"`, code-owned
   capability-to-model resolution, compatibility policy `codex-cli-0.149.0-alpha.4-plus@2`,
   direct-search tool policy `codex-tools-web-search@2`, discovery template
-  `official-source-discover@3`, onboarding V10, negative-capability observation `@2`, and sanitized
-  Stage A artifact `local-codex-stage-a@3`.
+  `official-source-discover@4`, onboarding V10, negative-capability observation `@3`, and sanitized
+  Stage A artifact `local-codex-stage-a@4`.
 - Does not change: protocol/invocation `@2`, application source request/candidate shapes, retry limits,
   deadline/signal/single-flight semantics, any Evidence/Knowledge/Frontier or durable source schema.
 
@@ -1336,23 +1336,32 @@ pnpm exec vitest run tests/infrastructure/codex-cli-contract.test.ts tests/infra
 
 - [ ] **Step 5: RED/GREEN — make the live denied-write proof match the direct transport**
 
-Version the negative-capability observation to `@2` and make it invoke the same validated
-`source.discover` policy as production: `gpt-5.4 medium`, `--search`, full disabled tuple, no
-`--enable`, fresh owned cwd/schema and reviewed executable. The prompt may request exactly one
-native public search followed by one exact patch of the owned canary; it must not mention any
-repository/user path.
+Version the negative-capability observation to `@3` and use two ordered child invocations under the
+same validated production `source.discover` policy: exact `gpt-5.4 medium`, `--search`, full disabled
+tuple, no `--enable`, one fresh owned cwd/schema and the reviewed executable. The previous single
+prompt (`search -> patch`) is not an acceptable stability gate: live runs proved that model tool
+ordering is nondeterministic even when the filesystem remains protected.
 
-Accept only a bounded exact observation with at least one completed native search, one matching
-`file_change in_progress -> failed`, clean child exit and identical before/after canary identity:
-bytes/hash, mode, UID, link count and inode. Missing/extra/successful patch events, an event outside
-the exact canary, no search, unknown events, malformed JSONL, changed canary, noncanonical override,
-attestation failure, timeout or abort all fail closed. The result contains counts/booleans/model and
-policy revision only; never query, URL, prompt, event IDs, paths, stderr or model text.
+Phase one is patch-denial-only. Re-attest the reviewed installation immediately before the child,
+require zero search events, exactly one canary-only `file_change in_progress -> failed`, clean exit,
+and identical pre/post canary bytes/hash, mode, UID, link count, inode and timestamps. Only after the
+complete phase-one proof may phase two start. Re-attest again, run a search-only prompt that never
+receives the canary path or bytes, require exactly one reviewed native search lifecycle, zero file
+events, clean exit and another identical canary snapshot. Both children share one monotonic bounded
+120-second deadline and one abort bridge; phase two receives only remaining time.
+
+Use separate deny-by-default phase parsers and closed nested phase records. Missing, extra,
+successful or out-of-phase patch events, search in phase one, file change in phase two, an event
+outside the exact canary, unknown/future tools, malformed JSONL, changed canary, noncanonical
+override, attestation failure, exhausted deadline or abort are terminal and never start/recover a
+later phase. The `@3` observation records only fixed phase template/schema versions, counts and
+booleans; never query, URL, prompt, event IDs, paths, stderr or model text. Do not claim a same-child
+search-then-patch proof: the honest claim is denied mutation first, followed by clean native search
+under the identical reviewed policy.
 
 Integrate this gate into the explicit Stage A live command before ordinary runtime discovery and
-artifact publication. Stage A `@3` stores an exact sanitized proof (`model`, `codeModeDisabled`,
-`applyPatchAttempts`, `writePrevented`, `canaryUnchanged`) and writes nothing when the gate fails.
-Unit/integration tests use fake spawners only.
+artifact publication. Stage A `@4` stores the two closed sanitized phase proofs and writes nothing
+when either phase fails. Unit/integration tests use fake spawners only.
 
 Run:
 
@@ -1394,7 +1403,7 @@ outcomes remain `yellow_search_not_performed` and `yellow_no_candidate`, with no
 publication. If the three bounded runs contain no positive search proof, Stage A remains blocked;
 do not loop indefinitely.
 
-After every run verify artifact mode `0600`, sanitized `local-codex-stage-a@3` contents and a clean
+After every run verify artifact mode `0600`, sanitized `local-codex-stage-a@4` contents and a clean
 Git tree. Delete only exact app-owned temporary probe directories after checking the canary.
 
 ---

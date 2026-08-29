@@ -67,7 +67,7 @@ describe("local Codex Stage A gate", () => {
 
     expect(result).toEqual({ exitCode: 0, stderr: "" });
     expect(writeArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json", expect.objectContaining({
-      schemaVersion: "local-codex-stage-a@3",
+      schemaVersion: "local-codex-stage-a@4",
       discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 },
       discovery: expectedDiscovery,
     }));
@@ -372,13 +372,41 @@ describe("local Codex Stage A gate", () => {
   test("allowlists an invalid negative-capability observation as tool isolation unproven", async () => {
     const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
       ...deterministicDependencies(),
-      runNegativeCapabilityGate: async () => ({
+      runNegativeCapabilityGate: (async () => ({
         ...(await deterministicDependencies().runNegativeCapabilityGate()),
         passed: false,
-      }),
+      })) as never,
     });
 
     expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+  });
+
+  test("rejects the superseded flat negative-capability observation before runtime initialization", async () => {
+    const initializeRuntime = vi.fn(async () => deterministicDependencies().initializeRuntime());
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      initializeRuntime,
+      runNegativeCapabilityGate: (async () => ({
+        schemaVersion: "local-codex-negative-capability-observation@2" as const,
+        model: "gpt-5.4" as const,
+        toolPolicy: "codex-tools-web-search@2" as const,
+        codeModeDisabled: true as const,
+        mode: "strict" as const,
+        stableCode: "codex_negative_capability_passed" as const,
+        passed: true,
+        webSearchCompleted: 1,
+        applyPatchAttempts: 1,
+        writePrevented: true,
+        unknownEventSeen: false,
+        protocolValid: true,
+        canaryUnchanged: true,
+        childExitClean: true,
+        eventTypeCounts: {},
+      })) as never,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+    expect(initializeRuntime).not.toHaveBeenCalled();
   });
 
   test.each([
@@ -613,12 +641,12 @@ describe("local Codex Stage A gate", () => {
 
     expect(result).toEqual({ exitCode: 0, stderr: "" });
     expect(writeArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json", {
-      schemaVersion: "local-codex-stage-a@3",
+      schemaVersion: "local-codex-stage-a@4",
       cliVersion: "codex-cli 0.149.0-alpha.4",
       protocolVersion: "codex-cli-protocol@2",
       compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2",
       models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" },
-      writeIsolationProof: { model: "gpt-5.4", toolPolicy: "codex-tools-web-search@2", codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true },
+      writeIsolationProof: validWriteIsolationProof(),
       effortsProven: ["low", "medium"],
       noToolProbe: { passed: true, webSearchCount: 0 },
       discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 },
@@ -720,7 +748,7 @@ describe("local Codex Stage A gate", () => {
     await store.write(path, validArtifact());
     const target = resolve(directory, "result.json");
     expect((await lstat(target)).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(await readFile(target, "utf8"))).toMatchObject({ schemaVersion: "local-codex-stage-a@3" });
+    expect(JSON.parse(await readFile(target, "utf8"))).toMatchObject({ schemaVersion: "local-codex-stage-a@4" });
     const collision = resolve(directory, ".local-codex-stage-a-fixed.tmp");
     await writeFile(collision, "unrelated", { mode: 0o600 });
     await expect(createStageAArtifactStore({ workspaceRoot: root, randomId: () => "fixed" }).write(path, validArtifact())).rejects.toMatchObject({ code: "EEXIST" });
@@ -1117,10 +1145,10 @@ describe("local Codex Stage A gate", () => {
       metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2", templateVersion, schemaVersion: "official-source-candidates@1" },
     });
 
-    await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result("official-source-discover@3") })).resolves.toEqual({
+    await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result("official-source-discover@4") })).resolves.toEqual({
       outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false,
     });
-    for (const templateVersion of ["official-source-discover@1", "official-source-discover@999"]) {
+    for (const templateVersion of ["official-source-discover@1", "official-source-discover@3", "official-source-discover@999"]) {
       await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result(templateVersion) })).rejects.toThrow("discovery_result_invalid");
     }
   });
@@ -1141,7 +1169,7 @@ function onboardingOutput(overrides: Readonly<{ typedValue?: unknown; sourceSpan
 
 function deterministicDependencies() {
   return {
-    runNegativeCapabilityGate: async () => ({ schemaVersion: "local-codex-negative-capability-observation@2" as const, model: "gpt-5.4" as const, toolPolicy: "codex-tools-web-search@2" as const, codeModeDisabled: true as const, mode: "strict" as const, stableCode: "codex_negative_capability_passed" as const, passed: true, webSearchCompleted: 1, applyPatchAttempts: 1, writePrevented: true, unknownEventSeen: false, protocolValid: true, canaryUnchanged: true, childExitClean: true, eventTypeCounts: {} }),
+    runNegativeCapabilityGate: async () => validNegativeCapabilityObservation(),
     initializeRuntime: async () => ({ cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2" as const, compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, models: { extraction: "gpt-5.6-terra" as const, discovery: "gpt-5.4" as const }, noToolProbe: { passed: true as const, webSearchCount: 0 as const }, discoveryProbe: { availability: "available" as const, selection: "model-selected" as const, webSearchCount: 1 } }),
     runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
     runDiscovery: async () => ({ outcome: "candidate_hints" as const, candidateCount: 1, allCandidatesUntrusted: true as const, replacementPublished: false as const }),
@@ -1156,13 +1184,56 @@ function deterministicDependencies() {
 
 function validArtifact(): Parameters<ReturnType<typeof createStageAArtifactStore>["write"]>[1] {
   return {
-    schemaVersion: "local-codex-stage-a@3", cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" }, writeIsolationProof: { model: "gpt-5.4", toolPolicy: "codex-tools-web-search@2", codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true }, effortsProven: ["low", "medium"],
+    schemaVersion: "local-codex-stage-a@4", cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" }, writeIsolationProof: validWriteIsolationProof(), effortsProven: ["low", "medium"],
     noToolProbe: { passed: true, webSearchCount: 0 }, discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 }, onboarding: { guardedProposalCount: 4, inventedValueCount: 0 }, discovery: { outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false },
     concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false, measurements: [
       { requested: 1, completed: 1, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
       { requested: 2, completed: 2, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 2_000_000, effectiveCeiling: 5 },
       { requested: 5, completed: 5, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 5_000_000, effectiveCeiling: 5 },
     ] }, abort: { processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true },
+  };
+}
+
+function validNegativeCapabilityObservation() {
+  return {
+    schemaVersion: "local-codex-negative-capability-observation@3" as const,
+    proofMode: "patch-denial-then-search@1" as const,
+    model: "gpt-5.4" as const,
+    toolPolicy: "codex-tools-web-search@2" as const,
+    codeModeDisabled: true as const,
+    mode: "strict" as const,
+    stableCode: "codex_negative_capability_passed" as const,
+    passed: true,
+    patchDenial: validPhaseProof("local-codex-negative-patch-denial@1", 0, 1, 2, true),
+    searchOnly: validPhaseProof("local-codex-negative-search-only@1", 1, 0, 0, false),
+  };
+}
+
+function validWriteIsolationProof() {
+  const observation = validNegativeCapabilityObservation();
+  return {
+    model: observation.model,
+    toolPolicy: observation.toolPolicy,
+    codeModeDisabled: observation.codeModeDisabled,
+    proofMode: observation.proofMode,
+    patchDenial: observation.patchDenial,
+    searchOnly: observation.searchOnly,
+  };
+}
+
+function validPhaseProof(templateVersion: "local-codex-negative-patch-denial@1" | "local-codex-negative-search-only@1", webSearchCompleted: 0 | 1, applyPatchAttempts: 0 | 1, fileChangeSeen: 0 | 2, writePrevented: boolean) {
+  return {
+    templateVersion,
+    schemaVersion: "local-codex-negative-capability-phase-result@1" as const,
+    protocolValid: true,
+    unknownEventSeen: false,
+    webSearchCompleted,
+    applyPatchAttempts,
+    fileChangeSeen,
+    writePrevented,
+    canaryUnchanged: true,
+    childExitClean: true,
+    eventTypeCounts: { "thread.started": 1, "turn.started": 1, "item.started": 1, "item.completed": 1, "turn.completed": 1 },
   };
 }
 

@@ -1242,7 +1242,7 @@ describe("runCitySafetyDiscovery", () => {
       invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
       compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4",
       model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
-      templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
+      templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
     } as const;
     const port: OfficialSourceDiscoveryPort = { discover: vi.fn()
       .mockResolvedValueOnce({ candidates: [{
@@ -1284,7 +1284,7 @@ describe("runCitySafetyDiscovery", () => {
       invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
       compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4",
       model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
-      templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
+      templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
     } as const;
     const empty = createCitySafetyOfficialDiscoveryAdapter({ discover: vi.fn(async () => ({ candidates: [], metadata })) });
     await expect(empty.discover({
@@ -1377,7 +1377,7 @@ describe("runCitySafetyDiscovery", () => {
           invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
           compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.3",
           model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
-          templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
+          templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
         },
       }) },
       officialDocuments: { inspect: async (candidate) => {
@@ -1450,7 +1450,7 @@ describe("runCitySafetyDiscovery", () => {
       invocationVersion: "codex-cli-invocation@2" as const, protocolVersion: "codex-cli-protocol@2" as const,
       compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, cliVersion: "codex-cli 0.149.0-alpha.4",
       model: "gpt-5.4" as const, reasoningEffort: "medium" as const, toolPolicy: "codex-tools-web-search@2" as const,
-      templateVersion: "official-source-discover@3" as const, schemaVersion: "official-source-candidates@1" as const,
+      templateVersion: "official-source-discover@4" as const, schemaVersion: "official-source-candidates@1" as const,
       } };
     };
     await createCitySafetyOfficialDiscoveryAdapter({ discover }).discover({
@@ -1495,7 +1495,7 @@ describe("runCitySafetyDiscovery", () => {
       invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
       compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4",
       model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
-      templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
+      templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
     } as const;
     const officialDiscovery = { discover: vi.fn(async (request: { readonly round: 1 | 2 }) => ({
       kind: "candidates" as const,

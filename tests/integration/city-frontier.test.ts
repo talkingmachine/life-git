@@ -4551,7 +4551,7 @@ const FROZEN_OFFICIAL_DISCOVERY_METADATA = Object.freeze({
   invocationVersion: "codex-cli-invocation@2" as const, protocolVersion: "codex-cli-protocol@2" as const,
   compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, cliVersion: "codex-cli 0.149.0-alpha.4",
   model: "gpt-5.4" as const, reasoningEffort: "medium" as const, toolPolicy: "codex-tools-web-search@2" as const,
-  templateVersion: "official-source-discover@3" as const, schemaVersion: "official-source-candidates@1" as const,
+  templateVersion: "official-source-discover@4" as const, schemaVersion: "official-source-candidates@1" as const,
 });
 
 function recoveryAuthorityCounts(

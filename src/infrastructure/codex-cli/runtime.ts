@@ -110,9 +110,9 @@ async function verifyCapabilities(
       capability: "source.discover",
       reasoningEffort: "medium",
       toolPolicy: "codex-tools-web-search@2",
-      templateVersion: "codex-runtime-discovery-smoke@3",
+      templateVersion: "codex-runtime-discovery-smoke@4",
       schemaVersion: "codex-runtime-smoke@2",
-      prompt: "Use native web search only to find the current official OpenAI developer documentation home. Return only the required synthetic status object.",
+      prompt: "Use the native web-search tool only and execute at least one native web search to find the current official OpenAI developer documentation home. Do not use apply_patch, do not make file changes, do not use shell or command tools, and do not use any other tool. Do not create, edit, inspect, or write files. Return the required synthetic status object directly in the final response.",
       outputSchema: smokeOutputSchema(),
       limits: smokeLimits(),
       signal,
@@ -262,9 +262,9 @@ function smokeInvocation(reasoningEffort: CodexReasoningEffort, signal: AbortSig
     capability: "onboarding.extract",
     reasoningEffort,
     toolPolicy: "codex-tools-none@2",
-    templateVersion: "codex-runtime-smoke@2",
+    templateVersion: "codex-runtime-smoke@3",
     schemaVersion: "codex-runtime-smoke@2",
-    prompt: "Return only the required synthetic status object.",
+    prompt: "Do not use any tool. Do not create, edit, inspect, or write files. Return the required synthetic status object directly in the final response.",
     outputSchema: smokeOutputSchema(),
     limits: smokeLimits(),
     signal,
@@ -284,7 +284,7 @@ function smokeOutputSchema() {
 }
 
 function smokeLimits() {
-  return Object.freeze({ timeoutMs: 30_000, maxStdoutBytes: 131_072, maxStderrBytes: 16_384, maxEvents: 128 });
+  return Object.freeze({ timeoutMs: 60_000, maxStdoutBytes: 131_072, maxStderrBytes: 16_384, maxEvents: 128 });
 }
 
 function assertSmokeResult(value: unknown): void {

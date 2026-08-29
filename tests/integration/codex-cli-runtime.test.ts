@@ -675,7 +675,37 @@ describe("Codex CLI runtime singleton", () => {
     });
     expect(probe.run.mock.calls.map(([call]) => [call.invocation.reasoningEffort, call.invocation.toolPolicy]))
       .toEqual([["low", "codex-tools-none@2"], ["medium", "codex-tools-none@2"], ["medium", "codex-tools-web-search@2"]]);
-    expect(probe.run.mock.calls[2]?.[0].invocation.prompt).toContain("official OpenAI developer documentation home");
+    const invocations = probe.run.mock.calls.map(([call]) => call.invocation);
+    expect(invocations.map(({ limits }) => limits)).toEqual([
+      { timeoutMs: 60_000, maxStdoutBytes: 131_072, maxStderrBytes: 16_384, maxEvents: 128 },
+      { timeoutMs: 60_000, maxStdoutBytes: 131_072, maxStderrBytes: 16_384, maxEvents: 128 },
+      { timeoutMs: 60_000, maxStdoutBytes: 131_072, maxStderrBytes: 16_384, maxEvents: 128 },
+    ]);
+    expect(invocations.every(({ limits }) => Object.isFrozen(limits))).toBe(true);
+    const [lowProbe, mediumProbe, discoveryProbe] = invocations;
+    const noToolProbes = [lowProbe, mediumProbe];
+    expect(noToolProbes.map(({ templateVersion, schemaVersion }) => ({ templateVersion, schemaVersion }))).toEqual([
+      { templateVersion: "codex-runtime-smoke@3", schemaVersion: "codex-runtime-smoke@2" },
+      { templateVersion: "codex-runtime-smoke@3", schemaVersion: "codex-runtime-smoke@2" },
+    ]);
+    for (const { prompt } of noToolProbes) {
+      expect(prompt).toMatch(/do not use any tool/i);
+      expect(prompt).toMatch(/do not create, edit, inspect, or write files/i);
+      expect(prompt).toMatch(/return.*synthetic status object.*directly/i);
+    }
+    expect(discoveryProbe).toMatchObject({
+      templateVersion: "codex-runtime-discovery-smoke@4",
+      schemaVersion: "codex-runtime-smoke@2",
+    });
+    expect(discoveryProbe?.prompt).toMatch(/native web-search tool only/i);
+    expect(discoveryProbe?.prompt).toMatch(/at least one native web search/i);
+    expect(discoveryProbe?.prompt).toContain("official OpenAI developer documentation home");
+    expect(discoveryProbe?.prompt).toMatch(/do not use apply_patch/i);
+    expect(discoveryProbe?.prompt).toMatch(/do not make file changes/i);
+    expect(discoveryProbe?.prompt).toMatch(/do not use shell or command tools/i);
+    expect(discoveryProbe?.prompt).toMatch(/do not use any other tool/i);
+    expect(discoveryProbe?.prompt).toMatch(/do not create, edit, inspect, or write files/i);
+    expect(discoveryProbe?.prompt).toMatch(/return.*synthetic status object.*directly/i);
   });
 
   test("rejects capability verification when zero-tool or discovery event proof is missing", async () => {

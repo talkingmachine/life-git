@@ -213,7 +213,7 @@ function snapshotOfficialDiscoveryResult(value: unknown): CitySafetyOfficialDisc
       metadata.compatibilityPolicy !== "codex-cli-0.149.0-alpha.4-plus@2" ||
       !isSupportedCodexCliVersion(metadata.cliVersion) || metadata.model !== "gpt-5.4" ||
       metadata.reasoningEffort !== "medium" || metadata.toolPolicy !== "codex-tools-web-search@2" ||
-      metadata.templateVersion !== "official-source-discover@3" || metadata.schemaVersion !== "official-source-candidates@1") {
+      metadata.templateVersion !== "official-source-discover@4" || metadata.schemaVersion !== "official-source-candidates@1") {
       invalidOfficialDiscovery();
     }
     const urls = readOfficialDiscoveryArray(result.urls, 5).map((url) => {
@@ -227,7 +227,7 @@ function snapshotOfficialDiscoveryResult(value: unknown): CitySafetyOfficialDisc
         invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
         compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: metadata.cliVersion,
         model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
-        templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
+        templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
       }),
     });
   } catch (error) {

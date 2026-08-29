@@ -9,7 +9,7 @@ import { registerNodeCodexRuntime } from "../src/instrumentation-node";
 import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "../src/infrastructure/codex-cli/reviewed-installation";
 import { createCodexOnboardingModel } from "../src/infrastructure/codex-cli/onboarding-model";
 import { createCodexOfficialSourceDiscovery } from "../src/infrastructure/codex-cli/official-source-discovery";
-import { runLocalCodexNegativeCapability, type NegativeCapabilityProbeObservation } from "./local-codex-negative-capability";
+import { runLocalCodexNegativeCapability, type NegativeCapabilityTwoPhaseObservation } from "./local-codex-negative-capability";
 import { createOnboardingSession } from "../src/decision/onboarding-session";
 import { guardExtraction, isOnboardingGuardContractError, projectQuestionnaireForModel } from "../src/decision/onboarding-model-contract";
 import { parseLocalExtractionOutput } from "../src/decision/onboarding-model-output";
@@ -18,7 +18,7 @@ import { OfficialSourceDiscoveryError, reconstructOfficialSourceDiscoveryRequest
 import { OnboardingModelError, type OnboardingExtractionAcceptance, type OnboardingExtractionAcceptor, type OnboardingExtractionRetryReason, type OnboardingModelErrorCode } from "../src/application/onboarding-contracts";
 
 const OPT_IN_ERROR = "local_codex_live_opt_in_required\n";
-const ARTIFACT_SCHEMA = "local-codex-stage-a@3" as const;
+const ARTIFACT_SCHEMA = "local-codex-stage-a@4" as const;
 const ARTIFACT_PATH = "data/evals/local-codex-stage-a/result.json";
 const EVENT_LIMIT = 128;
 const INFORMATIVE_EVIDENCE_TOKEN = /(?:(?:\p{L}\p{M}*){2,}|\p{N}+)/u;
@@ -50,7 +50,7 @@ type Artifact = Readonly<{
   protocolVersion: typeof CODEX_CLI_PROTOCOL_VERSION;
   compatibilityPolicy: typeof CODEX_CLI_COMPATIBILITY_POLICY;
   models: Readonly<{ extraction: typeof CODEX_MODEL; discovery: typeof CODEX_DISCOVERY_MODEL }>;
-  writeIsolationProof: Readonly<{ model: typeof CODEX_DISCOVERY_MODEL; toolPolicy: "codex-tools-web-search@2"; codeModeDisabled: true; applyPatchAttempts: 1; writePrevented: true; canaryUnchanged: true }>;
+  writeIsolationProof: Readonly<{ model: typeof CODEX_DISCOVERY_MODEL; toolPolicy: "codex-tools-web-search@2"; codeModeDisabled: true; proofMode: "patch-denial-then-search@1"; patchDenial: NegativeCapabilityTwoPhaseObservation["patchDenial"]; searchOnly: NegativeCapabilityTwoPhaseObservation["searchOnly"] }>;
   effortsProven: readonly ["low", "medium"];
   noToolProbe: NoToolProbe;
   discoveryProbe: DiscoveryProbe;
@@ -79,7 +79,7 @@ export type StageADiscoveryFixture = Readonly<{
 }>;
 
 type Dependencies = Readonly<{
-  runNegativeCapabilityGate: () => Promise<NegativeCapabilityProbeObservation>;
+  runNegativeCapabilityGate: () => Promise<NegativeCapabilityTwoPhaseObservation>;
   initializeRuntime: () => Promise<Readonly<{
     cliVersion: string; protocolVersion: typeof CODEX_CLI_PROTOCOL_VERSION;
     compatibilityPolicy: typeof CODEX_CLI_COMPATIBILITY_POLICY; models: Readonly<{ extraction: typeof CODEX_MODEL; discovery: typeof CODEX_DISCOVERY_MODEL }>;
@@ -403,9 +403,56 @@ function validateProofs(runtime: Awaited<ReturnType<Dependencies["initializeRunt
   if (onboarding.guardedProposalCount !== 4 || onboarding.inventedValueCount !== 0 || !validDiscoveryProof(discovery) || concurrency.length !== 3 || concurrency.some((proof, index) => !validMeasurement(proof, [1, 2, 5][index]!)) || abort.processGroupTerminated !== true || abort.lateResultAccepted !== false || abort.waiterRejected !== true || abort.leaderTerminalObserved !== true) throw new TypeError("local_codex_stage_a_invalid_proof");
 }
 
-function requireWriteIsolationProof(value: NegativeCapabilityProbeObservation): Artifact["writeIsolationProof"] {
-  if (value.schemaVersion !== "local-codex-negative-capability-observation@2" || value.model !== CODEX_DISCOVERY_MODEL || value.toolPolicy !== "codex-tools-web-search@2" || value.codeModeDisabled !== true || value.passed !== true || value.webSearchCompleted < 1 || value.applyPatchAttempts !== 1 || value.writePrevented !== true || value.canaryUnchanged !== true || value.childExitClean !== true || value.unknownEventSeen !== false || value.protocolValid !== true) throw new CodexRuntimeError("codex_tool_isolation_unproven");
-  return Object.freeze({ model: value.model, toolPolicy: value.toolPolicy, codeModeDisabled: value.codeModeDisabled, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true });
+function requireWriteIsolationProof(value: NegativeCapabilityTwoPhaseObservation): Artifact["writeIsolationProof"] {
+  try {
+    const observation = exactObject(value, ["schemaVersion", "proofMode", "model", "toolPolicy", "codeModeDisabled", "mode", "stableCode", "passed", "patchDenial", "searchOnly"]);
+    if (observation.schemaVersion !== "local-codex-negative-capability-observation@3" || observation.proofMode !== "patch-denial-then-search@1" || observation.model !== CODEX_DISCOVERY_MODEL || observation.toolPolicy !== "codex-tools-web-search@2" || observation.codeModeDisabled !== true || observation.mode !== "strict" || observation.stableCode !== "codex_negative_capability_passed" || observation.passed !== true) throw new TypeError();
+    const patchDenial = readPhaseProof(observation.patchDenial, "local-codex-negative-patch-denial@1", { webSearchCompleted: 0, applyPatchAttempts: 1, fileChangeSeen: 2, writePrevented: true });
+    const searchOnly = readPhaseProof(observation.searchOnly, "local-codex-negative-search-only@1", { webSearchCompleted: 1, applyPatchAttempts: 0, fileChangeSeen: 0, writePrevented: false });
+    return Object.freeze({
+      model: CODEX_DISCOVERY_MODEL,
+      toolPolicy: "codex-tools-web-search@2",
+      codeModeDisabled: true,
+      proofMode: "patch-denial-then-search@1",
+      patchDenial,
+      searchOnly,
+    });
+  } catch {
+    throw new CodexRuntimeError("codex_tool_isolation_unproven");
+  }
+}
+
+function readPhaseProof(value: unknown, templateVersion: "local-codex-negative-patch-denial@1" | "local-codex-negative-search-only@1", expected: Readonly<{ webSearchCompleted: 0 | 1; applyPatchAttempts: 0 | 1; fileChangeSeen: 0 | 2; writePrevented: boolean }>): NegativeCapabilityTwoPhaseObservation["patchDenial"] {
+  const phase = exactObject(value, ["templateVersion", "schemaVersion", "protocolValid", "unknownEventSeen", "webSearchCompleted", "applyPatchAttempts", "fileChangeSeen", "writePrevented", "canaryUnchanged", "childExitClean", "eventTypeCounts"]);
+  if (phase.templateVersion !== templateVersion || phase.schemaVersion !== "local-codex-negative-capability-phase-result@1" || phase.protocolValid !== true || phase.unknownEventSeen !== false || phase.webSearchCompleted !== expected.webSearchCompleted || phase.applyPatchAttempts !== expected.applyPatchAttempts || phase.fileChangeSeen !== expected.fileChangeSeen || phase.writePrevented !== expected.writePrevented || phase.canaryUnchanged !== true || phase.childExitClean !== true) throw new TypeError();
+  const eventTypeCounts = readSafeEventTypeCounts(phase.eventTypeCounts);
+  return Object.freeze({
+    templateVersion,
+    schemaVersion: "local-codex-negative-capability-phase-result@1",
+    protocolValid: true,
+    unknownEventSeen: false,
+    webSearchCompleted: expected.webSearchCompleted,
+    applyPatchAttempts: expected.applyPatchAttempts,
+    fileChangeSeen: expected.fileChangeSeen,
+    writePrevented: expected.writePrevented,
+    canaryUnchanged: true,
+    childExitClean: true,
+    eventTypeCounts,
+  });
+}
+
+function readSafeEventTypeCounts(value: unknown): Readonly<Record<string, number>> {
+  const labels = ["thread.started", "turn.started", "item.started", "item.completed", "turn.completed", "notice", "reasoning", "agent_message", "file_change", "web_search"] as const;
+  const counts = exactObject(value, labels, true);
+  const result: Record<string, number> = Object.create(null);
+  for (const label of labels) {
+    const count = counts[label];
+    if (count === undefined) continue;
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0 || count > EVENT_LIMIT) throw new TypeError();
+    result[label] = count;
+  }
+  for (const label of ["thread.started", "turn.started", "item.started", "item.completed", "turn.completed"] as const) if (result[label] === undefined) throw new TypeError();
+  return Object.freeze(result);
 }
 
 function validDiscoveryProof(value: DiscoveryProof): boolean {
@@ -424,14 +471,19 @@ function validateArtifact(value: Artifact): void {
   if (root.schemaVersion !== ARTIFACT_SCHEMA || typeof root.cliVersion !== "string" || root.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || root.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY) throw new TypeError("local_codex_stage_a_invalid_artifact");
   const efforts = exactArray(root.effortsProven);
   const models = exactObject(root.models, ["extraction", "discovery"]);
-  const writeIsolationProof = exactObject(root.writeIsolationProof, ["model", "toolPolicy", "codeModeDisabled", "applyPatchAttempts", "writePrevented", "canaryUnchanged"]);
+  const writeIsolationProof = exactObject(root.writeIsolationProof, ["model", "toolPolicy", "codeModeDisabled", "proofMode", "patchDenial", "searchOnly"]);
   const noTool = exactObject(root.noToolProbe, ["passed", "webSearchCount"]);
   const discoveryProbe = exactObject(root.discoveryProbe, ["availability", "selection", "webSearchCount"]);
   const onboarding = exactObject(root.onboarding, ["guardedProposalCount", "inventedValueCount"]);
   const discovery = exactObject(root.discovery, ["outcome", "candidateCount", "allCandidatesUntrusted", "replacementPublished"]);
   const concurrency = exactObject(root.concurrency, ["requested", "completed", "crossJobLeakage", "measurements"]);
   const abort = exactObject(root.abort, ["processGroupTerminated", "lateResultAccepted", "waiterRejected", "leaderTerminalObserved"]);
-  if (models.extraction !== CODEX_MODEL || models.discovery !== CODEX_DISCOVERY_MODEL || writeIsolationProof.model !== CODEX_DISCOVERY_MODEL || writeIsolationProof.toolPolicy !== "codex-tools-web-search@2" || writeIsolationProof.codeModeDisabled !== true || writeIsolationProof.applyPatchAttempts !== 1 || writeIsolationProof.writePrevented !== true || writeIsolationProof.canaryUnchanged !== true || efforts.length !== 2 || efforts[0] !== "low" || efforts[1] !== "medium" || noTool.passed !== true || noTool.webSearchCount !== 0 || discoveryProbe.availability !== "available" || discoveryProbe.selection !== "model-selected" || typeof discoveryProbe.webSearchCount !== "number" || !Number.isSafeInteger(discoveryProbe.webSearchCount) || discoveryProbe.webSearchCount < 0 || discoveryProbe.webSearchCount > EVENT_LIMIT || onboarding.guardedProposalCount !== 4 || onboarding.inventedValueCount !== 0 || !validDiscoveryProof(discovery as DiscoveryProof) || concurrency.crossJobLeakage !== false || abort.processGroupTerminated !== true || abort.lateResultAccepted !== false || abort.waiterRejected !== true || abort.leaderTerminalObserved !== true) throw new TypeError("local_codex_stage_a_invalid_artifact");
+  try {
+    if (models.extraction !== CODEX_MODEL || models.discovery !== CODEX_DISCOVERY_MODEL || writeIsolationProof.model !== CODEX_DISCOVERY_MODEL || writeIsolationProof.toolPolicy !== "codex-tools-web-search@2" || writeIsolationProof.codeModeDisabled !== true || writeIsolationProof.proofMode !== "patch-denial-then-search@1") throw new TypeError();
+    readPhaseProof(writeIsolationProof.patchDenial, "local-codex-negative-patch-denial@1", { webSearchCompleted: 0, applyPatchAttempts: 1, fileChangeSeen: 2, writePrevented: true });
+    readPhaseProof(writeIsolationProof.searchOnly, "local-codex-negative-search-only@1", { webSearchCompleted: 1, applyPatchAttempts: 0, fileChangeSeen: 0, writePrevented: false });
+  } catch { throw new TypeError("local_codex_stage_a_invalid_artifact"); }
+  if (efforts.length !== 2 || efforts[0] !== "low" || efforts[1] !== "medium" || noTool.passed !== true || noTool.webSearchCount !== 0 || discoveryProbe.availability !== "available" || discoveryProbe.selection !== "model-selected" || typeof discoveryProbe.webSearchCount !== "number" || !Number.isSafeInteger(discoveryProbe.webSearchCount) || discoveryProbe.webSearchCount < 0 || discoveryProbe.webSearchCount > EVENT_LIMIT || onboarding.guardedProposalCount !== 4 || onboarding.inventedValueCount !== 0 || !validDiscoveryProof(discovery as DiscoveryProof) || concurrency.crossJobLeakage !== false || abort.processGroupTerminated !== true || abort.lateResultAccepted !== false || abort.waiterRejected !== true || abort.leaderTerminalObserved !== true) throw new TypeError("local_codex_stage_a_invalid_artifact");
   const requested = exactArray(concurrency.requested); const completed = exactArray(concurrency.completed); const measurements = exactArray(concurrency.measurements);
   if (requested.length !== 3 || completed.length !== 3 || measurements.length !== 3 || requested.some((entry, index) => entry !== [1, 2, 5][index]) || completed.some((entry, index) => entry !== [1, 2, 5][index])) throw new TypeError("local_codex_stage_a_invalid_artifact");
   measurements.forEach((measurement, index) => { if (!validMeasurement(exactObject(measurement, ["requested", "completed", "elapsedMs", "p95Ms", "throughputMilliJobsPerSecond", "effectiveCeiling"]) as ConcurrencyMeasurement, [1, 2, 5][index]!)) throw new TypeError("local_codex_stage_a_invalid_artifact"); });
@@ -862,7 +914,7 @@ export async function evaluateDiscoveryFixture(fixture: StageADiscoveryFixture, 
     if (candidates.length > fixture.candidateLimit ||
       metadata.invocationVersion !== "codex-cli-invocation@2" || metadata.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || metadata.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY ||
       typeof metadata.cliVersion !== "string" || metadata.model !== CODEX_DISCOVERY_MODEL || metadata.reasoningEffort !== "medium" || metadata.toolPolicy !== "codex-tools-web-search@2" ||
-      metadata.templateVersion !== "official-source-discover@3" || metadata.schemaVersion !== "official-source-candidates@1") throw new TypeError("local_codex_stage_a_discovery_invalid");
+      metadata.templateVersion !== "official-source-discover@4" || metadata.schemaVersion !== "official-source-candidates@1") throw new TypeError("local_codex_stage_a_discovery_invalid");
     return Object.freeze(candidates.length === 0
       ? { outcome: "yellow_no_candidate" as const, candidateCount: 0, allCandidatesUntrusted: fixture.candidatesUntrusted, replacementPublished: false as const }
       : { outcome: "candidate_hints" as const, candidateCount: candidates.length, allCandidatesUntrusted: fixture.candidatesUntrusted, replacementPublished: false as const });
