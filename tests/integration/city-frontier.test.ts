@@ -11947,8 +11947,11 @@ describe("City Frontier Application public boundary", () => {
     await profiles.appendRelocation(harness.fixture.alternateRelocation);
     await profiles.appendPreference(harness.fixture.alternatePreference);
     let recoveryStore!: SqliteCitySourceRecoveryStore;
+    let realFrontier!: SqliteCityFrontierStore;
+    let failAfterFrontier = true;
     const unitOfWork = new SqliteCityContinuationUnitOfWork(harness.fixture.database);
     const application = harness.createRealFrontierApplication((frontier) => {
+      realFrontier = frontier;
       recoveryStore = new SqliteCitySourceRecoveryStore(harness.fixture.database, EVIDENCE_INTEGRITY,
         Object.freeze({ loadVerified: () => Object.freeze({ bindingKey, sourceVersion: installedSource }) }),
         createCitySourceTruthPublicationAuthority(harness.fixture.evidenceStore, harness.fixture.knowledgeStore, frontier));
@@ -11969,7 +11972,14 @@ describe("City Frontier Application public boundary", () => {
           package: Object.freeze({ loadExactReplayContract: harness.fixture.installedPackages.loadExactReplayContract.bind(harness.fixture.installedPackages) }),
         }),
         publishFromEvidenceInTransaction: harness.fixture.knowledgeStore.publishFromEvidenceInTransaction.bind(harness.fixture.knowledgeStore),
-        appendRevisionInTransaction: frontier.appendRevisionInTransaction.bind(frontier),
+        appendRevisionInTransaction: (input) => {
+          const revision = frontier.appendRevisionInTransaction(input);
+          if (failAfterFrontier) {
+            failAfterFrontier = false;
+            throw new Error("injected_after_frontier");
+          }
+          return revision;
+        },
       }),
       officialDiscovery: Object.freeze({ discover: async () => Object.freeze({ kind: "candidates" as const,
         urls: Object.freeze(["https://ljubljana.si/recovered"]), metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }) }),
@@ -11980,6 +11990,14 @@ describe("City Frontier Application public boundary", () => {
     });
     const count = (table: string) => harness.fixture.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
     const before = Object.fromEntries(["city_evidence_snapshots", "city_knowledge_revisions", "city_frontier_revisions", "city_source_versions", "city_source_binding_revisions", "city_source_binding_heads", "official_source_recovery_attempts", "official_source_replacement_events"].map((table) => [table, count(table).count]));
+    await expect(application.continueCityFrontierWithSourceRecovery(
+      prepared, vi.fn(), new AbortController().signal,
+    )).rejects.toThrow("injected_after_frontier");
+    for (const table of Object.keys(before)) expect(count(table).count).toBe(before[table]!);
+    expect(realFrontier.loadHeadVerified(started.runId)).toEqual(started.revision);
+    const rolledBack = recoveryStore.loadEffectiveVerified(bindingKey);
+    expect(rolledBack.cursor.kind).toBe("installed");
+    expect(rolledBack.sourceVersion).toEqual(installedSource);
     const outcome = await application.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
     expect(outcome.kind).toBe("advanced");
     for (const table of Object.keys(before)) expect(count(table).count).toBe(before[table]! + 1);
