@@ -539,6 +539,82 @@ describe("local Codex Stage A gate", () => {
     }) })).resolves.toEqual({ guardedProposalCount: 4, inventedValueCount: 0 });
   });
 
+  test("accepts narrower supporting evidence for every canonical fact", async () => {
+    const fixture = await readOnboardingFixture();
+    const evidence = ["Москве", "одна", "российское", "5"];
+    const proposals = fixture.expected.proposals.map((proposal, index) => {
+      const start = fixture.message.text.indexOf(evidence[index]!);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return {
+        fieldId: proposal.fieldId,
+        typedValue: proposal.typedValue,
+        messageId: fixture.message.messageId,
+        sourceSpan: { start, end: start + evidence[index]!.length },
+      };
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).resolves.toEqual({ guardedProposalCount: 4, inventedValueCount: 0 });
+  });
+
+  test.each([
+    ["од", "moving_party"],
+    ["россий", "participants.self.citizenships"],
+  ] as const)("rejects split Unicode token %s as evidence", async (fragment, fieldId) => {
+    const fixture = await readOnboardingFixture();
+    const proposals = fixture.expected.proposals.map((proposal) => {
+      const start = proposal.fieldId === fieldId ? fixture.message.text.indexOf(fragment) : proposal.sourceSpan.start;
+      return {
+        fieldId: proposal.fieldId,
+        typedValue: proposal.typedValue,
+        messageId: fixture.message.messageId,
+        sourceSpan: { start, end: proposal.fieldId === fieldId ? start + fragment.length : proposal.sourceSpan.end },
+      };
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).rejects.toThrow("onboarding_evidence_mismatch");
+  });
+
+  test("accepts a complete decomposed Unicode token but rejects a span starting after its combining mark", async () => {
+    const word = "И\u0306ошкаре";
+    const text = `Живу в ${word}.`;
+    const start = text.indexOf(word);
+    const fixture = parseOnboardingFixture({
+      message: { messageId: onboardingFixture.message.messageId, role: "user", text },
+      expected: {
+        schemaVersion: "onboarding-model-output@1",
+        proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Йошкар-Ола" }, messageId: onboardingFixture.message.messageId, sourceSpan: { start, end: start + word.length }, text: word }],
+        nextQuestion: onboardingFixture.expected.nextQuestion,
+      },
+    });
+    const output = (sourceSpan: Readonly<{ start: number; end: number }>) => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Йошкар-Ола" }, messageId: onboardingFixture.message.messageId, sourceSpan }],
+      nextQuestion: onboardingFixture.expected.nextQuestion,
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => output({ start, end: start + word.length }) }))
+      .resolves.toEqual({ guardedProposalCount: 1, inventedValueCount: 0 });
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => output({ start: start + 2, end: start + word.length }) }))
+      .rejects.toThrow("onboarding_evidence_mismatch");
+  });
+
+  test.each([
+    ["one-letter preposition", { start: 7, end: 8 }],
+    ["tiny overlap of a long unrelated span", { start: 0, end: 8 }],
+  ] as const)("rejects %s as evidence for a canonical fact", async (_case, sourceSpan) => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => onboardingOutput({ sourceSpan }) }))
+      .rejects.toThrow("onboarding_evidence_mismatch");
+  });
+
   test("rejects canonical facts when every field points to the same unrelated valid evidence", async () => {
     const fixture = await readOnboardingFixture();
     const proposals = fixture.expected.proposals.map(({ fieldId, typedValue }) => ({
