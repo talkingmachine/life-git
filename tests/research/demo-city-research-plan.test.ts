@@ -1,0 +1,2 @@
+import { expect,test } from "vitest"; import { planDemoCityResearchBatches,planDemoCityResearchJobs } from "../../src/research/demo-city-research-plan";
+test("projects exact fifty jobs into ten frozen five-job batches",()=>{const jobs=planDemoCityResearchJobs(),batches=planDemoCityResearchBatches();expect(jobs).toHaveLength(50);expect(new Set(jobs.map(x=>x.jobId)).size).toBe(50);expect(batches).toHaveLength(10);expect(batches.every(x=>x.jobs.length===5)).toBe(true);expect(Object.isFrozen(jobs[0]!)).toBe(true);});
