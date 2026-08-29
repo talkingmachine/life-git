@@ -112,12 +112,20 @@ process launcher, JSONL decoder, schema ownership, limits и preflight, но cap
 модель, reasoning, tool policy и prompt отдельно.
 
 Codex child не получает repository/workspace path, application database, source registry,
-credentials, shell, MCP, plugins, skills, browser automation или write tool. Source mutation
-выполняется только Application после всех gates.
+application credentials, shell, MCP, plugins, skills или browser automation. Subscription auth
+доступен только аттестованному local Codex binary через закрытый `CODEX_HOME` environment. Source
+mutation выполняется только Application после всех gates.
+
+Для direct-search модели установленный CLI неизбежно объявляет model-visible `apply_patch`, хотя
+reviewed config не даёт отдельного supported disable switch. Поэтому контракт не утверждает, что
+такого tool declaration нет: `--sandbox read-only` и managed approval boundary обязаны отклонить
+file change до mutation, production decoder отклоняет любой `file_change` event, а exact pinned
+bundle допускается к search только после live negative canary proof. Единственный разрешённый
+успешный внешний effect discovery-вызова — native `web_search`.
 
 ## 5. Модель и invocation policy
 
-В первой версии используется один model family с двумя уровнями reasoning:
+В local beta используются две code-owned модели не выше `gpt-5.6-terra` и два уровня reasoning:
 
 | Capability | Model | Reasoning | Live search |
 | --- | --- | --- | --- |
@@ -125,11 +133,12 @@ credentials, shell, MCP, plugins, skills, browser automation или write tool. 
 | `onboarding.extract` schema/ambiguity retry | `gpt-5.6-terra` | `medium` | запрещён |
 | `source.extract` | `gpt-5.6-terra` | `low` | запрещён |
 | `source.extract` schema/ambiguity retry | `gpt-5.6-terra` | `medium` | запрещён |
-| `source.discover`, round 1 или 2 | `gpt-5.6-terra` | `medium` | разрешён |
+| `source.discover`, round 1 или 2 | `gpt-5.4` | `medium` | разрешён |
 
-Model/effort allowlist принадлежит коду. Environment, questionnaire text, captured page, search
-result и пользовательский Codex config не могут заменить модель или повысить effort. Любая модель
-выше `gpt-5.6-terra` либо reasoning выше `medium` fail-closed.
+Capability-to-model mapping и effort allowlist принадлежат коду. Environment, questionnaire text,
+captured page, search result и пользовательский Codex config не могут заменить модель или повысить
+effort. Extraction/review используют exact `gpt-5.6-terra`; discovery использует exact `gpt-5.4`.
+Любая другая модель либо reasoning выше `medium` fail-closed.
 
 Каждый вызов запускает эквивалент bounded non-interactive invocation:
 
@@ -140,7 +149,7 @@ codex [--search только для source.discover]
   --ignore-user-config
   --ignore-rules
   --strict-config
-  --model gpt-5.6-terra
+  --model <exact code-owned capability model>
   --sandbox read-only
   <exact capability tool-disable tuple>
   --cd <fresh app-owned empty directory>
@@ -164,11 +173,13 @@ Versioned `CodexToolPolicy` — часть invocation contract, а не комм
 inventory не содержит нового неизвестного tool.
 
 `onboarding.extract` и `source.extract` принимают zero tool events. `source.discover` использует тот
-же disable tuple и отдельно разрешает только live `web_search`; JSONL decoder принимает лишь exact
+же полный disable tuple, включая `code_mode` и `code_mode_host`, добавляет только public `--search`
+и выбирает `gpt-5.4`; ни один feature не включается обратно. JSONL decoder принимает лишь exact
 reviewed web-search start/result/complete events. Shell, file, browser/computer, MCP, plugin, skill,
-app, image и любой unknown tool event немедленно дают protocol failure. Если текущая версия CLI
-переименовала feature или event, production call не запускается до новой reviewed revision
-`CodexToolPolicy`.
+app, image и любой unknown tool event немедленно дают protocol failure. `file_change` отдельно
+считается terminal protocol failure даже когда pinned CLI уже отклонил его до mutation. Если
+текущая версия CLI переименовала feature, model tool mode или event, production call не запускается
+до новой reviewed revision `CodexToolPolicy` и повторного negative canary gate.
 
 Temporary directory имеет mode `0700`, schema — `0600`; stdout/stderr bounded и остаются в памяти.
 Directory удаляется в `finally`, stale app-owned directories scavenged по точному prefix/UID.
@@ -180,15 +191,21 @@ Exact alpha build больше не является единственным co
 делало patch pin ложной точкой отказа. Preflight всё равно fail-closed, но проверяет наблюдаемое
 поведение текущего бинарника:
 
-1. executable разрешён в canonical path и версия попадает в поддержанную protocol family;
+1. до любого child spawn, network, `CODEX_HOME` forwarding или runtime write проверены canonical
+   paths, UID/mode/link-count и SHA-256 exact reviewed ChatGPT bundle; `CODEX_EXECUTABLE` допускается
+   только absent либо равным reviewed path, а `PATH` не участвует в production resolution;
 2. `codex login status` подтверждает ChatGPT subscription login;
-3. synthetic invocations с fixed `--model gpt-5.6-terra`, `low` и `medium` успешно используют
-   structured output; experimental `codex debug models` может дать diagnostics, но не является
-   единственным gate;
+3. synthetic extraction invocations с fixed `--model gpt-5.6-terra`, `low` и `medium`, а также
+   discovery invocation с fixed `--model gpt-5.4`, `medium` успешно используют structured output;
+   experimental `codex debug models` может дать diagnostics, но не является единственным gate;
 4. required CLI flags и disabled-feature inventory распознаны;
 5. synthetic no-tool structured probe возвращает exact schema;
 6. отдельный synthetic discovery probe показывает только допустимые web-search events;
 7. stdout/stderr/event bounds, cleanup и abort proof проходят.
+
+Attestation относится к normal Next/Node registration, а не только к eval. Ошибка verifier или
+неcanonical executable override обязана завершиться до первого `--version`, `login status`,
+`features list` или model child и не оставляет установленный adapter.
 
 Версия бинарника, protocol fingerprint и результаты probe сохраняются как несекретная runtime
 диагностика. Drift required flag, event shape или tool inventory блокирует LLM capabilities до
@@ -320,6 +337,28 @@ yellow outcome без SourceBinding/Evidence/Knowledge/Frontier write. Malformed
 code-owned bounded search results через отдельный `NativeOfficialSearchPort`, после чего Terra
 разбирает их с отключёнными tools; это не меняет frozen public source DTO.
 
+#### 8.3.2 Reviewed direct-search transport
+
+Проверка bundled model catalog и owner-authorized live probe показали, что `gpt-5.6-terra`
+маршрутизирует search через `code_mode_only`, а `gpt-5.4 medium` выполняет native `web_search`
+напрямую при одновременно отключённых `code_mode` и `code_mode_host`. Поэтому local beta использует
+`gpt-5.4 medium` только для `source.discover`; extraction остаётся на Terra low/medium.
+
+Официальный model contract также объявляет для `gpt-5.4` both Web search и Apply patch. У pinned CLI
+нет reviewed strict-config key, удаляющего только Apply patch. Перед принятием direct-search
+transport отдельный live gate создаёт fresh owned `0700` cwd и `0600` canary, делает native search,
+затем просит один context-valid patch и принимает только exact sequence `file_change in_progress ->
+failed`, clean process exit и неизменные bytes/mode/UID/link/inode canary. Это доказывает для exact
+аттестованного bundle, что managed approval + read-only sandbox блокируют write до mutation. Любой
+успешный/неполный/unknown file event, изменение canary, отсутствие native search или drift event
+shape блокирует Stage A. Production discovery всё равно fail-closed на первом `file_change` и не
+преобразует его в yellow.
+
+Это сознательно более узкая гарантия, чем «модель не видит write tool»: модель его видит, но не
+может успешно совершить write. Code Mode, host, shell, unified exec, MCP, browser и остальные
+retained features остаются disabled. При обновлении бинарника digest attestation ломается раньше
+spawn, и negative gate должен быть reviewed заново.
+
 ## 9. Source identity и official gate
 
 Источник привязан к точной проверке:
@@ -439,12 +478,14 @@ recursive/unbounded discovery запрещён.
 ### A. Stable local runtime
 
 1. устранить stale version contract и диагностировать текущие HTTP/state-DB failures;
-2. получить успешные auth/model/structured probes и честно зафиксировать native search как
-   `available + model-selected`, сохранив post-hoc proof;
+2. аттестовать exact reviewed installation до первого spawn, получить успешные
+   Terra-low/Terra-medium extraction и `gpt-5.4 medium` discovery probes и честно зафиксировать
+   native search как `available + model-selected`, сохранив post-hoc proof;
 3. доказать questionnaire extraction и хотя бы один official-source candidate discovery; каждый
    bounded zero-search/no-candidate исход обязан завершаться formal yellow без source mutation;
 4. прогнать concurrency benchmark `1/2/5` и abort/no-late-write;
-5. зафиксировать стабильную local command и diagnostics.
+5. доказать direct-search negative canary denial без Code Mode и зафиксировать стабильную local
+   command и diagnostics.
 
 ### B. Demo catalog
 
@@ -484,11 +525,13 @@ replacement audit timeline и known limitations. После ручного пр�
 
 Design считается реализованным только когда:
 
-1. local subscription auth, exact Terra allowlist и low/medium reasoning проходят; local native
-   search фиксируется как `available + model-selected`, а любой green discovery требует
-   положительный reviewed search proof;
+1. local subscription auth, exact capability mapping (`gpt-5.6-terra` extraction/review,
+   `gpt-5.4 medium` discovery) проходят; local native search фиксируется как
+   `available + model-selected`, а любой green discovery требует положительный reviewed search
+   proof;
 2. repository/user config/tools не попадают в child, extraction допускает zero tools, discovery —
-   только reviewed web-search events;
+   только reviewed web-search events; Code Mode остаётся disabled, а direct-search negative canary
+   доказывает denied pre-mutation file change и неизменный файл;
 3. questionnaire fixture стабильно превращается в guarded proposals без invented values;
 4. capture -> extraction -> deterministic color сохраняет exact provenance;
 5. broken/stale URL запускает bounded discovery, а не red;
@@ -533,3 +576,6 @@ server credential. Default hosted/normal mode использует external API.
   <https://learn.chatgpt.com/docs/auth>.
 - `gpt-5.6-terra` supports structured output, web search and bounded reasoning levels:
   <https://developers.openai.com/api/docs/models/gpt-5.6-terra>.
+- `gpt-5.4` supports structured output, medium reasoning and both Web search and Apply patch; local
+  beta therefore relies on the reviewed CLI denial gate rather than claiming the patch declaration
+  is absent: <https://developers.openai.com/api/docs/models/gpt-5.4>.

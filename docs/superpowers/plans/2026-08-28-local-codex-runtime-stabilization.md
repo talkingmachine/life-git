@@ -4,7 +4,7 @@
 
 **Goal:** Deliver Stage A of the approved local-beta design: a stable ChatGPT-subscription Codex CLI runtime that performs guarded onboarding extraction and returns untrusted official-source candidates through live web search, with bounded concurrency, abort ownership, and a reproducible local live gate.
 
-**Architecture:** Keep Codex behind capability-specific ports and treat every model result as untrusted JSON. A versioned runtime policy owns the exact Terra model, low/medium effort, tool isolation and compatible CLI family; a keyed adaptive flight pool owns process concurrency and abort. Onboarding and source discovery validate locally, while the live eval proves the installed subscription path without writing application state.
+**Architecture:** Keep Codex behind capability-specific ports and treat every model result as untrusted JSON. A versioned runtime policy owns the exact capability-to-model mapping (`gpt-5.6-terra` for extraction/review, `gpt-5.4 medium` for direct discovery), tool isolation and compatible CLI family; normal runtime attests the reviewed ChatGPT bundle before any spawn. A keyed adaptive flight pool owns process concurrency and abort. Onboarding and source discovery validate locally, while the live eval proves subscription search and pre-mutation write denial without writing application state.
 
 **Tech Stack:** TypeScript 6, Node.js child processes, Vitest 4, Zod-free closed-object validators already used by the runtime, `codex exec` JSONL/JSON Schema output, Git.
 
@@ -15,14 +15,15 @@
 - This plan implements Delivery Sequence **A. Stable local runtime** only. Source excerpt extraction, durable SourceBinding recovery, the 10×5 demo catalog, full end-to-end flow and owner walkthrough each require a later focused plan.
 - Use only Git and GitHub for repository work. Never use Arc, Arcanum, Tracker, or any Yandex infrastructure.
 - Do not touch `.superpowers/brainstorm`, the unrelated Task19 worktree, or user-owned untracked files in the repository root.
-- Runtime model allowlist is exactly `gpt-5.6-terra`; allowed reasoning is exactly `low | medium`. No environment or caller override may select another model or higher effort.
-- `onboarding.extract`, `onboarding.review`, and all extraction attempts allow zero tool events. `source.discover` allows only reviewed native `web_search` events.
+- Runtime capability mapping is exact: extraction/review use `gpt-5.6-terra` at `low | medium`; `source.discover` uses `gpt-5.4` at `medium`. No environment or caller override may select another model or higher effort.
+- Normal runtime must verify the exact reviewed executable/companion paths, metadata and digests before any child spawn, network, `CODEX_HOME` forwarding or runtime write. A noncanonical `CODEX_EXECUTABLE` fails closed; production never resolves Codex from `PATH`.
+- `onboarding.extract`, `onboarding.review`, and all extraction attempts allow zero tool events. `source.discover` keeps the full disabled tuple, including `code_mode`/`code_mode_host`, and allows only reviewed native `web_search` events. The model-visible Apply patch declaration is denied by managed approval plus read-only sandbox; any `file_change` event still fails production invocation.
 - Codex remains an untrusted candidate generator. It cannot create facts, Evidence, Knowledge, Frontier, a verdict, an active binding, a manifest, or any durable application row.
 - Child processes use `shell: false`, a fresh app-owned empty `0700` working directory, a `0600` schema file, a closed environment, bounded stdin/stdout/stderr/events/time, and no repository/database path.
 - Integrity/security/ownership failures never retry. Onboarding/source schema ambiguity gets at most one `low -> medium` retry; discovery is `medium` and later recovery will own the two-round limit.
 - Identical requests are keyed single-flight. Distinct requests run under an adaptive maximum of five children, shrinking `5 -> 3 -> 1` on rate/transient pressure and recovering only after cooldown.
 - Aborting one waiter detaches it; all waiters gone abort the leader process group. A finished or aborted flight cannot publish late output.
-- Historical onboarding V1–V8 tuples remain byte-for-byte reconstructible. New current calls use V9 and invocation/protocol `@2`; hybrid or unknown tuples fail closed.
+- Historical onboarding V1–V9 tuples remain byte-for-byte reconstructible. Task 11 appends V10 only for the reviewed compatibility-policy revision; hybrid or unknown tuples fail closed.
 - Unit/integration tests use fake process/search boundaries. Real subscription/search checks are explicit local opt-in and are not part of ordinary CI.
 - The future `dev-llm` provider switch and external API provider remain backlog-only and must not be implemented in this plan.
 - Follow strict TDD for every behavior change: name the break, observe the focused RED failure, implement the minimum GREEN change, and rerun the focused test before a broader gate.
@@ -34,6 +35,7 @@
 | `src/infrastructure/codex-cli/contracts.ts` | Closed invocation/result/error contracts and fixed model/protocol vocabulary. |
 | `src/infrastructure/codex-cli/policy.ts` | Compatible CLI family, exact tool-policy feature tuple, fixed argv builder and policy fingerprint. |
 | `src/infrastructure/codex-cli/preflight.ts` | Canonical executable, ChatGPT login and observed capability checks. |
+| `src/infrastructure/codex-cli/reviewed-installation.ts` | Fixed reviewed bundle paths, ownership/mode/link and SHA-256 attestation. |
 | `src/infrastructure/codex-cli/event-stream.ts` | Capability-aware JSONL state machine; zero-tool vs web-search proof. |
 | `src/infrastructure/codex-cli/process.ts` | Bounded process-group lifecycle. |
 | `src/infrastructure/codex-cli/flight-pool.ts` | Keyed single-flight, five-slot adaptive scheduling and waiter ownership. |
@@ -46,6 +48,7 @@
 | `src/application/official-source-discovery.ts` | Public-data-only discovery port and frozen request/result DTOs. |
 | `src/infrastructure/codex-cli/official-source-discovery.ts` | Medium/search prompt, schema and strict untrusted-candidate decoder. |
 | `evals/local-codex-stage-a.ts` | Explicit live subscription/search/concurrency/abort gate and sanitized artifact. |
+| `evals/local-codex-negative-capability.ts` | Direct-search native-search plus denied-write canary gate for the exact reviewed bundle. |
 
 ---
 
@@ -1190,6 +1193,212 @@ git commit -m "fix: derive onboarding evidence offsets"
 
 ---
 
+### Task 11: Attest normal runtime and replace Code Mode discovery with reviewed direct search
+
+**Files:**
+- Modify: `src/infrastructure/codex-cli/contracts.ts`
+- Modify: `src/infrastructure/codex-cli/policy.ts`
+- Modify: `src/infrastructure/codex-cli/preflight.ts`
+- Modify: `src/infrastructure/codex-cli/runtime.ts`
+- Modify: `src/infrastructure/codex-cli/model-adapter.ts`
+- Modify: `src/infrastructure/codex-cli/official-source-discovery.ts`
+- Modify: `src/infrastructure/codex-cli/onboarding-model.ts`
+- Modify: `src/instrumentation-node.ts`
+- Modify: `src/application/official-source-discovery.ts`
+- Modify: `src/application/onboarding-model-versions.ts`
+- Modify: `evals/local-codex-negative-capability.ts`
+- Modify: `evals/local-codex-stage-a.ts`
+- Modify: `docs/README.md`
+- Test: `tests/infrastructure/codex-cli-policy.test.ts`
+- Test: `tests/infrastructure/codex-cli-preflight.test.ts`
+- Test: `tests/evals/local-codex-negative-capability.test.ts`
+- Test: `tests/evals/local-codex-negative-capability-orchestration.test.ts`
+- Test: `tests/integration/codex-cli-runtime.test.ts`
+- Test: `tests/integration/codex-official-source-discovery.test.ts`
+- Test: `tests/integration/codex-onboarding-model.test.ts`
+- Test: `tests/integration/onboarding-store.test.ts`
+- Test: `tests/integration/place-frontier.test.ts`
+- Test: `tests/integration/local-codex-stage-a-contract.test.ts`
+- Update current-lineage fixtures/consumers only where compilation requires the V10/policy revision.
+
+**Interfaces and revisions:**
+- Consumes: fixed reviewed installation manifest/digests, full retained disabled-feature tuple, protocol
+  and invocation `@2`, V1–V9 onboarding history, keyed flight/abort ownership, current Stage A
+  capability-honesty outcomes.
+- Produces: exact `CodexModel = "gpt-5.6-terra" | "gpt-5.4"`, code-owned
+  capability-to-model resolution, compatibility policy `codex-cli-0.149.0-alpha.4-plus@2`,
+  direct-search tool policy `codex-tools-web-search@2`, discovery template
+  `official-source-discover@3`, onboarding V10, negative-capability observation `@2`, and sanitized
+  Stage A artifact `local-codex-stage-a@3`.
+- Does not change: protocol/invocation `@2`, application source request/candidate shapes, retry limits,
+  deadline/signal/single-flight semantics, any Evidence/Knowledge/Frontier or durable source schema.
+
+- [ ] **Step 1: RED — require reviewed installation before every normal-runtime effect**
+
+Add focused runtime/instrumentation tests proving the exact order. A normal Next/Node registration
+may accept `CODEX_EXECUTABLE` only when absent or exactly equal to `REVIEWED_CODEX_EXECUTABLE`; it
+must not pass or consult `PATH`. The production initialization export must always call
+`verifyReviewedLocalCodexInstallation()` itself. If deterministic tests need injection, expose a
+separate test-only seam; do not add a caller/environment-selectable production verifier.
+
+Required assertions:
+
+1. noncanonical executable override rejects before verifier, temp validation/scavenge, spawn or
+   adapter installation;
+2. verifier rejection produces zero spawns and no installed adapter;
+3. successful order is `verify -> temp validation/scavenge -> --version -> login status -> features
+   list -> adapter install`;
+4. every spawn uses exact `REVIEWED_CODEX_EXECUTABLE`; a PATH-only fake executable is ignored;
+5. `CODEX_HOME` cannot be observed by an unverified executable, demonstrated by zero spawn on every
+   attestation/override failure;
+6. concurrent initialization remains one owned attempt; a rejected attempt resets state without
+   retaining a partial adapter.
+
+Run:
+
+```bash
+pnpm exec vitest run tests/integration/codex-cli-runtime.test.ts
+```
+
+Expected: RED because normal runtime currently reaches flexible preflight without the verifier.
+
+- [ ] **Step 2: GREEN — pin the production executable before preflight**
+
+Make the attestation the first asynchronous runtime operation after owned input snapshot and abort
+check. No child spawn, network access, `CODEX_HOME` forwarding, temp cleanup or other runtime write
+may precede it. Pass exact `REVIEWED_CODEX_EXECUTABLE` into preflight and keep the existing closed
+environment only after verification. Remove `pathValue` from normal runtime/instrumentation input;
+the lower-level diagnostic preflight may retain its isolated resolution helper for historical tests,
+but normal registration cannot use it.
+
+Keep reviewed verification of both the executable and companion manifest as-is. Removing Code Mode
+from invocation does not authorize weakening bundle identity. Re-run Step 1 to GREEN, then:
+
+```bash
+pnpm exec vitest run tests/infrastructure/codex-cli-reviewed-installation.test.ts tests/infrastructure/codex-cli-preflight.test.ts tests/integration/codex-cli-runtime.test.ts
+```
+
+- [ ] **Step 3: RED — specify capability-owned models and direct search with no Code Mode**
+
+Add exact tests for these code-owned mappings:
+
+```text
+onboarding.extract/onboarding.review/source.extract/full-life.film -> gpt-5.6-terra
+source.discover                                             -> gpt-5.4
+```
+
+Callers do not receive a model field or override. `buildCodexExecArgs` must derive the model from the
+validated capability. Extraction args retain exact Terra and the full disable tuple with no
+`--search`. Discovery args begin with `--search`, contain one `exec`, exact `--model gpt-5.4`,
+medium effort and every member of `CODEX_DISABLED_FEATURES`, including `code_mode` and
+`code_mode_host`; they contain no `--enable`, no Code Mode host enablement and no approval/sandbox
+bypass. Do not invent unsupported `tools.apply_patch.enabled` config.
+
+Bump the compatibility/tool/template revisions listed above. Append an exact V10 onboarding tuple
+whose only semantic transport change is compatibility policy `@2`; preserve every V1–V9 literal and
+historical digest byte-for-byte. Metadata and flight keys must use the model derived from capability.
+Official-source discovery must require exact `gpt-5.4`/medium/search-policy@2/template@3, while
+onboarding continues to require exact Terra and V10.
+
+Stage A `@3` replaces singular `model` with an exact frozen/sanitized model proof such as:
+
+```ts
+models: {
+  extraction: "gpt-5.6-terra";
+  discovery: "gpt-5.4";
+}
+```
+
+Run focused tests and observe RED before implementation:
+
+```bash
+pnpm exec vitest run tests/infrastructure/codex-cli-policy.test.ts tests/integration/codex-cli-runtime.test.ts tests/integration/codex-official-source-discovery.test.ts tests/integration/codex-onboarding-model.test.ts tests/integration/onboarding-store.test.ts tests/integration/place-frontier.test.ts tests/integration/local-codex-stage-a-contract.test.ts
+```
+
+- [ ] **Step 4: GREEN — implement the direct-search policy and append-only metadata revisions**
+
+Implement the minimum mapping/revision changes. The policy fingerprint must include the exact
+capability-model map, full disabled tuple, absence of search-enabled features, reviewed bundle
+revision/digests and exact argv grammar. Delete `CODEX_WEB_SEARCH_ENABLED_FEATURES` and the filtered
+disabled tuple rather than leaving dead alternate paths. Keep prompt and user data out of argv,
+fingerprints and metadata.
+
+Keep discovery's existing maximum-two model-selected attempts under one deadline/signal/flight.
+Zero native-search proof still maps only to `codex_search_not_performed`; a `file_change` or unknown
+tool event remains `codex_tool_event`, never yellow. Preserve frozen public DTO shapes and update
+only their exact version/model literals.
+
+Re-run Step 3 to GREEN. Also run:
+
+```bash
+pnpm exec vitest run tests/infrastructure/codex-cli-contract.test.ts tests/infrastructure/codex-cli-temp-directory.test.ts tests/infrastructure/codex-cli-event-stream.test.ts
+```
+
+- [ ] **Step 5: RED/GREEN — make the live denied-write proof match the direct transport**
+
+Version the negative-capability observation to `@2` and make it invoke the same validated
+`source.discover` policy as production: `gpt-5.4 medium`, `--search`, full disabled tuple, no
+`--enable`, fresh owned cwd/schema and reviewed executable. The prompt may request exactly one
+native public search followed by one exact patch of the owned canary; it must not mention any
+repository/user path.
+
+Accept only a bounded exact observation with at least one completed native search, one matching
+`file_change in_progress -> failed`, clean child exit and identical before/after canary identity:
+bytes/hash, mode, UID, link count and inode. Missing/extra/successful patch events, an event outside
+the exact canary, no search, unknown events, malformed JSONL, changed canary, noncanonical override,
+attestation failure, timeout or abort all fail closed. The result contains counts/booleans/model and
+policy revision only; never query, URL, prompt, event IDs, paths, stderr or model text.
+
+Integrate this gate into the explicit Stage A live command before ordinary runtime discovery and
+artifact publication. Stage A `@3` stores an exact sanitized proof (`model`, `codeModeDisabled`,
+`applyPatchAttempts`, `writePrevented`, `canaryUnchanged`) and writes nothing when the gate fails.
+Unit/integration tests use fake spawners only.
+
+Run:
+
+```bash
+pnpm exec vitest run tests/evals/local-codex-negative-capability.test.ts tests/evals/local-codex-negative-capability-orchestration.test.ts tests/integration/local-codex-stage-a-contract.test.ts
+```
+
+- [ ] **Step 6: Offline milestone gate, reviews and commit**
+
+Document in `docs/README.md` that extraction uses Terra, discovery uses direct `gpt-5.4 medium`,
+Code Mode is disabled, model-visible Apply patch is denied rather than absent, normal runtime is
+attested before spawn, and the Stage A command includes the canary gate. Then run:
+
+```bash
+pnpm typecheck
+pnpm lint
+pnpm test
+git diff --check
+```
+
+Use one implementation reviewer for the complete Task 11 diff. A second specialist is mandatory for
+the attestation-before-effect and direct-search write-denial boundary. Critical or current-correctness
+Important findings block; unrelated hardening remains backlog. After both return GO, commit one Git
+milestone (no SHA/line freeze, no push):
+
+```bash
+git add src evals tests docs/README.md docs/superpowers/specs/2026-08-28-local-codex-llm-source-recovery-design.md docs/superpowers/plans/2026-08-28-local-codex-runtime-stabilization.md
+git commit -m "fix: attest direct local search"
+```
+
+- [ ] **Step 7: Fresh live gate for the new transport**
+
+The three previous Code-Mode-backed runs are historical diagnostics and do not approve this
+transport. With the owner's existing live subscription/network authorization, run the exact Stage A
+command three fresh times. Each run must pass installation attestation, direct-search canary denial,
+Terra low/medium extraction, gpt-5.4 discovery, 1/2/5 concurrency, process-group abort and no late
+result. At least one retained run must have positive native-search candidate proof; allowed yellow
+outcomes remain `yellow_search_not_performed` and `yellow_no_candidate`, with no replacement
+publication. If the three bounded runs contain no positive search proof, Stage A remains blocked;
+do not loop indefinitely.
+
+After every run verify artifact mode `0600`, sanitized `local-codex-stage-a@3` contents and a clean
+Git tree. Delete only exact app-owned temporary probe directories after checking the canary.
+
+---
+
 ## Final Stage A verification
 
 After all task reviews are clean, run:
@@ -1204,4 +1413,4 @@ git log --oneline --decorate -10
 
 Then dispatch one whole-branch reviewer against the merge-base diff. A second specialist review is required only for the process-group/single-flight/privacy boundary. Critical findings block Stage A; Important findings that affect current correctness enter the fix loop; non-load-bearing hardening items go to the next-plan backlog.
 
-Stage A is complete only when the offline suite is green and three real live runs prove subscription auth, fixed Terra low/medium, zero-tool extraction, questionnaire guarding, honest native-search outcomes, 1/2/5 measurements, process-group abort and no late result. At least one retained run must contain positive reviewed native-search proof; another run may honestly finish as `yellow_search_not_performed` or `yellow_no_candidate`, but neither may publish a replacement. Do not start durable SourceBinding recovery or the 10×5 catalog before this gate.
+Stage A is complete only when the offline suite is green and three real live runs prove reviewed-installation attestation before spawn, Terra low/medium zero-tool extraction, direct `gpt-5.4 medium` native search with Code Mode disabled, the denied-write canary, questionnaire guarding, honest search outcomes, 1/2/5 measurements, process-group abort and no late result. At least one retained run must contain positive reviewed native-search proof; another run may honestly finish as `yellow_search_not_performed` or `yellow_no_candidate`, but neither may publish a replacement. Do not start durable SourceBinding recovery or the 10×5 catalog before this gate.
