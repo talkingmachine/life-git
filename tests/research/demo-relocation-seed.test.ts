@@ -1,0 +1,2 @@
+import { expect,test } from "vitest"; import { readDemoRelocationSeed } from "../../src/research/demo-relocation-seed";
+test("owns the exact frozen subjective ten by five seed",()=>{const seed=readDemoRelocationSeed();expect(seed.countries.map(x=>x.countryCode)).toEqual(["SI","PT","ES","DE","RS","ME","GE","TR","AE","TH"]);expect(seed.countries.flatMap(x=>x.cities)).toHaveLength(50);expect(Object.isFrozen(seed.countries[0]!.cities[0]!.name)).toBe(true);});
