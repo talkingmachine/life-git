@@ -1245,7 +1245,6 @@ describe("runCitySafetyDiscovery", () => {
       templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
     } as const;
     const port: OfficialSourceDiscoveryPort = { discover: vi.fn()
-      .mockResolvedValueOnce({ candidates: [], metadata })
       .mockResolvedValueOnce({ candidates: [{
         url: "https://policija.si/recovered.pdf", claimedPublisher: "ignored",
         expectedCoverage: "ignored", rationale: "ignored",
@@ -1254,9 +1253,9 @@ describe("runCitySafetyDiscovery", () => {
     const result = await adapter.discover({
       runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
       authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
-      reason: "stale", signal: new AbortController().signal,
+      reason: "stale", round: 1, signal: new AbortController().signal,
     });
-    expect(port.discover).toHaveBeenCalledTimes(2);
+    expect(port.discover).toHaveBeenCalledTimes(1);
     expect(result).toEqual(expect.objectContaining({ kind: "candidates", urls: ["https://policija.si/recovered.pdf"] }));
     expect(Object.isFrozen(result)).toBe(true);
 
@@ -1266,7 +1265,7 @@ describe("runCitySafetyDiscovery", () => {
     await expect(createCitySafetyOfficialDiscoveryAdapter(malformed).discover({
       runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
       authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
-      reason: "stale", signal: new AbortController().signal,
+      reason: "stale", round: 1, signal: new AbortController().signal,
     })).rejects.toThrow("official_source_discovery_integrity_failed");
   });
 
@@ -1282,16 +1281,26 @@ describe("runCitySafetyDiscovery", () => {
     await expect(empty.discover({
       runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
       authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
-      reason: "stale", signal: new AbortController().signal,
-    })).resolves.toEqual({ kind: "candidates", urls: [] });
+      reason: "stale", round: 1, signal: new AbortController().signal,
+    })).resolves.toEqual(expect.objectContaining({ kind: "candidates", urls: [] }));
     const adapter = createCitySafetyOfficialDiscoveryAdapter({ discover: async () => {
       throw new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout");
     } });
     await expect(adapter.discover({
       runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
       authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
-      reason: "stale", signal: new AbortController().signal,
+      reason: "stale", round: 1, signal: new AbortController().signal,
     })).resolves.toEqual({ kind: "yellow", reason: "codex_timeout" });
+    const spoof = Object.create(OfficialSourceDiscoveryError.prototype);
+    Object.defineProperties(spoof, {
+      code: { enumerable: true, value: "official_source_discovery_runtime_failed" },
+      runtimeCode: { enumerable: true, value: "codex_timeout" },
+    });
+    await expect(createCitySafetyOfficialDiscoveryAdapter({ discover: async () => { throw spoof; } }).discover({
+      runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
+      authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
+      reason: "stale", round: 1, signal: new AbortController().signal,
+    })).rejects.toBe(spoof);
   });
 
   test("never invokes official recovery for an accepted preferred prior", async () => {
@@ -1316,6 +1325,49 @@ describe("runCitySafetyDiscovery", () => {
     });
     expect(discovery.discover).not.toHaveBeenCalled();
     expect(search.search).not.toHaveBeenCalled();
+  });
+
+  test("inspects rejected round-one recovery URLs before requesting round two", async () => {
+    const context = buildContext();
+    const metadata = {
+      invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
+      compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "0.149.0-alpha.4",
+      model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+      templateVersion: "official-source-discover@3", schemaVersion: "official-source-candidates@1",
+    } as const;
+    const officialDiscovery = { discover: vi.fn(async (request: { readonly round: 1 | 2 }) => ({
+      kind: "candidates" as const,
+      urls: [request.round === 1 ? "https://policija.si/round-1.pdf" : "https://policija.si/round-2.pdf"],
+      metadata,
+    })) };
+    const inspected: string[] = [];
+    await runCitySafetyDiscovery({
+      ...input(context),
+      previousAccepted: {
+        cityId: "ljubljana", municipalityCode: "061", sourcePlanId: "prior-plan",
+        definitionId: "si-municipal-police-offences-per-100000@1", publisherId: "police",
+        navigationUrl: "https://policija.si/", resolvedEvidenceUrl: "https://policija.si/prior.pdf",
+        referenceYear: 2024, evidenceSnapshotId: "prior-evidence",
+      },
+    }, {
+      search: { search: vi.fn() }, officialDiscovery,
+      officialDocuments: { inspect: async (candidate) => {
+        inspected.push(candidate.candidateUrl);
+        if (candidate.candidateUrl.endsWith("round-2.pdf")) return usable(candidate, 2025, {
+          offenceCount: "1200", population: "300000", rateBasis: "offences_per_100000_residents",
+        });
+        return {
+          kind: "rejected" as const,
+          detail: { officialTrace: { initialUrl: candidate.candidateUrl, edges: [], lastTrustedUrl: candidate.candidateUrl, officialHops: 0, failure: { captureKind: "http_error", responseStatus: 404, responseUrl: candidate.candidateUrl } }, artifactRefs: [], disposition: "rejected" as const, reason: "http_not_found" as const },
+          artifacts: [],
+        };
+      } },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+    expect(officialDiscovery.discover.mock.calls.map(([request]) => request.round)).toEqual([1, 2]);
+    expect(inspected).toEqual(expect.arrayContaining([
+      "https://policija.si/round-1.pdf", "https://policija.si/round-2.pdf",
+    ]));
   });
 });
 

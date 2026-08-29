@@ -28,6 +28,7 @@ import type {
   CitySafetyCandidateInspectionInput,
   CitySafetyDiscoveryResult,
   CitySafetyOfficialDiscoveryPort,
+  CitySafetyOfficialDiscoveryResult,
   RunCitySafetyDiscoveryInput,
 } from "./city-safety-contracts";
 
@@ -137,6 +138,15 @@ function priorRecoveryReason(attempt: CitySafetyCandidateAttempt | undefined):
   if (attempt.reason === "scope_mismatch" || attempt.reason === "definition_mismatch") return "not_covering_fact";
   if (attempt.reason === "missing_numerator" || attempt.reason === "denominator_missing") return "empty";
   return "unavailable";
+}
+
+function freezeOfficialDiscoveryResult(value: CitySafetyOfficialDiscoveryResult): CitySafetyOfficialDiscoveryResult {
+  if (value.kind === "yellow") return Object.freeze({ kind: "yellow", reason: value.reason });
+  return Object.freeze({
+    kind: "candidates",
+    urls: Object.freeze([...value.urls]),
+    metadata: Object.freeze({ ...value.metadata }),
+  });
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -989,6 +999,7 @@ async function executeDiscovery(
   const seen = new Set<string>();
   const candidateAttempts: CitySafetyCandidateAttempt[] = [];
   const queryAttempts: CitySafetyQueryAttempt[] = [];
+  const officialDiscoveryAttempts: CitySafetyOfficialDiscoveryResult[] = [];
   const artifactsById = new Map<string, LiveCapturedArtifact<"si-city-safety">>();
   let queueIndex = 0;
   let acceptedPreferred: CitySafetyUsableCandidateAttempt | undefined;
@@ -1034,24 +1045,28 @@ async function executeDiscovery(
   await inspectQueued();
   const previousAttempt = candidateAttempts.find((attempt) => attempt.origin.kind === "previous");
   const recoveryReason = input.previousAccepted === undefined ? undefined : priorRecoveryReason(previousAttempt);
-  if (recoveryReason !== undefined && acceptedPreferred === undefined && ports.officialDiscovery !== undefined &&
-    candidateAttempts.length < MAX_CANDIDATES) {
-    const discovery = await ports.officialDiscovery.discover({
-      runId: input.runId,
-      catalog: input.catalog,
-      integrity: input.integrity,
-      sourcePlan: input.sourcePlan,
-      authorityDirectory: input.authorityDirectory,
-      cityId: input.cityId,
-      failedUrl: previousAttempt!.canonicalUrl,
-      reason: recoveryReason,
-      signal: input.signal,
-    });
-    abortIfNeeded(input.signal);
-    if (discovery.kind === "candidates") {
+  if (recoveryReason !== undefined && acceptedPreferred === undefined && ports.officialDiscovery !== undefined) {
+    for (const round of [1, 2] as const) {
+      if (candidateAttempts.length >= MAX_CANDIDATES || acceptedPreferred !== undefined) break;
+      const discovery = freezeOfficialDiscoveryResult(await ports.officialDiscovery.discover({
+        runId: input.runId,
+        catalog: input.catalog,
+        integrity: input.integrity,
+        sourcePlan: input.sourcePlan,
+        authorityDirectory: input.authorityDirectory,
+        cityId: input.cityId,
+        failedUrl: previousAttempt!.canonicalUrl,
+        reason: recoveryReason,
+        round,
+        signal: input.signal,
+      }));
+      officialDiscoveryAttempts.push(discovery);
+      abortIfNeeded(input.signal);
+      if (discovery.kind === "yellow") break;
+      if (discovery.urls.length > 5) throw new Error("invalid_city_safety_official_discovery");
       discovery.urls.forEach((url) => queue.push({
         url: canonicalizeCitySafetyCandidateUrl(url),
-        origin: { kind: "search", queryId: `official-source-recovery:${input.runId}` },
+        origin: { kind: "search", queryId: `official-source-recovery:${input.runId}:${round}` },
       }));
       await inspectQueued();
     }
@@ -1129,5 +1144,9 @@ async function executeDiscovery(
     result,
     completedAt,
   });
-  return { ledger, artifacts: [...artifactsById.values()] };
+  return Object.freeze({
+    ledger,
+    artifacts: Object.freeze([...artifactsById.values()]),
+    officialDiscoveryAttempts: Object.freeze(officialDiscoveryAttempts),
+  });
 }

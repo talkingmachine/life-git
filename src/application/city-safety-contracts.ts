@@ -76,10 +76,10 @@ export interface CitySafetyOfficialDocumentPort {
   inspect(input: CitySafetyCandidateInspectionInput): Promise<CitySafetyCandidateInspection>;
 }
 export type CitySafetyOfficialDiscoveryResult =
-  | Readonly<{ kind: "candidates"; urls: readonly string[]; metadata?: OfficialSourceDiscoveryRuntimeMetadata }>
+  | Readonly<{ kind: "candidates"; urls: readonly string[]; metadata: OfficialSourceDiscoveryRuntimeMetadata }>
   | Readonly<{ kind: "yellow"; reason: "codex_search_not_performed" | "codex_timeout" | "codex_rate_limited" | "codex_provider_transient" }>;
 export interface CitySafetyOfficialDiscoveryPort {
-  discover(input: Readonly<{ runId: string; catalog: CityCatalogRevision; integrity: CityDecisionIntegrity; sourcePlan: CitySafetySourcePlan; authorityDirectory: OfficialAuthorityDirectory; cityId: string; failedUrl: string; reason: "unavailable" | "stale" | "empty" | "semantic_drift" | "not_covering_fact"; signal: AbortSignal }>): Promise<CitySafetyOfficialDiscoveryResult>;
+  discover(input: Readonly<{ runId: string; catalog: CityCatalogRevision; integrity: CityDecisionIntegrity; sourcePlan: CitySafetySourcePlan; authorityDirectory: OfficialAuthorityDirectory; cityId: string; failedUrl: string; reason: "unavailable" | "stale" | "empty" | "semantic_drift" | "not_covering_fact"; round: 1 | 2; signal: AbortSignal }>): Promise<CitySafetyOfficialDiscoveryResult>;
 }
 export interface RunCitySafetyDiscoveryInput {
   readonly runId: string;
@@ -96,4 +96,5 @@ export interface RunCitySafetyDiscoveryInput {
 export interface CitySafetyDiscoveryResult {
   readonly ledger: CitySafetyAttemptLedger;
   readonly artifacts: readonly LiveCapturedArtifact<"si-city-safety">[];
+  readonly officialDiscoveryAttempts: readonly CitySafetyOfficialDiscoveryResult[];
 }
