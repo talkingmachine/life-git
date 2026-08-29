@@ -61,6 +61,33 @@ interface QueuedCandidate {
   readonly publisherContext?: CitySafetyCandidateInspectionInput["publisherContext"];
 }
 
+function ownedInspectionInput(
+  input: RunCitySafetyDiscoveryInput,
+  municipalityCode: string,
+  publisherIds: readonly string[],
+  candidate: QueuedCandidate,
+  authorityDirectory: OfficialAuthorityDirectory,
+): CitySafetyCandidateInspectionInput {
+  const publisherContext = candidate.publisherContext === undefined
+    ? undefined
+    : Object.freeze({
+        publisherId: candidate.publisherContext.publisherId,
+        publisherNavigationUrl: candidate.publisherContext.publisherNavigationUrl,
+      });
+  return Object.freeze({
+    runId: input.runId,
+    cityId: input.cityId,
+    municipalityCode,
+    candidateUrl: candidate.url,
+    publisherIds: Object.freeze([...publisherIds]),
+    ...(publisherContext === undefined ? {} : { publisherContext }),
+    officialHopLimit: OFFICIAL_HOP_LIMIT,
+    assessmentAt: input.assessmentAt,
+    authorityDirectory,
+    signal: input.signal,
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -104,6 +131,14 @@ function urlAllowedByPublisher(value: string, publisher: OfficialPublisherPolicy
     const canonical = canonicalizeCitySafetyCandidateUrl(value);
     const host = new URL(canonical).hostname;
     return publisher.allowedHosts.includes(host) || publisher.delegatedDocumentHosts.includes(host);
+  } catch {
+    return false;
+  }
+}
+
+function urlDirectlyAllowedByPublisher(value: string, publisher: OfficialPublisherPolicy): boolean {
+  try {
+    return publisher.allowedHosts.includes(new URL(canonicalizeCitySafetyCandidateUrl(value)).hostname);
   } catch {
     return false;
   }
@@ -331,6 +366,9 @@ function sanitizeTrace(
     !Number.isSafeInteger(value.officialHops) || (value.officialHops as number) > OFFICIAL_HOP_LIMIT) {
     invalidInspection();
   }
+  if (publisher !== undefined && !urlDirectlyAllowedByPublisher(candidate.url, publisher)) {
+    invalidInspection();
+  }
   let cursor = candidate.url;
   const trustedUrls = new Set([candidate.url]);
   const edges = value.edges.map((edge) => {
@@ -353,7 +391,7 @@ function sanitizeTrace(
     : canonicalizeCitySafetyCandidateUrl(value.lastTrustedUrl as string);
   if (lastTrustedUrl !== undefined && lastTrustedUrl !== cursor ||
     publisher !== undefined && (lastTrustedUrl === undefined ||
-      !urlAllowedByPublisher(candidate.url, publisher) || !urlAllowedByPublisher(lastTrustedUrl, publisher))) {
+      !urlAllowedByPublisher(lastTrustedUrl, publisher))) {
     invalidInspection();
   }
   const failure = value.failure === undefined ? undefined : sanitizeFailure(value.failure);
@@ -504,7 +542,8 @@ function bindPublisherContext(
   if (candidate.publisherContext !== undefined && candidate.publisherContext.publisherId !== publisher.publisherId ||
     canonicalizeCitySafetyCandidateUrl(publisherNavigationUrl) !==
       canonicalizeCitySafetyCandidateUrl(expectedNavigationUrl) ||
-    !urlAllowedByPublisher(publisherNavigationUrl, publisher) || !urlAllowedByPublisher(candidate.url, publisher)) {
+    !urlDirectlyAllowedByPublisher(publisherNavigationUrl, publisher) ||
+    !urlDirectlyAllowedByPublisher(candidate.url, publisher)) {
     invalidInspection();
   }
 }
@@ -647,6 +686,30 @@ function sanitizeArtifactRequest(
   invalidInspection();
 }
 
+function municipalRequestUrls(
+  refs: readonly CitySafetyArtifactReference[],
+  trace: CitySafetyOfficialInspectionTrace,
+): ReadonlyMap<CitySafetyArtifactReference, string> {
+  const expected = new Map<CitySafetyArtifactReference, string>();
+  const confirmedLinks = trace.edges.filter(({ kind }) => kind === "confirmed_document_link");
+  let confirmedIndex = 0;
+  let captureStartUrl = trace.initialUrl;
+  for (const ref of refs) {
+    if (ref.role !== "municipal_source") continue;
+    const confirmed = confirmedLinks[confirmedIndex];
+    if (ref.documentRole === "navigation" && confirmed !== undefined) {
+      if (ref.locator !== confirmed.fromUrl) invalidInspection();
+      expected.set(ref, captureStartUrl);
+      captureStartUrl = confirmed.toUrl;
+      confirmedIndex += 1;
+      continue;
+    }
+    expected.set(ref, captureStartUrl);
+  }
+  if (confirmedIndex !== confirmedLinks.length) invalidInspection();
+  return expected;
+}
+
 async function sanitizeArtifacts(
   value: unknown,
   refs: readonly CitySafetyArtifactReference[],
@@ -657,6 +720,7 @@ async function sanitizeArtifacts(
 ): Promise<readonly LiveCapturedArtifact<"si-city-safety">[]> {
   if (!isDenseArray(value) || value.length !== refs.length) invalidInspection();
   const sanitized: LiveCapturedArtifact<"si-city-safety">[] = [];
+  const requestUrls = municipalRequestUrls(refs, binding.trace);
   let projectionDenominator = binding.denominator;
   for (let index = 0; index < value.length; index += 1) {
     const artifact = value[index];
@@ -678,7 +742,10 @@ async function sanitizeArtifacts(
     const artifactRequest = sanitizeArtifactRequest(artifact.request, ref.role);
     const policy = ref.role === "municipal_source" ? municipalPublisher : denominatorPublisher;
     if (!urlAllowedByPublisher(artifact.url, policy) || !urlAllowedByPublisher(artifact.responseUrl, policy) ||
-      !urlAllowedByPublisher(artifactRequest.url, policy)) invalidInspection();
+      !urlAllowedByPublisher(artifactRequest.url, policy) ||
+      artifactRequest.url !== (ref.role === "municipal_source"
+        ? requestUrls.get(ref) ?? invalidInspection()
+        : ref.locator)) invalidInspection();
     const isTransient = policy.retentionMode === "seal_hash_locator_then_delete_transient";
     if (!isTransient && (artifact.sha256 !== ref.sourceSha256 ||
       !policy.allowedMediaTypes.includes(artifact.mediaType)) ||
@@ -793,6 +860,53 @@ function sanitizeConflictBasis(value: unknown): CitySafetyConflictBasis {
   return { referenceYear: value.referenceYear as number, quantities, denominator };
 }
 
+function scopedPublisherById(
+  request: CitySafetyCandidateInspectionInput,
+  directory: OfficialAuthorityDirectory,
+  publisherId: string,
+): OfficialPublisherPolicy {
+  const publisher = publisherById(directory, publisherId);
+  if (!request.publisherIds.includes(publisher.publisherId)) invalidInspection();
+  return publisher;
+}
+
+function uniqueScopedDirectPublisher(
+  candidateUrl: string,
+  request: CitySafetyCandidateInspectionInput,
+  directory: OfficialAuthorityDirectory,
+): OfficialPublisherPolicy | undefined {
+  const matches = directory.publishers.filter((publisher) =>
+    request.publisherIds.includes(publisher.publisherId) &&
+    urlDirectlyAllowedByPublisher(candidateUrl, publisher));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function scopedDirectPublisherById(
+  candidateUrl: string,
+  request: CitySafetyCandidateInspectionInput,
+  directory: OfficialAuthorityDirectory,
+  publisherId: string,
+): OfficialPublisherPolicy {
+  const publisher = scopedPublisherById(request, directory, publisherId);
+  if (uniqueScopedDirectPublisher(candidateUrl, request, directory)?.publisherId !== publisher.publisherId) {
+    invalidInspection();
+  }
+  return publisher;
+}
+
+function contextualPublisher(
+  candidate: QueuedCandidate,
+  request: CitySafetyCandidateInspectionInput,
+  directory: OfficialAuthorityDirectory,
+): OfficialPublisherPolicy | undefined {
+  const context = candidate.publisherContext;
+  if (context === undefined || !request.publisherIds.includes(context.publisherId)) return undefined;
+  const publisher = uniqueScopedDirectPublisher(candidate.url, request, directory);
+  if (publisher === undefined || publisher.publisherId !== context.publisherId ||
+    !urlDirectlyAllowedByPublisher(context.publisherNavigationUrl, publisher)) return undefined;
+  return publisher;
+}
+
 async function validateInspection(
   inspection: unknown,
   candidate: QueuedCandidate,
@@ -826,12 +940,11 @@ async function validateInspection(
       ? undefined
       : sanitizeReviewedOfficial(inspection.detail.reviewedOfficial);
     if ((semantic || refs.length > 0) && reviewed === undefined) invalidInspection();
-    const matchingPublishers = directory.publishers.filter((item) => urlAllowedByPublisher(candidate.url, item));
     const publisher = reviewed === undefined
       ? candidate.publisherContext === undefined
-        ? matchingPublishers.length === 1 ? matchingPublishers[0] : undefined
-        : publisherById(directory, candidate.publisherContext.publisherId)
-      : publisherById(directory, reviewed.publisherId);
+        ? uniqueScopedDirectPublisher(candidate.url, request, directory)
+        : contextualPublisher(candidate, request, directory)
+      : scopedDirectPublisherById(candidate.url, request, directory, reviewed.publisherId);
     if (publisher !== undefined) {
       bindPublisherContext(candidate, publisher,
         reviewed?.publisherNavigationUrl ?? candidate.publisherContext?.publisherNavigationUrl ?? publisher.navigationUrl);
@@ -931,7 +1044,7 @@ async function validateInspection(
     typeof detail.mediaType !== "string" || typeof detail.retentionPolicyId !== "string" ||
     typeof detail.transientRawDeleted !== "boolean" || !Number.isSafeInteger(detail.referenceYear) ||
     (detail.periodDisposition !== "preferred" && detail.periodDisposition !== "fallback")) invalidInspection();
-    const publisher = publisherById(directory, detail.publisherId);
+    const publisher = scopedDirectPublisherById(candidate.url, request, directory, detail.publisherId);
     bindPublisherContext(candidate, publisher, detail.publisherNavigationUrl);
     const trace = sanitizeTrace(detail.officialTrace, candidate, publisher);
     const quantity = sanitizeQuantity(detail.quantity);
@@ -1057,6 +1170,7 @@ async function executeDiscovery(
   const plan = reconstructCitySafetySourcePlan(input.sourcePlan, input.catalog, directory, input.integrity);
   const entry = plan.entries.find(({ cityId }) => cityId === input.cityId);
   if (entry === undefined) throw new Error("invalid_city_safety_city");
+  const publisherIds = Object.freeze([...entry.publisherIds]);
   validatePrevious(input, directory, entry.municipalityCode);
   const queries = buildCitySafetyQueries(entry, directory, input.assessmentAt, input.catalog, input.integrity);
   const queue: QueuedCandidate[] = [];
@@ -1099,17 +1213,13 @@ async function executeDiscovery(
       const candidate = queue[queueIndex++]!;
       if (seen.has(candidate.url)) continue;
       seen.add(candidate.url);
-      const request: CitySafetyCandidateInspectionInput = {
-        runId: input.runId,
-        cityId: input.cityId,
-        municipalityCode: entry.municipalityCode,
-        candidateUrl: candidate.url,
-        ...(candidate.publisherContext === undefined ? {} : { publisherContext: candidate.publisherContext }),
-        officialHopLimit: OFFICIAL_HOP_LIMIT,
-        assessmentAt: input.assessmentAt,
-        authorityDirectory: directory,
-        signal: input.signal,
-      };
+      const request = ownedInspectionInput(
+        input,
+        entry.municipalityCode,
+        publisherIds,
+        candidate,
+        directory,
+      );
       const inspection = await ports.officialDocuments.inspect(request);
       abortIfNeeded(input.signal);
       const validated = await validateInspection(inspection, candidate, request, directory);

@@ -10639,6 +10639,7 @@ describe("City Frontier Application public boundary", () => {
         cityId: evidenceInput.cityId,
         municipalityCode: safetyEntry.municipalityCode,
         candidateUrl: configuredRoute.navigationUrl,
+        publisherIds: safetyEntry.publisherIds,
         publisherContext: {
           publisherId: configuredRoute.publisherId,
           publisherNavigationUrl: configuredRoute.navigationUrl,
@@ -10786,6 +10787,7 @@ describe("City Frontier Application public boundary", () => {
       cityId: safetyEntry.cityId,
       municipalityCode: safetyEntry.municipalityCode,
       candidateUrl: route.navigationUrl,
+      publisherIds: safetyEntry.publisherIds,
       publisherContext: {
         publisherId: route.publisherId,
         publisherNavigationUrl: route.navigationUrl,

@@ -115,6 +115,27 @@ function policyAllowsUrl(policy: OfficialPublisherPolicy, value: string): boolea
   }
 }
 
+function policyAllowsDirectUrl(policy: OfficialPublisherPolicy, value: string): boolean {
+  try {
+    return policy.allowedHosts.includes(new URL(canonicalizeCitySafetyCandidateUrl(value)).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function sourcePlanPublishers(
+  input: CitySafetyCandidateInspectionInput,
+): readonly OfficialPublisherPolicy[] | undefined {
+  const publisherIds = Object.freeze([...input.publisherIds]);
+  if (publisherIds.length === 0 || new Set(publisherIds).size !== publisherIds.length ||
+    !publisherIds.every((publisherId) => typeof publisherId === "string" && publisherId.length > 0)) {
+    return undefined;
+  }
+  const permitted = new Set(publisherIds);
+  const publishers = input.authorityDirectory.publishers.filter(({ publisherId }) => permitted.has(publisherId));
+  return publishers.length === publisherIds.length ? Object.freeze([...publishers]) : undefined;
+}
+
 function retainedArtifact(
   source: LiveCapturedArtifact<"si-city-safety">,
   role: "municipal_source" | "surs_denominator",
@@ -276,17 +297,17 @@ function officialPolicy(input: CitySafetyCandidateInspectionInput): {
   readonly policy: OfficialPublisherPolicy;
   readonly publisherNavigationUrl: string;
 } | undefined {
+  const publishers = sourcePlanPublishers(input);
+  if (publishers === undefined) return undefined;
+  const matches = publishers.filter((policy) => policyAllowsDirectUrl(policy, input.candidateUrl));
+  if (matches.length !== 1) return undefined;
+  const policy = matches[0]!;
   if (input.publisherContext !== undefined) {
-    const policy = input.authorityDirectory.publishers.find(({ publisherId }) =>
-      publisherId === input.publisherContext?.publisherId);
-    if (policy === undefined || !policyAllowsUrl(policy, input.publisherContext.publisherNavigationUrl) ||
-      !policyAllowsUrl(policy, input.candidateUrl)) return undefined;
+    if (policy.publisherId !== input.publisherContext.publisherId ||
+      !policyAllowsDirectUrl(policy, input.publisherContext.publisherNavigationUrl)) return undefined;
     return { policy, publisherNavigationUrl: input.publisherContext.publisherNavigationUrl };
   }
-  const matches = input.authorityDirectory.publishers.filter((policy) =>
-    policyAllowsUrl(policy, input.candidateUrl));
-  if (matches.length !== 1) return undefined;
-  return { policy: matches[0]!, publisherNavigationUrl: matches[0]!.navigationUrl };
+  return { policy, publisherNavigationUrl: policy.navigationUrl };
 }
 
 function authorityRejected(input: CitySafetyCandidateInspectionInput): CitySafetyCandidateInspection {

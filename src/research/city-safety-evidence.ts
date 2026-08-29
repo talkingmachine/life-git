@@ -488,6 +488,56 @@ function urlAllowed(value: string, publisher: OfficialPublisherPolicy): boolean 
   return publisher.allowedHosts.includes(host) || publisher.delegatedDocumentHosts.includes(host);
 }
 
+function urlDirectlyAllowed(value: string, publisher: OfficialPublisherPolicy): boolean {
+  return publisher.allowedHosts.includes(new URL(value).hostname);
+}
+
+function scopedPublisherById(
+  directory: OfficialAuthorityDirectory,
+  publisherIds: readonly string[],
+  publisherId: unknown,
+): OfficialPublisherPolicy {
+  const publisher = publisherById(directory, publisherId);
+  if (!publisherIds.includes(publisher.publisherId)) mismatch();
+  return publisher;
+}
+
+function uniqueScopedDirectPublisher(
+  candidateUrl: string,
+  directory: OfficialAuthorityDirectory,
+  publisherIds: readonly string[],
+): OfficialPublisherPolicy | undefined {
+  const matches = directory.publishers.filter((publisher) =>
+    publisherIds.includes(publisher.publisherId) && urlDirectlyAllowed(candidateUrl, publisher));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function scopedDirectPublisherById(
+  candidateUrl: string,
+  directory: OfficialAuthorityDirectory,
+  publisherIds: readonly string[],
+  publisherId: unknown,
+): OfficialPublisherPolicy {
+  const publisher = scopedPublisherById(directory, publisherIds, publisherId);
+  if (uniqueScopedDirectPublisher(candidateUrl, directory, publisherIds)?.publisherId !== publisher.publisherId) {
+    mismatch();
+  }
+  return publisher;
+}
+
+function contextualPublisher(
+  queued: ReplayQueuedCandidate,
+  directory: OfficialAuthorityDirectory,
+  publisherIds: readonly string[],
+): OfficialPublisherPolicy | undefined {
+  const context = queued.publisherContext;
+  if (context === undefined || !publisherIds.includes(context.publisherId)) return undefined;
+  const publisher = uniqueScopedDirectPublisher(queued.url, directory, publisherIds);
+  if (publisher === undefined || publisher.publisherId !== context.publisherId ||
+    !urlDirectlyAllowed(context.publisherNavigationUrl, publisher)) return undefined;
+  return publisher;
+}
+
 const denominatorMediaAllowed = (mediaType: string, publisher: OfficialPublisherPolicy): boolean => publisher.retentionMode === "seal_raw_artifact" ? publisher.allowedMediaTypes.includes(mediaType) : mediaType === "application/json";
 
 function canonicalLedgerUrl(value: unknown): string {
@@ -543,6 +593,7 @@ function decodeTrace(
   if (value.failure !== undefined) keys.push("failure");
   if (!exactKeys(value, keys) || canonicalLedgerUrl(value.initialUrl) !== queued.url ||
     !denseArray(value.edges) || value.edges.length > 2 || value.officialHops !== value.edges.length) mismatch();
+  if (publisher !== undefined && !urlDirectlyAllowed(queued.url, publisher)) mismatch();
   let cursor = queued.url;
   const visited = new Set([cursor]);
   const edges = value.edges.map((edge): CitySafetyOfficialChainEdge => {
@@ -560,8 +611,7 @@ function decodeTrace(
     ? undefined
     : canonicalLedgerUrl(value.lastTrustedUrl);
   if (lastTrustedUrl !== undefined && lastTrustedUrl !== cursor || publisher !== undefined &&
-    (lastTrustedUrl === undefined || !urlAllowed(queued.url, publisher) ||
-      !urlAllowed(lastTrustedUrl, publisher))) mismatch();
+    (lastTrustedUrl === undefined || !urlAllowed(lastTrustedUrl, publisher))) mismatch();
   const failure = value.failure === undefined ? undefined : decodeFailure(value.failure);
   if (failure?.responseUrl !== undefined && failure.responseUrl !== lastTrustedUrl ||
     failure?.rejectedTarget?.kind === "redirect_loop" && !visited.has(failure.rejectedTarget.url) ||
@@ -727,6 +777,7 @@ function decodeCandidateEnvelope(
   value: unknown,
   index: number,
   queued: ReplayQueuedCandidate,
+  publisherIds: readonly string[],
   directory: OfficialAuthorityDirectory,
   municipalityCode: string,
   assessmentAt: string,
@@ -743,12 +794,13 @@ function decodeCandidateEnvelope(
     ]) || !Number.isSafeInteger(value.referenceYear) ||
       (value.periodDisposition !== "preferred" && value.periodDisposition !== "fallback") ||
       typeof value.mediaType !== "string" || typeof value.transientRawDeleted !== "boolean") mismatch();
-    const publisher = publisherById(directory, value.publisherId);
+    const publisher = scopedDirectPublisherById(queued.url, directory, publisherIds, value.publisherId);
     const expectedNavigation = queued.publisherContext?.publisherNavigationUrl ?? publisher.navigationUrl;
     const publisherNavigationUrl = canonicalLedgerUrl(value.publisherNavigationUrl);
     if (queued.publisherContext !== undefined && queued.publisherContext.publisherId !== publisher.publisherId ||
       publisherNavigationUrl !== canonicalizeCitySafetyCandidateUrl(expectedNavigation) ||
-      value.dataAuthorityId !== directory.requiredPublisherIds.police || !urlAllowed(queued.url, publisher) ||
+      value.dataAuthorityId !== directory.requiredPublisherIds.police ||
+      !urlDirectlyAllowed(publisherNavigationUrl, publisher) || !urlDirectlyAllowed(queued.url, publisher) ||
       !publisher.allowedMediaTypes.includes(value.mediaType) ||
       value.retentionPolicyId !== publisher.retentionPolicyId || value.transientRawDeleted !==
         (publisher.retentionMode === "seal_hash_locator_then_delete_transient")) mismatch();
@@ -809,18 +861,18 @@ function decodeCandidateEnvelope(
   const reviewed = value.reviewedOfficial === undefined
     ? undefined
     : decodeReviewedOfficial(value.reviewedOfficial);
-  const matchingPublishers = directory.publishers.filter((item) => urlAllowed(queued.url, item));
   const publisher = reviewed !== undefined
-    ? publisherById(directory, reviewed.publisherId)
+    ? scopedDirectPublisherById(queued.url, directory, publisherIds, reviewed.publisherId)
     : queued.publisherContext === undefined
-      ? matchingPublishers.length === 1 ? matchingPublishers[0] : undefined
-      : publisherById(directory, queued.publisherContext.publisherId);
+      ? uniqueScopedDirectPublisher(queued.url, directory, publisherIds)
+      : contextualPublisher(queued, directory, publisherIds);
   if (publisher !== undefined) {
     const expectedNavigation = queued.publisherContext?.publisherNavigationUrl ?? publisher.navigationUrl;
     const actualNavigation = reviewed?.publisherNavigationUrl ?? expectedNavigation;
     if (queued.publisherContext !== undefined && queued.publisherContext.publisherId !== publisher.publisherId ||
       canonicalizeCitySafetyCandidateUrl(expectedNavigation) !== actualNavigation ||
-      !urlAllowed(actualNavigation, publisher) || !urlAllowed(queued.url, publisher)) mismatch();
+      !urlDirectlyAllowed(actualNavigation, publisher) ||
+      !urlDirectlyAllowed(queued.url, publisher)) mismatch();
   }
   const trace = decodeTrace(value.officialTrace, queued, publisher);
   validateFailureForReason(reason, trace.failure);
@@ -1000,6 +1052,7 @@ export function reconstructCitySafetyAttemptLedger(
           rawCandidates[candidates.length],
           candidates.length,
           queued,
+          entry.publisherIds,
           directory,
           entry.municipalityCode,
           assessmentAt,

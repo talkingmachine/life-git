@@ -50,6 +50,7 @@ export interface CitySafetyCandidateInspectionInput {
   readonly cityId: string;
   readonly municipalityCode: string;
   readonly candidateUrl: string;
+  readonly publisherIds: readonly string[];
   readonly publisherContext?: {
     readonly publisherId: string;
     readonly publisherNavigationUrl: string;
