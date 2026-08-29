@@ -1416,6 +1416,39 @@ Run the runtime and Stage A contract suites to RED before implementation, then G
 offline gate and focused runtime/integrity review. Commit the correction and restart the required
 three consecutive live runs from zero; the earlier pass remains diagnostic history only.
 
+The corrected checkpoint then produced one complete live PASS followed by a fail-closed
+`negative_capability:codex_tool_isolation_unproven`; no artifact or temporary directory survived and
+Git remained clean. An immediate standalone run of the existing sanitized `@3` gate passed both
+phases with their exact minimal lifecycles, so the failed run cannot be attributed honestly to
+setup, patch selection, search selection, protocol drift or child execution. Do not change prompts,
+retry, or accepted event shapes from that evidence.
+
+Before another three-run series, add one diagnostic-only RED/GREEN seam:
+
+- keep `NegativeCapabilityTwoPhaseObservation@3`, `local-codex-stage-a@4`, normal CLI stderr, parser
+  allowlists, proof predicates, deadlines and zero-retry behavior unchanged;
+- only when Stage A has the explicit `--diagnostic` opt-in, pass an ephemeral observer into the
+  negative gate and retain one recursively frozen record containing fixed enums only:
+  `phase = setup | patch | search | cleanup` and
+  `reason = exception | protocol_rejected | expected_effect_missing | canary_changed | child_not_clean`;
+- derive completed-phase reasons from the existing sanitized booleans, with security-first priority
+  `canary_changed`, `child_not_clean`, `protocol_rejected`, `expected_effect_missing`; never retain or
+  render error text, stdout/stderr, prompt, URL/query, path/hash/ID, event payload/type/count, argv,
+  PID, timing or credentials;
+- version only the opted-in failure line to
+  `diagnostic@2:negative_capability:<phase>:<reason>` when the trusted observer has a record;
+  all other Stage A diagnostics remain `diagnostic@1`; only the code-owned production gate receives
+  the observer, while every supplied dependency is invoked without it and remains the generic
+  fail-closed diagnostic even if it tries to relay a record minted by another gate invocation;
+- add tests first for phase placement, enum-only deep-frozen ownership, sentinel non-disclosure,
+  unchanged direct-gate JSON/artifact contracts, no search spawn after patch failure and unchanged
+  acceptance behavior.
+
+Run the focused negative-gate and Stage A suites, full offline gate and one risk review. Commit one
+corrective Git milestone and restart the required live series from zero. If another run fails, use
+the new fixed diagnostic to select the next action; never count a diagnostic or standalone run
+toward the three consecutive passes.
+
 The three previous Code-Mode-backed runs are historical diagnostics and do not approve this
 transport. With the owner's existing live subscription/network authorization, run the exact Stage A
 command three fresh times. Each run must pass installation attestation, direct-search canary denial,

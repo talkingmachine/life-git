@@ -23,6 +23,7 @@ import { OfficialSourceDiscoveryError } from "../../src/application/official-sou
 import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
+import { runLocalCodexNegativeCapability } from "../../evals/local-codex-negative-capability";
 
 const onboardingFixture = {
   message: { messageId: "00000000-0000-4000-8000-000000000081", role: "user", text: "Я живу в Москве." },
@@ -381,6 +382,51 @@ describe("local Codex Stage A gate", () => {
     expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
   });
 
+  test("rejects a supplied relay of a real negative-gate witness and preserves generic diagnostic@1", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runNegativeCapabilityGate: async (observer) => {
+        expect(observer).toBeUndefined();
+        return runLocalCodexNegativeCapability(["--", "--live-local-subscription"], {
+          reviewedExecutable: REVIEWED_CODEX_EXECUTABLE,
+          executableOverride: undefined,
+          verifyInstallation: async () => undefined,
+          spawner: Object.freeze({}) as never,
+          signalSource: process,
+          sourceEnvironment: Object.freeze({}),
+          currentUid: undefined,
+          tempRootPath: "/tmp",
+          userHomePath: "/tmp",
+          workspacePath: "/tmp",
+        }, observer);
+      },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+  });
+
+  test("keeps non-diagnostic negative-gate stderr unchanged without observer forwarding", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      runNegativeCapabilityGate: async (observer) => runLocalCodexNegativeCapability(["--", "--live-local-subscription"], {
+        reviewedExecutable: REVIEWED_CODEX_EXECUTABLE, executableOverride: undefined, verifyInstallation: async () => undefined,
+        spawner: Object.freeze({}) as never, signalSource: process, sourceEnvironment: Object.freeze({}), currentUid: undefined,
+        tempRootPath: "/tmp", userHomePath: "/tmp", workspacePath: "/tmp",
+      }, observer),
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  });
+
+  test("rejects a supplied negative-gate diagnostic spoof and preserves generic diagnostic@1", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runNegativeCapabilityGate: async (observer) => {
+        observer?.(Object.freeze({ phase: "patch", reason: "protocol_rejected" }) as never);
+        return { ...(await deterministicDependencies().runNegativeCapabilityGate()), passed: false } as never;
+      },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+  });
+
   test("rejects the superseded flat negative-capability observation before runtime initialization", async () => {
     const initializeRuntime = vi.fn(async () => deterministicDependencies().initializeRuntime());
     const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
@@ -609,6 +655,11 @@ describe("local Codex Stage A gate", () => {
     expect(stageA).toContain("protocolVersion: capabilityProof.runtime.protocolVersion");
     expect(stageA).toContain("compatibilityPolicy: capabilityProof.runtime.compatibilityPolicy");
     expect(stageA).toContain("models: capabilityProof.runtime.models");
+  });
+
+  test("production Stage A forwards its ephemeral negative-gate observer", async () => {
+    const stageA = await readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8");
+    expect(stageA).toMatch(/runNegativeCapabilityGate:\s*\(observer\)\s*=>\s*runLocalCodexNegativeCapability\(\s*\["--", "--live-local-subscription"\],\s*undefined,\s*observer\s*\)/);
   });
 
   test("accepts exactly one leading pnpm separator and preserves passive no-flag parsing", async () => {

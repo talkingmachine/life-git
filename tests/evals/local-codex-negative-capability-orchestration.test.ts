@@ -1,13 +1,15 @@
 import { EventEmitter } from "node:events";
 import { chmod, lstat, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { lstatSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
+  isTrustedNegativeCapabilityDiagnosticRecord,
   runLocalCodexNegativeCapability,
+  type NegativeCapabilityDiagnosticRecord,
   type NegativeCapabilityProbeDependencies,
 } from "../../evals/local-codex-negative-capability";
 import { CODEX_DISABLED_FEATURES } from "../../src/infrastructure/codex-cli/policy";
@@ -236,6 +238,13 @@ describe("local Codex negative capability orchestration", () => {
     expect(fixture.signalSource.listenerCount("SIGTERM")).toBe(0);
   });
 
+  test("does not invoke the diagnostic observer on a successful gate", async () => {
+    const fixture = await probeFixture();
+    const observer = vi.fn();
+    await expect(runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies, observer)).resolves.toMatchObject({ passed: true });
+    expect(observer).not.toHaveBeenCalled();
+  });
+
   test("does not read an unrelated environment getter", async () => {
     const fixture = await probeFixture();
     const secretGetter = vi.fn(() => { throw new Error("environment-secret-sentinel"); });
@@ -303,6 +312,52 @@ describe("local Codex negative capability orchestration", () => {
     expect(fixture.calls).toHaveLength(4);
   });
 
+  test("emits one closed frozen patch diagnostic after a rejected protocol without spawning search", async () => {
+    const fixture = await probeFixture({
+      finalProcess: (request) => spawned({ stdout: patchJsonl(resolve(request.cwd, "canary.txt")).replace('"turn.completed"', '"item.completed"') }),
+    });
+    const records: NegativeCapabilityDiagnosticRecord[] = [];
+    const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies, (record) => { records.push(record); });
+    expect(result.passed).toBe(false);
+    expect(records).toEqual([{ phase: "patch", reason: "protocol_rejected" }]);
+    expect(Object.isFrozen(records[0])).toBe(true);
+    expect(Object.keys(records[0]!)).toEqual(["phase", "reason"]);
+    expect(isTrustedNegativeCapabilityDiagnosticRecord(records[0])).toBe(true);
+    expect(JSON.stringify(records)).not.toContain(fixture.root);
+    expect(fixture.calls).toHaveLength(4);
+  });
+
+  test("contains observer failures and emits at most one diagnostic", async () => {
+    const fixture = await probeFixture({
+      finalProcess: (request) => spawned({ stdout: patchJsonl(resolve(request.cwd, "canary.txt")).replace('"turn.completed"', '"item.completed"') }),
+    });
+    let calls = 0;
+    const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies, () => { calls += 1; throw new Error("observer-private-sentinel"); });
+    expect(result.passed).toBe(false);
+    expect(calls).toBe(1);
+    expect(JSON.stringify(result)).not.toContain("observer-private-sentinel");
+    expect(fixture.calls).toHaveLength(4);
+  });
+
+  test("reports cleanup exception after completed phases when owned-directory cleanup fails", async () => {
+    let phase = 0;
+    const fixture = await probeFixture({
+      finalProcess: (request) => {
+        phase += 1;
+        if (phase === 2) chmodSync(dirname(request.cwd), 0o500);
+        return spawned({ stdout: phase === 1 ? patchJsonl(resolve(request.cwd, "canary.txt")) : searchJsonl() });
+      },
+    });
+    const records: NegativeCapabilityDiagnosticRecord[] = [];
+    try {
+      const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies, (record) => { records.push(record); });
+      expect(result.passed).toBe(false);
+      expect(records).toEqual([{ phase: "cleanup", reason: "exception" }]);
+    } finally {
+      chmodSync(fixture.root, 0o700);
+    }
+  });
+
   test("does not spawn phase two when its immediate re-attestation fails", async () => {
     let verifications = 0;
     const fixture = await probeFixture({ verifier: async () => { if (++verifications === 5) throw new Error("second-attestation"); } });
@@ -319,8 +374,10 @@ describe("local Codex negative capability orchestration", () => {
         return spawned({ stdout: phase === 1 ? patchJsonl(resolve(request.cwd, "canary.txt")) : searchJsonl().replace('"turn.completed"', '"item.completed"') });
       },
     });
-    const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies);
+    const records: NegativeCapabilityDiagnosticRecord[] = [];
+    const result = await runLocalCodexNegativeCapability(LIVE_ARGS, fixture.dependencies, (record) => { records.push(record); });
     expect(result).toMatchObject({ passed: false, patchDenial: { protocolValid: true }, searchOnly: { protocolValid: false, unknownEventSeen: true } });
+    expect(records).toEqual([{ phase: "search", reason: "protocol_rejected" }]);
     expect(fixture.calls).toHaveLength(5);
   });
 

@@ -9,7 +9,7 @@ import { registerNodeCodexRuntime } from "../src/instrumentation-node";
 import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "../src/infrastructure/codex-cli/reviewed-installation";
 import { createCodexOnboardingModel } from "../src/infrastructure/codex-cli/onboarding-model";
 import { createCodexOfficialSourceDiscovery } from "../src/infrastructure/codex-cli/official-source-discovery";
-import { runLocalCodexNegativeCapability, type NegativeCapabilityTwoPhaseObservation } from "./local-codex-negative-capability";
+import { isTrustedNegativeCapabilityDiagnosticRecord, runLocalCodexNegativeCapability, type NegativeCapabilityDiagnosticObserver, type NegativeCapabilityDiagnosticRecord, type NegativeCapabilityTwoPhaseObservation } from "./local-codex-negative-capability";
 import { createOnboardingSession } from "../src/decision/onboarding-session";
 import { guardExtraction, isOnboardingGuardContractError, projectQuestionnaireForModel } from "../src/decision/onboarding-model-contract";
 import { parseLocalExtractionOutput } from "../src/decision/onboarding-model-output";
@@ -79,7 +79,7 @@ export type StageADiscoveryFixture = Readonly<{
 }>;
 
 type Dependencies = Readonly<{
-  runNegativeCapabilityGate: () => Promise<NegativeCapabilityTwoPhaseObservation>;
+  runNegativeCapabilityGate: (observer?: NegativeCapabilityDiagnosticObserver) => Promise<NegativeCapabilityTwoPhaseObservation>;
   initializeRuntime: () => Promise<Readonly<{
     cliVersion: string; protocolVersion: typeof CODEX_CLI_PROTOCOL_VERSION;
     compatibilityPolicy: typeof CODEX_CLI_COMPATIBILITY_POLICY; models: Readonly<{ extraction: typeof CODEX_MODEL; discovery: typeof CODEX_DISCOVERY_MODEL }>;
@@ -169,6 +169,7 @@ async function runLocalCodexStageAWithFailureObserver(
   args: LocalCodexStageAArguments,
   supplied: Partial<Dependencies>,
   observeFailure?: FailureObserver,
+  observeNegativeCapabilityDiagnostic?: (record: NegativeCapabilityDiagnosticRecord) => void,
 ): Promise<LocalCodexStageAEntrypointResult> {
   const ownedArgs = readArgs(args);
   if (!ownedArgs.live) return Object.freeze({ exitCode: 1, stderr: OPT_IN_ERROR });
@@ -181,7 +182,10 @@ async function runLocalCodexStageAWithFailureObserver(
     await dependencies.prepareArtifact(ownedArgs.artifactPath);
     prepared = true;
     stage = "negative_capability";
-    const negativeCapability = await dependencies.runNegativeCapabilityGate();
+    const negativeCapability = ownedArgs.diagnostic === true &&
+      dependencies.runNegativeCapabilityGate === productionDependencies.runNegativeCapabilityGate
+      ? await dependencies.runNegativeCapabilityGate(observeNegativeCapabilityDiagnostic)
+      : await dependencies.runNegativeCapabilityGate();
     const writeIsolationProof = requireWriteIsolationProof(negativeCapability);
     stage = "initialize_runtime";
     const startedAt = strictNow(dependencies.now());
@@ -244,14 +248,20 @@ export async function runLocalCodexStageAEntrypoint(
   try {
     const args = parseLocalCodexStageAArgs(argv);
     let diagnostic: Readonly<{ stage: StageADiagnosticStage; code: StageADiagnosticCode }> | undefined;
+    let negativeCapabilityDiagnostic: NegativeCapabilityDiagnosticRecord | undefined;
     try {
       return await runLocalCodexStageAWithFailureObserver(args, supplied, (stage, error) => {
         diagnostic = Object.freeze({
           stage,
           code: args.diagnostic ? safeOptInDiagnosticCode(error) : safeDiagnosticCode(error),
         });
-      });
+      }, args.diagnostic === true ? (record) => {
+        if (isTrustedNegativeCapabilityDiagnosticRecord(record)) negativeCapabilityDiagnostic = record;
+      } : undefined);
     } catch (error) {
+      if (args.diagnostic && diagnostic?.stage === "negative_capability" && negativeCapabilityDiagnostic !== undefined) {
+        return Object.freeze({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@2:negative_capability:${negativeCapabilityDiagnostic.phase}:${negativeCapabilityDiagnostic.reason}\n` });
+      }
       if (args.diagnostic && diagnostic !== undefined) {
         return Object.freeze({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:${diagnostic.stage}:${diagnostic.code}\n` });
       }
@@ -497,7 +507,7 @@ function strictNow(value: number): number {
 const productionArtifactStore = createStageAArtifactStore({ workspaceRoot: process.cwd() });
 
 const productionDependencies: Dependencies = Object.freeze({
-  runNegativeCapabilityGate: () => runLocalCodexNegativeCapability(["--", "--live-local-subscription"]),
+  runNegativeCapabilityGate: (observer) => runLocalCodexNegativeCapability(["--", "--live-local-subscription"], undefined, observer),
   prepareArtifact: productionArtifactStore.prepare,
   cleanupArtifact: productionArtifactStore.cleanup,
   async initializeRuntime() {

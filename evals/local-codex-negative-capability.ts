@@ -3,6 +3,7 @@ import { access, chmod, lstat, open, readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { types } from "node:util";
 
 import { buildCodexExecArgs } from "../src/infrastructure/codex-cli/policy";
 import {
@@ -34,6 +35,7 @@ const MAX_EVENTS = 128;
 const PHASE_SCHEMA_VERSION = "local-codex-negative-capability-phase-result@1" as const;
 const PATCH_TEMPLATE_VERSION = "local-codex-negative-patch-denial@1" as const;
 const SEARCH_TEMPLATE_VERSION = "local-codex-negative-search-only@1" as const;
+const TRUSTED_NEGATIVE_CAPABILITY_DIAGNOSTICS = new WeakSet<object>();
 
 export type NegativeCapabilityPhaseProof = Readonly<{
   templateVersion: typeof PATCH_TEMPLATE_VERSION | typeof SEARCH_TEMPLATE_VERSION;
@@ -61,6 +63,21 @@ export type NegativeCapabilityTwoPhaseObservation = Readonly<{
   patchDenial: NegativeCapabilityPhaseProof;
   searchOnly: NegativeCapabilityPhaseProof;
 }>;
+
+export type NegativeCapabilityDiagnosticPhase = "setup" | "patch" | "search" | "cleanup";
+export type NegativeCapabilityDiagnosticReason = "exception" | "protocol_rejected" | "expected_effect_missing" | "canary_changed" | "child_not_clean";
+export type NegativeCapabilityDiagnosticRecord = Readonly<{ phase: NegativeCapabilityDiagnosticPhase; reason: NegativeCapabilityDiagnosticReason }>;
+export type NegativeCapabilityDiagnosticObserver = (record: NegativeCapabilityDiagnosticRecord) => void;
+
+export function isTrustedNegativeCapabilityDiagnosticRecord(value: unknown): value is NegativeCapabilityDiagnosticRecord {
+  try {
+    if (value === null || typeof value !== "object" || types.isProxy(value) || !Object.isFrozen(value) || !TRUSTED_NEGATIVE_CAPABILITY_DIAGNOSTICS.has(value)) return false;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    return Object.getPrototypeOf(value) === Object.prototype && Object.getOwnPropertySymbols(value).length === 0 && Object.keys(descriptors).length === 2 &&
+      descriptors.phase?.enumerable === true && "value" in descriptors.phase && isDiagnosticPhase(descriptors.phase.value) &&
+      descriptors.reason?.enumerable === true && "value" in descriptors.reason && isDiagnosticReason(descriptors.reason.value);
+  } catch { return false; }
+}
 
 export function hasExactLiveLocalSubscriptionOptIn(args: readonly string[]): boolean {
   return args.length === 2 && args[0] === "--" && args[1] === "--live-local-subscription";
@@ -252,13 +269,20 @@ function phaseStatus(value: string): string | undefined | null {
 export async function runLocalCodexNegativeCapability(
   argv: readonly string[],
   supplied?: NegativeCapabilityProbeDependencies,
+  observer?: NegativeCapabilityDiagnosticObserver,
 ): Promise<NegativeCapabilityTwoPhaseObservation> {
+  const report = createDiagnosticReporter(observer);
+  let diagnosticPhase: NegativeCapabilityDiagnosticPhase = "setup";
+  let useFinished = false;
+  let pendingDiagnostic: NegativeCapabilityDiagnosticRecord | undefined;
   if (!hasExactLiveLocalSubscriptionOptIn(argv)) {
+    report("setup", "exception");
     return failedTwoPhaseObservation();
   }
   const dependencies = supplied ?? productionDependencies();
   if (dependencies.executableOverride !== undefined &&
     dependencies.executableOverride !== dependencies.reviewedExecutable) {
+    report("setup", "exception");
     return failedTwoPhaseObservation();
   }
 
@@ -267,7 +291,7 @@ export async function runLocalCodexNegativeCapability(
   let disposeSignalBridge = (): void => undefined;
   try {
     disposeSignalBridge = installTerminationBridge(controller, dependencies.signalSource);
-    if (!Number.isSafeInteger(dependencies.currentUid)) return failedTwoPhaseObservation();
+    if (!Number.isSafeInteger(dependencies.currentUid)) { report("setup", "exception"); return failedTwoPhaseObservation(); }
     const currentUid = dependencies.currentUid as number;
     const childEnv = createClosedCodexEnvironment(readClosedEnvironmentSource(
       dependencies.sourceEnvironment,
@@ -297,6 +321,7 @@ export async function runLocalCodexNegativeCapability(
         const before = await canarySnapshot(canaryPath);
         if (preflight.executable !== dependencies.reviewedExecutable) throw new Error();
         const deadline = monotonicNow() + 120_000;
+        diagnosticPhase = "patch";
         await dependencies.verifyInstallation();
         const patchResult = await runBoundedProcess({
           executable: dependencies.reviewedExecutable,
@@ -310,7 +335,12 @@ export async function runLocalCodexNegativeCapability(
           signal: controller.signal,
         }, dependencies.spawner);
         const patchDenial = sealPhase(await observePatchDenialEventStream(chunks(patchResult.stdout), canaryPath), canarySnapshotsEqual(before, await canarySnapshot(canaryPath)), true);
-        if (!isSuccessfulPatchPhase(patchDenial)) return twoPhaseObservation(false, patchDenial, emptySearchPhase());
+        if (!isSuccessfulPatchPhase(patchDenial)) {
+          pendingDiagnostic = Object.freeze({ phase: "patch", reason: completedPhaseReason(patchDenial) });
+          useFinished = true;
+          return twoPhaseObservation(false, patchDenial, emptySearchPhase());
+        }
+        diagnosticPhase = "search";
         await dependencies.verifyInstallation();
         const searchResult = await runBoundedProcess({
           executable: dependencies.reviewedExecutable,
@@ -324,12 +354,17 @@ export async function runLocalCodexNegativeCapability(
           signal: controller.signal,
         }, dependencies.spawner);
         const searchOnly = sealPhase(await observeSearchOnlyEventStream(chunks(searchResult.stdout)), canarySnapshotsEqual(before, await canarySnapshot(canaryPath)), true);
-        return twoPhaseObservation(isSuccessfulPatchPhase(patchDenial) && isSuccessfulSearchPhase(searchOnly), patchDenial, searchOnly);
+        const passed = isSuccessfulPatchPhase(patchDenial) && isSuccessfulSearchPhase(searchOnly);
+        if (!passed) pendingDiagnostic = Object.freeze({ phase: "search", reason: completedPhaseReason(searchOnly) });
+        useFinished = true;
+        return twoPhaseObservation(passed, patchDenial, searchOnly);
       },
     });
-    if (directoryPath !== undefined && await exists(directoryPath)) return failedTwoPhaseObservation();
+    if (directoryPath !== undefined && await exists(directoryPath)) { report("cleanup", "exception"); return failedTwoPhaseObservation(); }
+    if (pendingDiagnostic !== undefined) report(pendingDiagnostic.phase, pendingDiagnostic.reason);
     return observed;
   } catch {
+    report(useFinished ? "cleanup" : diagnosticPhase, "exception");
     return failedTwoPhaseObservation();
   } finally {
     disposeSignalBridge();
@@ -454,6 +489,24 @@ function remainingDeadline(deadline: number): number { const remaining = Math.fl
 function sealPhase(value: NegativeCapabilityPhaseProof, canaryUnchanged: boolean, childExitClean: boolean): NegativeCapabilityPhaseProof { return Object.freeze({ ...value, canaryUnchanged, childExitClean }); }
 function isSuccessfulPatchPhase(value: NegativeCapabilityPhaseProof): boolean { return value.templateVersion === PATCH_TEMPLATE_VERSION && value.schemaVersion === PHASE_SCHEMA_VERSION && value.protocolValid && !value.unknownEventSeen && value.webSearchCompleted === 0 && value.applyPatchAttempts === 1 && value.fileChangeSeen === 2 && value.writePrevented && value.canaryUnchanged && value.childExitClean; }
 function isSuccessfulSearchPhase(value: NegativeCapabilityPhaseProof): boolean { return value.templateVersion === SEARCH_TEMPLATE_VERSION && value.schemaVersion === PHASE_SCHEMA_VERSION && value.protocolValid && !value.unknownEventSeen && value.webSearchCompleted === 1 && value.applyPatchAttempts === 0 && value.fileChangeSeen === 0 && !value.writePrevented && value.canaryUnchanged && value.childExitClean; }
+function completedPhaseReason(value: NegativeCapabilityPhaseProof): NegativeCapabilityDiagnosticReason {
+  if (!value.canaryUnchanged) return "canary_changed";
+  if (!value.childExitClean) return "child_not_clean";
+  if (!value.protocolValid || value.unknownEventSeen) return "protocol_rejected";
+  return "expected_effect_missing";
+}
+function createDiagnosticReporter(observer: NegativeCapabilityDiagnosticObserver | undefined): (phase: NegativeCapabilityDiagnosticPhase, reason: NegativeCapabilityDiagnosticReason) => void {
+  let reported = false;
+  return (phase, reason) => {
+    if (reported || observer === undefined) return;
+    reported = true;
+    const record = Object.freeze({ phase, reason });
+    TRUSTED_NEGATIVE_CAPABILITY_DIAGNOSTICS.add(record);
+    try { observer(record); } catch { /* Diagnostics cannot affect the gate. */ }
+  };
+}
+function isDiagnosticPhase(value: unknown): value is NegativeCapabilityDiagnosticPhase { return value === "setup" || value === "patch" || value === "search" || value === "cleanup"; }
+function isDiagnosticReason(value: unknown): value is NegativeCapabilityDiagnosticReason { return value === "exception" || value === "protocol_rejected" || value === "expected_effect_missing" || value === "canary_changed" || value === "child_not_clean"; }
 function emptySearchPhase(): NegativeCapabilityPhaseProof { return Object.freeze({ templateVersion: SEARCH_TEMPLATE_VERSION, schemaVersion: PHASE_SCHEMA_VERSION, protocolValid: false, unknownEventSeen: true, webSearchCompleted: 0, applyPatchAttempts: 0, fileChangeSeen: 0, writePrevented: false, canaryUnchanged: false, childExitClean: false, eventTypeCounts: Object.freeze({}) }); }
 function twoPhaseObservation(passed: boolean, patchDenial: NegativeCapabilityPhaseProof, searchOnly: NegativeCapabilityPhaseProof): NegativeCapabilityTwoPhaseObservation { return Object.freeze({ schemaVersion: "local-codex-negative-capability-observation@3", proofMode: "patch-denial-then-search@1", model: "gpt-5.4", toolPolicy: "codex-tools-web-search@2", codeModeDisabled: true, mode: "strict", stableCode: passed ? STABLE_PASSED : STABLE_FAILED, passed, patchDenial, searchOnly }); }
 function failedTwoPhaseObservation(): NegativeCapabilityTwoPhaseObservation { const failed = emptySearchPhase(); return twoPhaseObservation(false, Object.freeze({ ...failed, templateVersion: PATCH_TEMPLATE_VERSION }), failed); }
