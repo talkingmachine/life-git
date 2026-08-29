@@ -33,7 +33,7 @@ export const ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES = 65_536;
 export const ONBOARDING_REVIEW_MAX_PROMPT_BYTES = 98_304;
 
 export const ONBOARDING_EXTRACTION_LIMITS = Object.freeze({
-  timeoutMs: 30_000,
+  timeoutMs: 60_000,
   maxStdoutBytes: 131_072,
   maxStderrBytes: 16_384,
   maxEvents: 64,

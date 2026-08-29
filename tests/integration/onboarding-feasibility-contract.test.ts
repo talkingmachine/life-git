@@ -179,7 +179,7 @@ describe("onboarding feasibility contract", () => {
     expect(artifact.caseResults).toHaveLength(7);
     expect(artifact.caseResults.every(({ status, elapsedMs }) => status === "passed" && elapsedMs === 7)).toBe(true);
     expect(artifact.extractionLimits).toEqual({
-      timeoutMs: 30_000,
+      timeoutMs: 60_000,
       maxStdoutBytes: 131_072,
       maxStderrBytes: 16_384,
       maxEvents: 64,

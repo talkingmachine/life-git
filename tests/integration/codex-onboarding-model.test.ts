@@ -221,7 +221,7 @@ describe("Codex onboarding model", () => {
     expect(ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES).toBe(65_536);
     expect(ONBOARDING_REVIEW_MAX_PROMPT_BYTES).toBe(98_304);
     expect(ONBOARDING_EXTRACTION_LIMITS).toEqual({
-      timeoutMs: 30_000,
+      timeoutMs: 60_000,
       maxStdoutBytes: 131_072,
       maxStderrBytes: 16_384,
       maxEvents: 64,
@@ -433,10 +433,40 @@ describe("Codex onboarding model", () => {
       frozen: Object.isFrozen(invocation.limits),
       signal: invocation.signal,
     }))).toEqual([
-      { effort: "low", timeoutMs: 30_000, frozen: true, signal },
-      { effort: "medium", timeoutMs: 17_655, frozen: true, signal },
+      { effort: "low", timeoutMs: 60_000, frozen: true, signal },
+      { effort: "medium", timeoutMs: 47_655, frozen: true, signal },
     ]);
     expect(attempts).toEqual([{ attempt: "initial" }, { attempt: "retry" }]);
+  });
+
+  test("starts medium after the former 30-second cutoff with the remaining shared deadline", async () => {
+    let nowMs = 0;
+    const signal = new AbortController().signal;
+    const { runtime, invokeJson } = fakeRuntime(async (invocation) => ({
+      ...extractionResult(),
+      metadata: { ...extractionMetadata(), reasoningEffort: invocation.reasoningEffort },
+    }));
+    const model = createCodexOnboardingModel(runtime, { monotonicNowMs: () => nowMs });
+
+    await expect(model.extract({
+      message: message(), questionnaire: questionnaire(), signal,
+      acceptExtraction: (_output, attempt) => {
+        if (attempt.attempt === "initial") {
+          nowMs = 30_001;
+          return Object.freeze({ kind: "retryable" as const, reason: "guard_invalid" as const });
+        }
+        return Object.freeze({ kind: "accepted" as const });
+      },
+    })).resolves.toEqual(decodedExtractionResult());
+
+    expect(invokeJson.mock.calls.map(([invocation]) => ({
+      effort: invocation.reasoningEffort,
+      timeoutMs: invocation.limits.timeoutMs,
+      signal: invocation.signal,
+    }))).toEqual([
+      { effort: "low", timeoutMs: 60_000, signal },
+      { effort: "medium", timeoutMs: 29_999, signal },
+    ]);
   });
 
   test("does not start medium after the shared extraction deadline is exhausted", async () => {
