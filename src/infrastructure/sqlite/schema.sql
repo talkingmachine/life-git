@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS city_source_versions (
   city_id TEXT NOT NULL,
   fact_key TEXT NOT NULL CHECK (fact_key = 'si-city-safety'),
   definition_id TEXT NOT NULL CHECK (definition_id = 'si-municipal-police-offences-per-100000@1'),
-  evidence_snapshot_id TEXT NOT NULL,
+  evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
   schema_version TEXT NOT NULL CHECK (schema_version = 'source-version@1'),
   payload_json TEXT NOT NULL, payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
   hmac TEXT NOT NULL CHECK (length(hmac) = 64), created_at TEXT NOT NULL
@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS city_source_binding_revisions (
   id TEXT PRIMARY KEY, country_code TEXT NOT NULL CHECK (country_code = 'SI'), city_id TEXT NOT NULL,
   fact_key TEXT NOT NULL CHECK (fact_key = 'si-city-safety'), definition_id TEXT NOT NULL CHECK (definition_id = 'si-municipal-police-offences-per-100000@1'),
   revision_ordinal INTEGER NOT NULL CHECK (revision_ordinal > 0), predecessor_revision_id TEXT REFERENCES city_source_binding_revisions(id),
-  source_version_id TEXT NOT NULL REFERENCES city_source_versions(id), evidence_snapshot_id TEXT NOT NULL,
+  source_version_id TEXT NOT NULL REFERENCES city_source_versions(id), evidence_snapshot_id TEXT NOT NULL REFERENCES city_evidence_snapshots(id),
+  knowledge_revision_id TEXT NOT NULL REFERENCES city_knowledge_revisions(id), frontier_revision_id TEXT NOT NULL REFERENCES city_frontier_revisions(id),
   schema_version TEXT NOT NULL CHECK (schema_version = 'source-binding@1'), payload_json TEXT NOT NULL,
   payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64), hmac TEXT NOT NULL CHECK (length(hmac) = 64), created_at TEXT NOT NULL,
   UNIQUE(country_code, city_id, fact_key, definition_id, revision_ordinal), CHECK(predecessor_revision_id IS NULL OR predecessor_revision_id <> id)

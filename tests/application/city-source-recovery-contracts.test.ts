@@ -48,4 +48,12 @@ describe("city source recovery contracts", () => {
     expect(version.id).toBe("source-version:999");
     expect(() => reconstructCitySourceVersionV1({ ...version, schemaVersion: "source-version@999" })).toThrow("integrity_mismatch");
   });
+
+  test("rejects unsafe URLs and non-data capture arrays", () => {
+    const value = { schemaVersion: "source-version@1", id: "source:one", bindingKey: { schemaVersion: "city-source-binding-key@1", countryCode: "SI", cityId: "ljubljana", factKey: "si-city-safety", definitionId: "si-municipal-police-offences-per-100000@1" }, publisherId: "policija", navigationUrl: "https://www.policija.si/#fragment", requestedUrl: "https://www.policija.si/statistics", finalUrl: "https://www.policija.si/statistics", captureArtifactIds: ["artifact:one"], captureSha256: ["a".repeat(64)], evidenceSnapshotId: "evidence:one", parserVersion: "parser@1", capturedAt: "2026-08-29T12:00:00.000Z" };
+    expect(() => reconstructCitySourceVersionV1(value)).toThrow("integrity_mismatch");
+    value.navigationUrl = "https://www.policija.si/";
+    const sparse = new Array(1); value.captureArtifactIds = sparse as unknown as string[];
+    expect(() => reconstructCitySourceVersionV1(value)).toThrow("integrity_mismatch");
+  });
 });

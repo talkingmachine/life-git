@@ -1,4 +1,5 @@
 import { types } from "node:util";
+import { canonicalHttpsUrl } from "./official-source-discovery";
 
 export type CitySourceBindingKeyV1 = Readonly<{
   schemaVersion: "city-source-binding-key@1";
@@ -54,13 +55,13 @@ function fields(value: unknown, keys: readonly string[]): Record<string, unknown
   return input;
 }
 function text(value: unknown): string { if (typeof value !== "string" || value.length === 0 || !IDENTIFIER.test(value)) mismatch(); return value; }
-function url(value: unknown): string { if (typeof value !== "string" || value.length === 0) mismatch(); try { const parsed = new URL(value); if (parsed.protocol !== "https:" || parsed.href !== value) mismatch(); return value; } catch { return mismatch(); } }
+function url(value: unknown): string { try { return canonicalHttpsUrl(value); } catch { return mismatch(); } }
 function instant(value: unknown): string { if (typeof value !== "string" || new Date(value).toISOString() !== value) mismatch(); return value; }
 function ordinal(value: unknown): number { if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) mismatch(); return value; }
 function digest(value: unknown): string { if (typeof value !== "string" || !HEX.test(value)) mismatch(); return value; }
 function strings(value: unknown, validator: (item: unknown) => string): readonly string[] {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || Object.getOwnPropertySymbols(value).length !== 0) mismatch();
-  const copy = value.map((item) => validator(item)); return Object.freeze(copy);
+  if (!Array.isArray(value) || types.isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype || Object.getOwnPropertySymbols(value).length !== 0 || Object.getOwnPropertyNames(value).length !== value.length + 1) mismatch();
+  const copy: string[] = []; for (let index = 0; index < value.length; index += 1) { const descriptor = Object.getOwnPropertyDescriptor(value, String(index)); if (descriptor?.enumerable !== true || !("value" in descriptor)) mismatch(); copy.push(validator(descriptor.value)); } return Object.freeze(copy);
 }
 function freeze<T>(value: T): T { if (value !== null && typeof value === "object") { for (const key of Object.getOwnPropertyNames(value)) freeze((value as Record<string, unknown>)[key]); Object.freeze(value); } return value; }
 
