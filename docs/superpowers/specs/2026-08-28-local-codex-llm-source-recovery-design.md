@@ -246,6 +246,29 @@ fieldId + typedValue + sourceSpan
 Модель извлекает только явно написанное, не заполняет unknown/«не знаю», не меняет applicability и
 не использует search. Existing local parser/guard остаётся fallback при unavailable model.
 
+Current producer lineage использует `onboarding-extract@9` и
+`onboarding-extraction-wire@3`. Модель возвращает proposal ровно как `{f,v,t}`, где `t` —
+непустая contiguous substring, дословно скопированная из `currentUserMessage.text`. `t` обязана
+встречаться в сообщении ровно один раз; если короткое whole-token evidence повторяется, модель
+расширяет его соседним исходным текстом до уникального, иначе proposal опускается. Модель не
+возвращает offsets и не получает `utf16Length`.
+
+Infrastructure descriptor-safely snapshot-ит wire и `messageText`, запрещает accessors/proxies,
+extra/symbol keys, cycles и exotic prototypes, затем без trim/case-fold/Unicode normalization
+вычисляет `start = messageText.indexOf(t)` и `end = start + t.length`. Отсутствующее evidence и
+любое второе вхождение, найденное с `start + 1` (включая overlapping duplicate), дают закрытый
+schema-invalid retry. `String#indexOf`, `length` и `slice` используют одну UTF-16 coordinate system,
+поэтому Application по-прежнему получает тот же frozen `sourceSpan`; wire-only `t` не попадает в
+DTO, store, artifact или log. Общий message/evidence bound остаётся 8,192 UTF-8 bytes, proposal
+count — не более 100.
+
+V1–V8 tuples сохраняются byte-for-byte и реконструируются как история; только exact V9 tuple
+является current. Hybrid и unknown version tuples fail-closed. Derived span всё равно проходит
+существующие guard/canonical/evidence acceptance gates: code-owned position устраняет нестабильную
+арифметику модели, но не считается самостоятельным доказательством семантической связи `t` с
+`typedValue`. До общего owner walkthrough эта field-specific value/evidence проверка остаётся
+отдельным hardening gate; Stage A сохраняет независимый exact-fixture oracle.
+
 ### 8.2 `source.extract`
 
 Raw immutable capture остаётся локальным. Versioned deterministic projector удаляет scripts,

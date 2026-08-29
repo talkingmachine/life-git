@@ -22,7 +22,7 @@
 - Integrity/security/ownership failures never retry. Onboarding/source schema ambiguity gets at most one `low -> medium` retry; discovery is `medium` and later recovery will own the two-round limit.
 - Identical requests are keyed single-flight. Distinct requests run under an adaptive maximum of five children, shrinking `5 -> 3 -> 1` on rate/transient pressure and recovering only after cooldown.
 - Aborting one waiter detaches it; all waiters gone abort the leader process group. A finished or aborted flight cannot publish late output.
-- Historical onboarding V1/V2/V3 tuples remain byte-for-byte reconstructible. New current calls use V4 and invocation/protocol `@2`; hybrid or unknown tuples fail closed.
+- Historical onboarding V1–V8 tuples remain byte-for-byte reconstructible. New current calls use V9 and invocation/protocol `@2`; hybrid or unknown tuples fail closed.
 - Unit/integration tests use fake process/search boundaries. Real subscription/search checks are explicit local opt-in and are not part of ordinary CI.
 - The future `dev-llm` provider switch and external API provider remain backlog-only and must not be implemented in this plan.
 - Follow strict TDD for every behavior change: name the break, observe the focused RED failure, implement the minimum GREEN change, and rerun the focused test before a broader gate.
@@ -40,7 +40,7 @@
 | `src/infrastructure/codex-cli/feasibility-probe.ts` | One isolated CLI invocation using the fixed policy and event proof. |
 | `src/infrastructure/codex-cli/model-adapter.ts` | JSON parse/freeze, flight-key ownership and complete invocation metadata. |
 | `src/infrastructure/codex-cli/runtime.ts` | One-time static preflight plus injected adapter/pool composition. |
-| `src/application/onboarding-model-versions.ts` | Immutable historical V1–V3 and current V4 semantic lineage. |
+| `src/application/onboarding-model-versions.ts` | Immutable historical V1–V8 and current V9 semantic lineage. |
 | `src/infrastructure/codex-cli/onboarding-model.ts` | Low-first onboarding calls, one medium schema retry, strict output binding. |
 | `src/application/onboarding.ts` | Deterministic manual-questionnaire fallback when the model is unavailable. |
 | `src/application/official-source-discovery.ts` | Public-data-only discovery port and frozen request/result DTOs. |
@@ -997,6 +997,195 @@ Expected: all offline checks pass; no real model/network call occurs.
 ```bash
 git add src/infrastructure/codex-cli/contracts.ts src/infrastructure/codex-cli/model-adapter.ts src/infrastructure/codex-cli/runtime.ts evals/local-codex-stage-a.ts tests/integration/codex-cli-runtime.test.ts tests/integration/codex-official-source-discovery.test.ts tests/integration/local-codex-stage-a-contract.test.ts docs/README.md docs/superpowers/specs/2026-08-28-local-codex-llm-source-recovery-design.md docs/superpowers/plans/2026-08-28-local-codex-runtime-stabilization.md
 git commit -m "fix: make local search capability honest"
+```
+
+---
+
+### Task 10: Derive onboarding evidence offsets from one exact unique substring
+
+**Files:**
+- Modify: `src/application/onboarding-model-versions.ts`
+- Modify: `src/infrastructure/codex-cli/onboarding-extraction-wire.ts`
+- Modify: `src/infrastructure/codex-cli/onboarding-schema.ts`
+- Modify: `src/infrastructure/codex-cli/onboarding-model.ts`
+- Modify current-lineage fixtures only: `evals/onboarding-feasibility.ts`
+- Modify current-lineage fixtures only: `evals/onboarding-journey-timing.ts`
+- Test: `tests/infrastructure/onboarding-extraction-wire.test.ts`
+- Test: `tests/domain/onboarding-schema.test.ts`
+- Test: `tests/integration/codex-onboarding-model.test.ts`
+- Test current-lineage consumers as needed: `tests/integration/onboarding-feasibility-contract.test.ts`
+- Test current-lineage consumers as needed: `tests/integration/onboarding-journey-timing-contract.test.ts`
+- Test current-lineage consumers as needed: `tests/integration/onboarding-store.test.ts`
+- Test current-lineage consumers as needed: `tests/integration/place-frontier.test.ts`
+- Test current-lineage consumers as needed: `tests/integration/codex-cli-runtime.test.ts`
+- Test current Stage A contract as needed: `tests/integration/local-codex-stage-a-contract.test.ts`
+
+**Interfaces:**
+- Consumes: V1–V8 exact lineage, the descriptor-safe owned JSON decoder, the existing
+  `LocalExtractionResult`/`sourceSpan` contract, low-to-medium retry, shared 60-second deadline and
+  the unchanged guard/canonical/evidence acceptor.
+- Produces: current exact V9 tuple, `onboarding-extraction-wire@3` proposals `{f,v,t}`, and a
+  code-derived UTF-16 `sourceSpan` from one exact unique evidence substring. No public or durable DTO
+  changes.
+
+- [ ] **Step 1: Pin V9 lineage and the wire@3 schema with focused RED tests**
+
+Add this exact append-only tuple without editing any literal V1–V8 tuple:
+
+```ts
+export interface OnboardingModelVersionsV9 {
+  readonly invocation: "codex-cli-invocation@2";
+  readonly cliVersion: "codex-cli-0.149.0-alpha.4-plus@1";
+  readonly extractionPrompt: "onboarding-extract@9";
+  readonly reviewPrompt: "onboarding-review@2";
+  readonly extractionSchema: "onboarding-extraction-wire@3";
+  readonly reviewSchema: "onboarding-review-output@1";
+}
+```
+
+Require the union/reconstructor to accept exact V1–V9 by identity, reject V8/V9 hybrids and make
+`ONBOARDING_MODEL_VERSIONS` alias exact V9. Change only the current extraction schema to:
+
+```ts
+{
+  schemaVersion: enumSchema(["onboarding-extraction-wire@3"]),
+  proposals: {
+    type: "array",
+    maxItems: 100,
+    items: { anyOf: proposal variants whose exact keys are {f,v,t} },
+  },
+  nextQuestion: { type: "string", minLength: 1, maxLength: 1_000 },
+}
+```
+
+Every proposal variant uses `t: {type:"string",minLength:1,maxLength:8192}`. Assert old `{s,e}`
+fields, missing `t`, extra keys, stale `@2` and future `@999` reject under the current schema. Refresh
+only the current canonical-schema fixture/hash; preserve historical persisted digests.
+
+Run:
+
+```bash
+pnpm exec vitest run tests/domain/onboarding-schema.test.ts tests/infrastructure/onboarding-extraction-wire.test.ts tests/integration/onboarding-store.test.ts
+```
+
+Expected: RED because V9/wire@3 and evidence text do not exist.
+
+- [ ] **Step 2: Specify code-owned evidence derivation with decoder RED tests**
+
+Change the current decoder input to the exact owned shape
+`{value,messageId,messageText}`. Require `messageText` to be a primitive nonempty string within the
+existing 8,192 UTF-8-byte session bound. After the existing descriptor-safe snapshot, each proposal
+must be exactly `{f,v,t}` and `t` must be a primitive nonempty string no longer than 8,192 code units
+and no larger than the message UTF-8 bound.
+
+For each `t`, derive the span with this exact algorithm:
+
+```ts
+const start = messageText.indexOf(t);
+if (start < 0 || messageText.indexOf(t, start + 1) !== -1) throw invalidWire();
+const end = start + t.length;
+if (!(0 <= start && start < end && end <= messageText.length)) throw invalidWire();
+```
+
+Do not trim, normalize, case-fold, re-encode, choose first/last, accept an occurrence ordinal, clamp
+or repair evidence. Starting the duplicate search at `start + 1` intentionally catches overlapping
+matches. Convert only after those checks to the existing application shape
+`{fieldId,typedValue,messageId,sourceSpan:{start,end}}`, recursively freeze it, and discard `t`.
+
+Tests must cover unique ASCII and Cyrillic, an astral/surrogate-pair substring, a decomposed
+combining sequence, visually similar but byte-distinct Unicode, absent/empty/oversized evidence,
+ordinary and overlapping duplicates, old offset wire, and hostile getter/proxy/symbol/cycle/exotic
+objects. Assert no trap is invoked, `messageText.slice(start,end) === t`, output contains no `t`,
+and the returned public/application object remains owned and frozen.
+
+- [ ] **Step 3: Implement the minimum wire/schema/lineage GREEN**
+
+Add V9 and change only the current wire/schema decoder. Reuse the existing ownership snapshot and
+field/value parser rather than creating a second type algebra. Preserve proposal limit 100, exact
+message UUID binding, dense arrays, typed values, `nextQuestion`, frozen result and content-free
+error. Do not add aggregate recursion/string-budget work in this milestone; record that pre-existing
+DoS hardening separately.
+
+Run the Step 1 focused command again. Expected: GREEN.
+
+- [ ] **Step 4: Version the producer prompt and preserve retry/abort ownership**
+
+Switch current extraction to V9. Remove `currentUserMessage.utf16Length`; payload is exactly
+`{currentUserMessage:{text},questionnaire,retryFeedback}`. Pass the already validated message text
+to the decoder; never copy it into a result or error.
+
+Replace the offset instructions with the exact behavioral contract:
+
+```text
+Return {schemaVersion,proposals,nextQuestion}; each proposal is exactly {f,v,t}.
+For each proposal, t is a nonempty contiguous substring copied exactly from currentUserMessage.text; do not return offsets.
+Each t must occur exactly once in currentUserMessage.text. If the shortest complete whole-token evidence repeats, extend it with contiguous surrounding source text until it is unique; omit the proposal if no unique evidence exists.
+Use shortest complete whole-token t for v. Omit if unverifiable; never split a Unicode letter, combining mark, number, or surrogate pair.
+```
+
+Use these retry actions without adding a sixth retry reason:
+
+```text
+guard_invalid: rebuild from currentUserMessage.text; recheck unique t and all rules
+evidence_mismatch: recompute unique whole-token t
+```
+
+Schema/absent/ambiguous evidence continues through existing `schema_invalid`; semantically invalid
+but syntactically valid evidence continues through the unchanged guard/canonical/evidence acceptor.
+Keep exactly two attempts (`low`, then `medium` only for an existing retry reason), the same shared
+deadline object, leader signal, abort checks before/after decode and acceptance, and no late result.
+Do not expose retry reason, evidence text, prompt or model output in logs/artifacts.
+
+Add integration RED/GREEN coverage for exact V9 metadata, fake `{f,v,t}` responses, no
+`utf16Length`/offset instructions, identical signal/shared remaining deadline, low success without
+retry, ambiguous text causing only one medium retry, exhausted failure, and abort/deadline at the
+existing ownership boundaries.
+
+- [ ] **Step 5: Migrate only current-lineage consumers and prove history**
+
+Update feasibility/timing/current Stage A fixtures and assertions from the current V8/wire@2 output
+to V9/wire@3 evidence text. For the Stage A fixture use exact unique evidence:
+
+```json
+[
+  {"f":"b0","v":{"countryCode":"RU","city":"Москва"},"t":"в Москве, Россия"},
+  {"f":"b2","v":"alone","t":"одна"},
+  {"f":"p0.0","v":["RU"],"t":"российское"},
+  {"f":"p0.6","v":5,"t":"5 лет"}
+]
+```
+
+Do not redesign Stage A acceptance: it must receive the same derived spans and retain independent
+canonical-value and evidence-coverage checks. Add a V9 store/replay round trip while leaving V1–V8
+fixtures and hashes byte-for-byte unchanged. Search all current-version call sites for stale V8/@2,
+but do not mechanically rewrite named historical tests.
+
+Run:
+
+```bash
+pnpm exec vitest run tests/infrastructure/onboarding-extraction-wire.test.ts tests/domain/onboarding-schema.test.ts tests/integration/codex-onboarding-model.test.ts tests/integration/onboarding-feasibility-contract.test.ts tests/integration/onboarding-journey-timing-contract.test.ts tests/integration/onboarding-store.test.ts tests/integration/place-frontier.test.ts tests/integration/codex-cli-runtime.test.ts tests/integration/local-codex-stage-a-contract.test.ts
+pnpm typecheck
+pnpm lint
+git diff --check
+```
+
+Expected: GREEN with no live model/network call and no public/durable schema change.
+
+- [ ] **Step 6: Review and commit the positional-integrity milestone**
+
+One implementation reviewer checks exact Task 10 behavior. A second specialist is required only for
+the ownership/integrity boundary: descriptor safety, exact uniqueness, Unicode UTF-16 derivation,
+V1–V8 persistence and abort/no-late-acceptance. Critical or current-correctness Important findings
+block; the pre-existing general field-specific value/evidence semantic check and aggregate JSON work
+budget remain explicit hardening items before owner walkthrough, not scope for speculative Task 10
+RED expansion.
+
+After focused review, run the full offline suite and commit:
+
+```bash
+pnpm test
+git add src/application/onboarding-model-versions.ts src/infrastructure/codex-cli/onboarding-extraction-wire.ts src/infrastructure/codex-cli/onboarding-schema.ts src/infrastructure/codex-cli/onboarding-model.ts evals/onboarding-feasibility.ts evals/onboarding-journey-timing.ts tests/infrastructure/onboarding-extraction-wire.test.ts tests/domain/onboarding-schema.test.ts tests/integration/codex-onboarding-model.test.ts tests/integration/onboarding-feasibility-contract.test.ts tests/integration/onboarding-journey-timing-contract.test.ts tests/integration/onboarding-store.test.ts tests/integration/place-frontier.test.ts tests/integration/codex-cli-runtime.test.ts tests/integration/local-codex-stage-a-contract.test.ts docs/superpowers/specs/2026-08-28-local-codex-llm-source-recovery-design.md docs/superpowers/plans/2026-08-28-local-codex-runtime-stabilization.md
+git commit -m "fix: derive onboarding evidence offsets"
 ```
 
 ---
