@@ -74,6 +74,8 @@ const V8_VERSIONS_JSON =
   '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@8",' +
   '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2",' +
   '"reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V10_VERSIONS_JSON = '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@2","extractionPrompt":"onboarding-extract@9","extractionSchema":"onboarding-extraction-wire@3","invocation":"codex-cli-invocation@2","reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V11_VERSIONS_JSON = '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@2","extractionPrompt":"onboarding-extract@10","extractionSchema":"onboarding-extraction-wire@3","invocation":"codex-cli-invocation@2","reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
 const V1_CONFIRMATION_DIGEST =
   "f1714bd3354b4a05f2f6ebee7ad6d28d2fd1d6f1702aa21d7856fa3e15e5ff32";
 const V2_CONFIRMATION_DIGEST =
@@ -335,14 +337,21 @@ describe("SQLite onboarding confirmation persistence", () => {
     expect(V8_VERSIONS_JSON).toBe('{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@8","extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2","reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}');
   });
 
-  test.each([["historical V10", ONBOARDING_MODEL_VERSIONS_V10], ["current V11", ONBOARDING_MODEL_VERSIONS_V11]] as const)("persists and reopens %s as the canonical singleton", async (_lineage, versions) => {
-    const database = track(openEvidenceDatabase(temporaryDatabasePath("onboarding-v10-v11-lineage-")));
+  test.each([["historical V10", ONBOARDING_MODEL_VERSIONS_V10, V10_VERSIONS_JSON], ["current V11", ONBOARDING_MODEL_VERSIONS_V11, V11_VERSIONS_JSON]] as const)("persists and reopens %s as the canonical singleton", async (_lineage, versions, expectedJson) => {
+    const path = temporaryDatabasePath("onboarding-v10-v11-lineage-");
+    const database = track(openEvidenceDatabase(path));
     const store = createStore(database);
     const receipt = await commit(store, COMMAND_1, confirmedValues(), versions);
     const row = database.prepare("SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId) as { versions_json: string };
-    expect(JSON.parse(row.versions_json)).toEqual(versions);
+    expect(row.versions_json).toBe(expectedJson);
     expect(Object.keys(JSON.parse(row.versions_json))).toEqual(["cliVersion", "extractionPrompt", "extractionSchema", "invocation", "reviewPrompt", "reviewSchema"]);
-    expect((await store.loadBySnapshotBindingsVerified({ profileId: receipt.profileId, preferenceProfileId: receipt.preferenceProfileId })).versions).toBe(versions);
+    const rowBefore = database.prepare("SELECT * FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId);
+    database.close();
+    const reopened = track(openEvidenceDatabase(path));
+    const changesBefore = reopened.prepare("SELECT total_changes() AS count").get();
+    expect((await createStore(reopened).loadBySnapshotBindingsVerified({ profileId: receipt.profileId, preferenceProfileId: receipt.preferenceProfileId })).versions).toBe(versions);
+    expect(reopened.prepare("SELECT * FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId)).toEqual(rowBefore);
+    expect(reopened.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
   });
 
   test("replays an ambiguous successful submission without another clock, materializer, or write", async () => {

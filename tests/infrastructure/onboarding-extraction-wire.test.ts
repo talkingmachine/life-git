@@ -344,6 +344,8 @@ describe("onboarding model version lineage", () => {
       { ...ONBOARDING_MODEL_VERSIONS_V7, reviewPrompt: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt },
       { ...ONBOARDING_MODEL_VERSIONS_V8, reviewPrompt: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt },
       { ...ONBOARDING_MODEL_VERSIONS_V9, extractionSchema: "onboarding-extraction-wire@2" },
+      { ...ONBOARDING_MODEL_VERSIONS_V10, extractionPrompt: "onboarding-extract@9@10" },
+      { ...ONBOARDING_MODEL_VERSIONS_V11, extractionPrompt: "onboarding-extract@10@9" },
     ]) {
       expect(() => reconstructOnboardingModelVersions(hybrid)).toThrow(TypeError);
     }
