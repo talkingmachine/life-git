@@ -77,6 +77,7 @@ import {
 import type {
   CitySafetyCandidateInspectionInput,
   CitySafetyOfficialDocumentPort,
+  CitySafetyOfficialDiscoveryPort,
   CitySafetySearchPort,
 } from "../../src/application/city-safety-contracts";
 import {
@@ -11814,12 +11815,14 @@ describe("City Frontier Application public boundary", () => {
       definitionId: "si-municipal-police-offences-per-100000@1" as const };
     const attempts: unknown[] = [];
     const discovery = vi.fn();
+    let tamperPrior = false;
     const recovery = harness.createRecoveryApplication({
       bindings: {
         loadEffectiveVerified: () => ({ bindingKey, cursor: { schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: "a".repeat(64) }, revision: null,
           sourceVersion: { schemaVersion: "source-version@1", id: "prior-source", bindingKey,
             publisherId: accepted.publisherId, navigationUrl: accepted.publisherNavigationUrl,
-            requestedUrl: accepted.canonicalUrl, finalUrl: accepted.resolvedEvidenceUrl,
+            requestedUrl: accepted.canonicalUrl,
+            finalUrl: tamperPrior ? `${accepted.resolvedEvidenceUrl}?drift=1` : accepted.resolvedEvidenceUrl,
             captureArtifactIds: entry.artifacts.map(({ artifactId }) => artifactId), captureSha256: entry.artifacts.map(({ sha256 }) => sha256),
             evidenceSnapshotId: `${seal.cityCheckRunId}:evidence`, parserVersion: priorEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"], capturedAt: seal.completedAt } }),
         appendYellowAttempt: (attempt) => { attempts.push(attempt); return attempt; },
@@ -11836,6 +11839,15 @@ describe("City Frontier Application public boundary", () => {
     const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
       runId: recovering.runId, expectedRevisionId: recovering.revision.id, commandId: "continue:source-recovery-replay",
     });
+    const tamperBefore = researchAndPublicationCounts(harness);
+    tamperPrior = true;
+    await expect(recovery.continueCityFrontierWithSourceRecovery(
+      prepared, vi.fn(), new AbortController().signal,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(discovery).not.toHaveBeenCalled();
+    expect(attempts).toEqual([]);
+    expect(researchAndPublicationCounts(harness)).toEqual(tamperBefore);
+    tamperPrior = false;
     const before = researchAndPublicationCounts(harness);
     const outcome = await recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
     expect(outcome.kind).toBe("advanced");
@@ -11869,7 +11881,9 @@ describe("City Frontier Application public boundary", () => {
     const entry = evidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety")!;
     const bindingKey = { schemaVersion: "city-source-binding-key@1" as const, countryCode: "SI" as const, cityId: "ljubljana", factKey: "si-city-safety" as const, definitionId: "si-municipal-police-offences-per-100000@1" as const };
     const attempts: unknown[] = [];
-    const discovery = vi.fn(async () => Object.freeze({ kind: "candidates" as const, urls: Object.freeze([]), metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }));
+    const discovery = vi.fn<CitySafetyOfficialDiscoveryPort["discover"]>(async () =>
+      Object.freeze({ kind: "candidates" as const, urls: Object.freeze([]),
+        metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }));
     const recovery = harness.createRecoveryApplication({ bindings: { loadEffectiveVerified: () => ({ bindingKey,
       cursor: { schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: "a".repeat(64) }, revision: null,
       sourceVersion: { schemaVersion: "source-version@1", id: "yellow-prior", bindingKey, publisherId: accepted.publisherId, navigationUrl: accepted.publisherNavigationUrl, requestedUrl: accepted.canonicalUrl, finalUrl: accepted.resolvedEvidenceUrl, captureArtifactIds: entry.artifacts.map(({ artifactId }) => artifactId), captureSha256: entry.artifacts.map(({ sha256 }) => sha256), evidenceSnapshotId: evidence.snapshot.id, parserVersion: evidence.genericEvidence.snapshot.parserVersions["si-city-safety"], capturedAt: seal.completedAt } }),
@@ -11878,11 +11892,37 @@ describe("City Frontier Application public boundary", () => {
     const run = await harness.assembly.application.startCityFrontier({ resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI", criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-yellow" });
     const prepared = await harness.assembly.application.prepareCityFrontierContinuation({ runId: run.runId, expectedRevisionId: run.revision.id, commandId: "continue:source-recovery-yellow" });
     const before = researchAndPublicationCounts(harness);
-    const outcome = await recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
-    expect(outcome).toEqual({ schemaVersion: "city-source-recovery-outcome@1", kind: "yellow", source: { schemaVersion: "public-fact-source@1", factKey: "si-city-safety", status: "yellow", publisherName: null, sourceUrl: null, checkedAt: null } });
+    const first = recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    const second = recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    const [outcome, follower] = await Promise.all([first, second]);
+    const expected = { schemaVersion: "city-source-recovery-outcome@1", kind: "yellow" as const, source: { schemaVersion: "public-fact-source@1" as const, factKey: "si-city-safety", status: "yellow" as const, publisherName: null, sourceUrl: null, checkedAt: null } };
+    expect(outcome).toEqual(expected);
+    expect(follower).toEqual(expected);
+    recursivelyFrozen(outcome);
+    recursivelyFrozen(follower);
     expect(discovery).toHaveBeenCalledTimes(2);
     expect(attempts).toHaveLength(1);
     expect(researchAndPublicationCounts(harness)).toEqual({ ...before, safetyDocument: before.safetyDocument + 1 });
+
+    const entered = deferred<void>();
+    const delayed = deferred<Awaited<ReturnType<CitySafetyOfficialDiscoveryPort["discover"]>>>();
+    discovery.mockImplementationOnce(async () => {
+      entered.resolve(undefined);
+      return delayed.promise;
+    });
+    const abortController = new AbortController();
+    const abortReason = new Error("source-recovery-aborted");
+    const abortBefore = researchAndPublicationCounts(harness);
+    const aborted = recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), abortController.signal);
+    await entered.promise;
+    abortController.abort(abortReason);
+    delayed.resolve(Object.freeze({ kind: "candidates" as const, urls: Object.freeze([]),
+      metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }));
+    await expect(aborted).rejects.toBe(abortReason);
+    await nextEventLoopTurn();
+    expect(attempts).toHaveLength(1);
+    expect(researchAndPublicationCounts(harness)).toEqual({ ...abortBefore,
+      safetyDocument: abortBefore.safetyDocument + 1 });
   });
 
   test("authenticates the complete Continue chain before marker callbacks or effects", async () => {
