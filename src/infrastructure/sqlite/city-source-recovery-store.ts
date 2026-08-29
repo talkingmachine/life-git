@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 
 import type { CitySourceInstalledAuthority, CitySourceInstalledAuthorityPort, CitySourceRecoveryStorePort, CitySourceReplacementInput, CitySourceTruthPublicationAuthorityPort, EffectiveCitySourceBinding } from "../../application/city-source-recovery";
-import { reconstructCitySourceBindingCursorV1, reconstructCitySourceBindingKeyV1, reconstructCitySourceBindingRevisionV1, reconstructCitySourceVersionV1, reconstructOfficialSourceRecoveryAttemptV1, reconstructOfficialSourceReplacedEventV1, type CitySourceBindingCursorV1, type CitySourceBindingKeyV1, type CitySourceBindingRevisionV1, type CitySourceVersionV1, type OfficialSourceRecoveryAttemptV1 } from "../../application/city-source-recovery-contracts";
+import { reconstructCitySourceBindingCursorV1, reconstructCitySourceBindingKeyV1, reconstructCitySourceBindingRevisionV1, reconstructCitySourceReplacementInputV1, reconstructCitySourceVersionV1, reconstructOfficialSourceRecoveryAttemptV1, reconstructOfficialSourceReplacedEventV1, type CitySourceBindingCursorV1, type CitySourceBindingKeyV1, type CitySourceBindingRevisionV1, type CitySourceVersionV1, type OfficialSourceRecoveryAttemptV1 } from "../../application/city-source-recovery-contracts";
 import type { EvidenceIntegrity } from "../../research/run";
 import { secureHexEqual } from "../integrity";
 
@@ -33,16 +33,16 @@ export class SqliteCitySourceRecoveryStore implements CitySourceRecoveryStorePor
   }
   appendYellowAttempt(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1 { const owned = reconstructOfficialSourceRecoveryAttemptV1(attempt); this.authority(owned.bindingKey); return this.database.transaction(() => this.insertAttempt(owned))(); }
   appendReplacement(input: CitySourceReplacementInput, expectedCursor: CitySourceBindingCursorV1): CitySourceBindingRevisionV1 {
-    const source = reconstructCitySourceVersionV1(input.sourceVersion), revision = reconstructCitySourceBindingRevisionV1(input.revision), attempt = reconstructOfficialSourceRecoveryAttemptV1(input.attempt), expected = reconstructCitySourceBindingCursorV1(expectedCursor);
+    const owned = reconstructCitySourceReplacementInputV1(input), source = owned.sourceVersion, revision = owned.revision, attempt = owned.attempt, commandId = attempt.commandId, expected = reconstructCitySourceBindingCursorV1(expectedCursor);
     const installed = this.authority(source.bindingKey);
-    if (input.commandId !== attempt.commandId || !sameKey(source.bindingKey, revision.bindingKey) || !sameKey(source.bindingKey, attempt.bindingKey) || source.id !== revision.sourceVersionId || attempt.outcome !== "replaced" || this.integrity.canonical(attempt.cursor) !== this.integrity.canonical(expected)) mismatch();
+    if (owned.commandId !== commandId || !sameKey(source.bindingKey, revision.bindingKey) || !sameKey(source.bindingKey, attempt.bindingKey) || source.id !== revision.sourceVersionId || attempt.outcome !== "replaced" || this.integrity.canonical(attempt.cursor) !== this.integrity.canonical(expected)) mismatch();
     try { this.truth.requireVerified(Object.freeze({ bindingKey: source.bindingKey, sourceVersion: source, revision })); } catch { mismatch(); }
     return this.database.transaction(() => {
-      const prior = this.database.prepare("SELECT id,command_id,revision_id,schema_version,payload_json,payload_hash,hmac,created_at FROM official_source_replacement_events WHERE command_id=?").get(input.commandId) as ReplacementEventRow | undefined;
+      const prior = this.database.prepare("SELECT id,command_id,revision_id,schema_version,payload_json,payload_hash,hmac,created_at FROM official_source_replacement_events WHERE command_id=?").get(commandId) as ReplacementEventRow | undefined;
       if (prior !== undefined) {
         const event = this.eventVerified(prior); const existing = this.revision(event.revisionId); const persistedSource = this.version(existing.sourceVersionId);
-        const attemptRow = this.database.prepare(`SELECT ${recoveryAttemptColumns} FROM official_source_recovery_attempts WHERE command_id=?`).get(input.commandId) as RecoveryAttemptRow | undefined;
-        if (attemptRow === undefined || this.integrity.canonical(event) !== this.integrity.canonical(this.event(input.commandId, revision)) || this.integrity.canonical(existing) !== this.integrity.canonical(revision) || this.integrity.canonical(persistedSource) !== this.integrity.canonical(source) || this.integrity.canonical(this.decodeAttempt(attemptRow)) !== this.integrity.canonical(attempt)) mismatch();
+        const attemptRow = this.database.prepare(`SELECT ${recoveryAttemptColumns} FROM official_source_recovery_attempts WHERE command_id=?`).get(commandId) as RecoveryAttemptRow | undefined;
+        if (attemptRow === undefined || this.integrity.canonical(event) !== this.integrity.canonical(this.event(commandId, revision)) || this.integrity.canonical(existing) !== this.integrity.canonical(revision) || this.integrity.canonical(persistedSource) !== this.integrity.canonical(source) || this.integrity.canonical(this.decodeAttempt(attemptRow)) !== this.integrity.canonical(attempt)) mismatch();
         return existing;
       }
       this.database.prepare("INSERT INTO city_source_binding_heads(country_code,city_id,fact_key,definition_id,installed_binding_digest,active_revision_id) VALUES(?,?,?,?,?,NULL) ON CONFLICT(country_code,city_id,fact_key,definition_id) DO NOTHING").run(...args(source.bindingKey), installed.installedBindingDigest);
@@ -50,7 +50,7 @@ export class SqliteCitySourceRecoveryStore implements CitySourceRecoveryStorePor
       if (expected.kind === "installed") { if (head.active_revision_id !== null || !secureHexEqual(head.installed_binding_digest, installed.installedBindingDigest) || !secureHexEqual(expected.installedBindingDigest, installed.installedBindingDigest) || revision.predecessorRevisionId !== null || revision.revisionOrdinal !== 1) casLost(); }
       else if (head.active_revision_id !== expected.revisionId || revision.predecessorRevisionId !== expected.revisionId || revision.revisionOrdinal !== expected.revisionOrdinal + 1) casLost();
       this.insertVersion(source); this.insertRevision(revision); const changed = this.database.prepare("UPDATE city_source_binding_heads SET active_revision_id=? WHERE country_code=? AND city_id=? AND fact_key=? AND definition_id=? AND active_revision_id IS ?").run(revision.id, ...args(source.bindingKey), head.active_revision_id).changes; if (changed !== 1) casLost();
-      this.insertAttempt(attempt); this.insertEvent(input.commandId, revision); return revision;
+      this.insertAttempt(attempt); this.insertEvent(commandId, revision); return revision;
     }).immediate();
   }
   loadHistoryVerified(bindingKey: CitySourceBindingKeyV1): readonly CitySourceBindingRevisionV1[] {

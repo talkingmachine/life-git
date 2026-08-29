@@ -59,6 +59,17 @@ describe("SqliteCitySourceRecoveryStore", () => {
     expect(databases[0]!.prepare("SELECT COUNT(*) AS count FROM city_source_binding_heads").get()).toEqual({ count: 0 });
   });
 
+  test("rejects a hostile replacement command accessor before recovery writes", () => {
+    const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement(); let commandReads = 0;
+    const hostile = { sourceVersion: input.sourceVersion, revision: input.revision, attempt: input.attempt };
+    Object.defineProperty(hostile, "commandId", { enumerable: true, get: () => { commandReads += 1; return commandReads === 1 ? input.commandId : "command:split"; } });
+    let failure: unknown;
+    try { store.appendReplacement(hostile as unknown as Parameters<SqliteCitySourceRecoveryStore["appendReplacement"]>[0], cursor); } catch (caught) { failure = caught; }
+    expect(commandReads).toBe(0);
+    expect(failure).toMatchObject({ message: "integrity_mismatch" });
+    for (const table of ["city_source_versions", "city_source_binding_revisions", "city_source_binding_heads", "official_source_recovery_attempts", "official_source_replacement_events"]) expect(databases[0]!.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+  });
+
   test("rolls every recovery write back when a truth FK is missing", () => {
     const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement();
     expect(() => store.appendReplacement({ ...input, revision: { ...input.revision, knowledgeRevisionId: "knowledge:missing" } }, cursor)).toThrow("FOREIGN KEY constraint failed");

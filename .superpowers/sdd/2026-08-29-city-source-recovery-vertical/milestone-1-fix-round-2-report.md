@@ -26,3 +26,12 @@
 - Self-review: compared each selected/decoded SourceVersion, revision, and attempt mirror against the recovery DDL; all storage columns (including canonical payload, hash, and HMAC) are selected and validated. Event full-row validation remains unchanged.
 - Commit: local Git checkpoint created after the final verification.
 - Remaining concern: comprehensive cross-store publication semantics remain M3 scope.
+
+## Fix round 5
+
+- RED: `pnpm exec vitest run tests/integration/city-source-recovery-store.test.ts --reporter=dot` exited 1 in the hostile top-level command accessor regression: the legacy store invoked the accessor three times (`expected 0`, received `3`), allowing command identity to split.
+- Files: source-recovery contracts and public type re-export, recovery store, contract/store integration tests, this report.
+- Implementation: `reconstructCitySourceReplacementInputV1` descriptor-safely accepts exactly the four top-level keys, reconstructs/freeze-owns all nested contracts, and rejects unsafe shapes. `appendReplacement` reconstructs it once before authority/write work, derives `commandId` from the owned attempt, verifies the owned top-level command matches it, and uses that local value for replay lookups, comparisons, and event insertion.
+- GREEN: `pnpm exec vitest run tests/application/city-source-recovery-contracts.test.ts tests/integration/city-source-recovery-store.test.ts tests/integration/database-schema.test.ts --reporter=dot` exited 0: 3 files, 125 tests. `pnpm typecheck`, `pnpm lint`, and `git diff --check` each exited 0.
+- Self-review: `appendReplacement` has no `input.` property reads; its only original-input use is the single top-level reconstructor call. Existing mirror, FK, and CAS paths remain unchanged.
+- Remaining concern: comprehensive cross-store publication semantics remain M3 scope.

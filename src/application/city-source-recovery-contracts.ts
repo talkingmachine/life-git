@@ -38,6 +38,10 @@ export type OfficialSourceReplacedEventV1 = Readonly<{
   bindingKey: CitySourceBindingKeyV1; revisionId: string; createdAt: string;
 }>;
 
+export type CitySourceReplacementInput = Readonly<{
+  commandId: string; sourceVersion: CitySourceVersionV1; revision: CitySourceBindingRevisionV1; attempt: OfficialSourceRecoveryAttemptV1;
+}>;
+
 const HEX = /^[a-f0-9]{64}$/;
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/;
 
@@ -96,4 +100,8 @@ export function reconstructOfficialSourceRecoveryAttemptV1(value: unknown): Offi
 export function reconstructOfficialSourceReplacedEventV1(value: unknown): OfficialSourceReplacedEventV1 {
   const input = fields(value, ["schemaVersion", "id", "commandId", "bindingKey", "revisionId", "createdAt"]); if (input.schemaVersion !== "official-source-replaced@1") mismatch();
   return freeze({ schemaVersion: input.schemaVersion, id: text(input.id), commandId: text(input.commandId), bindingKey: reconstructCitySourceBindingKeyV1(input.bindingKey), revisionId: text(input.revisionId), createdAt: instant(input.createdAt) });
+}
+export function reconstructCitySourceReplacementInputV1(value: unknown): CitySourceReplacementInput {
+  const input = fields(value, ["commandId", "sourceVersion", "revision", "attempt"]);
+  return freeze({ commandId: text(input.commandId), sourceVersion: reconstructCitySourceVersionV1(input.sourceVersion), revision: reconstructCitySourceBindingRevisionV1(input.revision), attempt: reconstructOfficialSourceRecoveryAttemptV1(input.attempt) });
 }

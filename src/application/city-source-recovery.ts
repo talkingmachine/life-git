@@ -1,5 +1,7 @@
 import type { CityFrontierReadModel } from "./city-frontier-contracts";
-import type { CitySourceBindingCursorV1, CitySourceBindingKeyV1, CitySourceBindingRevisionV1, CitySourceVersionV1, OfficialSourceRecoveryAttemptV1 } from "./city-source-recovery-contracts";
+import type { CitySourceBindingCursorV1, CitySourceBindingKeyV1, CitySourceBindingRevisionV1, CitySourceReplacementInput, CitySourceVersionV1, OfficialSourceRecoveryAttemptV1 } from "./city-source-recovery-contracts";
+
+export type { CitySourceReplacementInput } from "./city-source-recovery-contracts";
 
 export type PublicFactSourceV1 = Readonly<{ schemaVersion: "public-fact-source@1"; factKey: string; status: "green" | "red" | "yellow"; publisherName: string | null; sourceUrl: string | null; checkedAt: string | null }>;
 export type EffectiveCitySourceBinding = Readonly<{ bindingKey: CitySourceBindingKeyV1; cursor: CitySourceBindingCursorV1; sourceVersion: CitySourceVersionV1 | null; revision: CitySourceBindingRevisionV1 | null }>;
@@ -7,5 +9,4 @@ export interface CitySourceRecoveryStorePort { loadEffectiveVerified(bindingKey:
 export type CitySourceInstalledAuthority = Readonly<{ bindingKey: CitySourceBindingKeyV1; sourceVersion: CitySourceVersionV1 }>;
 export interface CitySourceInstalledAuthorityPort { loadVerified(bindingKey: CitySourceBindingKeyV1): CitySourceInstalledAuthority | undefined; }
 export interface CitySourceTruthPublicationAuthorityPort { requireVerified(input: Readonly<{ bindingKey: CitySourceBindingKeyV1; sourceVersion: CitySourceVersionV1; revision: CitySourceBindingRevisionV1 }>): void; }
-export type CitySourceReplacementInput = Readonly<{ commandId: string; sourceVersion: CitySourceVersionV1; revision: CitySourceBindingRevisionV1; attempt: OfficialSourceRecoveryAttemptV1 }>;
 export type CitySourceRecoveryOutcome = Readonly<{ schemaVersion: "city-source-recovery-outcome@1"; kind: "advanced"; readModel: CityFrontierReadModel }> | Readonly<{ schemaVersion: "city-source-recovery-outcome@1"; kind: "yellow"; source: PublicFactSourceV1 }>;
