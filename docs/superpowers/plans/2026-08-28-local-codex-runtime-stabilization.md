@@ -1449,6 +1449,39 @@ corrective Git milestone and restart the required live series from zero. If anot
 the new fixed diagnostic to select the next action; never count a diagnostic or standalone run
 toward the three consecutive passes.
 
+At the diagnostic checkpoint, the next series again produced one complete PASS and then failed
+closed at `initialize_runtime:codex_tool_event`; cleanup removed the artifact and all owned temporary
+directories and Git remained clean. Because the runtime executes exactly three opaque capability
+phases, this recurrence justifies phase observability but still does not justify a retry, prompt
+change or parser widening.
+
+Before another live run, add one focused runtime diagnostic RED/GREEN:
+
+- keep the successful `CodexCliCapabilityVerification@2` five-key DTO, Stage A artifact `@4`, all
+  prompts/schemas/limits/signals/flight keys, event parsing and discovery's existing bounded
+  zero-search retry exactly unchanged;
+- on an escaping capability failure only, emit at most one internally minted, exact frozen record
+  `{ phase: "terra_low" | "terra_medium" | "gpt54_discovery" }`; rethrow the identical error, swallow
+  observer failures, emit nothing on success and emit nothing when the exact
+  `codex_search_not_performed` path is intentionally converted to an available zero-count proof;
+- validate provenance with a runtime-module-private marker and closed ownership checks, but pass the
+  capture observer only when Stage A resolved the private code-owned production initializer; every
+  supplied initializer receives no observer and cannot relay a separately minted trusted record;
+- only with explicit `--diagnostic`, a trusted record and a final failure at `initialize_runtime`,
+  render
+  `local_codex_stage_a_failed:diagnostic@3:initialize_runtime:<existing-safe-code>:<phase>`;
+  keep negative-gate `diagnostic@2`, all generic `diagnostic@1` lines and normal stderr unchanged;
+- never retain or render the raw error/message/stack, model output, prompt/schema, search/event
+  count/type/payload, query/URL, path/hash/ID/PID/timing/argv/env/auth, and never attach the phase to
+  the error, runtime singleton, capability DTO, artifact, metadata or flight state.
+
+Tests first must cover each of the three failing phases, identical rethrown error identity/code,
+success and swallowed zero-search with no record, exact frozen provenance, observer-throw
+containment, supplied-initializer real-record relay rejection, production forwarding, artifact
+cleanup/sequencing, and unchanged `@1`/`@2`/`@4` contracts. Run the focused runtime/Stage A suites,
+the full offline gate and mandatory runtime/privacy review, then commit one Git checkpoint and
+restart the three-live-run series from zero.
+
 The three previous Code-Mode-backed runs are historical diagnostics and do not approve this
 transport. With the owner's existing live subscription/network authorization, run the exact Stage A
 command three fresh times. Each run must pass installation attestation, direct-search canary denial,

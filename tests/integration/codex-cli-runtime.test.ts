@@ -670,7 +670,8 @@ describe("Codex CLI runtime singleton", () => {
       .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0))
       .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 1));
 
-    const capability = await runtime.verifyCodexCliCapabilities(new AbortController().signal);
+    const records: unknown[] = [];
+    const capability = await runtime.verifyCodexCliCapabilities(new AbortController().signal, (record: unknown) => { records.push(record); });
     expect(capability).toEqual({
       schemaVersion: "codex-runtime-capabilities@2",
       runtime: {
@@ -715,19 +716,100 @@ describe("Codex CLI runtime singleton", () => {
     expect(Object.isFrozen(capability.low)).toBe(true);
     expect(Object.isFrozen(capability.medium)).toBe(true);
     expect(Object.isFrozen(capability.discovery)).toBe(true);
+    expect(records).toEqual([]);
   });
 
-  test("rejects capability verification when zero-tool or discovery event proof is missing", async () => {
+  test.each([
+    ["terra_low", 0],
+    ["terra_medium", 1],
+    ["gpt54_discovery", 2],
+  ] as const)("reports one sealed %s capability failure and rethrows the same error", async (phase, successfulPhases) => {
     const fixture = await runtimeFixture();
-    const runtime = await freshRuntime();
+    const { runtime, isTrustedCapabilityDiagnostic } = await freshRuntimeWithCapabilityDiagnostics();
+    await runtime.initializeCodexCliRuntime(fixture.input);
+    const failure = new CodexRuntimeError("codex_tool_event");
+    for (let index = 0; index < successfulPhases; index += 1) {
+      probe.run.mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0));
+    }
+    probe.run.mockRejectedValueOnce(failure);
+    const records: unknown[] = [];
+
+    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal, (record: unknown) => { records.push(record); }))
+      .rejects.toBe(failure);
+
+    expect(records).toEqual([{ phase }]);
+    expect(Object.isFrozen(records[0] as object)).toBe(true);
+    expect(Object.keys(records[0] as object)).toEqual(["phase"]);
+    expect(typeof isTrustedCapabilityDiagnostic).toBe("function");
+    expect(isTrustedCapabilityDiagnostic?.(records[0])).toBe(true);
+    expect(isTrustedCapabilityDiagnostic?.(Object.freeze({ phase }))).toBe(false);
+    expect(JSON.stringify(records)).not.toContain("codex_tool_event");
+    expect(probe.run).toHaveBeenCalledTimes(successfulPhases + 1);
+  });
+
+  test("contains a capability diagnostic observer failure without replacing the phase error", async () => {
+    const fixture = await runtimeFixture();
+    const { runtime } = await freshRuntimeWithCapabilityDiagnostics();
+    await runtime.initializeCodexCliRuntime(fixture.input);
+    const failure = new CodexRuntimeError("codex_process_failed");
+    probe.run.mockRejectedValueOnce(failure);
+
+    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal, () => {
+      throw new Error("runtime-capability-observer-sentinel");
+    })).rejects.toBe(failure);
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
+  test("contains an asynchronously rejected capability diagnostic observer without replacing the phase error", async () => {
+    const fixture = await runtimeFixture();
+    const { runtime } = await freshRuntimeWithCapabilityDiagnostics();
+    await runtime.initializeCodexCliRuntime(fixture.input);
+    const failure = new CodexRuntimeError("codex_process_failed");
+    probe.run.mockRejectedValueOnce(failure);
+
+    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal, async () => {
+      throw new Error("runtime-capability-async-observer-sentinel");
+    })).rejects.toBe(failure);
+    await Promise.resolve();
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not report a capability diagnostic for a swallowed zero-search discovery result", async () => {
+    const fixture = await runtimeFixture();
+    const { runtime } = await freshRuntimeWithCapabilityDiagnostics();
     await runtime.initializeCodexCliRuntime(fixture.input);
     probe.run
-      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 1))
+      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0))
+      .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0))
       .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0))
       .mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', 0));
+    const records: unknown[] = [];
 
-    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal))
+    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal, (record: unknown) => { records.push(record); }))
+      .resolves.toMatchObject({ discovery: { availability: "available", selection: "model-selected", webSearchCount: 0 } });
+
+    expect(records).toEqual([]);
+    expect(probe.run).toHaveBeenCalledTimes(4);
+  });
+
+  test.each([
+    ["terra_low", [1]],
+    ["terra_medium", [0, 1]],
+    ["gpt54_discovery", [0, 0, 129]],
+  ] as const)("reports %s when its own event-proof validation rejects", async (phase, webSearchCounts) => {
+    const fixture = await runtimeFixture();
+    const { runtime } = await freshRuntimeWithCapabilityDiagnostics();
+    await runtime.initializeCodexCliRuntime(fixture.input);
+    for (const webSearchCount of webSearchCounts) {
+      probe.run.mockResolvedValueOnce(successfulProbe('{"schemaVersion":"codex-runtime-smoke@2","status":"ok"}', webSearchCount));
+    }
+    const records: unknown[] = [];
+
+    await expect(runtime.verifyCodexCliCapabilities(new AbortController().signal, (record: unknown) => { records.push(record); }))
       .rejects.toMatchObject({ code: "codex_tool_event" });
+
+    expect(records).toEqual([{ phase }]);
+    expect(probe.run).toHaveBeenCalledTimes(webSearchCounts.length);
   });
 });
 
@@ -898,6 +980,17 @@ function adapterOptions(cliVersion: string = CODEX_CLI_VERSION) {
 async function freshRuntime() {
   vi.resetModules();
   return (await import("../../src/infrastructure/codex-cli/runtime")).createCodexCliRuntimeForTest();
+}
+
+async function freshRuntimeWithCapabilityDiagnostics() {
+  vi.resetModules();
+  const module = await import("../../src/infrastructure/codex-cli/runtime");
+  return {
+    runtime: module.createCodexCliRuntimeForTest(),
+    isTrustedCapabilityDiagnostic: Reflect.get(module, "isTrustedCodexCliCapabilityDiagnosticRecord") as
+      | ((value: unknown) => boolean)
+      | undefined,
+  };
 }
 
 async function runtimeFixture(options: {

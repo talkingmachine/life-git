@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
-import { link, lstat, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   evaluateDiscoveryFixture,
@@ -17,13 +17,15 @@ import {
   assertGuardedFixtureProposals,
   initializeReviewedStageARuntimeForTest,
 } from "../../evals/local-codex-stage-a";
-import { CodexRuntimeError } from "../../src/infrastructure/codex-cli/contracts";
+import { CODEX_CLI_VERSION, CodexRuntimeError } from "../../src/infrastructure/codex-cli/contracts";
 import { OnboardingModelError, type OnboardingModelErrorCode, type OnboardingModelPort } from "../../src/application/onboarding-contracts";
 import { OfficialSourceDiscoveryError } from "../../src/application/official-source-discovery";
 import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
 import { runLocalCodexNegativeCapability } from "../../evals/local-codex-negative-capability";
+import { CODEX_DISABLED_FEATURES } from "../../src/infrastructure/codex-cli/preflight";
+import type { CodexProcessSpawner, SpawnedCodexProcess } from "../../src/infrastructure/codex-cli/process";
 
 const onboardingFixture = {
   message: { messageId: "00000000-0000-4000-8000-000000000081", role: "user", text: "Я живу в Москве." },
@@ -427,6 +429,76 @@ describe("local Codex Stage A gate", () => {
     expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
   });
 
+  test("renders a trusted production capability-phase witness only after initialize-runtime cleanup", async () => {
+    vi.resetModules();
+    const runtime = await import("../../src/infrastructure/codex-cli/runtime");
+    vi.doMock("../../src/infrastructure/codex-cli/runtime", () => ({
+      ...runtime,
+      verifyCodexCliCapabilitiesForStageADiagnostic: (signal: AbortSignal, observer: unknown) =>
+        runTrustedCapabilityFailure(runtime, signal, observer as ((record: unknown) => void) | undefined),
+    }));
+    vi.doMock("../../src/instrumentation-node", () => ({ registerNodeCodexRuntime: async () => undefined }));
+    vi.doMock("../../src/infrastructure/codex-cli/reviewed-installation", async () => ({
+      ...(await vi.importActual<typeof import("../../src/infrastructure/codex-cli/reviewed-installation")>("../../src/infrastructure/codex-cli/reviewed-installation")),
+      verifyReviewedLocalCodexInstallation: async () => undefined,
+    }));
+    try {
+      const stage = await import("../../evals/local-codex-stage-a");
+      const cleanupArtifact = vi.fn(async () => undefined);
+      const runOnboarding = vi.fn(async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }));
+      const writeArtifact = vi.fn(async () => undefined);
+      const { initializeRuntime: _ignoredInitializeRuntime, ...withoutSuppliedInitializer } = deterministicDependencies();
+      void _ignoredInitializeRuntime;
+      const result = await stage.runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+        ...withoutSuppliedInitializer,
+        cleanupArtifact,
+        runOnboarding,
+        writeArtifact,
+      });
+
+      expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@3:initialize_runtime:codex_process_failed:terra_low\n" });
+      expect(cleanupArtifact).toHaveBeenCalledOnce();
+      expect(runOnboarding).not.toHaveBeenCalled();
+      expect(writeArtifact).not.toHaveBeenCalled();
+      expect(result.stderr).not.toMatch(/prompt|schema|query|url|path|payload|pid|timing|argv|auth/i);
+    } finally {
+      vi.doUnmock("../../src/infrastructure/codex-cli/reviewed-installation");
+      vi.doUnmock("../../src/instrumentation-node");
+      vi.doUnmock("../../src/infrastructure/codex-cli/runtime");
+      vi.resetModules();
+    }
+  });
+
+  test("keeps a supplied initializer's genuine runtime-record relay at diagnostic@1", async () => {
+    const runtime = await import("../../src/infrastructure/codex-cli/runtime");
+    const records: unknown[] = [];
+    await runTrustedCapabilityFailure(runtime, new AbortController().signal, (record) => { records.push(record); })
+      .then(
+        () => { throw new Error("expected capability failure"); },
+        () => undefined,
+      );
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const initializeRuntime = vi.fn(async (...arguments_: unknown[]) => {
+      expect(arguments_).toEqual([]);
+      const observer = arguments_[0] as ((record: unknown) => void) | undefined;
+      expect(observer).toBeUndefined();
+      observer?.(records[0]);
+      throw new CodexRuntimeError("codex_process_failed");
+    });
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      initializeRuntime: initializeRuntime as never,
+      cleanupArtifact,
+    });
+
+    expect(records).toHaveLength(1);
+    expect(runtime.isTrustedCodexCliCapabilityDiagnosticRecord(records[0])).toBe(true);
+    expect(initializeRuntime).toHaveBeenCalledOnce();
+    expect(initializeRuntime).toHaveBeenCalledWith();
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:codex_process_failed\n" });
+    expect(cleanupArtifact).toHaveBeenCalledOnce();
+  });
+
   test("rejects the superseded flat negative-capability observation before runtime initialization", async () => {
     const initializeRuntime = vi.fn(async () => deterministicDependencies().initializeRuntime());
     const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
@@ -660,6 +732,11 @@ describe("local Codex Stage A gate", () => {
   test("production Stage A forwards its ephemeral negative-gate observer", async () => {
     const stageA = await readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8");
     expect(stageA).toMatch(/runNegativeCapabilityGate:\s*\(observer\)\s*=>\s*runLocalCodexNegativeCapability\(\s*\["--", "--live-local-subscription"\],\s*undefined,\s*observer\s*\)/);
+  });
+
+  test("production Stage A forwards its capability observer only through the stage-specific verifier", async () => {
+    const stageA = await readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8");
+    expect(stageA).toMatch(/async initializeRuntime\(observer\)[\s\S]*consumeSubscription:\s*async \(capabilityObserver\)[\s\S]*verifyCodexCliCapabilitiesForStageADiagnostic\(new AbortController\(\)\.signal, capabilityObserver\)/);
   });
 
   test("accepts exactly one leading pnpm separator and preserves passive no-flag parsing", async () => {
@@ -1240,6 +1317,63 @@ function deterministicDependencies() {
     writeArtifact: async () => undefined,
     now: () => 1,
   };
+}
+
+async function runTrustedCapabilityFailure(
+  runtime: typeof import("../../src/infrastructure/codex-cli/runtime"),
+  signal: AbortSignal,
+  observer: ((record: unknown) => void) | undefined,
+): Promise<never> {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "stage-a-capability-diagnostic-")));
+  try {
+    const executable = join(root, "codex");
+    const tempRoot = join(root, "tmp");
+    await writeFile(executable, "fixture", { mode: 0o700 });
+    await chmod(executable, 0o700);
+    await mkdir(tempRoot, { mode: 0o700 });
+    const currentUid = process.getuid?.();
+    if (typeof currentUid !== "number" || !Number.isSafeInteger(currentUid)) throw new Error("missing current uid");
+    let calls = 0;
+    const spawner: CodexProcessSpawner = {
+      spawn: (input) => {
+        calls += 1;
+        if (input.args.length === 1 && input.args[0] === "--version") return stageAProcess(`${CODEX_CLI_VERSION}\n`, "", 0);
+        if (input.args.length === 2 && input.args[0] === "login" && input.args[1] === "status") return stageAProcess("", "Logged in using ChatGPT\n", 0);
+        if (input.args.at(-2) === "features" && input.args.at(-1) === "list") {
+          return stageAProcess(`${CODEX_DISABLED_FEATURES.map((feature) => `${feature} stable false`).join("\n")}\n`, "", 0);
+        }
+        return stageAProcess("", "", 1);
+      },
+    };
+    const isolated = runtime.createCodexCliRuntimeForTest();
+    await isolated.initializeCodexCliRuntime({
+      tempRootPath: tempRoot,
+      currentUid,
+      childEnv: Object.freeze({ CODEX_HOME: join(root, "codex-home"), TMPDIR: tempRoot, LANG: "C", LC_ALL: "C" }),
+      spawner,
+      clock: () => new Date(0),
+      signal,
+    });
+    if (calls !== 3) throw new Error("unexpected setup calls");
+    await isolated.verifyCodexCliCapabilities(signal, observer as never);
+    throw new Error("expected capability failure");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function stageAProcess(stdout: string, stderr: string, code: number): SpawnedCodexProcess {
+  return Object.freeze({
+    pid: 17,
+    stdout: stageAChunks(stdout),
+    stderr: stageAChunks(stderr),
+    exit: Promise.resolve({ code, signal: null }),
+    terminateGroup: () => undefined,
+  });
+}
+
+async function* stageAChunks(value: string): AsyncGenerator<Uint8Array> {
+  if (value.length > 0) yield new TextEncoder().encode(value);
 }
 
 function validArtifact(): Parameters<ReturnType<typeof createStageAArtifactStore>["write"]>[1] {

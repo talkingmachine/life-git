@@ -17,6 +17,7 @@ import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from 
 
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const NATIVE_REASON_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "reason")?.get;
+const TRUSTED_CAPABILITY_DIAGNOSTICS = new WeakSet<object>();
 
 export interface InitializeCodexCliRuntimeInput {
   readonly configuredExecutable?: string;
@@ -62,7 +63,7 @@ export function getCodexCliModelAdapter(): CodexCliModelAdapter {
 export function createCodexCliRuntimeForTest(): Readonly<{
   initializeCodexCliRuntime(input: InitializeCodexCliRuntimeInput): Promise<void>;
   getCodexCliModelAdapter(): CodexCliModelAdapter;
-  verifyCodexCliCapabilities(signal: AbortSignal): Promise<CodexCliCapabilityVerification>;
+  verifyCodexCliCapabilities(signal: AbortSignal, observer?: CodexCliCapabilityDiagnosticObserver): Promise<CodexCliCapabilityVerification>;
 }> {
   const state: CodexCliRuntimeState = { initialization: undefined, installedAdapter: undefined };
   const getAdapter = (): CodexCliModelAdapter => {
@@ -72,7 +73,7 @@ export function createCodexCliRuntimeForTest(): Readonly<{
   return Object.freeze({
     initializeCodexCliRuntime: (input) => initializeTestRuntime(input, state),
     getCodexCliModelAdapter: getAdapter,
-    verifyCodexCliCapabilities: (signal) => verifyCapabilities(getAdapter, signal),
+    verifyCodexCliCapabilities: (signal, observer) => verifyCapabilities(getAdapter, signal, observer),
   });
 }
 
@@ -93,24 +94,54 @@ export interface CodexCliCapabilityVerification {
   }>;
 }
 
+export type CodexCliCapabilityDiagnosticPhase = "terra_low" | "terra_medium" | "gpt54_discovery";
+export type CodexCliCapabilityDiagnosticRecord = Readonly<{ phase: CodexCliCapabilityDiagnosticPhase }>;
+export type CodexCliCapabilityDiagnosticObserver = (record: CodexCliCapabilityDiagnosticRecord) => void;
+
+export function isTrustedCodexCliCapabilityDiagnosticRecord(value: unknown): value is CodexCliCapabilityDiagnosticRecord {
+  try {
+    if (value === null || typeof value !== "object" || types.isProxy(value) || !Object.isFrozen(value) || !TRUSTED_CAPABILITY_DIAGNOSTICS.has(value)) return false;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    return Object.getPrototypeOf(value) === Object.prototype && Object.getOwnPropertySymbols(value).length === 0 && Object.keys(descriptors).length === 1 &&
+      descriptors.phase?.enumerable === true && "value" in descriptors.phase && isCapabilityDiagnosticPhase(descriptors.phase.value);
+  } catch {
+    return false;
+  }
+}
+
 /** Explicit subscription-consuming gate; startup itself intentionally remains static. */
 export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<CodexCliCapabilityVerification> {
   return verifyCapabilities(getCodexCliModelAdapter, signal);
 }
 
+/** Stage A-only failure observer; ordinary capability callers receive no diagnostic callback. */
+export async function verifyCodexCliCapabilitiesForStageADiagnostic(
+  signal: AbortSignal,
+  observer: CodexCliCapabilityDiagnosticObserver | undefined,
+): Promise<CodexCliCapabilityVerification> {
+  return verifyCapabilities(getCodexCliModelAdapter, signal, observer);
+}
+
 async function verifyCapabilities(
   getAdapter: () => CodexCliModelAdapter,
   signal: AbortSignal,
+  observer?: CodexCliCapabilityDiagnosticObserver,
 ): Promise<CodexCliCapabilityVerification> {
   const adapter = getAdapter();
+  const report = createCapabilityDiagnosticReporter(observer);
   const zeroToolCounts: { low?: 0; medium?: 0 } = {};
   let lowMetadata: CodexInvocationMetadata | undefined;
   for (const reasoningEffort of ["low", "medium"] as const) {
-    const outcome = await adapter.invokeJsonWithEventProof(smokeInvocation(reasoningEffort, signal));
-    assertSmokeResult(outcome.result.value);
-    if (outcome.eventProof.webSearchCount !== 0) throw new CodexRuntimeError("codex_tool_event");
-    zeroToolCounts[reasoningEffort] = 0;
-    if (reasoningEffort === "low") lowMetadata = outcome.result.metadata;
+    try {
+      const outcome = await adapter.invokeJsonWithEventProof(smokeInvocation(reasoningEffort, signal));
+      assertSmokeResult(outcome.result.value);
+      if (outcome.eventProof.webSearchCount !== 0) throw new CodexRuntimeError("codex_tool_event");
+      zeroToolCounts[reasoningEffort] = 0;
+      if (reasoningEffort === "low") lowMetadata = outcome.result.metadata;
+    } catch (error) {
+      report(reasoningEffort === "low" ? "terra_low" : "terra_medium");
+      throw error;
+    }
   }
   let discoveryCount = 0;
   try {
@@ -129,7 +160,10 @@ async function verifyCapabilities(
     if (!isValidSearchCount(discovery.eventProof.webSearchCount, smokeLimits().maxEvents)) throw new CodexRuntimeError("codex_tool_event");
     discoveryCount = discovery.eventProof.webSearchCount;
   } catch (error) {
-    if (!isExactNativeSearchNotPerformed(error)) throw error;
+    if (!isExactNativeSearchNotPerformed(error)) {
+      report("gpt54_discovery");
+      throw error;
+    }
   }
   if (lowMetadata === undefined) throw new CodexRuntimeError("codex_process_failed");
   return Object.freeze({
@@ -144,6 +178,27 @@ async function verifyCapabilities(
     medium: Object.freeze({ webSearchCount: zeroToolCounts.medium! }),
     discovery: Object.freeze({ availability: "available", selection: "model-selected", webSearchCount: discoveryCount }),
   });
+}
+
+function createCapabilityDiagnosticReporter(
+  observer: CodexCliCapabilityDiagnosticObserver | undefined,
+): (phase: CodexCliCapabilityDiagnosticPhase) => void {
+  let reported = false;
+  return (phase) => {
+    if (reported || observer === undefined) return;
+    reported = true;
+    const record = Object.freeze({ phase });
+    TRUSTED_CAPABILITY_DIAGNOSTICS.add(record);
+    try {
+      void Promise.resolve(observer(record)).catch(() => undefined);
+    } catch {
+      // Diagnostics cannot replace the capability result.
+    }
+  };
+}
+
+function isCapabilityDiagnosticPhase(value: unknown): value is CodexCliCapabilityDiagnosticPhase {
+  return value === "terra_low" || value === "terra_medium" || value === "gpt54_discovery";
 }
 
 function initializeTestRuntime(input: InitializeCodexCliRuntimeInput, state: CodexCliRuntimeState): Promise<void> {

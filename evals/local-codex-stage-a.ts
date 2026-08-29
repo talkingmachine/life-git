@@ -4,7 +4,7 @@ import { dirname, relative, resolve } from "node:path";
 import { types } from "node:util";
 
 import { CODEX_CLI_COMPATIBILITY_POLICY, CODEX_CLI_PROTOCOL_VERSION, CODEX_DISCOVERY_MODEL, CODEX_MODEL, CodexRuntimeError, createCodexJsonInvocation, type CodexRuntimeErrorCode } from "../src/infrastructure/codex-cli/contracts";
-import { getCodexCliModelAdapter, verifyCodexCliCapabilities } from "../src/infrastructure/codex-cli/runtime";
+import { getCodexCliModelAdapter, isTrustedCodexCliCapabilityDiagnosticRecord, verifyCodexCliCapabilitiesForStageADiagnostic, type CodexCliCapabilityDiagnosticObserver, type CodexCliCapabilityDiagnosticRecord } from "../src/infrastructure/codex-cli/runtime";
 import { registerNodeCodexRuntime } from "../src/instrumentation-node";
 import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "../src/infrastructure/codex-cli/reviewed-installation";
 import { createCodexOnboardingModel } from "../src/infrastructure/codex-cli/onboarding-model";
@@ -80,7 +80,7 @@ export type StageADiscoveryFixture = Readonly<{
 
 type Dependencies = Readonly<{
   runNegativeCapabilityGate: (observer?: NegativeCapabilityDiagnosticObserver) => Promise<NegativeCapabilityTwoPhaseObservation>;
-  initializeRuntime: () => Promise<Readonly<{
+  initializeRuntime: (observer?: CodexCliCapabilityDiagnosticObserver) => Promise<Readonly<{
     cliVersion: string; protocolVersion: typeof CODEX_CLI_PROTOCOL_VERSION;
     compatibilityPolicy: typeof CODEX_CLI_COMPATIBILITY_POLICY; models: Readonly<{ extraction: typeof CODEX_MODEL; discovery: typeof CODEX_DISCOVERY_MODEL }>;
     noToolProbe: NoToolProbe; discoveryProbe: DiscoveryProbe;
@@ -124,13 +124,14 @@ type ReviewedStageARuntimeInitialization<T> = Readonly<{
   executableOverride: string | undefined;
   verifyInstallation: () => Promise<void>;
   registerRuntime: () => Promise<void>;
-  consumeSubscription: () => Promise<T>;
+  consumeSubscription: (observer?: CodexCliCapabilityDiagnosticObserver) => Promise<T>;
 }>;
 
 export async function initializeReviewedStageARuntimeForTest<T>(
   input: ReviewedStageARuntimeInitialization<T>,
+  observer?: CodexCliCapabilityDiagnosticObserver,
 ): Promise<T> {
-  return initializeReviewedStageARuntime(input);
+  return initializeReviewedStageARuntime(input, observer);
 }
 
 export function parseLocalCodexStageAArgs(argv: readonly string[]): LocalCodexStageAArguments {
@@ -170,6 +171,7 @@ async function runLocalCodexStageAWithFailureObserver(
   supplied: Partial<Dependencies>,
   observeFailure?: FailureObserver,
   observeNegativeCapabilityDiagnostic?: (record: NegativeCapabilityDiagnosticRecord) => void,
+  observeCapabilityDiagnostic?: (record: CodexCliCapabilityDiagnosticRecord) => void,
 ): Promise<LocalCodexStageAEntrypointResult> {
   const ownedArgs = readArgs(args);
   if (!ownedArgs.live) return Object.freeze({ exitCode: 1, stderr: OPT_IN_ERROR });
@@ -189,7 +191,10 @@ async function runLocalCodexStageAWithFailureObserver(
     const writeIsolationProof = requireWriteIsolationProof(negativeCapability);
     stage = "initialize_runtime";
     const startedAt = strictNow(dependencies.now());
-    const runtime = await dependencies.initializeRuntime();
+    const runtime = ownedArgs.diagnostic === true &&
+      dependencies.initializeRuntime === productionDependencies.initializeRuntime
+      ? await dependencies.initializeRuntime(observeCapabilityDiagnostic)
+      : await dependencies.initializeRuntime();
     validateRuntime(runtime);
     stage = "onboarding";
     const onboarding = await dependencies.runOnboarding();
@@ -249,6 +254,7 @@ export async function runLocalCodexStageAEntrypoint(
     const args = parseLocalCodexStageAArgs(argv);
     let diagnostic: Readonly<{ stage: StageADiagnosticStage; code: StageADiagnosticCode }> | undefined;
     let negativeCapabilityDiagnostic: NegativeCapabilityDiagnosticRecord | undefined;
+    let capabilityDiagnostic: CodexCliCapabilityDiagnosticRecord | undefined;
     try {
       return await runLocalCodexStageAWithFailureObserver(args, supplied, (stage, error) => {
         diagnostic = Object.freeze({
@@ -257,8 +263,13 @@ export async function runLocalCodexStageAEntrypoint(
         });
       }, args.diagnostic === true ? (record) => {
         if (isTrustedNegativeCapabilityDiagnosticRecord(record)) negativeCapabilityDiagnostic = record;
+      } : undefined, args.diagnostic === true ? (record) => {
+        if (isTrustedCodexCliCapabilityDiagnosticRecord(record)) capabilityDiagnostic = record;
       } : undefined);
     } catch (error) {
+      if (args.diagnostic && diagnostic?.stage === "initialize_runtime" && capabilityDiagnostic !== undefined) {
+        return Object.freeze({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@3:initialize_runtime:${diagnostic.code}:${capabilityDiagnostic.phase}\n` });
+      }
       if (args.diagnostic && diagnostic?.stage === "negative_capability" && negativeCapabilityDiagnostic !== undefined) {
         return Object.freeze({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@2:negative_capability:${negativeCapabilityDiagnostic.phase}:${negativeCapabilityDiagnostic.reason}\n` });
       }
@@ -510,16 +521,16 @@ const productionDependencies: Dependencies = Object.freeze({
   runNegativeCapabilityGate: (observer) => runLocalCodexNegativeCapability(["--", "--live-local-subscription"], undefined, observer),
   prepareArtifact: productionArtifactStore.prepare,
   cleanupArtifact: productionArtifactStore.cleanup,
-  async initializeRuntime() {
+  async initializeRuntime(observer) {
     return initializeReviewedStageARuntime({
       executableOverride: process.env.CODEX_EXECUTABLE,
       verifyInstallation: verifyReviewedLocalCodexInstallation,
       registerRuntime: registerNodeCodexRuntime,
-      consumeSubscription: async () => {
-        const capabilityProof = await verifyCodexCliCapabilities(new AbortController().signal);
+      consumeSubscription: async (capabilityObserver) => {
+        const capabilityProof = await verifyCodexCliCapabilitiesForStageADiagnostic(new AbortController().signal, capabilityObserver);
         return Object.freeze({ cliVersion: capabilityProof.runtime.cliVersion, protocolVersion: capabilityProof.runtime.protocolVersion, compatibilityPolicy: capabilityProof.runtime.compatibilityPolicy, models: capabilityProof.runtime.models, noToolProbe: Object.freeze({ passed: true, webSearchCount: capabilityProof.low.webSearchCount }), discoveryProbe: Object.freeze({ availability: capabilityProof.discovery.availability, selection: capabilityProof.discovery.selection, webSearchCount: capabilityProof.discovery.webSearchCount }) });
       },
-    });
+    }, observer);
   },
   async runOnboarding() {
     const fixture = await readOnboardingFixture();
@@ -556,13 +567,16 @@ const productionDependencies: Dependencies = Object.freeze({
   now: monotonicNow,
 });
 
-async function initializeReviewedStageARuntime<T>(input: ReviewedStageARuntimeInitialization<T>): Promise<T> {
+async function initializeReviewedStageARuntime<T>(
+  input: ReviewedStageARuntimeInitialization<T>,
+  observer?: CodexCliCapabilityDiagnosticObserver,
+): Promise<T> {
   if (input.executableOverride !== undefined && input.executableOverride !== REVIEWED_CODEX_EXECUTABLE) {
     throw new CodexRuntimeError("codex_version_mismatch");
   }
   await input.verifyInstallation();
   await input.registerRuntime();
-  return input.consumeSubscription();
+  return input.consumeSubscription(observer);
 }
 
 function monotonicNow(): number {
