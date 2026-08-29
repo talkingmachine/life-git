@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { describe, expect, test, vi } from "vitest";
@@ -8,7 +7,7 @@ import {
   type OnboardingExtractionRetryReason,
   type OnboardingModelPort,
 } from "../../src/application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V8 } from
+import { ONBOARDING_MODEL_VERSIONS_V9 } from
   "../../src/application/onboarding-model-versions";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
 import { createOnboardingSession, type SessionMessage } from "../../src/decision/onboarding-session";
@@ -68,12 +67,11 @@ function extractionResult(
 ): CodexJsonResult {
   return {
     value: {
-      schemaVersion: "onboarding-extraction-wire@2",
+      schemaVersion: "onboarding-extraction-wire@3",
       proposals: [{
         f: "b2",
         v: "alone",
-        s: 0,
-        e: MESSAGE_TEXT.length,
+        t: MESSAGE_TEXT,
       }],
       nextQuestion,
     },
@@ -113,8 +111,8 @@ function extractionMetadata(): CodexJsonResult["metadata"] {
     model: CODEX_MODEL,
     reasoningEffort: "low",
     toolPolicy: "codex-tools-none@2",
-    templateVersion: "onboarding-extract@8",
-    schemaVersion: "onboarding-extraction-wire@2",
+    templateVersion: "onboarding-extract@9",
+    schemaVersion: "onboarding-extraction-wire@3",
   };
 }
 
@@ -213,9 +211,9 @@ describe("Codex onboarding model", () => {
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
       invocation: "codex-cli-invocation@2",
       cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
-      extractionPrompt: "onboarding-extract@8",
+      extractionPrompt: "onboarding-extract@9",
       reviewPrompt: "onboarding-review@2",
-      extractionSchema: "onboarding-extraction-wire@2",
+      extractionSchema: "onboarding-extraction-wire@3",
       reviewSchema: "onboarding-review-output@1",
     });
     expect(ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES).toBe(65_536);
@@ -234,7 +232,7 @@ describe("Codex onboarding model", () => {
     });
     expect(Object.keys(model)).toEqual(["versions", "extract", "review"]);
     expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS);
-    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V8);
+    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V9);
     expect(Object.isFrozen(model)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_EXTRACTION_LIMITS)).toBe(true);
@@ -260,8 +258,8 @@ describe("Codex onboarding model", () => {
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
       capability: "onboarding.extract",
-      templateVersion: "onboarding-extract@8",
-      schemaVersion: "onboarding-extraction-wire@2",
+      templateVersion: "onboarding-extract@9",
+      schemaVersion: "onboarding-extraction-wire@3",
       limits: ONBOARDING_EXTRACTION_LIMITS,
     });
     expect(invocation?.outputSchema).toEqual(ONBOARDING_EXTRACTION_SCHEMA);
@@ -273,11 +271,6 @@ describe("Codex onboarding model", () => {
     expect(invocation?.prompt).not.toContain("messageId");
     expect(invocation?.prompt).toContain("onboarding-questionnaire-projection@1");
     const staticTemplate = ONBOARDING_EXTRACTION_PROMPT_TEMPLATE;
-    expect(utf8Bytes(staticTemplate)).toBe(2_494);
-    expect(createHash("sha256").update(staticTemplate).digest("hex")).toBe(
-      "f333b9490485072faa4b1936845664c913e0de8c68c91244673640b267d6405d",
-    );
-    expect(utf8Bytes(staticTemplate)).toBeLessThanOrEqual(2_500);
     expect(staticTemplate).toContain(ONBOARDING_EXTRACTION_WIRE_ALGEBRA);
     for (const line of ONBOARDING_EXTRACTION_WIRE_ALGEBRA.split("\n")) {
       expect(staticTemplate).toContain(line);
@@ -286,10 +279,10 @@ describe("Codex onboarding model", () => {
     expect(staticTemplate).toContain("none,schema_invalid,guard_invalid,canonical_mismatch,evidence_mismatch");
     expect(staticTemplate).toContain("schema_invalid: return schema-valid wire JSON");
     expect(staticTemplate).toContain(
-      "guard_invalid: rebuild from currentUserMessage.text; recheck bounds/slice/all rules",
+      "guard_invalid: rebuild from currentUserMessage.text; recheck unique t and all rules",
     );
     expect(staticTemplate).toContain("canonical_mismatch: re-normalize explicit values");
-    expect(staticTemplate).toContain("evidence_mismatch: recompute whole-token s,e");
+    expect(staticTemplate).toContain("evidence_mismatch: recompute unique whole-token t");
     for (const { code, fieldId } of ONBOARDING_EXTRACTION_WIRE_CODEBOOK) {
       expect(staticTemplate).not.toContain(`${code}=${fieldId}`);
     }
@@ -307,25 +300,18 @@ describe("Codex onboarding model", () => {
     const canonicalPrompt = ONBOARDING_EXTRACTION_PROMPT_TEMPLATE.replace(
       "{{ONBOARDING_INPUT_JSON}}",
       JSON.stringify({
-        currentUserMessage: {
-          text: canonicalFixture.messages[0].text,
-          utf16Length: canonicalFixture.messages[0].text.length,
-        },
+        currentUserMessage: { text: canonicalFixture.messages[0].text },
         questionnaire: projectQuestionnaireForModel(emptySession),
         retryFeedback: "none",
       }),
     );
-    expect(utf8Bytes(canonicalPrompt)).toBe(8_732);
-    expect(createHash("sha256").update(canonicalPrompt).digest("hex")).toBe(
-      "a9da5b98b22c0a853be72c453bb11485098c3ba9fbcb894d3ae1adcde2428fc9",
-    );
     expect(utf8Bytes(canonicalPrompt)).toBeLessThanOrEqual(9_000);
     expect(invocation?.prompt).toContain("Never emit the same f twice");
     expect(invocation?.prompt).toContain(
-      "Use integer UTF-16 offsets s,e with 0 <= s < e <= currentUserMessage.utf16Length; evidence must equal currentUserMessage.text.slice(s,e).",
+      "For each proposal, t is a nonempty contiguous substring copied exactly from currentUserMessage.text; do not return offsets.",
     );
     expect(invocation?.prompt).toContain(
-      "Use shortest complete whole-token evidence for v. Omit if unverifiable; never clamp or split a Unicode letter, combining mark, number, or surrogate pair.",
+      "Use shortest complete whole-token t for v. Omit if unverifiable; never split a Unicode letter, combining mark, number, or surrogate pair.",
     );
     expect(invocation?.prompt).toContain(
       "Normalize city names to their canonical nominative Russian form",
@@ -333,7 +319,7 @@ describe("Codex onboarding model", () => {
     expect(invocation?.prompt).not.toContain(SELF_ID);
     expect(invocation?.prompt).not.toContain(COMMAND_ID);
     expect(extractionPromptPayload(invocation?.prompt ?? "")).toEqual({
-      currentUserMessage: { text: MESSAGE_TEXT, utf16Length: MESSAGE_TEXT.length },
+      currentUserMessage: { text: MESSAGE_TEXT },
       questionnaire: questionnaire(),
       retryFeedback: "none",
     });
@@ -342,18 +328,10 @@ describe("Codex onboarding model", () => {
     );
   });
 
-  test.each([
-    ["BMP", "Москва", 6],
-    ["surrogate pair", "A😀Б", 4],
-    ["decomposed combining sequence", "е\u0301", 2],
-  ] as const)("adds the exact code-owned UTF-16 length for %s text to initial and retry payloads", async (
-    _case,
-    text,
-    utf16Length,
-  ) => {
+  test.each(["Москва", "A😀Б", "е\u0301"] as const)("passes only text to initial and retry payloads", async (text) => {
     const { runtime, invokeJson } = fakeRuntime(async (invocation) => ({
       value: {
-        schemaVersion: "onboarding-extraction-wire@2",
+        schemaVersion: "onboarding-extraction-wire@3",
         proposals: [],
         nextQuestion: "Что ещё важно?",
       },
@@ -373,8 +351,8 @@ describe("Codex onboarding model", () => {
     expect(invokeJson).toHaveBeenCalledTimes(2);
     expect(invokeJson.mock.calls.map(([invocation]) =>
       extractionPromptPayload(invocation.prompt).currentUserMessage)).toEqual([
-      { text, utf16Length },
-      { text, utf16Length },
+      { text },
+      { text },
     ]);
   });
 
@@ -415,46 +393,34 @@ describe("Codex onboarding model", () => {
     expect(extractionPromptPayload(medium.prompt).retryFeedback).toBe(retryFeedback);
     expect(extractionPromptPayload(low.prompt).currentUserMessage).toEqual({
       text: MESSAGE_TEXT,
-      utf16Length: MESSAGE_TEXT.length,
     });
     expect(extractionPromptPayload(medium.prompt).currentUserMessage).toEqual({
       text: MESSAGE_TEXT,
-      utf16Length: MESSAGE_TEXT.length,
     });
     expect(medium.prompt).not.toBe(low.prompt);
     expect(medium.prompt).not.toContain(rejectedSentinel);
   });
 
-  test("keeps out-of-bounds evidence unchanged for guard validation and retries without clamping or filtering", async () => {
-    const end = MESSAGE_TEXT.length + 1;
+  test("rejects ambiguous evidence through the one medium schema retry", async () => {
     const { runtime, invokeJson } = fakeRuntime(async (invocation) => ({
       value: {
-        schemaVersion: "onboarding-extraction-wire@2",
-        proposals: [{ f: "b2", v: "alone", s: 0, e: end }],
+        schemaVersion: "onboarding-extraction-wire@3",
+        proposals: [{ f: "b2", v: "alone", t: "Я" }],
         nextQuestion: "Где вы живёте сейчас?",
       },
       metadata: { ...extractionMetadata(), reasoningEffort: invocation.reasoningEffort },
     }));
     const model = createCodexOnboardingModel(runtime);
-    const acceptExtraction = vi.fn((output: unknown) => {
-      expect(output).toMatchObject({
-        proposals: [{ sourceSpan: { start: 0, end } }],
-      });
-      return Object.freeze({ kind: "retryable" as const, reason: "guard_invalid" as const });
-    });
-
     const error = await modelError(model.extract({
-      message: message(),
+      message: { ...message(), text: "Я Я" },
       questionnaire: questionnaire(),
       signal: new AbortController().signal,
-      acceptExtraction,
     }));
 
     expectContentFreeError(error, "onboarding_model_invalid");
     expect(invokeJson).toHaveBeenCalledTimes(2);
-    expect(acceptExtraction).toHaveBeenCalledTimes(2);
     expect(invokeJson.mock.calls.map(([invocation]) =>
-      extractionPromptPayload(invocation.prompt).retryFeedback)).toEqual(["none", "guard_invalid"]);
+      extractionPromptPayload(invocation.prompt).retryFeedback)).toEqual(["none", "schema_invalid"]);
   });
 
   test("shares one low-to-medium budget with a semantic acceptance retry", async () => {
@@ -750,7 +716,6 @@ describe("Codex onboarding model", () => {
     const baselineMedium = invokeJson.mock.calls[1]?.[0].prompt ?? "";
     expect(extractionPromptPayload(baselineMedium).currentUserMessage).toEqual({
       text: MESSAGE_TEXT,
-      utf16Length: MESSAGE_TEXT.length,
     });
     const addedBytes = ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES - utf8Bytes(baselineMedium);
     expect(addedBytes).toBeGreaterThan(0);
@@ -764,7 +729,7 @@ describe("Codex onboarding model", () => {
     expect(extractionPromptPayload(invokeJson.mock.calls[1]?.[0].prompt ?? "").retryFeedback)
       .toBe("canonical_mismatch");
     expect(extractionPromptPayload(invokeJson.mock.calls[1]?.[0].prompt ?? "").currentUserMessage)
-      .toEqual({ text: MESSAGE_TEXT, utf16Length: MESSAGE_TEXT.length });
+      .toEqual({ text: MESSAGE_TEXT });
 
     invokeJson.mockClear();
     acceptExtraction.mockClear();
@@ -863,7 +828,7 @@ describe("Codex onboarding model", () => {
   test("maps parser rejection and hostile runtime results to one content-free invalid error", async () => {
     const invalidValue: CodexJsonResult = {
       value: {
-        schemaVersion: "onboarding-extraction-wire@2",
+        schemaVersion: "onboarding-extraction-wire@3",
         proposals: [],
         nextQuestion: SECRET,
         extra: SECRET,

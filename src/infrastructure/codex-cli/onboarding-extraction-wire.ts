@@ -65,24 +65,27 @@ const FIELD_ID_BY_CODE = new Map(
 export function decodeOnboardingExtractionWire(input: {
   readonly value: unknown;
   readonly messageId: string;
+  readonly messageText: string;
 }): LocalExtractionResult {
-  const borrowedInput = readExactBorrowedRecord(input, ["value", "messageId"]);
+  const borrowedInput = readExactBorrowedRecord(input, ["value", "messageId", "messageText"]);
   const messageId = requireMessageId(borrowedInput.messageId);
+  const messageText = requireMessageText(borrowedInput.messageText);
   const wire = readExactSnapshotRecord(snapshotWireJson(borrowedInput.value), [
     "schemaVersion",
     "proposals",
     "nextQuestion",
   ]);
-  if (wire.schemaVersion !== "onboarding-extraction-wire@2") throw invalidWire();
+  if (wire.schemaVersion !== "onboarding-extraction-wire@3") throw invalidWire();
 
   const proposals = readDenseSnapshotArray(wire.proposals, MAX_PROPOSALS).map((value) => {
-    const proposal = readExactSnapshotRecord(value, ["f", "v", "s", "e"]);
+    const proposal = readExactSnapshotRecord(value, ["f", "v", "t"]);
     const fieldId = decodeFieldAddress(proposal.f);
+    const sourceSpan = deriveSourceSpan(proposal.t, messageText);
     return {
       fieldId,
       typedValue: proposal.v,
       messageId,
-      sourceSpan: { start: proposal.s, end: proposal.e },
+      sourceSpan,
     };
   });
 
@@ -114,6 +117,26 @@ function decodeFieldAddress(value: unknown): OnboardingModelFieldId {
 function requireMessageId(value: unknown): string {
   if (typeof value !== "string" || !LOWERCASE_RFC_UUID.test(value)) throw invalidWire();
   return value;
+}
+
+function requireMessageText(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || utf8Bytes(value) > 8_192) throw invalidWire();
+  return value;
+}
+
+function deriveSourceSpan(value: JsonValue, messageText: string): { readonly start: number; readonly end: number } {
+  if (typeof value !== "string" || value.length === 0 || value.length > 8_192 || utf8Bytes(value) > 8_192) {
+    throw invalidWire();
+  }
+  const start = messageText.indexOf(value);
+  if (start < 0 || messageText.indexOf(value, start + 1) !== -1) throw invalidWire();
+  const end = start + value.length;
+  if (!(0 <= start && start < end && end <= messageText.length)) throw invalidWire();
+  return { start, end };
+}
+
+function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }
 
 function snapshotWireJson(value: unknown): JsonValue {

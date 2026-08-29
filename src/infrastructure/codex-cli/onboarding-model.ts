@@ -5,7 +5,7 @@ import {
   type OnboardingExtractionAttemptContext,
   type OnboardingModelPort,
 } from "../../application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V8 } from "../../application/onboarding-model-versions";
+import { ONBOARDING_MODEL_VERSIONS_V9 } from "../../application/onboarding-model-versions";
 import { reconstructOnboardingQuestionnaireProjection } from "../../decision/onboarding-model-contract";
 import {
   parseLocalReviewOutput,
@@ -27,7 +27,7 @@ import {
   ONBOARDING_REVIEW_SCHEMA,
 } from "./onboarding-schema";
 
-export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V8;
+export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V9;
 
 export const ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES = 65_536;
 export const ONBOARDING_REVIEW_MAX_PROMPT_BYTES = 98_304;
@@ -94,9 +94,9 @@ const EXTRACTION_RETRY_REQUESTS = Object.freeze({
 const EXTRACTION_RETRY_FEEDBACK_ACTIONS = Object.freeze({
   none: "extract",
   schema_invalid: "return schema-valid wire JSON",
-  guard_invalid: "rebuild from currentUserMessage.text; recheck bounds/slice/all rules",
+  guard_invalid: "rebuild from currentUserMessage.text; recheck unique t and all rules",
   canonical_mismatch: "re-normalize explicit values",
-  evidence_mismatch: "recompute whole-token s,e",
+  evidence_mismatch: "recompute unique whole-token t",
 } as const satisfies Readonly<Record<ExtractionRetryFeedback, string>>);
 
 const LONGEST_EXTRACTION_RETRY_FEEDBACK = longestExtractionRetryFeedback();
@@ -118,9 +118,10 @@ export const ONBOARDING_EXTRACTION_PROMPT_TEMPLATE = [
   `retryFeedback is code-owned: ${EXTRACTION_RETRY_FEEDBACK_VALUES.join(",")}.`,
   `Actions — ${EXTRACTION_RETRY_FEEDBACK_VALUES.map((feedback) =>
     `${feedback}: ${EXTRACTION_RETRY_FEEDBACK_ACTIONS[feedback]}`).join("; ")}.`,
-  "Return {schemaVersion,proposals,nextQuestion}; each proposal is exactly {f,v,s,e}.",
-  "Use integer UTF-16 offsets s,e with 0 <= s < e <= currentUserMessage.utf16Length; evidence must equal currentUserMessage.text.slice(s,e).",
-  "Use shortest complete whole-token evidence for v. Omit if unverifiable; never clamp or split a Unicode letter, combining mark, number, or surrogate pair.",
+  "Return {schemaVersion,proposals,nextQuestion}; each proposal is exactly {f,v,t}.",
+  "For each proposal, t is a nonempty contiguous substring copied exactly from currentUserMessage.text; do not return offsets.",
+  "Each t must occur exactly once in currentUserMessage.text. If the shortest complete whole-token evidence repeats, extend it with contiguous surrounding source text until it is unique; omit the proposal if no unique evidence exists.",
+  "Use shortest complete whole-token t for v. Omit if unverifiable; never split a Unicode letter, combining mark, number, or surrogate pair.",
   ONBOARDING_EXTRACTION_WIRE_ALGEBRA,
   "For a participants roster value, use self/self first, then companion.0, companion.1, and so on in mention order; never use self for a companion.",
   "Use those same participant descriptors in participant values. Never emit the same f twice.",
@@ -179,7 +180,7 @@ async function extract(
     const deadline = createExtractionDeadline(monotonicNowMs);
     try {
       return await invokeExtraction(runtime, {
-        prompt, messageId: message.messageId, signal, reasoningEffort: "low", acceptExtraction,
+        prompt, messageId: message.messageId, messageText: message.text, signal, reasoningEffort: "low", acceptExtraction,
         attempt: INITIAL_EXTRACTION_ATTEMPT,
         deadline,
         limits: extractionLimits(ONBOARDING_EXTRACTION_LIMITS.timeoutMs),
@@ -192,7 +193,7 @@ async function extract(
       const limits = remainingExtractionLimits(deadline);
       throwIfAborted(signal);
       return await invokeExtraction(runtime, {
-        prompt: retryPrompt, messageId: message.messageId, signal,
+        prompt: retryPrompt, messageId: message.messageId, messageText: message.text, signal,
         reasoningEffort: "medium", acceptExtraction,
         attempt: RETRY_EXTRACTION_ATTEMPT,
         deadline,
@@ -209,6 +210,7 @@ async function invokeExtraction(
   input: {
     readonly prompt: string;
     readonly messageId: string;
+    readonly messageText: string;
     readonly signal: AbortSignal;
     readonly reasoningEffort: "low" | "medium";
     readonly acceptExtraction: OnboardingExtractionAcceptor | undefined;
@@ -243,7 +245,7 @@ async function invokeExtraction(
   }
   let output: ReturnType<typeof decodeOnboardingExtractionWire>;
   try {
-    output = decodeOnboardingExtractionWire({ value, messageId: input.messageId });
+    output = decodeOnboardingExtractionWire({ value, messageId: input.messageId, messageText: input.messageText });
   } catch {
     throw extractionRetryRequest("schema_invalid");
   }
@@ -325,7 +327,7 @@ function buildExtractionPrompt(
   retryFeedback: ExtractionRetryFeedback,
 ): string {
   const prompt = buildPrompt(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE, {
-    currentUserMessage: { text: message.text, utf16Length: message.text.length },
+    currentUserMessage: { text: message.text },
     questionnaire,
     retryFeedback,
   });

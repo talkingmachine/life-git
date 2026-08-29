@@ -34,7 +34,7 @@ const countryCode = Object.freeze({ type: "string", pattern: COUNTRY_CODE_PATTER
 const currencyCode = Object.freeze({ type: "string", pattern: CURRENCY_CODE_PATTERN });
 const canonicalDecimal = Object.freeze({ type: "string", pattern: CANONICAL_DECIMAL_PATTERN });
 
-const wireOffset = Object.freeze({ type: "integer", minimum: 0 });
+const wireEvidence = Object.freeze({ type: "string", minLength: 1, maxLength: 8_192 });
 
 const currentLocation = exactObject({
   countryCode,
@@ -152,7 +152,7 @@ const extractionProposalSchemas = [
 ];
 
 export const ONBOARDING_EXTRACTION_SCHEMA = deepFreeze(exactObject({
-  schemaVersion: enumSchema(["onboarding-extraction-wire@2"]),
+  schemaVersion: enumSchema(["onboarding-extraction-wire@3"]),
   proposals: {
     type: "array",
     maxItems: 100,
@@ -188,7 +188,7 @@ export const ONBOARDING_REVIEW_SCHEMA = deepFreeze(exactObject({
 }));
 
 function proposalSchema(fieldAddress: JsonObject, typedValue: JsonObject): JsonObject {
-  return exactObject({ f: fieldAddress, v: typedValue, s: wireOffset, e: wireOffset });
+  return exactObject({ f: fieldAddress, v: typedValue, t: wireEvidence });
 }
 
 function wireAddressSchema(predicate: (fieldId: string) => boolean): JsonObject {

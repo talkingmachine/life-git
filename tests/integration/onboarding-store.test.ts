@@ -16,6 +16,7 @@ import {
   ONBOARDING_MODEL_VERSIONS_V6,
   ONBOARDING_MODEL_VERSIONS_V7,
   ONBOARDING_MODEL_VERSIONS_V8,
+  ONBOARDING_MODEL_VERSIONS_V9,
 } from "../../src/application/onboarding-model-versions";
 import { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from
   "../../src/decision/onboarding-catalog";
@@ -316,6 +317,20 @@ describe("SQLite onboarding confirmation persistence", () => {
     expect(Object.keys(JSON.parse(row.versions_json))).toEqual([
       "cliVersion", "extractionPrompt", "extractionSchema", "invocation", "reviewPrompt", "reviewSchema",
     ]);
+  });
+
+  test("round-trips the current V9 tuple while retaining historical V1-V8 bytes", async () => {
+    const database = track(openEvidenceDatabase(temporaryDatabasePath("onboarding-v9-lineage-")));
+    const store = createStore(database);
+    const receipt = await commit(store, COMMAND_1, confirmedValues(), ONBOARDING_MODEL_VERSIONS_V9);
+    const row = database.prepare("SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId) as { versions_json: string };
+
+    expect(JSON.parse(row.versions_json)).toEqual(ONBOARDING_MODEL_VERSIONS_V9);
+    expect((await store.loadBySnapshotBindingsVerified({
+      profileId: receipt.profileId,
+      preferenceProfileId: receipt.preferenceProfileId,
+    })).versions).toBe(ONBOARDING_MODEL_VERSIONS_V9);
+    expect(V8_VERSIONS_JSON).toBe('{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@8","extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2","reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}');
   });
 
   test("replays an ambiguous successful submission without another clock, materializer, or write", async () => {

@@ -32,7 +32,7 @@ import type { OnboardingModelPort } from "../../src/application/onboarding-contr
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
-  ONBOARDING_MODEL_VERSIONS_V8 as ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V9 as ONBOARDING_MODEL_VERSIONS_V3,
 } from "../../src/application/onboarding-model-versions";
 import type {
   GuardedExtractionProposal,
@@ -170,9 +170,9 @@ describe("onboarding feasibility contract", () => {
       reasoningEffort: "low",
       toolPolicy: "codex-tools-none@2",
       cliVersion: ONBOARDING_MODEL_VERSIONS_V3.cliVersion,
-      extractionPromptVersion: "onboarding-extract@8",
+      extractionPromptVersion: "onboarding-extract@9",
       reviewPromptVersion: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt,
-      extractionSchemaVersion: "onboarding-extraction-wire@2",
+      extractionSchemaVersion: "onboarding-extraction-wire@3",
       reviewSchemaVersion: ONBOARDING_MODEL_VERSIONS_V3.reviewSchema,
     });
     expect(artifact).not.toHaveProperty("modelVersions");
@@ -196,7 +196,7 @@ describe("onboarding feasibility contract", () => {
     expect(artifact.extractionPromptDigest).toBe(digestText(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE));
     expect(artifact.reviewPromptDigest).toBe(digestText(ONBOARDING_REVIEW_PROMPT_TEMPLATE));
     expect(artifact.extractionSchemaDigest).toBe(
-      "77fa76052dededa561a0ec596678efd067e89eb106aada6e0f68b88a33cf9c94",
+      "0ba5f143062fbb2ddec0b7fe860151e9439964e62986d02d0fe8d07c295b30b1",
     );
     expect(artifact.reviewSchemaDigest).toBe(digestJson(ONBOARDING_REVIEW_SCHEMA));
     const { artifactDigest, ...withoutDigest } = artifact;
