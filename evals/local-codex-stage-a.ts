@@ -281,11 +281,20 @@ function safeOptInDiagnosticCode(error: unknown): StageADiagnosticCode {
   try {
     if (types.isProxy(error) || !types.isNativeError(error)) return "unclassified";
     const onboardingCode = exactNativeErrorCode(error, OnboardingModelError.prototype, "OnboardingModelError", ONBOARDING_MODEL_DIAGNOSTIC_CODES);
-    if (onboardingCode !== "onboarding_model_runtime_failed") return safeDiagnosticCode(error);
-    const runtimeCode = Object.getOwnPropertyDescriptor(error, "runtimeCode");
-    if (runtimeCode?.enumerable !== true || !("value" in runtimeCode) || typeof runtimeCode.value !== "string" ||
-      !DIAGNOSTIC_CODES.includes(runtimeCode.value as CodexRuntimeErrorCode)) return "unclassified";
-    return runtimeCode.value as CodexRuntimeErrorCode;
+    if (onboardingCode === "onboarding_model_runtime_failed") {
+      const runtimeCode = Object.getOwnPropertyDescriptor(error, "runtimeCode");
+      if (runtimeCode?.enumerable !== true || !("value" in runtimeCode) || typeof runtimeCode.value !== "string" ||
+        !DIAGNOSTIC_CODES.includes(runtimeCode.value as CodexRuntimeErrorCode)) return "unclassified";
+      return runtimeCode.value as CodexRuntimeErrorCode;
+    }
+    const discoveryCode = exactNativeErrorCode(error, OfficialSourceDiscoveryError.prototype, "OfficialSourceDiscoveryError", DISCOVERY_DIAGNOSTIC_CODES);
+    if (discoveryCode === "official_source_discovery_runtime_failed") {
+      const runtimeCode = Object.getOwnPropertyDescriptor(error, "runtimeCode");
+      if (runtimeCode?.enumerable !== true || !("value" in runtimeCode) || typeof runtimeCode.value !== "string" ||
+        !DIAGNOSTIC_CODES.includes(runtimeCode.value as CodexRuntimeErrorCode)) return "unclassified";
+      return runtimeCode.value as CodexRuntimeErrorCode;
+    }
+    return safeDiagnosticCode(error);
   } catch {
     return "unclassified";
   }

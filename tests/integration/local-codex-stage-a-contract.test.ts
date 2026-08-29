@@ -47,12 +47,25 @@ describe("local Codex Stage A gate", () => {
     ["official_source_discovery_aborted", undefined],
     ["official_source_discovery_integrity_failed", undefined],
     ["official_source_discovery_invalid", undefined],
-    ["official_source_discovery_runtime_failed", "codex_timeout"],
   ] as const)("diagnostically classifies exact native discovery %s without leaking content", async (code, runtimeCode) => {
     const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
       ...deterministicDependencies(), runDiscovery: async () => { throw new OfficialSourceDiscoveryError(code, runtimeCode); },
     });
     expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:discovery:${code}\n` });
+  });
+
+  test.each([
+    "codex_tool_event",
+    "codex_timeout",
+  ] as const)("diagnostically unwraps exact native discovery runtime reason %s", async (runtimeCode) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runDiscovery: async () => {
+        throw new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", runtimeCode);
+      },
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:discovery:${runtimeCode}\n` });
   });
 
   test.each([
@@ -137,6 +150,8 @@ describe("local Codex Stage A gate", () => {
     });
     const prototypeMismatch = new OfficialSourceDiscoveryError("official_source_discovery_invalid");
     Object.setPrototypeOf(prototypeMismatch, Error.prototype);
+    const symbolBearing = new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout");
+    Object.defineProperty(symbolBearing, Symbol("private"), { value: "token=secret" });
     const nativeSpoof = Object.create(OfficialSourceDiscoveryError.prototype) as object;
     Object.defineProperties(nativeSpoof, {
       code: { value: "official_source_discovery_invalid", writable: true, enumerable: true, configurable: true },
@@ -150,7 +165,7 @@ describe("local Codex Stage A gate", () => {
       ownKeys: () => { throw new Error("keys token=secret"); },
     });
 
-    for (const error of [getter, prototypeMismatch, nativeSpoof, proxy]) {
+    for (const error of [getter, prototypeMismatch, symbolBearing, nativeSpoof, proxy]) {
       const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
         ...deterministicDependencies(), runDiscovery: async () => { throw error; },
       });
