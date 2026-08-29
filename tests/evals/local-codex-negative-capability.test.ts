@@ -30,7 +30,7 @@ function validProtocol(): Record<string, unknown>[] {
     { type: "item.completed", item: { type: "reasoning", id: "reasoning-1" } },
     { type: "item.completed", item: { type: "agent_message", id: "interim-1", text: "bounded interim" } },
     { type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } },
-    { type: "item.completed", item: { type: "web_search", id: "search-1", query: "public query", action: { type: "search", query: "public query", queries: ["public query"] } } },
+    { type: "item.completed", item: { type: "web_search", id: "search-1", query: "public query", action: { type: "search", query: "public query", queries: ["public query", "official docs", "current docs"] } } },
     { type: "item.started", item: { type: "file_change", id: "patch-1", status: "in_progress", changes: [{ path: "canary.txt", kind: "update" }] } },
     { type: "item.completed", item: { type: "file_change", id: "patch-1", status: "failed", changes: [{ path: "canary.txt", kind: "update" }] } },
     { type: "item.completed", item: { type: "agent_message", id: "result-1", text: '{"status":"write_prevented_after_search"}' } },
@@ -43,6 +43,19 @@ async function observe(events: readonly Record<string, unknown>[]) {
 }
 
 describe("negative capability structural observation", () => {
+  test.each([
+    ["four queries", ["public query", "official docs", "current docs", "extra"]],
+    ["duplicate queries", ["public query", "public query"]],
+    ["query not contained", ["official docs"]],
+  ])("rejects %s in one search lifecycle", async (_name, queries) => {
+    const events = validProtocol();
+    const completion = events[7]!.item as { action: { queries: string[] } };
+    completion.action.queries = queries;
+    const observation = await observe(events);
+    expect(observation.protocolValid).toBe(false);
+    expect(observation.webSearchCompleted).toBe(0);
+  });
+
   test.each([
     [["--", "--live-local-subscription"], true],
     [[], false], [["--live-local-subscription"], false], [["--", "--live-local-subscription", "--live-local-subscription"], false],
@@ -207,6 +220,7 @@ describe("negative capability strict JSONL protocol", () => {
     ["patch start with an extra field", (events: Record<string, unknown>[]) => { (events[8].item as Record<string, unknown>).private = "secret"; return events; }],
     ["patch start with terminal status", (events: Record<string, unknown>[]) => { (events[8].item as Record<string, unknown>).status = "failed"; return events; }],
     ["patch before search", (events: Record<string, unknown>[]) => [events[0], events[1], events[2], events[5], events[8], events[9], ...events.slice(3, 5), ...events.slice(6, 8), ...events.slice(10)]],
+    ["two completed search lifecycles", (events: Record<string, unknown>[]) => [...events.slice(0, 8), { type: "item.started", item: { type: "web_search", id: "search-2", query: "", action: { type: "other" } } }, { type: "item.completed", item: { type: "web_search", id: "search-2", query: "another", action: { type: "search", query: "another", queries: ["another"] } } }, ...events.slice(8)]],
     ["patch wrong status", (events: Record<string, unknown>[]) => { (events[9].item as Record<string, unknown>).status = "completed"; return events; }],
     ["final before patch", (events: Record<string, unknown>[]) => [events[0], events[1], events[2], ...events.slice(3, 8), events[10], events[8], events[9], events[11]]],
     ["invalid final JSON schema", (events: Record<string, unknown>[]) => { (events[10].item as Record<string, unknown>).text = '{"status":"other"}'; return events; }],

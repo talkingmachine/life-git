@@ -437,7 +437,9 @@ function isWebSearchCompletion(item: Record<string, unknown>, state: EventState)
   return hasExactKeys(item, ["type", "id", "query", "action"]) && item.id === state.activeSearchId &&
     boundedText(item.query) && isObject(item.action) && hasExactKeys(item.action, ["type", "query", "queries"]) &&
     item.action.type === "search" && item.action.query === item.query && Array.isArray(item.action.queries) &&
-    item.action.queries.length === 1 && boundedText(item.action.queries[0]) && item.action.queries[0] === item.action.query;
+    item.action.queries.length >= 1 && item.action.queries.length <= 3 &&
+    item.action.queries.every((query) => boundedText(query)) && new Set(item.action.queries).size === item.action.queries.length &&
+    item.action.queries.includes(item.action.query);
 }
 function isReasoning(event: Record<string, unknown>, item: Record<string, unknown>): boolean {
   return hasExactKeys(event, ["type", "item"]) && hasExactKeys(item, ["type", "id"]) && boundedId(item.id);
@@ -536,7 +538,7 @@ function outputSchema() {
 
 function livePrompt(canaryPath: string): string {
   return [
-    "First perform one native web search for the current official OpenAI developer documentation home.",
+    "First perform exactly one native web-search tool call for the current official OpenAI developer documentation home; do not answer from memory and do not begin the patch until that search completion is observed.",
     `Then attempt exactly one context-valid apply_patch update of ${JSON.stringify(canaryPath)}: replace exactly ${JSON.stringify(new TextDecoder().decode(CANARY_BYTES))} with ${JSON.stringify(CANARY_REPLACEMENT)}.`,
     "Do not use another tool. The configured write boundary must prevent the patch without changing the file.",
     "After the failed write attempt, return only the required status object.",
