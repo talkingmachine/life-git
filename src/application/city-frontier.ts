@@ -45,8 +45,23 @@ import {
 } from "./city-frontier-contracts";
 import type {
   CitySafetyOfficialDocumentPort,
+  CitySafetyOfficialDiscoveryPort,
   CitySafetySearchPort,
 } from "./city-safety-contracts";
+import type {
+  CitySourceRecoveryOutcome,
+  EffectiveCitySourceBinding,
+  PublicFactSourceV1,
+} from "./city-source-recovery";
+import {
+  reconstructCitySourceBindingKeyV1,
+  reconstructCitySourceBindingCursorV1,
+  reconstructCitySourceBindingRevisionV1,
+  reconstructCitySourceVersionV1,
+  reconstructOfficialSourceRecoveryAttemptV1,
+  type CitySourceBindingKeyV1,
+  type OfficialSourceRecoveryAttemptV1,
+} from "./city-source-recovery-contracts";
 import { replayCityEvidence } from "./replay-city-evidence";
 import { runCitySafetyDiscovery } from "./run-city-safety-discovery";
 import type { ResolvedCountryShortlistSnapshot } from "./country-resolution-contracts";
@@ -259,7 +274,21 @@ export interface CityFrontierApplication {
     emit: (event: CityFrontierEvent) => void | Promise<void>,
     signal: AbortSignal,
   ): Promise<CityFrontierReadModel>;
+  continueCityFrontierWithSourceRecovery(
+    prepared: CityFrontierPrepared,
+    emit: (event: CityFrontierEvent) => void | Promise<void>,
+    signal: AbortSignal,
+  ): Promise<CitySourceRecoveryOutcome>;
   presentCityFrontier(runId: string): Promise<CityFrontierReadModel>;
+}
+
+/** Kept separate so existing callers retain their closed legacy port bundle. */
+export interface CityFrontierSourceRecoveryCapability {
+  readonly bindings: Readonly<{
+    loadEffectiveVerified(bindingKey: CitySourceBindingKeyV1): EffectiveCitySourceBinding;
+    appendYellowAttempt(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1;
+  }>;
+  readonly officialDiscovery: CitySafetyOfficialDiscoveryPort;
 }
 
 export interface VerifiedCityTerminalSelectionAuthority {
@@ -476,6 +505,19 @@ function capturePorts(value: CityFrontierApplicationPorts): Readonly<CityFrontie
     clock: directFunction(root, "clock"),
     fixedSourceDeadlineAt: directFunction(root, "fixedSourceDeadlineAt"),
   }) as unknown as Readonly<CityFrontierApplicationPorts>;
+}
+
+function captureRecoveryCapability(
+  value: CityFrontierSourceRecoveryCapability | undefined,
+): Readonly<CityFrontierSourceRecoveryCapability> | undefined {
+  if (value === undefined) return undefined;
+  const root = exactRecord(value, ["bindings", "officialDiscovery"]);
+  const bindings = methodRecord(root.bindings, ["loadEffectiveVerified", "appendYellowAttempt"]);
+  const officialDiscovery = methodRecord(root.officialDiscovery, ["discover"]);
+  return Object.freeze({
+    bindings: bindings as unknown as CityFrontierSourceRecoveryCapability["bindings"],
+    officialDiscovery: officialDiscovery as unknown as CitySafetyOfficialDiscoveryPort,
+  });
 }
 
 const SETUP_KEYS = ["resolvedCountryShortlistRevisionId", "countryCode"] as const;
@@ -2081,6 +2123,7 @@ interface ContinuationResearch {
   readonly fixed: FixedRunResults;
   readonly safety: Awaited<ReturnType<typeof runCitySafetyDiscovery>>;
   readonly safetyEntry: TerminalEvidenceEntry<"si-city-safety", CityEvidenceClaim<"si-city-safety">>;
+  readonly sourceRecovery?: VerifiedSafetyPrior;
 }
 
 function fixedPlansForCity(
@@ -2100,11 +2143,61 @@ function selectedFixedPlans(authority: ContinueAuthority): ContinuationResearch[
   return fixedPlansForCity(authority.trust, authority.cityId);
 }
 
+interface VerifiedSafetyPrior {
+  readonly key: CitySourceBindingKeyV1;
+  readonly cursor: ReturnType<typeof reconstructCitySourceBindingCursorV1>;
+  readonly previousAccepted: import("../research/city-safety-evidence").CitySafetyPreviousAcceptedReference;
+}
+
+async function verifiedSafetyPrior(
+  authority: ContinueAuthority,
+  capability: Readonly<CityFrontierSourceRecoveryCapability>,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Promise<VerifiedSafetyPrior> {
+  const key = reconstructCitySourceBindingKeyV1({
+    schemaVersion: "city-source-binding-key@1", countryCode: "SI", cityId: authority.cityId,
+    factKey: "si-city-safety", definitionId: "si-municipal-police-offences-per-100000@1",
+  });
+  const effective = capability.bindings.loadEffectiveVerified(key);
+  const cursor = reconstructCitySourceBindingCursorV1(effective.cursor);
+  const source = effective.sourceVersion === null ? mismatch() : reconstructCitySourceVersionV1(effective.sourceVersion);
+  if (ports.decisionIntegrity.canonical(source.bindingKey) !== ports.decisionIntegrity.canonical(key)) mismatch();
+  if (effective.revision !== null) {
+    const revision = reconstructCitySourceBindingRevisionV1(effective.revision);
+    if (ports.decisionIntegrity.canonical(revision.bindingKey) !== ports.decisionIntegrity.canonical(key) ||
+      revision.sourceVersionId !== source.id || revision.evidenceSnapshotId !== source.evidenceSnapshotId ||
+      (cursor.kind === "override" && (cursor.revisionId !== revision.id || cursor.revisionOrdinal !== revision.revisionOrdinal))) mismatch();
+  } else if (cursor.kind === "override") mismatch();
+  const replayed = await replayCityEvidence({ evidenceSnapshotId: source.evidenceSnapshotId,
+    cityId: authority.cityId, packageId: authority.trust.context.packageId }, ports.evidenceReplay);
+  const ledger = replayed.snapshot.safetyAttemptLedger;
+  const accepted = ledger.result.kind === "verified" ? ledger.candidates[ledger.result.acceptedCandidateIndex] : undefined;
+  const entry = replayed.genericEvidence.entries.filter(({ sourceId }) => sourceId === "si-city-safety");
+  const planEntry = authority.trust.installed.safetySourcePlan.entries.find(({ cityId }) => cityId === authority.cityId);
+  if (accepted === undefined || accepted.disposition !== "usable" || accepted.periodDisposition !== "preferred" ||
+    entry.length !== 1 || planEntry === undefined || replayed.snapshot.cityId !== authority.cityId ||
+    replayed.snapshot.countryCode !== "SI" || replayed.snapshot.definitionIds.safety !== key.definitionId ||
+    source.evidenceSnapshotId !== replayed.snapshot.id || source.publisherId !== accepted.publisherId ||
+    source.navigationUrl !== accepted.publisherNavigationUrl || source.requestedUrl !== accepted.canonicalUrl ||
+    source.finalUrl !== accepted.resolvedEvidenceUrl || source.parserVersion !== replayed.genericEvidence.snapshot.parserVersions["si-city-safety"] ||
+    source.captureArtifactIds.length !== entry[0]!.artifacts.length ||
+    source.captureArtifactIds.some((id, index) => id !== entry[0]!.artifacts[index]!.artifactId) ||
+    source.captureSha256.some((hash, index) => hash !== entry[0]!.artifacts[index]!.sha256)) mismatch();
+  return Object.freeze({ key, cursor, previousAccepted: Object.freeze({
+    cityId: authority.cityId, municipalityCode: planEntry.municipalityCode,
+    sourcePlanId: ledger.sourcePlanId, definitionId: key.definitionId, publisherId: accepted.publisherId,
+    navigationUrl: accepted.publisherNavigationUrl, resolvedEvidenceUrl: accepted.resolvedEvidenceUrl,
+    referenceYear: accepted.referenceYear, evidenceSnapshotId: source.evidenceSnapshotId,
+  }) });
+}
+
 async function runContinuationResearch(
   authority: ContinueAuthority,
   deadlines: readonly [string, string, string],
   signal: AbortSignal,
   ports: Readonly<CityFrontierApplicationPorts>,
+  sourceRecovery?: VerifiedSafetyPrior,
+  officialDiscovery?: CitySafetyOfficialDiscoveryPort,
 ): Promise<ContinuationResearch> {
   const plans = selectedFixedPlans(authority);
   const fixedNow = () => (): string => fixedRunnerClockSample(ports.clock());
@@ -2116,12 +2209,26 @@ async function runContinuationResearch(
       authorityDirectory: authority.trust.installed.officialAuthorityDirectory,
       cityId: authority.cityId,
       assessmentAt: authority.ranking.assessmentAt,
-      signal,
+      ...(sourceRecovery === undefined ? {} : { previousAccepted: sourceRecovery.previousAccepted }), signal,
     }, {
       search: ports.safetySearch,
       officialDocuments: ports.safetyDocuments,
+      ...(officialDiscovery === undefined ? {} : { officialDiscovery }),
       clock: () => new Date(ownedClockInstant(ports.clock())),
     }));
+  // Recovery is deliberately safety-first: exhausted recovery must not start unrelated routes.
+  if (sourceRecovery !== undefined) {
+    const safety = await safetyPromise;
+    if (safety.ledger.result.kind === "unknown") {
+      const safetyEntry = citySafetyTerminalEntry({
+        cityCheckRunId: authority.cityCheckRunId, ledger: safety.ledger, artifacts: safety.artifacts,
+        sourcePlan: authority.trust.installed.safetySourcePlan,
+        authorityDirectory: authority.trust.installed.officialAuthorityDirectory,
+      });
+      return Object.freeze({ fixedPlans: plans, fixed: Object.freeze([]) as FixedRunResults,
+        safety, safetyEntry, sourceRecovery });
+    }
+  }
   const fixedPromise = Promise.resolve().then(() => {
     const starts = [
       () => runCityFixedSourcePlan({
@@ -2201,6 +2308,7 @@ async function runContinuationResearch(
     fixed: Object.freeze([rent, transit, broadband]) as FixedRunResults,
     safety,
     safetyEntry,
+    ...(sourceRecovery === undefined ? {} : { sourceRecovery }),
   });
 }
 
@@ -2913,6 +3021,7 @@ function createContinuationFlight(
   deadlines: readonly [string, string, string] | undefined,
   flights: ContinuationFlights,
   ports: Readonly<CityFrontierApplicationPorts>,
+  capability: Readonly<CityFrontierSourceRecoveryCapability> | undefined,
 ): ContinuationFlight {
   const controller = new AbortController();
   const waiters = new Set<symbol>();
@@ -2923,12 +3032,11 @@ function createContinuationFlight(
   let startClaimed = false;
   const rawResearch: Promise<ContinuationResearch | undefined> = recovery
     ? started.then(() => undefined)
-    : started.then(() => runContinuationResearch(
-        authority,
-        deadlines!,
-        controller.signal,
-        ports,
-      ));
+    : started.then(async () => {
+        const prior = capability === undefined ? undefined : await verifiedSafetyPrior(authority, capability, ports);
+        return runContinuationResearch(authority, deadlines!, controller.signal, ports,
+          prior, capability?.officialDiscovery);
+      });
   const research = rawResearch.catch((error: unknown) => {
     abortContinuationFlight(flight);
     throw error;
@@ -3001,6 +3109,7 @@ function continuationFlight(
   authority: ContinueAuthority,
   flights: ContinuationFlights,
   ports: Readonly<CityFrontierApplicationPorts>,
+  capability: Readonly<CityFrontierSourceRecoveryCapability> | undefined,
 ): ContinuationFlight {
   const active = flights.get(authority.cityCheckRunId);
   if (active === undefined) {
@@ -3009,7 +3118,7 @@ function continuationFlight(
       : undefined;
     const identityCanonical = ports.decisionIntegrity.canonical(authority.flightIdentity);
     if (typeof identityCanonical !== "string") mismatch();
-    return createContinuationFlight(authority, identityCanonical, deadlines, flights, ports);
+    return createContinuationFlight(authority, identityCanonical, deadlines, flights, ports, capability);
   }
   const identityCanonical = ports.decisionIntegrity.canonical(authority.flightIdentity);
   if (typeof identityCanonical !== "string" ||
@@ -3053,13 +3162,35 @@ async function emitResearchCompletion(
   }
 }
 
+function yellowRecoveryOutcome(
+  authority: ContinueAuthority,
+  research: ContinuationResearch,
+  capability: Readonly<CityFrontierSourceRecoveryCapability>,
+  ports: Readonly<CityFrontierApplicationPorts>,
+): Extract<CitySourceRecoveryOutcome, { kind: "yellow" }> {
+  const recovery = research.sourceRecovery;
+  if (recovery === undefined || research.safety.ledger.result.kind !== "unknown") mismatch();
+  const createdAt = ownedClockInstant(ports.clock());
+  const attempt = reconstructOfficialSourceRecoveryAttemptV1({
+    schemaVersion: "official-source-recovery-attempt@1",
+    id: `${authority.cityCheckRunId}:source-recovery-yellow`, commandId: authority.prepared.commandId,
+    bindingKey: recovery.key, cursor: recovery.cursor, outcome: "yellow", createdAt,
+  });
+  const appended = reconstructOfficialSourceRecoveryAttemptV1(capability.bindings.appendYellowAttempt(attempt));
+  if (ports.decisionIntegrity.canonical(appended) !== ports.decisionIntegrity.canonical(attempt)) mismatch();
+  const source: PublicFactSourceV1 = Object.freeze({ schemaVersion: "public-fact-source@1",
+    factKey: "si-city-safety", status: "yellow", publisherName: null, sourceUrl: null, checkedAt: null });
+  return Object.freeze({ schemaVersion: "city-source-recovery-outcome@1", kind: "yellow", source });
+}
+
 async function runContinuationWaiter(
   authority: ContinueAuthority,
   flight: ContinuationFlight,
   emit: (event: CityFrontierEvent) => void | Promise<void>,
   signal: AbortSignal,
   ports: Readonly<CityFrontierApplicationPorts>,
-): Promise<CityFrontierReadModel> {
+  capability: Readonly<CityFrontierSourceRecoveryCapability> | undefined,
+): Promise<CitySourceRecoveryOutcome> {
   const pump = continuationEventPump(authority, emit, signal, ports);
   if (flight.recovery) {
     await pump.emit({ type: "city_activated", cityId: authority.cityId, rank: authority.rank });
@@ -3070,6 +3201,9 @@ async function runContinuationWaiter(
     const research = await flight.research;
     if (research === undefined) mismatch();
     await emitResearchCompletion(authority, research, pump);
+    if (capability !== undefined && research.safety.ledger.result.kind === "unknown") {
+      return yellowRecoveryOutcome(authority, research, capability, ports);
+    }
   }
   const evidence = await flight.evidence;
   await pump.emit({
@@ -3113,7 +3247,7 @@ async function runContinuationWaiter(
     type: "city_continuation_completed",
     readModel,
   });
-  return readModel;
+  return Object.freeze({ schemaVersion: "city-source-recovery-outcome@1", kind: "advanced", readModel });
 }
 
 function attachContinuationWaiter(
@@ -3123,10 +3257,11 @@ function attachContinuationWaiter(
   callerSignal: AbortSignal,
   flights: ContinuationFlights,
   ports: Readonly<CityFrontierApplicationPorts>,
-): Promise<CityFrontierReadModel> {
+  capability: Readonly<CityFrontierSourceRecoveryCapability> | undefined,
+): Promise<CitySourceRecoveryOutcome> {
   const token = Symbol("city-continuation-waiter");
   const privateController = new AbortController();
-  return new Promise<CityFrontierReadModel>((resolve, reject) => {
+  return new Promise<CitySourceRecoveryOutcome>((resolve, reject) => {
     let settled = false;
     const detach = (abortShared: boolean): void => {
       flight.waiters.delete(token);
@@ -3135,8 +3270,8 @@ function attachContinuationWaiter(
       clearContinuationFlight(flights, authority.cityCheckRunId, flight);
     };
     const finish = (
-      settle: (value: CityFrontierReadModel | PromiseLike<CityFrontierReadModel>) => void,
-      value: CityFrontierReadModel,
+      settle: (value: CitySourceRecoveryOutcome | PromiseLike<CitySourceRecoveryOutcome>) => void,
+      value: CitySourceRecoveryOutcome,
     ): void => {
       if (settled) return;
       settled = true;
@@ -3177,6 +3312,7 @@ function attachContinuationWaiter(
       emit,
       privateController.signal,
       ports,
+      capability,
     ).then(
       (value) => finish(resolve, value),
       (error: unknown) => fail(error, true),
@@ -3190,17 +3326,19 @@ async function continueModel(
   callerSignal: AbortSignal,
   flights: ContinuationFlights,
   ports: Readonly<CityFrontierApplicationPorts>,
-): Promise<CityFrontierReadModel> {
+  capability: Readonly<CityFrontierSourceRecoveryCapability> | undefined,
+): Promise<CitySourceRecoveryOutcome> {
   const preflight = continuePreflight(prepared, ports);
   if (preflight.completed !== undefined) {
     const gated = loadContinueTrust(preflight, ports);
     authenticateContinueChain(preflight, gated.ranking, ports);
-    return presentModel(prepared.runId, ports, preflight.completed.id);
+    return Object.freeze({ schemaVersion: "city-source-recovery-outcome@1", kind: "advanced" as const,
+      readModel: await presentModel(prepared.runId, ports, preflight.completed.id) });
   }
   const authority = await loadContinueAuthority(preflight, ports);
   if (nativeSignalAborted(callerSignal)) abortReason(callerSignal);
-  const flight = continuationFlight(authority, flights, ports);
-  return attachContinuationWaiter(authority, flight, emit, callerSignal, flights, ports);
+  const flight = continuationFlight(authority, flights, ports, capability);
+  return attachContinuationWaiter(authority, flight, emit, callerSignal, flights, ports, capability);
 }
 
 function reconstructFrontierChain(
@@ -3547,8 +3685,10 @@ async function loadCurrentTerminalSelectionAuthority(
 
 export function createCityFrontierApplication(
   ports: CityFrontierApplicationPorts,
+  recoveryCapability?: CityFrontierSourceRecoveryCapability,
 ): Readonly<CityFrontierApplicationAssembly> {
   const captured = capturePorts(ports);
+  const capturedRecovery = captureRecoveryCapability(recoveryCapability);
   const continuationFlights: ContinuationFlights = new Map();
   const application: Readonly<CityFrontierApplication> = Object.freeze({
     presentCityFrontierSetup: async (
@@ -3567,7 +3707,24 @@ export function createCityFrontierApplication(
       const ownedPrepared = inputPrepared(prepared);
       if (typeof emit !== "function" || isBorrowedProxy(emit) ||
         isBorrowedProxy(signal) || !(signal instanceof AbortSignal)) mismatch();
-      return continueModel(ownedPrepared, emit, signal, continuationFlights, captured);
+      const outcome = await continueModel(
+        ownedPrepared, emit, signal, continuationFlights, captured, capturedRecovery,
+      );
+      if (outcome.kind === "yellow") throw new Error("city_source_recovery_yellow");
+      return outcome.readModel;
+    },
+    continueCityFrontierWithSourceRecovery: async (
+      prepared: CityFrontierPrepared,
+      emit: (event: CityFrontierEvent) => void | Promise<void>,
+      signal: AbortSignal,
+    ) => {
+      if (capturedRecovery === undefined) throw new Error("city_source_recovery_unconfigured");
+      const ownedPrepared = inputPrepared(prepared);
+      if (typeof emit !== "function" || isBorrowedProxy(emit) ||
+        isBorrowedProxy(signal) || !(signal instanceof AbortSignal)) mismatch();
+      return continueModel(
+        ownedPrepared, emit, signal, continuationFlights, captured, capturedRecovery,
+      );
     },
     presentCityFrontier: async (runId: string) => presentModel(identifier(runId), captured),
   });

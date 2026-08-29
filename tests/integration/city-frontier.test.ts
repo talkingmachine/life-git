@@ -5243,6 +5243,11 @@ describe("City Frontier Application public boundary", () => {
         emit: (event: CityFrontierEvent) => void | Promise<void>,
         signal: AbortSignal,
       ): Promise<CityFrontierReadModel>;
+      continueCityFrontierWithSourceRecovery(
+        prepared: CityFrontierPrepared,
+        emit: (event: CityFrontierEvent) => void | Promise<void>,
+        signal: AbortSignal,
+      ): Promise<import("../../src/application/city-source-recovery").CitySourceRecoveryOutcome>;
       presentCityFrontier(runId: string): Promise<CityFrontierReadModel>;
     };
     type ExpectedSelectionAuthority = {
@@ -5290,7 +5295,7 @@ describe("City Frontier Application public boundary", () => {
     expectTypeOf<CityFrontierApplicationAssembly>().toEqualTypeOf<ExpectedAssembly>();
     expectTypeOf<CityFrontierApplicationPorts>().toEqualTypeOf<ExpectedPorts>();
     expectTypeOf(createCityFrontierApplication)
-      .toEqualTypeOf<(ports: CityFrontierApplicationPorts) => Readonly<CityFrontierApplicationAssembly>>();
+      .toEqualTypeOf<(ports: CityFrontierApplicationPorts, recoveryCapability?: import("../../src/application/city-frontier").CityFrontierSourceRecoveryCapability) => Readonly<CityFrontierApplicationAssembly>>();
   });
 
   test("compile-pins configured and unconfigured composition without leaking infrastructure into Application", () => {
@@ -5849,6 +5854,7 @@ describe("City Frontier Application public boundary", () => {
         "startCityFrontier",
         "prepareCityFrontierContinuation",
         "continueCityFrontier",
+        "continueCityFrontierWithSourceRecovery",
         "presentCityFrontier",
         "selectCity",
       ]);
@@ -6464,6 +6470,7 @@ describe("City Frontier Application public boundary", () => {
       "startCityFrontier",
       "prepareCityFrontierContinuation",
       "continueCityFrontier",
+      "continueCityFrontierWithSourceRecovery",
       "presentCityFrontier",
     ]);
     expect(Reflect.ownKeys(harness.assembly.selectionAuthority)).toEqual([
@@ -12154,6 +12161,7 @@ describe("City Frontier Application public boundary", () => {
       "startCityFrontier",
       "prepareCityFrontierContinuation",
       "continueCityFrontier",
+      "continueCityFrontierWithSourceRecovery",
       "presentCityFrontier",
     ]);
     expect(Reflect.ownKeys(harness.assembly.application)).not.toContain("selectionAuthority");
