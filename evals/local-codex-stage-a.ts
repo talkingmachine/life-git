@@ -222,7 +222,10 @@ export async function runLocalCodexStageAEntrypoint(
     let diagnostic: Readonly<{ stage: StageADiagnosticStage; code: StageADiagnosticCode }> | undefined;
     try {
       return await runLocalCodexStageAWithFailureObserver(args, supplied, (stage, error) => {
-        diagnostic = Object.freeze({ stage, code: safeDiagnosticCode(error) });
+        diagnostic = Object.freeze({
+          stage,
+          code: args.diagnostic ? safeOptInDiagnosticCode(error) : safeDiagnosticCode(error),
+        });
       });
     } catch (error) {
       if (args.diagnostic && diagnostic !== undefined) {
@@ -269,6 +272,20 @@ function safeDiagnosticCode(error: unknown): StageADiagnosticCode {
     const localCode = exactNativeErrorCode(error, StageAOnboardingDiagnosticError.prototype, "StageAOnboardingDiagnosticError", STAGE_A_ONBOARDING_DIAGNOSTIC_CODES);
     if (localCode !== undefined) return localCode as StageAOnboardingDiagnosticCode;
     return exactNativeErrorCode(error, StageADiscoveryDiagnosticError.prototype, "StageADiscoveryDiagnosticError", ["discovery_result_invalid"]) === undefined ? "unclassified" : "discovery_result_invalid";
+  } catch {
+    return "unclassified";
+  }
+}
+
+function safeOptInDiagnosticCode(error: unknown): StageADiagnosticCode {
+  try {
+    if (types.isProxy(error) || !types.isNativeError(error)) return "unclassified";
+    const onboardingCode = exactNativeErrorCode(error, OnboardingModelError.prototype, "OnboardingModelError", ONBOARDING_MODEL_DIAGNOSTIC_CODES);
+    if (onboardingCode !== "onboarding_model_runtime_failed") return safeDiagnosticCode(error);
+    const runtimeCode = Object.getOwnPropertyDescriptor(error, "runtimeCode");
+    if (runtimeCode?.enumerable !== true || !("value" in runtimeCode) || typeof runtimeCode.value !== "string" ||
+      !DIAGNOSTIC_CODES.includes(runtimeCode.value as CodexRuntimeErrorCode)) return "unclassified";
+    return runtimeCode.value as CodexRuntimeErrorCode;
   } catch {
     return "unclassified";
   }

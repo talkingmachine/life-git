@@ -307,21 +307,74 @@ describe("local Codex Stage A gate", () => {
     "onboarding_model_runtime_failed",
   ] as const)("allowlists exact native typed onboarding error %s", async (code: OnboardingModelErrorCode) => {
     const typed = new OnboardingModelError(code, code === "onboarding_model_runtime_failed" ? "codex_timeout" : undefined);
+    const diagnosticCode = code === "onboarding_model_runtime_failed" ? "codex_timeout" : code;
     const dependencies = {
       ...deterministicDependencies(),
       runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract: async () => { throw typed; } }),
     };
     await expect(runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], dependencies))
-      .resolves.toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:onboarding:${code}\n` });
+      .resolves.toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:onboarding:${diagnosticCode}\n` });
     await expect(runLocalCodexStageAEntrypoint(["--live-local-subscription"], dependencies))
       .resolves.toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
   });
 
+  test("unwraps an exact runtime version mismatch only for explicit diagnostics", async () => {
+    const typed = new OnboardingModelError(
+      "onboarding_model_runtime_failed",
+      "codex_version_mismatch",
+    );
+    const dependencies = {
+      ...deterministicDependencies(),
+      runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), {
+        extract: async () => { throw typed; },
+      }),
+    };
+
+    await expect(runLocalCodexStageAEntrypoint(
+      ["--live-local-subscription", "--diagnostic"],
+      dependencies,
+    )).resolves.toEqual({
+      exitCode: 1,
+      stderr: "local_codex_stage_a_failed:diagnostic@1:onboarding:codex_version_mismatch\n",
+    });
+    await expect(runLocalCodexStageAEntrypoint(
+      ["--live-local-subscription"],
+      dependencies,
+    )).resolves.toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  });
+
   test.each([
-    ["runtime code missing", new OnboardingModelError("onboarding_model_runtime_failed")],
-    ["runtime code on non-runtime error", new OnboardingModelError("onboarding_model_aborted", "codex_timeout")],
-    ["runtime code outside allowlist", new OnboardingModelError("onboarding_model_runtime_failed", "codex_secret_payload" as never)],
-  ] as const)("classifies typed onboarding error with %s as unclassified", async (_case, typed) => {
+    ["runtime code missing", () => ({
+      typed: new OnboardingModelError("onboarding_model_runtime_failed"),
+    })],
+    ["runtime code on non-runtime error", () => ({
+      typed: new OnboardingModelError("onboarding_model_aborted", "codex_timeout"),
+    })],
+    ["runtime code outside allowlist", () => ({
+      typed: new OnboardingModelError("onboarding_model_runtime_failed", "codex_secret_payload" as never),
+    })],
+    ["runtime code accessor", () => {
+      const typed = new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout");
+      const getter = vi.fn(() => { throw new Error("accessor token=secret"); });
+      Object.defineProperty(typed, "runtimeCode", { enumerable: true, get: getter });
+      return { typed, getter };
+    }],
+    ["proxied runtime error", () => ({
+      typed: new Proxy(
+        new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout"),
+        { get: () => { throw new Error("proxy token=secret"); } },
+      ),
+    })],
+    ["symbol-bearing runtime error", () => {
+      const typed = new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout") as
+        OnboardingModelError & Record<symbol, unknown>;
+      typed[Symbol("token=secret")] = true;
+      return { typed };
+    }],
+  ] as const)("classifies typed onboarding error with %s as unclassified", async (_case, create) => {
+    const created = create();
+    const { typed } = created;
+    const getter = "getter" in created ? created.getter : undefined;
     const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
       ...deterministicDependencies(),
       runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract: async () => { throw typed; } }),
@@ -329,6 +382,9 @@ describe("local Codex Stage A gate", () => {
 
     expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:onboarding:unclassified\n" });
     expect(result.stderr).not.toMatch(/secret|payload/i);
+    if (getter !== undefined) {
+      expect(getter).not.toHaveBeenCalled();
+    }
   });
 
   test("rejects hostile onboarding error lookalikes and never leaks their content", async () => {
