@@ -973,6 +973,10 @@ async function executeDiscovery(
       publisherNavigationUrl: route.navigationUrl,
     },
   }));
+  input.recoveryCandidates?.forEach((url) => queue.push({
+    url: canonicalizeCitySafetyCandidateUrl(url),
+    origin: { kind: "search", queryId: `official-source-recovery:${input.runId}` },
+  }));
 
   const seen = new Set<string>();
   const candidateAttempts: CitySafetyCandidateAttempt[] = [];
