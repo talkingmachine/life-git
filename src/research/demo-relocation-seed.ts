@@ -16,4 +16,17 @@ country("TR","Турция","Türkiye",["tr","en"],[c("ankara","Анкара","A
 country("AE","ОАЭ","United Arab Emirates",["ar","en"],[c("abu-dhabi","Абу-Даби","Abu Dhabi","national_capital"),c("dubai","Дубай","Dubai","relocation_city"),c("sharjah","Шарджа","Sharjah","relocation_city"),c("ajman","Аджман","Ajman","relocation_city"),c("ras-al-khaimah","Рас-эль-Хайма","Ras Al Khaimah","relocation_city")]),
 country("TH","Таиланд","Thailand",["th","en"],[c("bangkok","Бангкок","Bangkok","national_capital"),c("chiang-mai","Чиангмай","Chiang Mai","relocation_city"),c("phuket-city","Пхукет","Phuket City","relocation_city"),c("pattaya","Паттайя","Pattaya","relocation_city"),c("hua-hin","Хуахин","Hua Hin","relocation_city")]),
 ] as const)} as const);
+function validateSeed(seed: DemoRelocationSeed): void {
+  if (seed.countries.length !== 10 || new Set(seed.countries.map(({ countryCode }) => countryCode)).size !== 10) throw new Error("invalid_demo_seed");
+  const targets = new Set<string>();
+  for (const country of seed.countries) {
+    if (!/^[A-Z]{2}$/.test(country.countryCode) || country.cities.length !== 5 || country.cities[0].selectionRole !== "national_capital" || country.cities.filter((city) => city.selectionRole === "national_capital").length !== 1 || country.localeHints.length === 0 || new Set(country.localeHints).size !== country.localeHints.length) throw new Error("invalid_demo_seed");
+    for (const city of country.cities) {
+      if (!/^[a-z]+(?:-[a-z]+)*$/.test(city.cityId) || city.name.ru.length === 0 || city.name.en.length === 0 || city.name.ru.length > 128 || city.name.en.length > 128 || targets.has(`${country.countryCode}:${city.cityId}`)) throw new Error("invalid_demo_seed");
+      targets.add(`${country.countryCode}:${city.cityId}`);
+    }
+  }
+  if (targets.size !== 50) throw new Error("invalid_demo_seed");
+}
+validateSeed(SEED);
 export function readDemoRelocationSeed(): DemoRelocationSeed { return SEED; }
