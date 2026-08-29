@@ -852,6 +852,155 @@ git commit -m "feat: prove local Codex Stage A runtime"
 
 ---
 
+### Task 9: Make local native-search capability honest and yellow-safe
+
+**Files:**
+- Modify: `src/infrastructure/codex-cli/contracts.ts`
+- Modify: `src/infrastructure/codex-cli/model-adapter.ts`
+- Modify: `src/infrastructure/codex-cli/runtime.ts`
+- Modify: `evals/local-codex-stage-a.ts`
+- Modify: `tests/integration/codex-cli-runtime.test.ts`
+- Modify: `tests/integration/codex-official-source-discovery.test.ts`
+- Modify: `tests/integration/local-codex-stage-a-contract.test.ts`
+- Modify: `docs/README.md`
+
+**Interfaces:**
+- Consumes: the reviewed two-attempt `source.discover` leader, exact native event proof, the frozen `OfficialSourceDiscoveryPort` result DTO, and the Stage A artifact boundary.
+- Produces: content-free runtime code `codex_search_not_performed`; capability proof that says `available + model-selected`; and `local-codex-stage-a@2`, whose discovery outcome is exactly `candidate_hints`, `yellow_no_candidate`, or `yellow_search_not_performed` with `replacementPublished: false`.
+
+- [ ] **Step 1: Write the focused failing runtime tests**
+
+In `tests/integration/codex-cli-runtime.test.ts`, change the exact two-zero-search expectation from
+`codex_tool_event` to `codex_search_not_performed`. Add one adjacent assertion proving a malformed,
+prohibited, or invalid-nonzero tool proof still returns `codex_tool_event`; the break caught is
+collapsing an integrity/protocol failure into a recoverable yellow result.
+
+In `tests/integration/codex-official-source-discovery.test.ts`, require the new exact native runtime
+code to remain wrapped as:
+
+```ts
+{
+  code: "official_source_discovery_runtime_failed",
+  runtimeCode: "codex_search_not_performed",
+}
+```
+
+Run:
+
+```bash
+pnpm exec vitest run tests/integration/codex-cli-runtime.test.ts tests/integration/codex-official-source-discovery.test.ts
+```
+
+Expected: RED because `codex_search_not_performed` is not yet in the runtime vocabulary and the
+second exact zero proof still throws `codex_tool_event`.
+
+- [ ] **Step 2: Implement the minimum runtime distinction**
+
+Add `codex_search_not_performed` to `CodexRuntimeErrorCode`. Emit it only after both exact
+`source.discover + medium + codex-tools-web-search@1` attempts return numeric zero search proof.
+Keep the same shared deadline, leader signal, flight key, max-two limit and no-retained-first-result
+behavior. Parser-thrown/unreviewed tool events and invalid nonzero counts remain terminal
+`codex_tool_event`.
+
+Update `verifyCodexCliCapabilities` so its discovery proof records:
+
+```ts
+{
+  schemaVersion: "codex-runtime-capabilities@1",
+  low: { webSearchCount: 0 },
+  medium: { webSearchCount: 0 },
+  discovery: {
+    availability: "available",
+    selection: "model-selected",
+    webSearchCount: number, // 0..maxEvents
+  },
+}
+```
+
+It may convert only an exact native `codex_search_not_performed` into count zero. Every other error
+still rejects initialization. Version the returned capability contract; do not version or weaken
+the reviewed JSONL protocol.
+
+- [ ] **Step 3: Write the Stage A yellow RED tests**
+
+In `tests/integration/local-codex-stage-a-contract.test.ts`, add literal behavior tests for:
+
+```ts
+{
+  outcome: "candidate_hints",
+  candidateCount: 1,
+  allCandidatesUntrusted: true,
+  replacementPublished: false,
+}
+
+{
+  outcome: "yellow_no_candidate",
+  candidateCount: 0,
+  allCandidatesUntrusted: true,
+  replacementPublished: false,
+}
+
+{
+  outcome: "yellow_search_not_performed",
+  candidateCount: 0,
+  allCandidatesUntrusted: true,
+  replacementPublished: false,
+}
+```
+
+The third result is allowed only for an exact native `OfficialSourceDiscoveryError` with
+`official_source_discovery_runtime_failed/codex_search_not_performed`. Proxy/accessor/symbol-bearing
+lookalikes, `codex_tool_event`, abort, timeout, integrity and malformed result metadata still fail,
+clean the stale artifact and never call `writeArtifact`. Require the sanitized artifact to be
+`local-codex-stage-a@2`, to store `discoveryProbe` exactly as
+`{availability:"available",selection:"model-selected",webSearchCount:number}`, and to reject impossible
+outcome/count/replacement combinations.
+
+Run:
+
+```bash
+pnpm exec vitest run tests/integration/local-codex-stage-a-contract.test.ts
+```
+
+Expected: RED because empty candidates and exhausted zero-search currently fail the gate.
+
+- [ ] **Step 4: Implement the Stage A capability-honesty artifact**
+
+Descriptor-safely map only the exact zero-search runtime failure to
+`yellow_search_not_performed`. A schema-valid empty candidate list with reviewed metadata maps to
+`yellow_no_candidate`; one through five hints map to `candidate_hints`. Keep candidate contents,
+queries, URLs, prompts, model output, error text and credentials out of the artifact. The gate must
+continue through concurrency and abort proof for either yellow outcome and write one atomic 0600
+artifact with `replacementPublished: false`.
+
+Do not change `OfficialSourceDiscoveryPort`, `OfficialSourceDiscoveryResult`, SourceGate, public
+source DTOs, retry count, timeout, process ownership, or any durable store.
+
+- [ ] **Step 5: Document and run the offline GREEN gate**
+
+Document in `docs/README.md` that pinned local search is available but model-selected, candidate
+hints require native-search proof, and exhausted zero-search/no-candidate results are yellow with no
+mutation. Then run:
+
+```bash
+pnpm exec vitest run tests/integration/codex-cli-runtime.test.ts tests/integration/codex-official-source-discovery.test.ts tests/integration/local-codex-stage-a-contract.test.ts
+pnpm typecheck
+pnpm lint
+pnpm test
+git diff --check
+```
+
+Expected: all offline checks pass; no real model/network call occurs.
+
+- [ ] **Step 6: Commit the capability-honesty milestone**
+
+```bash
+git add src/infrastructure/codex-cli/contracts.ts src/infrastructure/codex-cli/model-adapter.ts src/infrastructure/codex-cli/runtime.ts evals/local-codex-stage-a.ts tests/integration/codex-cli-runtime.test.ts tests/integration/codex-official-source-discovery.test.ts tests/integration/local-codex-stage-a-contract.test.ts docs/README.md docs/superpowers/specs/2026-08-28-local-codex-llm-source-recovery-design.md docs/superpowers/plans/2026-08-28-local-codex-runtime-stabilization.md
+git commit -m "fix: make local search capability honest"
+```
+
+---
+
 ## Final Stage A verification
 
 After all task reviews are clean, run:
@@ -866,4 +1015,4 @@ git log --oneline --decorate -10
 
 Then dispatch one whole-branch reviewer against the merge-base diff. A second specialist review is required only for the process-group/single-flight/privacy boundary. Critical findings block Stage A; Important findings that affect current correctness enter the fix loop; non-load-bearing hardening items go to the next-plan backlog.
 
-Stage A is complete only when the offline suite is green and three real live runs prove subscription auth, fixed Terra low/medium, zero-tool extraction, reviewed web search, questionnaire guarding, untrusted discovery candidates, 1/2/5 measurements, process-group abort and no late result. Do not start durable SourceBinding recovery or the 10×5 catalog before this gate.
+Stage A is complete only when the offline suite is green and three real live runs prove subscription auth, fixed Terra low/medium, zero-tool extraction, questionnaire guarding, honest native-search outcomes, 1/2/5 measurements, process-group abort and no late result. At least one retained run must contain positive reviewed native-search proof; another run may honestly finish as `yellow_search_not_performed` or `yellow_no_candidate`, but neither may publish a replacement. Do not start durable SourceBinding recovery or the 10×5 catalog before this gate.

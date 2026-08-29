@@ -280,6 +280,23 @@ url + claimed publisher + expected coverage + discovery rationale
 Search snippet и rationale используются только для планирования SourceGate. Модель не передаёт
 извлечённый search fact непосредственно в Evidence.
 
+#### 8.3.1 Ограничение local-subscription transport
+
+Закреплённый `codex-cli 0.149.0-alpha.4` предоставляет native `web_search` модели, но не имеет
+поддерживаемого CLI/config selector, который обязывает модель вызвать этот tool. `--search`
+означает только availability. Поэтому local-subscription adapter честно использует два bounded
+medium attempt под одним deadline/signal/single-flight и принимает candidate hints только вместе с
+положительным reviewed native-search proof. Если обе полностью разобранные попытки имеют нулевой
+search proof, adapter возвращает отдельный content-free `codex_search_not_performed`; это штатный
+yellow outcome без SourceBinding/Evidence/Knowledge/Frontier write. Malformed, prohibited или
+неизвестные tool events остаются `codex_tool_event` и не маскируются под yellow.
+
+Это ограничение относится только к локальному subscription transport. Патчить приватный
+`alpha/search`, переиспользовать subscription credentials или считать URL/citation/model field
+доказательством поиска запрещено. Детерминированный будущий transport должен предоставить
+code-owned bounded search results через отдельный `NativeOfficialSearchPort`, после чего Terra
+разбирает их с отключёнными tools; это не меняет frozen public source DTO.
+
 ## 9. Source identity и official gate
 
 Источник привязан к точной проверке:
@@ -399,8 +416,10 @@ recursive/unbounded discovery запрещён.
 ### A. Stable local runtime
 
 1. устранить stale version contract и диагностировать текущие HTTP/state-DB failures;
-2. получить успешные auth/model/structured/search probes;
-3. доказать questionnaire extraction и official-source candidate discovery;
+2. получить успешные auth/model/structured probes и честно зафиксировать native search как
+   `available + model-selected`, сохранив post-hoc proof;
+3. доказать questionnaire extraction и хотя бы один official-source candidate discovery; каждый
+   bounded zero-search/no-candidate исход обязан завершаться formal yellow без source mutation;
 4. прогнать concurrency benchmark `1/2/5` и abort/no-late-write;
 5. зафиксировать стабильную local command и diagnostics.
 
@@ -442,7 +461,9 @@ replacement audit timeline и known limitations. После ручного пр�
 
 Design считается реализованным только когда:
 
-1. local subscription auth, exact Terra allowlist, low/medium reasoning и live-search probe проходят;
+1. local subscription auth, exact Terra allowlist и low/medium reasoning проходят; local native
+   search фиксируется как `available + model-selected`, а любой green discovery требует
+   положительный reviewed search proof;
 2. repository/user config/tools не попадают в child, extraction допускает zero tools, discovery —
    только reviewed web-search events;
 3. questionnaire fixture стабильно превращается в guarded proposals без invented values;
@@ -450,7 +471,8 @@ Design считается реализованным только когда:
 5. broken/stale URL запускает bounded discovery, а не red;
 6. минимум один live scenario проходит `broken URL -> official candidate -> SourceGate -> atomic
    replacement -> repeated fact check`;
-7. no official candidate даёт yellow и не создаёт Evidence;
+7. no official candidate и exhausted `codex_search_not_performed` дают yellow и не создают
+   SourceBinding/Evidence/Knowledge/Frontier mutation;
 8. три последовательных five-city batch runs завершаются без cross-job leakage и необработанных
    ошибок;
 9. concurrency `1/2/5`, adaptive backoff, process-tree abort и no-late-write подтверждены;
