@@ -1,0 +1,992 @@
+{
+  "schemaVersion": "demo-10x5-country-staging@1",
+  "country": {
+    "countryCode": "RS",
+    "officialName": "Republic of Serbia",
+    "isoCode": "RS",
+    "accessedAt": "2026-08-30",
+    "authorities": [
+      {
+        "publisher": "Government of the Republic of Serbia",
+        "publisherType": "national_government",
+        "authorityRootUrl": "https://www.srbija.gov.rs/",
+        "sourceUrl": "https://www.srbija.gov.rs/",
+        "finalUrl": "https://www.srbija.gov.rs/",
+        "factKey": "country-official-name-iso",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "Government of the Republic of Serbia",
+        "publisherType": "national_government",
+        "authorityRootUrl": "https://www.srbija.gov.rs/",
+        "sourceUrl": "https://www.srbija.gov.rs/",
+        "finalUrl": "https://www.srbija.gov.rs/",
+        "factKey": "country-government-portal",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "Statistical Office of the Republic of Serbia",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.stat.gov.rs/",
+        "sourceUrl": "https://www.stat.gov.rs/en-US/",
+        "finalUrl": "https://www.stat.gov.rs/en-US/",
+        "factKey": "country-statistics",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "Ministry of Interior of the Republic of Serbia",
+        "publisherType": "national_police",
+        "authorityRootUrl": "https://www.mup.gov.rs/",
+        "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
+        "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+        "factKey": "country-police-safety",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "Republic Geodetic Authority",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.rgz.gov.rs/",
+        "sourceUrl": "https://www.rgz.gov.rs/digital-services",
+        "finalUrl": "https://www.rgz.gov.rs/digital-services",
+        "factKey": "country-cadastre-geography",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "RATEL",
+        "publisherType": "telecom_regulator",
+        "authorityRootUrl": "https://www.ratel.rs/",
+        "sourceUrl": "https://www.ratel.rs/en/",
+        "finalUrl": "https://www.ratel.rs/en/",
+        "factKey": "country-telecom-regulator",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      }
+    ]
+  },
+  "cities": [
+    {
+      "cityId": "belgrade",
+      "seedName": "Belgrade",
+      "officialIdentity": {
+        "publisher": "Belgrade municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://www.beograd.rs/",
+        "sourceUrl": "https://www.beograd.rs/",
+        "finalUrl": "https://www.beograd.rs/",
+        "factKey": "official-identity",
+        "cityId": "belgrade",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Belgrade",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Belgrade",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of the Republic of Serbia",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.stat.gov.rs/",
+        "sourceUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "finalUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "factKey": "population",
+        "cityId": "belgrade",
+        "officialStatus": "official census release",
+        "period": "2022 census, reference 30 September 2022",
+        "geographicScope": "Grad Beograd (city/administrative area)",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Table 3, Beogradska oblast (Grad Beograd)",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Official census candidate; no unvalidated value copied."
+      },
+      "coordinates": {
+        "publisher": "Republic Geodetic Authority",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.rgz.gov.rs/",
+        "sourceUrl": "https://www.rgz.gov.rs/",
+        "finalUrl": "https://www.rgz.gov.rs/",
+        "factKey": "coordinates",
+        "cityId": "belgrade",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Belgrade",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Public portal homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority retained for later recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of the Republic of Serbia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.mup.gov.rs/",
+          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "factKey": "safety",
+          "cityId": "belgrade",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Belgrade municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://www.beograd.rs/",
+          "sourceUrl": "https://www.beograd.rs/",
+          "finalUrl": "https://www.beograd.rs/",
+          "factKey": "long-term-rent",
+          "cityId": "belgrade",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Belgrade",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "GSP Beograd",
+          "publisherType": "municipal_transit_operator",
+          "authorityRootUrl": "https://www.gsp.rs/",
+          "sourceUrl": "https://www.gsp.rs/",
+          "finalUrl": "https://www.gsp.rs/",
+          "factKey": "urban-transit",
+          "cityId": "belgrade",
+          "officialStatus": "operator website",
+          "period": null,
+          "geographicScope": "Belgrade",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Operator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "No timetable or service value was extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "First-party transport operator candidate."
+        },
+        "fixedBroadband": {
+          "publisher": "RATEL",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://www.ratel.rs/",
+          "sourceUrl": "https://www.ratel.rs/en/",
+          "finalUrl": "https://www.ratel.rs/en/",
+          "factKey": "fixed-broadband",
+          "cityId": "belgrade",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    },
+    {
+      "cityId": "novi-sad",
+      "seedName": "Novi Sad",
+      "officialIdentity": {
+        "publisher": "Novi Sad municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://novisad.rs/",
+        "sourceUrl": "https://novisad.rs/",
+        "finalUrl": "https://novisad.rs/",
+        "factKey": "official-identity",
+        "cityId": "novi-sad",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Novi Sad",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Novi Sad",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of the Republic of Serbia",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.stat.gov.rs/",
+        "sourceUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "finalUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "factKey": "population",
+        "cityId": "novi-sad",
+        "officialStatus": "official census release",
+        "period": "2022 census, reference 30 September 2022",
+        "geographicScope": "Grad Novi Sad",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Table 3, Grad Novi Sad",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Official census candidate; no unvalidated value copied."
+      },
+      "coordinates": {
+        "publisher": "Republic Geodetic Authority",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.rgz.gov.rs/",
+        "sourceUrl": "https://www.rgz.gov.rs/",
+        "finalUrl": "https://www.rgz.gov.rs/",
+        "factKey": "coordinates",
+        "cityId": "novi-sad",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Novi Sad",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Public portal homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority retained for later recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of the Republic of Serbia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.mup.gov.rs/",
+          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "factKey": "safety",
+          "cityId": "novi-sad",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Novi Sad municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://novisad.rs/",
+          "sourceUrl": "https://novisad.rs/",
+          "finalUrl": "https://novisad.rs/",
+          "factKey": "long-term-rent",
+          "cityId": "novi-sad",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Novi Sad",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "JGSP Novi Sad",
+          "publisherType": "municipal_transit_operator",
+          "authorityRootUrl": "https://www.gspns.rs/",
+          "sourceUrl": "https://www.gspns.rs/",
+          "finalUrl": "https://www.gspns.rs/",
+          "factKey": "urban-transit",
+          "cityId": "novi-sad",
+          "officialStatus": "operator website",
+          "period": null,
+          "geographicScope": "Novi Sad",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Operator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "No timetable or service value was extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "First-party transport operator candidate."
+        },
+        "fixedBroadband": {
+          "publisher": "RATEL",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://www.ratel.rs/",
+          "sourceUrl": "https://www.ratel.rs/en/",
+          "finalUrl": "https://www.ratel.rs/en/",
+          "factKey": "fixed-broadband",
+          "cityId": "novi-sad",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    },
+    {
+      "cityId": "nis",
+      "seedName": "Niš",
+      "officialIdentity": {
+        "publisher": "Niš municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://www.ni.rs/",
+        "sourceUrl": "https://www.ni.rs/",
+        "finalUrl": "https://www.ni.rs/",
+        "factKey": "official-identity",
+        "cityId": "nis",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Niš",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Niš",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of the Republic of Serbia",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.stat.gov.rs/",
+        "sourceUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "finalUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "factKey": "population",
+        "cityId": "nis",
+        "officialStatus": "official census release",
+        "period": "2022 census, reference 30 September 2022",
+        "geographicScope": "Grad Niš",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Table 3, Grad Niš",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Official census candidate; no unvalidated value copied."
+      },
+      "coordinates": {
+        "publisher": "Republic Geodetic Authority",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.rgz.gov.rs/",
+        "sourceUrl": "https://www.rgz.gov.rs/",
+        "finalUrl": "https://www.rgz.gov.rs/",
+        "factKey": "coordinates",
+        "cityId": "nis",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Niš",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Public portal homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority retained for later recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of the Republic of Serbia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.mup.gov.rs/",
+          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "factKey": "safety",
+          "cityId": "nis",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Niš municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://www.ni.rs/",
+          "sourceUrl": "https://www.ni.rs/",
+          "finalUrl": "https://www.ni.rs/",
+          "factKey": "long-term-rent",
+          "cityId": "nis",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Niš",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "Niš municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://www.ni.rs/",
+          "sourceUrl": "https://www.ni.rs/",
+          "finalUrl": "https://www.ni.rs/",
+          "factKey": "urban-transit",
+          "cityId": "nis",
+          "officialStatus": "municipality portal",
+          "period": null,
+          "geographicScope": "Niš",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No operator or route source with a stable official URL was identified."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official municipal candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "RATEL",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://www.ratel.rs/",
+          "sourceUrl": "https://www.ratel.rs/en/",
+          "finalUrl": "https://www.ratel.rs/en/",
+          "factKey": "fixed-broadband",
+          "cityId": "nis",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    },
+    {
+      "cityId": "subotica",
+      "seedName": "Subotica",
+      "officialIdentity": {
+        "publisher": "Subotica municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://subotica.ls.gov.rs/",
+        "sourceUrl": "https://subotica.ls.gov.rs/",
+        "finalUrl": "https://subotica.ls.gov.rs/",
+        "factKey": "official-identity",
+        "cityId": "subotica",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Subotica",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Subotica",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of the Republic of Serbia",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.stat.gov.rs/",
+        "sourceUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "finalUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "factKey": "population",
+        "cityId": "subotica",
+        "officialStatus": "official census release",
+        "period": "2022 census, reference 30 September 2022",
+        "geographicScope": "Grad Subotica",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Table 3, Grad Subotica",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Official census candidate; no unvalidated value copied."
+      },
+      "coordinates": {
+        "publisher": "Republic Geodetic Authority",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.rgz.gov.rs/",
+        "sourceUrl": "https://www.rgz.gov.rs/",
+        "finalUrl": "https://www.rgz.gov.rs/",
+        "factKey": "coordinates",
+        "cityId": "subotica",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Subotica",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Public portal homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority retained for later recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of the Republic of Serbia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.mup.gov.rs/",
+          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "factKey": "safety",
+          "cityId": "subotica",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Subotica municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://subotica.ls.gov.rs/",
+          "sourceUrl": "https://subotica.ls.gov.rs/",
+          "finalUrl": "https://subotica.ls.gov.rs/",
+          "factKey": "long-term-rent",
+          "cityId": "subotica",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Subotica",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "Subotica-trans",
+          "publisherType": "municipal_transit_operator",
+          "authorityRootUrl": "https://www.subotica-trans.rs/",
+          "sourceUrl": "https://www.subotica-trans.rs/",
+          "finalUrl": "https://www.subotica-trans.rs/",
+          "factKey": "urban-transit",
+          "cityId": "subotica",
+          "officialStatus": "operator website",
+          "period": null,
+          "geographicScope": "Subotica",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Operator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "No timetable or service value was extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "First-party transport operator candidate."
+        },
+        "fixedBroadband": {
+          "publisher": "RATEL",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://www.ratel.rs/",
+          "sourceUrl": "https://www.ratel.rs/en/",
+          "finalUrl": "https://www.ratel.rs/en/",
+          "factKey": "fixed-broadband",
+          "cityId": "subotica",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    },
+    {
+      "cityId": "kragujevac",
+      "seedName": "Kragujevac",
+      "officialIdentity": {
+        "publisher": "Kragujevac municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://kragujevac.ls.gov.rs/",
+        "sourceUrl": "https://kragujevac.ls.gov.rs/",
+        "finalUrl": "https://kragujevac.ls.gov.rs/",
+        "factKey": "official-identity",
+        "cityId": "kragujevac",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Kragujevac",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Kragujevac",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of the Republic of Serbia",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.stat.gov.rs/",
+        "sourceUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "finalUrl": "https://publikacije.stat.gov.rs/G2022/HtmlL/G20221350.html",
+        "factKey": "population",
+        "cityId": "kragujevac",
+        "officialStatus": "official census release",
+        "period": "2022 census, reference 30 September 2022",
+        "geographicScope": "Grad Kragujevac",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Table 3, Grad Kragujevac",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Official census candidate; no unvalidated value copied."
+      },
+      "coordinates": {
+        "publisher": "Republic Geodetic Authority",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.rgz.gov.rs/",
+        "sourceUrl": "https://www.rgz.gov.rs/",
+        "finalUrl": "https://www.rgz.gov.rs/",
+        "factKey": "coordinates",
+        "cityId": "kragujevac",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Kragujevac",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Public portal homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority retained for later recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of the Republic of Serbia",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.mup.gov.rs/",
+          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "factKey": "safety",
+          "cityId": "kragujevac",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Kragujevac municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://kragujevac.ls.gov.rs/",
+          "sourceUrl": "https://kragujevac.ls.gov.rs/",
+          "finalUrl": "https://kragujevac.ls.gov.rs/",
+          "factKey": "long-term-rent",
+          "cityId": "kragujevac",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Kragujevac",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "Kragujevac municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://kragujevac.ls.gov.rs/",
+          "sourceUrl": "https://kragujevac.ls.gov.rs/",
+          "finalUrl": "https://kragujevac.ls.gov.rs/",
+          "factKey": "urban-transit",
+          "cityId": "kragujevac",
+          "officialStatus": "municipality portal",
+          "period": null,
+          "geographicScope": "Kragujevac",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No operator or route source with a stable official URL was identified."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official municipal candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "RATEL",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://www.ratel.rs/",
+          "sourceUrl": "https://www.ratel.rs/en/",
+          "finalUrl": "https://www.ratel.rs/en/",
+          "factKey": "fixed-broadband",
+          "cityId": "kragujevac",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    }
+  ]
+}

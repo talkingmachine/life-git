@@ -1,0 +1,1009 @@
+{
+  "schemaVersion": "demo-10x5-country-staging@1",
+  "country": {
+    "countryCode": "ME",
+    "officialName": "Montenegro",
+    "isoCode": "ME",
+    "accessedAt": "2026-08-30",
+    "authorities": [
+      {
+        "publisher": "Government of Montenegro",
+        "publisherType": "national_government",
+        "authorityRootUrl": "https://www.gov.me/",
+        "sourceUrl": "https://www.gov.me/en",
+        "finalUrl": "https://www.gov.me/en",
+        "factKey": "country-official-name-iso",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "Government of Montenegro",
+        "publisherType": "national_government",
+        "authorityRootUrl": "https://www.gov.me/",
+        "sourceUrl": "https://www.gov.me/en",
+        "finalUrl": "https://www.gov.me/en",
+        "factKey": "country-government-portal",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "Statistical Office of Montenegro (MONSTAT)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.monstat.org/",
+        "sourceUrl": "https://www.monstat.org/",
+        "finalUrl": "https://www.monstat.org/",
+        "factKey": "country-statistics",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "Ministry of Interior of Montenegro",
+        "publisherType": "national_police",
+        "authorityRootUrl": "https://www.gov.me/",
+        "sourceUrl": "https://www.gov.me/en/mup",
+        "finalUrl": "https://www.gov.me/en/mup",
+        "factKey": "country-police-safety",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      },
+      {
+        "publisher": "Real Estate Administration of Montenegro",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.gov.me/uzn",
+        "sourceUrl": "https://www.gov.me/uzn",
+        "finalUrl": "https://www.gov.me/uzn",
+        "factKey": "country-cadastre-geography",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Agency page; E-Katastar and Geoportal service links",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "The government agency page establishes the authority and links its cadastral services. A government-hosted 2026 agency document also names www.nekretnine.co.me as the Administration website, preserving provenance for the legacy service domain."
+      },
+      {
+        "publisher": "EKIP",
+        "publisherType": "telecom_regulator",
+        "authorityRootUrl": "https://ekip.me/",
+        "sourceUrl": "https://ekip.me/",
+        "finalUrl": "https://ekip.me/",
+        "factKey": "country-telecom-regulator",
+        "cityId": null,
+        "officialStatus": "official authority portal",
+        "period": null,
+        "geographicScope": null,
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Homepage/agency identity",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "First-party agency identity on its official domain is domain-ownership evidence."
+      }
+    ]
+  },
+  "cities": [
+    {
+      "cityId": "podgorica",
+      "seedName": "Podgorica",
+      "officialIdentity": {
+        "publisher": "Podgorica municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://podgorica.me/",
+        "sourceUrl": "https://podgorica.me/",
+        "finalUrl": "https://podgorica.me/",
+        "factKey": "official-identity",
+        "cityId": "podgorica",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Podgorica",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Podgorica",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of Montenegro (MONSTAT)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.monstat.org/",
+        "sourceUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "finalUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "factKey": "population",
+        "cityId": "podgorica",
+        "officialStatus": "official census release",
+        "period": "2023 census preliminary results; reference 31 October 2023",
+        "geographicScope": "Podgorica local self-government unit",
+        "format": "PDF",
+        "language": "en",
+        "exactLocator": "Page 2, Table 2, Podgorica",
+        "observedValue": 180186,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Preliminary result; subject to revision."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Usual-residence population; preliminary result."
+      },
+      "coordinates": {
+        "publisher": "Real Estate Administration of Montenegro",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.gov.me/uzn",
+        "sourceUrl": "https://www.gov.me/uzn",
+        "finalUrl": "https://www.gov.me/uzn",
+        "factKey": "coordinates",
+        "cityId": "podgorica",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Podgorica",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Agency page; E-Katastar and Geoportal service links",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority and its cadastral service links retained for later geometry recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of Montenegro",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.gov.me/",
+          "sourceUrl": "https://www.gov.me/en/mup",
+          "finalUrl": "https://www.gov.me/en/mup",
+          "factKey": "safety",
+          "cityId": "podgorica",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Podgorica municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://podgorica.me/",
+          "sourceUrl": "https://podgorica.me/",
+          "finalUrl": "https://podgorica.me/",
+          "factKey": "long-term-rent",
+          "cityId": "podgorica",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Podgorica",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "Glavni grad Podgorica",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://podgorica.me/",
+          "sourceUrl": "https://podgorica.me/gradski-saobracaj/",
+          "finalUrl": "https://podgorica.me/gradski-saobracaj/",
+          "factKey": "urban-transit",
+          "cityId": "podgorica",
+          "officialStatus": "official municipal transit page",
+          "period": null,
+          "geographicScope": "Podgorica",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Gradski saobraćaj > Javni gradski prevoz; route and stop listings",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "No timetable or service value was extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "First-party municipal route and timetable evidence."
+        },
+        "fixedBroadband": {
+          "publisher": "EKIP",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/",
+          "finalUrl": "https://ekip.me/",
+          "factKey": "fixed-broadband",
+          "cityId": "podgorica",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    },
+    {
+      "cityId": "budva",
+      "seedName": "Budva",
+      "officialIdentity": {
+        "publisher": "Budva municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://budva.me/",
+        "sourceUrl": "https://budva.me/",
+        "finalUrl": "https://budva.me/",
+        "factKey": "official-identity",
+        "cityId": "budva",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Budva",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Budva",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of Montenegro (MONSTAT)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.monstat.org/",
+        "sourceUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "finalUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "factKey": "population",
+        "cityId": "budva",
+        "officialStatus": "official census release",
+        "period": "2023 census preliminary results; reference 31 October 2023",
+        "geographicScope": "Budva local self-government unit",
+        "format": "PDF",
+        "language": "en",
+        "exactLocator": "Page 2, Table 2, Budva",
+        "observedValue": 26667,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Preliminary result; subject to revision."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Usual-residence population; preliminary result."
+      },
+      "coordinates": {
+        "publisher": "Real Estate Administration of Montenegro",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.gov.me/uzn",
+        "sourceUrl": "https://www.gov.me/uzn",
+        "finalUrl": "https://www.gov.me/uzn",
+        "factKey": "coordinates",
+        "cityId": "budva",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Budva",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Agency page; E-Katastar and Geoportal service links",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority and its cadastral service links retained for later geometry recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of Montenegro",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.gov.me/",
+          "sourceUrl": "https://www.gov.me/en/mup",
+          "finalUrl": "https://www.gov.me/en/mup",
+          "factKey": "safety",
+          "cityId": "budva",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Budva municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://budva.me/",
+          "sourceUrl": "https://budva.me/",
+          "finalUrl": "https://budva.me/",
+          "factKey": "long-term-rent",
+          "cityId": "budva",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Budva",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "Budva municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://budva.me/",
+          "sourceUrl": "https://budva.me/",
+          "finalUrl": "https://budva.me/",
+          "factKey": "urban-transit",
+          "cityId": "budva",
+          "officialStatus": "municipality portal",
+          "period": null,
+          "geographicScope": "Budva",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No operator or route source with a stable official URL was identified."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official municipal candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "EKIP",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/",
+          "finalUrl": "https://ekip.me/",
+          "factKey": "fixed-broadband",
+          "cityId": "budva",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    },
+    {
+      "cityId": "bar",
+      "seedName": "Bar",
+      "officialIdentity": {
+        "publisher": "Bar municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://bar.me/",
+        "sourceUrl": "https://bar.me/",
+        "finalUrl": "https://bar.me/",
+        "factKey": "official-identity",
+        "cityId": "bar",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Bar",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Bar",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of Montenegro (MONSTAT)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.monstat.org/",
+        "sourceUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "finalUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "factKey": "population",
+        "cityId": "bar",
+        "officialStatus": "official census release",
+        "period": "2023 census preliminary results; reference 31 October 2023",
+        "geographicScope": "Bar local self-government unit",
+        "format": "PDF",
+        "language": "en",
+        "exactLocator": "Page 2, Table 2, Bar",
+        "observedValue": 46171,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Preliminary result; subject to revision."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Usual-residence population; preliminary result."
+      },
+      "coordinates": {
+        "publisher": "Real Estate Administration of Montenegro",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.gov.me/uzn",
+        "sourceUrl": "https://www.gov.me/uzn",
+        "finalUrl": "https://www.gov.me/uzn",
+        "factKey": "coordinates",
+        "cityId": "bar",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Bar",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Agency page; E-Katastar and Geoportal service links",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority and its cadastral service links retained for later geometry recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of Montenegro",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.gov.me/",
+          "sourceUrl": "https://www.gov.me/en/mup",
+          "finalUrl": "https://www.gov.me/en/mup",
+          "factKey": "safety",
+          "cityId": "bar",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Bar municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://bar.me/",
+          "sourceUrl": "https://bar.me/",
+          "finalUrl": "https://bar.me/",
+          "factKey": "long-term-rent",
+          "cityId": "bar",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Bar",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "Bar municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://bar.me/",
+          "sourceUrl": "https://bar.me/",
+          "finalUrl": "https://bar.me/",
+          "factKey": "urban-transit",
+          "cityId": "bar",
+          "officialStatus": "municipality portal",
+          "period": null,
+          "geographicScope": "Bar",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No operator or route source with a stable official URL was identified."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official municipal candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "EKIP",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/",
+          "finalUrl": "https://ekip.me/",
+          "factKey": "fixed-broadband",
+          "cityId": "bar",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    },
+    {
+      "cityId": "herceg-novi",
+      "seedName": "Herceg Novi",
+      "officialIdentity": {
+        "publisher": "Herceg Novi municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://hercegnovi.me/",
+        "sourceUrl": "https://hercegnovi.me/",
+        "finalUrl": "https://hercegnovi.me/",
+        "factKey": "official-identity",
+        "cityId": "herceg-novi",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Herceg Novi",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Herceg Novi",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of Montenegro (MONSTAT)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.monstat.org/",
+        "sourceUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "finalUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "factKey": "population",
+        "cityId": "herceg-novi",
+        "officialStatus": "official census release",
+        "period": "2023 census preliminary results; reference 31 October 2023",
+        "geographicScope": "Herceg Novi local self-government unit",
+        "format": "PDF",
+        "language": "en",
+        "exactLocator": "Page 2, Table 2, Herceg Novi",
+        "observedValue": 31471,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Preliminary result; subject to revision."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Usual-residence population; preliminary result."
+      },
+      "coordinates": {
+        "publisher": "Real Estate Administration of Montenegro",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.gov.me/uzn",
+        "sourceUrl": "https://www.gov.me/uzn",
+        "finalUrl": "https://www.gov.me/uzn",
+        "factKey": "coordinates",
+        "cityId": "herceg-novi",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Herceg Novi",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Agency page; E-Katastar and Geoportal service links",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority and its cadastral service links retained for later geometry recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of Montenegro",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.gov.me/",
+          "sourceUrl": "https://www.gov.me/en/mup",
+          "finalUrl": "https://www.gov.me/en/mup",
+          "factKey": "safety",
+          "cityId": "herceg-novi",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Herceg Novi municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://hercegnovi.me/",
+          "sourceUrl": "https://hercegnovi.me/",
+          "finalUrl": "https://hercegnovi.me/",
+          "factKey": "long-term-rent",
+          "cityId": "herceg-novi",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Herceg Novi",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "Blue Line Herceg Novi",
+          "publisherType": "municipal_transit_operator",
+          "authorityRootUrl": "https://www.hercegnovi.me/",
+          "sourceUrl": "https://www.hercegnovi.me/sr-yu/skupstina-opstine/predsjednik-skupstine/skupstina-opstine/15-predsjednik-opstine?start=5",
+          "finalUrl": "https://www.hercegnovi.me/sr-yu/skupstina-opstine/predsjednik-skupstine/skupstina-opstine/15-predsjednik-opstine?start=5",
+          "factKey": "urban-transit",
+          "cityId": "herceg-novi",
+          "officialStatus": "municipal entrustment decision",
+          "period": null,
+          "geographicScope": "Herceg Novi",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "2014 decision entrusting the public function of urban and suburban line transport to Blue Line d.o.o.",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "No timetable or service value was extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "The municipal source proves the operator relationship; the operator's own domain was not relied on as authority evidence."
+        },
+        "fixedBroadband": {
+          "publisher": "EKIP",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/",
+          "finalUrl": "https://ekip.me/",
+          "factKey": "fixed-broadband",
+          "cityId": "herceg-novi",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    },
+    {
+      "cityId": "tivat",
+      "seedName": "Tivat",
+      "officialIdentity": {
+        "publisher": "Tivat municipal administration",
+        "publisherType": "municipality",
+        "authorityRootUrl": "https://opstinativat.me/",
+        "sourceUrl": "https://opstinativat.me/",
+        "finalUrl": "https://opstinativat.me/",
+        "factKey": "official-identity",
+        "cityId": "tivat",
+        "officialStatus": "municipality/city government portal",
+        "period": null,
+        "geographicScope": "Tivat",
+        "format": "HTML",
+        "language": "sr",
+        "exactLocator": "Homepage municipal identity",
+        "observedValue": {
+          "officialName": "Tivat",
+          "administrativeUnit": "municipality or city",
+          "code": null
+        },
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "No administrative/statistical code was extracted in this pass."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "First-party municipal identity source."
+      },
+      "population": {
+        "publisher": "Statistical Office of Montenegro (MONSTAT)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://www.monstat.org/",
+        "sourceUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "finalUrl": "https://www.monstat.org/uploads/files/popis%202021/pr.podaci/Preliminary%20results%20of%20Census%2025.pdf",
+        "factKey": "population",
+        "cityId": "tivat",
+        "officialStatus": "official census release",
+        "period": "2023 census preliminary results; reference 31 October 2023",
+        "geographicScope": "Tivat local self-government unit",
+        "format": "PDF",
+        "language": "en",
+        "exactLocator": "Page 2, Table 2, Tivat",
+        "observedValue": 16340,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Preliminary result; subject to revision."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Usual-residence population; preliminary result."
+      },
+      "coordinates": {
+        "publisher": "Real Estate Administration of Montenegro",
+        "publisherType": "national_geodetic_cadastre",
+        "authorityRootUrl": "https://www.gov.me/uzn",
+        "sourceUrl": "https://www.gov.me/uzn",
+        "finalUrl": "https://www.gov.me/uzn",
+        "factKey": "coordinates",
+        "cityId": "tivat",
+        "officialStatus": "official spatial/cadastral authority",
+        "period": null,
+        "geographicScope": "Tivat",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "Agency page; E-Katastar and Geoportal service links",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public official point/geometry endpoint plus deterministic centroid method was identified without downloading data."
+        ],
+        "rejectedAlternatives": [
+          "Commercial aggregators were not used."
+        ],
+        "notes": "Official geography authority and its cadastral service links retained for later geometry recovery."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ministry of Interior of Montenegro",
+          "publisherType": "national_police",
+          "authorityRootUrl": "https://www.gov.me/",
+          "sourceUrl": "https://www.gov.me/en/mup",
+          "finalUrl": "https://www.gov.me/en/mup",
+          "factKey": "safety",
+          "cityId": "tivat",
+          "officialStatus": "national police portal",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Portal homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-comparable safety metric was identified on the public portal."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official police authority candidate only."
+        },
+        "longTermRent": {
+          "publisher": "Tivat municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://opstinativat.me/",
+          "sourceUrl": "https://opstinativat.me/",
+          "finalUrl": "https://opstinativat.me/",
+          "factKey": "long-term-rent",
+          "cityId": "tivat",
+          "officialStatus": "municipality portal searched",
+          "period": null,
+          "geographicScope": "Tivat",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "not_found",
+          "limitations": [
+            "No official long-term private-rent price series was identified."
+          ],
+          "rejectedAlternatives": [
+            "Listing-platform prices were not used."
+          ],
+          "notes": "No observed value."
+        },
+        "urbanTransit": {
+          "publisher": "Tivat municipal administration",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://opstinativat.me/",
+          "sourceUrl": "https://opstinativat.me/",
+          "finalUrl": "https://opstinativat.me/",
+          "factKey": "urban-transit",
+          "cityId": "tivat",
+          "officialStatus": "municipality portal",
+          "period": null,
+          "geographicScope": "Tivat",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Homepage/public notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No operator or route source with a stable official URL was identified."
+          ],
+          "rejectedAlternatives": [
+            "Commercial aggregators were not used."
+          ],
+          "notes": "Official municipal candidate only."
+        },
+        "fixedBroadband": {
+          "publisher": "EKIP",
+          "publisherType": "telecom_regulator",
+          "authorityRootUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/",
+          "finalUrl": "https://ekip.me/",
+          "factKey": "fixed-broadband",
+          "cityId": "tivat",
+          "officialStatus": "national regulator",
+          "period": null,
+          "geographicScope": "National; city-level scope not established",
+          "format": "HTML",
+          "language": "en",
+          "exactLocator": "Regulator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_source_ambiguous",
+          "limitations": [
+            "No city-specific fixed-broadband coverage measure was extracted."
+          ],
+          "rejectedAlternatives": [
+            "Provider marketing coverage claims were not used as evidence."
+          ],
+          "notes": "Official regulator candidate only."
+        }
+      }
+    }
+  ]
+}
