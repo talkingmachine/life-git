@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { types } from "node:util";
 
 import {
   CODEX_CLI_COMPATIBILITY_POLICY,
@@ -19,6 +20,15 @@ import type { ValidatedCodexTempRoot } from "./temp-directory";
 
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const NATIVE_REASON_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "reason")?.get;
+const DISCOVERY_RETRY_POLICY_REVISION = "missing-native-search-once-shared-deadline@1" as const;
+
+type CodexProbeResult = Awaited<ReturnType<typeof runCodexJsonProbe>>;
+
+type DiscoveryDeadline = {
+  readonly deadlineMs: number;
+  readonly monotonicNowMs: () => number;
+  lastObservedMs: number;
+};
 
 export interface CodexCliModelAdapterOptions {
   readonly preflight: CodexPreflightResult;
@@ -26,6 +36,8 @@ export interface CodexCliModelAdapterOptions {
   readonly tempRoot: ValidatedCodexTempRoot;
   readonly childEnv: Readonly<Record<string, string>>;
   readonly flightPool?: CodexFlightPool;
+  /** Internal deterministic-test seam; never crosses a runtime DTO boundary. */
+  readonly monotonicNowMs?: () => number;
 }
 
 export interface CodexCliInvocationOutcome {
@@ -39,8 +51,10 @@ export class CodexCliModelAdapter {
   readonly #tempRoot: ValidatedCodexTempRoot;
   readonly #childEnv: Readonly<Record<string, string>>;
   readonly #flightPool: CodexFlightPool;
+  readonly #monotonicNowMs: () => number;
 
   constructor(options: CodexCliModelAdapterOptions) {
+    this.#monotonicNowMs = readConfiguredMonotonicClock(options);
     this.#preflight = Object.freeze({
       executable: options.preflight.executable,
       cliVersion: options.preflight.cliVersion,
@@ -84,17 +98,55 @@ export class CodexCliModelAdapter {
       key,
       signal: input.signal,
       operation: async (signal) => {
-        const probe = await runCodexJsonProbe({
-          invocation: Object.freeze({ ...input, signal }),
-          preflight: this.#preflight,
-          spawner: this.#spawner,
-          tempRoot: this.#tempRoot,
-          childEnv: this.#childEnv,
-          flightKey: key,
-        });
-        if (input.toolPolicy === "codex-tools-web-search@1" &&
-          (!Number.isSafeInteger(probe.webSearchCount) || probe.webSearchCount < 1 || probe.webSearchCount > input.limits.maxEvents)) {
-          throw new CodexRuntimeError("codex_tool_event");
+        let probe: CodexProbeResult;
+        let deadline: DiscoveryDeadline | undefined;
+        if (isZeroSearchRetryEligible(input)) {
+          deadline = createDiscoveryDeadline(this.#monotonicNowMs, input.limits.timeoutMs);
+          let invocation = createLeaderInvocation(input, signal, input.limits);
+          let acceptedProbe: CodexProbeResult | undefined;
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            throwIfAborted(signal);
+            const candidate = await runCodexJsonProbe({
+              invocation,
+              preflight: this.#preflight,
+              spawner: this.#spawner,
+              tempRoot: this.#tempRoot,
+              childEnv: this.#childEnv,
+              flightKey: key,
+            });
+            throwIfAborted(signal);
+            const remainingMs = requireDiscoveryDeadlineOpen(deadline);
+            if (candidate.webSearchCount === 0) {
+              if (attempt === 1) throw new CodexRuntimeError("codex_tool_event");
+              throwIfAborted(signal);
+              invocation = createLeaderInvocation(
+                input,
+                signal,
+                remainingDiscoveryLimits(remainingMs, input.limits),
+              );
+              continue;
+            }
+            if (!isValidSearchCount(candidate.webSearchCount, input.limits.maxEvents)) {
+              throw new CodexRuntimeError("codex_tool_event");
+            }
+            acceptedProbe = candidate;
+            break;
+          }
+          if (acceptedProbe === undefined) throw new CodexRuntimeError("codex_tool_event");
+          probe = acceptedProbe;
+        } else {
+          probe = await runCodexJsonProbe({
+            invocation: createLeaderInvocation(input, signal, input.limits),
+            preflight: this.#preflight,
+            spawner: this.#spawner,
+            tempRoot: this.#tempRoot,
+            childEnv: this.#childEnv,
+            flightKey: key,
+          });
+          if (input.toolPolicy === "codex-tools-web-search@1" &&
+            !isValidSearchCount(probe.webSearchCount, input.limits.maxEvents)) {
+            throw new CodexRuntimeError("codex_tool_event");
+          }
         }
         throwIfAborted(signal);
         let value: JsonValue;
@@ -103,6 +155,8 @@ export class CodexCliModelAdapter {
         } catch {
           throw new CodexRuntimeError("codex_json_invalid");
         }
+        throwIfAborted(signal);
+        if (deadline !== undefined) requireDiscoveryDeadlineOpen(deadline);
         throwIfAborted(signal);
         const result = Object.freeze({
           value,
@@ -137,6 +191,7 @@ export function deriveCodexFlightKey(input: CodexJsonInvocation): string {
     policyFingerprint: codexPolicyFingerprint,
     promptHash: sha256(input.prompt),
     reasoningEffort: input.reasoningEffort,
+    retryPolicyRevision: DISCOVERY_RETRY_POLICY_REVISION,
     schemaVersion: input.schemaVersion,
     templateVersion: input.templateVersion,
     toolPolicy: input.toolPolicy,
@@ -161,6 +216,94 @@ function classifyPressure(error: unknown): "rate_limited" | "provider_transient"
   if (error.code === "codex_provider_transient") return "provider_transient";
   if (error.code === "codex_timeout") return "timeout";
   return undefined;
+}
+
+function isZeroSearchRetryEligible(input: CodexJsonInvocation): boolean {
+  return input.capability === "source.discover" &&
+    input.reasoningEffort === "medium" &&
+    input.toolPolicy === "codex-tools-web-search@1";
+}
+
+function isValidSearchCount(value: number, maximum: number): boolean {
+  return Number.isSafeInteger(value) && value >= 1 && value <= maximum;
+}
+
+function createLeaderInvocation(
+  input: CodexJsonInvocation,
+  signal: AbortSignal,
+  limits: CodexJsonInvocation["limits"],
+): CodexJsonInvocation {
+  return Object.freeze({ ...input, limits, signal });
+}
+
+function createDiscoveryDeadline(
+  monotonicNowMs: () => number,
+  timeoutMs: number,
+): DiscoveryDeadline {
+  const startedAt = readMonotonicNow(monotonicNowMs);
+  if (startedAt > Number.MAX_SAFE_INTEGER - timeoutMs) throw clockIntegrityInvalid();
+  return {
+    deadlineMs: startedAt + timeoutMs,
+    monotonicNowMs,
+    lastObservedMs: startedAt,
+  };
+}
+
+function remainingDiscoveryLimits(
+  remainingMs: number,
+  original: CodexJsonInvocation["limits"],
+): CodexJsonInvocation["limits"] {
+  return Object.freeze({ ...original, timeoutMs: remainingMs });
+}
+
+function requireDiscoveryDeadlineOpen(deadline: DiscoveryDeadline): number {
+  const remainingMs = Math.floor(deadline.deadlineMs - observeDiscoveryClock(deadline));
+  if (remainingMs < 1) throw new CodexRuntimeError("codex_timeout");
+  return remainingMs;
+}
+
+function observeDiscoveryClock(deadline: DiscoveryDeadline): number {
+  const observed = readMonotonicNow(deadline.monotonicNowMs);
+  if (observed < deadline.lastObservedMs) throw clockIntegrityInvalid();
+  deadline.lastObservedMs = observed;
+  return observed;
+}
+
+function readConfiguredMonotonicClock(options: CodexCliModelAdapterOptions): () => number {
+  try {
+    if (types.isProxy(options)) throw clockIntegrityInvalid();
+    const descriptor = Object.getOwnPropertyDescriptor(options, "monotonicNowMs");
+    if (descriptor === undefined) return defaultMonotonicNowMs;
+    if (!("value" in descriptor) || typeof descriptor.value !== "function" || types.isProxy(descriptor.value)) {
+      throw clockIntegrityInvalid();
+    }
+    return descriptor.value;
+  } catch {
+    throw clockIntegrityInvalid();
+  }
+}
+
+function readMonotonicNow(monotonicNowMs: () => number): number {
+  let observed: unknown;
+  try {
+    if (typeof monotonicNowMs !== "function" || types.isProxy(monotonicNowMs)) throw clockIntegrityInvalid();
+    observed = Reflect.apply(monotonicNowMs, undefined, []);
+  } catch {
+    throw clockIntegrityInvalid();
+  }
+  if (typeof observed !== "number" || !Number.isFinite(observed) || observed < 0 ||
+    observed > Number.MAX_SAFE_INTEGER) {
+    throw clockIntegrityInvalid();
+  }
+  return observed;
+}
+
+function defaultMonotonicNowMs(): number {
+  return performance.now();
+}
+
+function clockIntegrityInvalid(): CodexRuntimeError {
+  return new CodexRuntimeError("codex_process_failed");
 }
 
 export function createCodexCliModelAdapterForTest(

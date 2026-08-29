@@ -214,13 +214,338 @@ describe("CodexCliModelAdapter", () => {
     expect(probe.run).toHaveBeenCalledTimes(2);
   });
 
-  test("rejects a public discovery invocation without a proven web search", async () => {
+  test("retries one returned zero-search discovery and publishes only the successful attempt", async () => {
+    probe.run
+      .mockResolvedValueOnce(successfulProbe('{"attempt":"discarded"}', 0))
+      .mockResolvedValueOnce(successfulProbe('{"attempt":"accepted"}', 1));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: vi.fn()
+        .mockReturnValueOnce(100)
+        .mockReturnValueOnce(1_100)
+        .mockReturnValueOnce(1_200)
+        .mockReturnValueOnce(1_300),
+    });
+
+    const outcome = await adapter.invokeJsonWithEventProof(discoveryInvocation());
+
+    expect(outcome).toEqual({
+      result: {
+        value: { attempt: "accepted" },
+        metadata: {
+          invocationVersion: "codex-cli-invocation@2",
+          protocolVersion: "codex-cli-protocol@2",
+          compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1",
+          cliVersion: "codex-cli 0.149.0-alpha.4",
+          model: "gpt-5.6-terra",
+          reasoningEffort: "medium",
+          toolPolicy: "codex-tools-web-search@1",
+          templateVersion: "source-discovery@1",
+          schemaVersion: "source-discovery@1",
+        },
+      },
+      eventProof: { webSearchCount: 1 },
+    });
+    expect(probe.run).toHaveBeenCalledTimes(2);
+    expect(Object.keys(outcome)).toEqual(["result", "eventProof"]);
+    expect(Object.keys(outcome.result)).toEqual(["value", "metadata"]);
+    expect(Object.keys(outcome.result.metadata)).toEqual([
+      "invocationVersion", "protocolVersion", "compatibilityPolicy", "cliVersion", "model",
+      "reasoningEffort", "toolPolicy", "templateVersion", "schemaVersion",
+    ]);
+    expect(Object.keys(outcome.eventProof)).toEqual(["webSearchCount"]);
+    expect(Object.isFrozen(outcome)).toBe(true);
+    expect(Object.isFrozen(outcome.result)).toBe(true);
+    expect(Object.isFrozen(outcome.result.metadata)).toBe(true);
+    expect(Object.isFrozen(outcome.eventProof)).toBe(true);
+  });
+
+  test.each([
+    ["before the deadline", [0, 1, 2], "codex_tool_event"],
+    ["at the deadline", [0, 1, 15_000], "codex_timeout"],
+  ])("rejects a second returned zero-search discovery %s", async (_name, readings, code) => {
     probe.run.mockResolvedValue(successfulProbe('{"ok":true}', 0));
+    const monotonicNowMs = vi.fn<() => number>();
+    for (const reading of readings) monotonicNowMs.mockReturnValueOnce(reading);
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs,
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation()))
+      .rejects.toMatchObject({ code });
+    expect(probe.run).toHaveBeenCalledTimes(2);
+  });
+
+  test("does not retry a thrown discovery tool-event failure", async () => {
+    const failure = new CodexRuntimeError("codex_tool_event");
+    probe.run.mockRejectedValueOnce(failure);
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: () => 0,
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation())).rejects.toBe(failure);
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["fractional", 1.5],
+    ["unsafe", Number.MAX_SAFE_INTEGER + 1],
+    ["above maxEvents", 65],
+  ])("does not retry a returned %s nonzero discovery proof", async (_name, webSearchCount) => {
+    probe.run.mockResolvedValueOnce(successfulProbe('{"ok":true}', webSearchCount));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: () => 0,
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation()))
+      .rejects.toMatchObject({ code: "codex_tool_event" });
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
+  test("checks the shared deadline before interpreting an invalid nonzero discovery proof", async () => {
+    probe.run.mockResolvedValueOnce(successfulProbe('{"ok":true}', 1.5));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(15_000),
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation()))
+      .rejects.toMatchObject({ code: "codex_timeout" });
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not retry invalid JSON returned with a valid discovery proof", async () => {
+    probe.run.mockResolvedValueOnce(successfulProbe("not-json", 1));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: () => 0,
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation()))
+      .rejects.toMatchObject({ code: "codex_json_invalid" });
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
+  test("never retries or reads the retry clock for a no-tool capability", async () => {
+    probe.run.mockResolvedValueOnce(successfulProbe('{"ok":true}', 0));
+    const monotonicNowMs = vi.fn(() => 0);
+    const adapter = createCodexCliModelAdapterForTest({ ...adapterOptions(), monotonicNowMs });
+
+    await expect(adapter.invokeJson(validInvocation())).resolves.toMatchObject({ value: { ok: true } });
+    expect(probe.run).toHaveBeenCalledTimes(1);
+    expect(monotonicNowMs).not.toHaveBeenCalled();
+  });
+
+  test("does not spawn a second discovery probe after all coalesced waiters abort", async () => {
+    const first = new AbortController();
+    const second = new AbortController();
+    const firstReason = new DOMException("first cancelled", "AbortError");
+    const secondReason = new DOMException("second cancelled", "AbortError");
+    const firstGate = deferred<ReturnType<typeof successfulProbe>>();
+    probe.run.mockReturnValueOnce(firstGate.promise);
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(1),
+    });
+
+    const left = adapter.invokeJson(discoveryInvocation(first.signal));
+    const right = adapter.invokeJson(discoveryInvocation(second.signal));
+    await vi.waitFor(() => expect(probe.run).toHaveBeenCalledTimes(1));
+    first.abort(firstReason);
+    second.abort(secondReason);
+    firstGate.resolve(successfulProbe('{"discarded":true}', 0));
+
+    await expect(left).rejects.toBe(firstReason);
+    await expect(right).rejects.toBe(secondReason);
+    await vi.waitFor(() => expect(probe.run).toHaveBeenCalledTimes(1));
+  });
+
+  test("continues the shared retry when one waiter aborts and another survives", async () => {
+    const first = new AbortController();
+    const second = new AbortController();
+    const firstReason = new DOMException("first cancelled", "AbortError");
+    const firstGate = deferred<ReturnType<typeof successfulProbe>>();
+    probe.run
+      .mockReturnValueOnce(firstGate.promise)
+      .mockResolvedValueOnce(successfulProbe('{"survivor":true}', 1));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: vi.fn()
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(1)
+        .mockReturnValueOnce(2)
+        .mockReturnValueOnce(3),
+    });
+
+    const abandoned = adapter.invokeJson(discoveryInvocation(first.signal));
+    const survivor = adapter.invokeJson(discoveryInvocation(second.signal));
+    await vi.waitFor(() => expect(probe.run).toHaveBeenCalledTimes(1));
+    first.abort(firstReason);
+    firstGate.resolve(successfulProbe('{"discarded":true}', 0));
+
+    await expect(abandoned).rejects.toBe(firstReason);
+    await expect(survivor).resolves.toMatchObject({ value: { survivor: true } });
+    expect(probe.run).toHaveBeenCalledTimes(2);
+  });
+
+  test("shares both retry attempts and the successful result identity across concurrent callers", async () => {
+    const first = new AbortController();
+    const second = new AbortController();
+    const firstGate = deferred<ReturnType<typeof successfulProbe>>();
+    probe.run
+      .mockReturnValueOnce(firstGate.promise)
+      .mockResolvedValueOnce(successfulProbe('{"shared":true}', 1));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: vi.fn()
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(1)
+        .mockReturnValueOnce(2)
+        .mockReturnValueOnce(3),
+    });
+
+    const leftPromise = adapter.invokeJson(discoveryInvocation(first.signal));
+    const rightPromise = adapter.invokeJson(discoveryInvocation(second.signal));
+    await vi.waitFor(() => expect(probe.run).toHaveBeenCalledTimes(1));
+    firstGate.resolve(successfulProbe('{"discarded":true}', 0));
+
+    const [left, right] = await Promise.all([leftPromise, rightPromise]);
+    expect(probe.run).toHaveBeenCalledTimes(2);
+    expect(left).toBe(right);
+    expect(left.value).toEqual({ shared: true });
+  });
+
+  test("uses one shared monotonic deadline and an owned remaining-time retry invocation", async () => {
+    probe.run
+      .mockResolvedValueOnce(successfulProbe('{"discarded":true}', 0))
+      .mockResolvedValueOnce(successfulProbe('{"accepted":true}', 1));
+    const monotonicNowMs = vi.fn()
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(1_200.9)
+      .mockReturnValueOnce(1_300)
+      .mockReturnValueOnce(1_400);
+    const adapter = createCodexCliModelAdapterForTest({ ...adapterOptions(), monotonicNowMs });
+    const invocation = discoveryInvocation();
+
+    await adapter.invokeJson(invocation);
+
+    const first = probe.run.mock.calls[0]?.[0].invocation;
+    const second = probe.run.mock.calls[1]?.[0].invocation;
+    expect(first.limits.timeoutMs).toBe(15_000);
+    expect(second.limits.timeoutMs).toBe(13_899);
+    expect(first).not.toBe(invocation);
+    expect(second).not.toBe(first);
+    expect(second.limits).not.toBe(first.limits);
+    expect(first.signal).toBe(second.signal);
+    expect(second.prompt).toBe(first.prompt);
+    expect(second.outputSchema).toBe(first.outputSchema);
+    expect(second.capability).toBe(first.capability);
+    expect(second.reasoningEffort).toBe(first.reasoningEffort);
+    expect(second.toolPolicy).toBe(first.toolPolicy);
+    expect(second.templateVersion).toBe(first.templateVersion);
+    expect(second.schemaVersion).toBe(first.schemaVersion);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(second)).toBe(true);
+    expect(Object.isFrozen(second.limits)).toBe(true);
+    expect(monotonicNowMs).toHaveBeenCalledTimes(4);
+  });
+
+  test("fails an exhausted shared discovery deadline before a second probe", async () => {
+    probe.run.mockResolvedValueOnce(successfulProbe('{"discarded":true}', 0));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(15_000),
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation()))
+      .rejects.toMatchObject({ code: "codex_timeout" });
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects a valid second discovery result that returns after the shared deadline", async () => {
+    probe.run
+      .mockResolvedValueOnce(successfulProbe('{"discarded":true}', 0))
+      .mockResolvedValueOnce(successfulProbe('{"late":true}', 1));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: vi.fn()
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(1)
+        .mockReturnValueOnce(15_000),
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation()))
+      .rejects.toMatchObject({ code: "codex_timeout" });
+    expect(probe.run).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
+    ["backward", 9],
+    ["nonfinite", Number.NaN],
+  ])("fails closed on a %s final clock observation after a valid discovery proof", async (_name, finalReading) => {
+    probe.run.mockResolvedValueOnce(successfulProbe('{"ok":true}', 1));
+    const adapter = createCodexCliModelAdapterForTest({
+      ...adapterOptions(),
+      monotonicNowMs: vi.fn()
+        .mockReturnValueOnce(0)
+        .mockReturnValueOnce(10)
+        .mockReturnValueOnce(finalReading),
+    });
+
+    await expect(adapter.invokeJson(discoveryInvocation()))
+      .rejects.toMatchObject({ code: "codex_process_failed" });
+    expect(probe.run).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    ["an invalid initial value", vi.fn(() => Number.NaN), 0],
+    ["a backward retry value", vi.fn().mockReturnValueOnce(10).mockReturnValueOnce(9), 1],
+    ["an invalid retry value", vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(Number.POSITIVE_INFINITY), 1],
+    ["a throwing clock", vi.fn(() => { throw new Error("must-not-leak"); }), 0],
+  ])("fails closed on %s without leaking clock details", async (_name, monotonicNowMs, probeCount) => {
+    probe.run.mockResolvedValue(successfulProbe('{"discarded":true}', 0));
+    const adapter = createCodexCliModelAdapterForTest({ ...adapterOptions(), monotonicNowMs });
+
+    const failure = await adapter.invokeJson(discoveryInvocation()).catch((error: unknown) => error);
+
+    expect(failure).toEqual(expect.objectContaining({ code: "codex_process_failed" }));
+    expect((failure as Error).message).toBe("codex_process_failed");
+    expect(JSON.stringify(failure)).not.toContain("must-not-leak");
+    expect(probe.run).toHaveBeenCalledTimes(probeCount);
+  });
+
+  test("rejects non-function, proxied, and accessor retry clocks without invoking them", () => {
+    const proxiedClock = new Proxy(vi.fn(() => 0), {});
+    const cases: unknown[] = [7, proxiedClock];
+    for (const monotonicNowMs of cases) {
+      expect(() => createCodexCliModelAdapterForTest({
+        ...adapterOptions(),
+        monotonicNowMs,
+      } as never)).toThrowError(expect.objectContaining({ code: "codex_process_failed" }));
+    }
+    expect(proxiedClock).not.toHaveBeenCalled();
+
+    const getter = vi.fn(() => () => 0);
+    const options = adapterOptions() as ReturnType<typeof adapterOptions> & { monotonicNowMs?: () => number };
+    Object.defineProperty(options, "monotonicNowMs", { enumerable: true, get: getter });
+    expect(() => createCodexCliModelAdapterForTest(options))
+      .toThrowError(expect.objectContaining({ code: "codex_process_failed" }));
+    expect(getter).not.toHaveBeenCalled();
+  });
+
+  test("binds the private zero-search retry revision into the independent flight identity", async () => {
+    probe.run.mockResolvedValueOnce(successfulProbe('{"ok":true}', 0));
     const adapter = createCodexCliModelAdapterForTest(adapterOptions());
-    await expect(adapter.invokeJson(createCodexJsonInvocation({
-      ...validInvocation(), capability: "source.discover", reasoningEffort: "medium",
-      toolPolicy: "codex-tools-web-search@1",
-    }))).rejects.toMatchObject({ code: "codex_tool_event" });
+    const invocation = validInvocation();
+
+    await adapter.invokeJson(invocation);
+
+    const flightKey = probe.run.mock.calls[0]?.[0].flightKey;
+    expect(flightKey).toBe(independentFlightKey(invocation));
+    expect(flightKey).not.toBe(independentFlightKey(invocation, false));
   });
 });
 
@@ -437,7 +762,21 @@ function validInvocation(signal: AbortSignal = new AbortController().signal) {
   });
 }
 
-function independentFlightKey(invocation: ReturnType<typeof validInvocation>): string {
+function discoveryInvocation(signal: AbortSignal = new AbortController().signal) {
+  return createCodexJsonInvocation({
+    ...validInvocation(signal),
+    capability: "source.discover",
+    reasoningEffort: "medium",
+    toolPolicy: "codex-tools-web-search@1",
+    templateVersion: "source-discovery@1",
+    schemaVersion: "source-discovery@1",
+  });
+}
+
+function independentFlightKey(
+  invocation: ReturnType<typeof validInvocation>,
+  includeRetryRevision = true,
+): string {
   const canonical = independentCanonicalJson({
     capability: invocation.capability,
     limits: invocation.limits,
@@ -446,6 +785,7 @@ function independentFlightKey(invocation: ReturnType<typeof validInvocation>): s
     policyFingerprint: codexPolicyFingerprint,
     promptHash: createHash("sha256").update(invocation.prompt, "utf8").digest("hex"),
     reasoningEffort: invocation.reasoningEffort,
+    ...(includeRetryRevision ? { retryPolicyRevision: "missing-native-search-once-shared-deadline@1" } : {}),
     schemaVersion: invocation.schemaVersion,
     templateVersion: invocation.templateVersion,
     toolPolicy: invocation.toolPolicy,
