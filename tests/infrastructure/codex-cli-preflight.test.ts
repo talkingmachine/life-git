@@ -4,6 +4,12 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+const reviewedVerifier = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("../../src/infrastructure/codex-cli/reviewed-installation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/infrastructure/codex-cli/reviewed-installation")>()),
+  verifyReviewedLocalCodexInstallation: reviewedVerifier,
+}));
+
 import {
   CODEX_DISABLED_FEATURES,
   CODEX_PREFLIGHT_LIMITS,
@@ -88,8 +94,23 @@ function realisticFullFeatureInventory(): string {
 }
 
 afterEach(async () => {
+  reviewedVerifier.mockClear();
   vi.useRealTimers();
   await Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+
+test("attests immediately before each preflight child spawn", async () => {
+  const fixture = await executableFixture();
+  const order: string[] = [];
+  reviewedVerifier.mockImplementation(async () => { order.push("verify"); });
+  const spawner = sequenceSpawner([
+    spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output("") }),
+    spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }),
+  ]);
+  spawner.spawn.mockImplementationOnce((input) => { order.push("version"); return spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output("") }); })
+    .mockImplementationOnce((input) => { order.push("login"); return spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }); });
+  await preflightCodexCli({ configuredExecutable: fixture.executable, spawner, childEnv: {}, signal: new AbortController().signal });
+  expect(order).toEqual(["verify", "version", "verify", "login"]);
 });
 
 async function executableFixture(): Promise<{ readonly root: string; readonly executable: string }> {
