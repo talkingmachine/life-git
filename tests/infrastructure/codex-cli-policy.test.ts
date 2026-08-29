@@ -133,7 +133,7 @@ describe("buildCodexExecArgs", () => {
     expect(EXPECTED_DISABLED_FEATURES.every((feature) => args.includes(`--disable`) &&
       args.some((entry, index) => entry === "--disable" && args[index + 1] === feature))).toBe(true);
     expect(codexPolicyFingerprint).toMatch(/^[a-f0-9]{64}$/);
-    expect(CODEX_PROTOCOL_NOTICE_REVISION).toBe("alpha.4-reviewed-web-search@4");
+    expect(CODEX_PROTOCOL_NOTICE_REVISION).toBe("alpha.4-reviewed-web-search@5");
   });
 
   test("binds both reviewed binary digests into the policy fingerprint", () => {

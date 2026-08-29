@@ -81,9 +81,10 @@ function webPrefix(): Uint8Array[] {
 }
 
 function webSearch(id: string, query: string): Uint8Array[] {
+  const queries = [query, `${query} official`, `${query} current`];
   return [
     line({ type: "item.started", item: { type: "web_search", id, query: "", action: { type: "other" } } }),
-    line({ type: "item.completed", item: { type: "web_search", id, query, action: { type: "search", query, queries: [query] } } }),
+    line({ type: "item.completed", item: { type: "web_search", id, query, action: { type: "search", query, queries } } }),
   ];
 }
 
@@ -118,7 +119,8 @@ describe("parseCodexEventStream", () => {
   test.each([
     ["a missing action queries array", { type: "search", query: "synthetic-query" }],
     ["an extra action field", { type: "search", query: "synthetic-query", queries: ["synthetic-query"], extra: true }],
-    ["multiple action queries", { type: "search", query: "synthetic-query", queries: ["synthetic-query", "other"] }],
+    ["more than three action queries", { type: "search", query: "synthetic-query", queries: ["synthetic-query", "other", "third", "fourth"] }],
+    ["duplicate action queries", { type: "search", query: "synthetic-query", queries: ["synthetic-query", "synthetic-query"] }],
     ["an empty action query", { type: "search", query: "", queries: [""] }],
     ["a mismatched action queries value", { type: "search", query: "synthetic-query", queries: ["other"] }],
   ])("rejects %s without retaining query text", async (_name, action) => {
