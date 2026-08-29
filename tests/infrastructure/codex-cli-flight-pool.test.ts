@@ -26,6 +26,14 @@ function pool(now: () => number = () => 0): CodexFlightPool {
 }
 
 describe("CodexFlightPool", () => {
+  test("uses native AbortSignal/EventTarget capabilities despite hostile own shadows", async () => {
+    const flights = pool(); const leader = deferred<string>(); const controller = new AbortController(); shadowAbortMethods(controller.signal);
+    let leaderSignal!: AbortSignal;
+    const running = flights.run({ key: "shadowed", signal: controller.signal, operation: (signal) => { leaderSignal = signal; return leader.promise; } });
+    controller.abort(new DOMException("shadow-safe", "AbortError"));
+    await expect(running).rejects.toMatchObject({ name: "AbortError", message: "shadow-safe" });
+    expect(nativeAborted(leaderSignal)).toBe(true); leader.reject(nativeReason(leaderSignal)); await Promise.resolve();
+  });
   test("reports only sanitized active, queued, and ceiling diagnostics", async () => {
     const flights = pool();
     const leader = deferred<string>();
@@ -277,3 +285,9 @@ describe("CodexFlightPool", () => {
     expect(second).not.toBe(first);
   });
 });
+
+const ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")!.get!;
+const REASON_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "reason")!.get!;
+function nativeAborted(signal: AbortSignal): boolean { return ABORTED_GETTER.call(signal) as boolean; }
+function nativeReason(signal: AbortSignal): unknown { return REASON_GETTER.call(signal); }
+function shadowAbortMethods(signal: AbortSignal): void { Object.defineProperties(signal, { aborted: { value: false }, reason: { get: () => { throw new Error("shadow reason"); } }, addEventListener: { value: () => undefined }, removeEventListener: { value: () => undefined } }); }
