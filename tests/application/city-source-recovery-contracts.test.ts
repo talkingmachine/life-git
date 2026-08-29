@@ -1,0 +1,51 @@
+import { describe, expect, test } from "vitest";
+
+import {
+  reconstructCitySourceBindingCursorV1,
+  reconstructCitySourceVersionV1,
+} from "../../src/application/city-source-recovery-contracts";
+
+describe("city source recovery contracts", () => {
+  test("owns and recursively freezes an installed cursor", () => {
+    const borrowed = {
+      schemaVersion: "city-source-binding-cursor@1",
+      kind: "installed",
+      installedBindingDigest: "a".repeat(64),
+    };
+
+    const cursor = reconstructCitySourceBindingCursorV1(borrowed);
+    borrowed.installedBindingDigest = "b".repeat(64);
+
+    expect(cursor).toEqual({
+      schemaVersion: "city-source-binding-cursor@1",
+      kind: "installed",
+      installedBindingDigest: "a".repeat(64),
+    });
+    expect(Object.isFrozen(cursor)).toBe(true);
+  });
+
+  test("accepts revision ordinal 999 without accepting an unknown contract schema", () => {
+    const version = reconstructCitySourceVersionV1({
+      schemaVersion: "source-version@1",
+      id: "source-version:999",
+      bindingKey: {
+        schemaVersion: "city-source-binding-key@1",
+        countryCode: "SI",
+        cityId: "ljubljana",
+        factKey: "si-city-safety",
+        definitionId: "si-municipal-police-offences-per-100000@1",
+      },
+      publisherId: "slovenian-police",
+      navigationUrl: "https://www.policija.si/",
+      requestedUrl: "https://www.policija.si/statistics",
+      finalUrl: "https://www.policija.si/statistics",
+      captureArtifactIds: ["artifact:999"],
+      captureSha256: ["a".repeat(64)],
+      evidenceSnapshotId: "evidence:999",
+      parserVersion: "city-safety-parser@1",
+      capturedAt: "2026-08-29T12:00:00.000Z",
+    });
+    expect(version.id).toBe("source-version:999");
+    expect(() => reconstructCitySourceVersionV1({ ...version, schemaVersion: "source-version@999" })).toThrow("integrity_mismatch");
+  });
+});

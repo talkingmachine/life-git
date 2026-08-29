@@ -43,6 +43,54 @@ CREATE TABLE IF NOT EXISTS evidence_snapshots (
   rules_version TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS city_source_versions (
+  id TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL CHECK (country_code = 'SI'),
+  city_id TEXT NOT NULL,
+  fact_key TEXT NOT NULL CHECK (fact_key = 'si-city-safety'),
+  definition_id TEXT NOT NULL CHECK (definition_id = 'si-municipal-police-offences-per-100000@1'),
+  evidence_snapshot_id TEXT NOT NULL,
+  schema_version TEXT NOT NULL CHECK (schema_version = 'source-version@1'),
+  payload_json TEXT NOT NULL, payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  hmac TEXT NOT NULL CHECK (length(hmac) = 64), created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS city_source_binding_revisions (
+  id TEXT PRIMARY KEY, country_code TEXT NOT NULL CHECK (country_code = 'SI'), city_id TEXT NOT NULL,
+  fact_key TEXT NOT NULL CHECK (fact_key = 'si-city-safety'), definition_id TEXT NOT NULL CHECK (definition_id = 'si-municipal-police-offences-per-100000@1'),
+  revision_ordinal INTEGER NOT NULL CHECK (revision_ordinal > 0), predecessor_revision_id TEXT REFERENCES city_source_binding_revisions(id),
+  source_version_id TEXT NOT NULL REFERENCES city_source_versions(id), evidence_snapshot_id TEXT NOT NULL,
+  schema_version TEXT NOT NULL CHECK (schema_version = 'source-binding@1'), payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64), hmac TEXT NOT NULL CHECK (length(hmac) = 64), created_at TEXT NOT NULL,
+  UNIQUE(country_code, city_id, fact_key, definition_id, revision_ordinal), CHECK(predecessor_revision_id IS NULL OR predecessor_revision_id <> id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS city_source_binding_one_root ON city_source_binding_revisions(country_code, city_id, fact_key, definition_id) WHERE predecessor_revision_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS city_source_binding_one_successor ON city_source_binding_revisions(predecessor_revision_id) WHERE predecessor_revision_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS city_source_binding_heads (
+  country_code TEXT NOT NULL CHECK (country_code = 'SI'), city_id TEXT NOT NULL,
+  fact_key TEXT NOT NULL CHECK (fact_key = 'si-city-safety'), definition_id TEXT NOT NULL CHECK (definition_id = 'si-municipal-police-offences-per-100000@1'),
+  installed_binding_digest TEXT NOT NULL CHECK (length(installed_binding_digest) = 64), active_revision_id TEXT UNIQUE REFERENCES city_source_binding_revisions(id),
+  PRIMARY KEY(country_code, city_id, fact_key, definition_id)
+);
+CREATE TABLE IF NOT EXISTS official_source_recovery_attempts (
+  id TEXT PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, country_code TEXT NOT NULL CHECK (country_code = 'SI'), city_id TEXT NOT NULL,
+  fact_key TEXT NOT NULL CHECK (fact_key = 'si-city-safety'), definition_id TEXT NOT NULL CHECK (definition_id = 'si-municipal-police-offences-per-100000@1'),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'official-source-recovery-attempt@1'), payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64), hmac TEXT NOT NULL CHECK (length(hmac) = 64), created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS official_source_replacement_events (
+  id TEXT PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, revision_id TEXT NOT NULL UNIQUE REFERENCES city_source_binding_revisions(id),
+  schema_version TEXT NOT NULL CHECK (schema_version = 'official-source-replaced@1'), payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64), hmac TEXT NOT NULL CHECK (length(hmac) = 64), created_at TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS city_source_versions_no_update BEFORE UPDATE ON city_source_versions BEGIN SELECT RAISE(ABORT, 'city_source_version_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_source_versions_no_delete BEFORE DELETE ON city_source_versions BEGIN SELECT RAISE(ABORT, 'city_source_version_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_source_binding_revisions_no_update BEFORE UPDATE ON city_source_binding_revisions BEGIN SELECT RAISE(ABORT, 'city_source_binding_revision_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS city_source_binding_revisions_no_delete BEFORE DELETE ON city_source_binding_revisions BEGIN SELECT RAISE(ABORT, 'city_source_binding_revision_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS official_source_recovery_attempts_no_update BEFORE UPDATE ON official_source_recovery_attempts BEGIN SELECT RAISE(ABORT, 'official_source_recovery_attempt_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS official_source_recovery_attempts_no_delete BEFORE DELETE ON official_source_recovery_attempts BEGIN SELECT RAISE(ABORT, 'official_source_recovery_attempt_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS official_source_replacement_events_no_update BEFORE UPDATE ON official_source_replacement_events BEGIN SELECT RAISE(ABORT, 'official_source_replacement_event_is_immutable'); END;
+CREATE TRIGGER IF NOT EXISTS official_source_replacement_events_no_delete BEFORE DELETE ON official_source_replacement_events BEGIN SELECT RAISE(ABORT, 'official_source_replacement_event_is_immutable'); END;
+
 CREATE TABLE IF NOT EXISTS city_evidence_snapshots (
   id TEXT PRIMARY KEY REFERENCES evidence_snapshots(id),
   city_check_run_id TEXT NOT NULL UNIQUE,

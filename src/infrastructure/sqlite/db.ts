@@ -1030,6 +1030,53 @@ function preflightExistingOnboardingConfirmations(database: Database.Database): 
   ) throw new Error("database_schema_reset_required");
 }
 
+const SOURCE_RECOVERY_TABLES = [
+  "city_source_versions",
+  "city_source_binding_revisions",
+  "city_source_binding_heads",
+  "official_source_recovery_attempts",
+  "official_source_replacement_events",
+] as const;
+
+interface SourceRecoverySchemaEntry {
+  readonly type: string;
+  readonly name: string;
+  readonly tbl_name: string;
+  readonly sql: string | null;
+}
+
+function sourceRecoveryObjects(database: Database.Database): SourceRecoverySchemaEntry[] {
+  const placeholders = SOURCE_RECOVERY_TABLES.map(() => "?").join(", ");
+  return database.prepare(`
+    SELECT type, name, tbl_name, sql FROM sqlite_master
+    WHERE ((type = 'table' AND name IN (${placeholders}))
+       OR (tbl_name IN (${placeholders}) AND type IN ('index', 'trigger')))
+      AND name NOT LIKE 'sqlite_%'
+    ORDER BY type, name
+  `).all(...SOURCE_RECOVERY_TABLES, ...SOURCE_RECOVERY_TABLES) as SourceRecoverySchemaEntry[];
+}
+
+function preflightExistingCitySourceRecovery(database: Database.Database): void {
+  const actual = sourceRecoveryObjects(database);
+  if (actual.length === 0) return;
+  const present = new Set(actual.filter(({ type }) => type === "table").map(({ name }) => name));
+  if (present.size !== SOURCE_RECOVERY_TABLES.length) throw new Error("database_schema_reset_required");
+  const reference = new Database(":memory:");
+  try {
+    reference.pragma("foreign_keys = ON");
+    reference.exec(schema);
+    const expected = sourceRecoveryObjects(reference);
+    if (actual.length !== expected.length || actual.some((entry, index) => {
+      const expectedEntry = expected[index]!;
+      return entry.type !== expectedEntry.type || entry.name !== expectedEntry.name ||
+        entry.tbl_name !== expectedEntry.tbl_name || entry.sql === null || expectedEntry.sql === null ||
+        normalizeExactSchemaSql(entry.sql) !== normalizeExactSchemaSql(expectedEntry.sql);
+    })) throw new Error("database_schema_reset_required");
+  } finally {
+    reference.close();
+  }
+}
+
 export function openEvidenceDatabase(path: string): Database.Database {
   const database = new Database(path);
   try {
@@ -1046,9 +1093,11 @@ export function openEvidenceDatabase(path: string): Database.Database {
     preflightExistingDossierV2(database);
     preflightExistingCountryResolution(database);
     preflightExistingOnboardingConfirmations(database);
+    preflightExistingCitySourceRecovery(database);
     preflightExistingTask13CityFrontier(database);
     database.transaction(() => {
       database.exec(schema);
+      preflightExistingCitySourceRecovery(database);
       preflightExistingTask13CityFrontier(database);
     })();
     return database;
