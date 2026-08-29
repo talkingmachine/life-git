@@ -639,6 +639,33 @@ describe("city-frontier Continue HTTP adapter", () => {
     }]);
   });
 
+  test("rejects an accessor-backed event discriminator without invoking it", async () => {
+    let typeReads = 0;
+    const hostile = { ...activated() } as Record<string, unknown>;
+    Object.defineProperty(hostile, "type", {
+      enumerable: true,
+      get: () => {
+        typeReads += 1;
+        return "city_activated";
+      },
+    });
+    const application = {
+      prepareCityFrontierContinuation: async () => prepared,
+      continueCityFrontierWithSourceRecovery: async (
+        _prepared: CityFrontierPrepared,
+        emit: (event: CityFrontierEvent) => Promise<void>,
+      ) => {
+        await emit(hostile as unknown as CityFrontierEvent);
+        return { schemaVersion: "city-source-recovery-outcome@1" as const,
+          kind: "advanced" as const, readModel: workingReadModel };
+      },
+    };
+    const POST = await loadPost("continue", application);
+
+    await expectGenericStreamError(await POST(request("continue", continueBody)), []);
+    expect(typeReads).toBe(0);
+  });
+
   // Break caught: accepting a stream that omits, duplicates, reorders, or contradicts its sole
   // completion frame.
   test.each([
@@ -2112,6 +2139,32 @@ describe("city-frontier marker order and public reducer REDs", () => {
 });
 
 describe("city-frontier reducer flight-state REDs", () => {
+  test("projects terminal recovery yellow as an explicitly unavailable active city", async () => {
+    const viewModule = await loadCityFrontierViewModelModule();
+    const base = syntheticWorkingReadModel(2, 0, BROWSER_BASE_REVISION_ID);
+    const yellowSource = { schemaVersion: "public-fact-source@1" as const,
+      factKey: "si-city-safety", status: "yellow" as const,
+      publisherName: null, sourceUrl: null, checkedAt: null };
+    const frames: CityFrontierEvent[] = [
+      { type: "city_activated", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 1, occurredAt: "2026-08-27T12:00:00.000Z", cityId: syntheticCityId(1), rank: 1 },
+      { type: "source_recovery_started", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 2, occurredAt: "2026-08-27T12:00:01.000Z", cityId: syntheticCityId(1) },
+      { type: "source_recovery_yellow", runId: BROWSER_RUN_ID, baseRevisionId: BROWSER_BASE_REVISION_ID,
+        sequence: 3, occurredAt: "2026-08-27T12:00:02.000Z", cityId: syntheticCityId(1),
+        reason: "official_source_unavailable", source: yellowSource },
+    ];
+    let screen = viewModule.beginCityFrontierContinuation(base);
+    for (const frame of frames) screen = viewModule.reduceCityFrontierContinuationEvent(screen, frame);
+    const view = viewModule.projectCityFrontierView(screen);
+    const active = view.candidates.find(({ city }) => city.cityId === syntheticCityId(1));
+
+    expect(active).toMatchObject({ status: "yellow", statusLabel: "Источник недоступен",
+      sourceUnavailable: true });
+    expect(view).toMatchObject({ sourceUnavailable: true, source: yellowSource });
+    expect(view.source).toEqual({ ...yellowSource, publisherName: null, sourceUrl: null, checkedAt: null });
+  });
+
   test("retains a verified replacement through progress, commit, and completion", async () => {
     const { initialCityFrontierEventState, reduceCityFrontierEvent } = await loadCityFrontierStreamModule();
     const base = syntheticWorkingReadModel(2, 0, BROWSER_BASE_REVISION_ID);

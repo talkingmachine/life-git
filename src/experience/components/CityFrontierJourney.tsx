@@ -184,6 +184,9 @@ async function openCitySelectionJson(
 
 function candidateReason(candidate: ReturnType<typeof projectCityFrontierView>["candidates"][number]):
 ResearchCandidate["reason"] {
+  if (candidate.sourceUnavailable === true) {
+    return { summary: "Официальный источник недоступен, факт не подтверждён." };
+  }
   if (candidate.status === "red") {
     return { summary: "Город исключён по обязательному критерию." };
   }

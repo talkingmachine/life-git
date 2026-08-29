@@ -26,7 +26,9 @@ export interface CityFrontierCandidateView {
     | "Проверяется"
     | "Доступен для выбора"
     | "Доступен с неполными данными"
+    | "Источник недоступен"
     | "Исключён";
+  readonly sourceUnavailable?: true;
   readonly facts?: CityFrontierRevision["markers"][number]["facts"];
   readonly verificationCoverage?: string;
   readonly lastCheckedAt?: string;
@@ -168,7 +170,7 @@ function unavailableCandidate(
 ): CityFrontierCandidateView {
   const candidate = pendingCandidate(readModel, active);
   return freezeCopy({ ...candidate, status: "yellow" as const,
-    statusLabel: "Доступен с неполными данными" as const });
+    statusLabel: "Источник недоступен" as const, sourceUnavailable: true as const });
 }
 
 export function presentCityFrontierReadModel(

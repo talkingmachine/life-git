@@ -210,8 +210,11 @@ function ownContinuationEvent(
   value: unknown,
   prepared: CityFrontierPrepared,
 ): CityFrontierEvent | undefined {
-  if (value === null || typeof value !== "object" || types.isProxy(value) || Array.isArray(value)) return undefined;
-  const type = (value as { type?: unknown }).type;
+  if (value === null || typeof value !== "object" || types.isProxy(value) || Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype || Object.getOwnPropertySymbols(value).length !== 0) return undefined;
+  const typeDescriptor = Object.getOwnPropertyDescriptor(value, "type");
+  if (typeDescriptor === undefined || !("value" in typeDescriptor) || !typeDescriptor.enumerable) return undefined;
+  const type = typeDescriptor.value;
   if (type === "city_activated") {
     const event = ownExactRecord(value, [...EVENT_BASE_KEYS, "cityId", "rank"]);
     if (event === undefined || !eventBase(event, prepared) || !nonEmptyText(event.cityId) ||
