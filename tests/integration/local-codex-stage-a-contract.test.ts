@@ -70,6 +70,93 @@ describe("local Codex Stage A gate", () => {
     expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
   });
 
+  test.each([
+    ["prepare_artifact", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, prepareArtifact: async () => { throw new Error("prompt=https://secret.example/id token=credential"); } })],
+    ["initialize_runtime", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, initializeRuntime: async () => { throw new CodexRuntimeError("codex_not_authenticated"); } })],
+    ["onboarding", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, runOnboarding: async () => { throw new Error("model response: secret"); } })],
+    ["discovery", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, runDiscovery: async () => { throw new Error("https://secret.example/search"); } })],
+    ["concurrency_1", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, measureConcurrency: async () => { throw new Error("stdout private"); } })],
+    ["concurrency_2", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, measureConcurrency: async (requested: 1 | 2 | 5) => requested === 2 ? Promise.reject(new Error("stderr private")) : deterministicDependencies().measureConcurrency(requested) })],
+    ["concurrency_5", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, measureConcurrency: async (requested: 1 | 2 | 5) => requested === 5 ? Promise.reject(new Error("auth private")) : deterministicDependencies().measureConcurrency(requested) })],
+    ["abort", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, proveAbort: async () => { throw new Error("query private"); } })],
+    ["proof_validation", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, runOnboarding: async () => ({ guardedProposalCount: 0, inventedValueCount: 0 }) })],
+    ["artifact_write", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, writeArtifact: async () => { throw new Error("/private/output.json"); } })],
+    ["cleanup", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, initializeRuntime: async () => { throw new Error("root failure"); }, cleanupArtifact: async () => { throw new Error("cleanup secret"); } })],
+  ] as const)("diagnostic reports only the fixed stage and an allowlisted code for %s", async (stage, configure) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], configure(deterministicDependencies()));
+
+    expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:${stage}:${stage === "initialize_runtime" ? "codex_not_authenticated" : "unclassified"}\n` });
+    expect(result.stderr).not.toMatch(/secret|private|https:|token|credential|stdout|stderr|query|output/i);
+  });
+
+  test("diagnostic preserves generic stderr by default and leaves no failure artifact", async () => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const generic = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(), initializeRuntime: async () => { throw new Error("/private/path token=secret"); }, cleanupArtifact,
+    });
+    expect(generic).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+    expect(cleanupArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json");
+  });
+
+  test("does not invoke cleanup when artifact preparation itself rejects", async () => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      prepareArtifact: async () => { throw new Error("unsafe artifact identity"); },
+      cleanupArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:prepare_artifact:unclassified\n" });
+    expect(cleanupArtifact).not.toHaveBeenCalled();
+  });
+
+  test("cleans a prepared artifact when the first clock read fails", async () => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      now: () => { throw new Error("hostile clock payload"); },
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:unclassified\n" });
+    expect(cleanupArtifact).toHaveBeenCalledTimes(1);
+    expect(cleanupArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json");
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("diagnostic safely classifies hostile thrown values without reading their payload", async () => {
+    const payload = new Proxy(Object.create(null), {
+      get: () => { throw new Error("leaked getter payload"); },
+      getPrototypeOf: () => { throw new Error("leaked prototype payload"); },
+      ownKeys: () => { throw new Error("leaked keys payload"); },
+    });
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), initializeRuntime: async () => { throw payload; },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:unclassified\n" });
+    const spoof = Object.create(CodexRuntimeError.prototype) as object;
+    Object.defineProperties(spoof, {
+      code: { value: "codex_timeout", writable: true, enumerable: true, configurable: true },
+      name: { value: "CodexRuntimeError", writable: true, enumerable: true, configurable: true },
+      message: { value: "codex_timeout", writable: true, enumerable: false, configurable: true },
+    });
+    const spoofed = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), initializeRuntime: async () => { throw spoof; },
+    });
+    expect(spoofed).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:unclassified\n" });
+  });
+
+  test("accepts diagnostic only with a single live opt-in and keeps successful output unchanged", async () => {
+    expect(parseLocalCodexStageAArgs(["--live-local-subscription", "--diagnostic"]))
+      .toEqual({ live: true, diagnostic: true, artifactPath: "data/evals/local-codex-stage-a/result.json" });
+    expect(() => parseLocalCodexStageAArgs(["--diagnostic"])).toThrow("local_codex_stage_a_invalid_arguments");
+    expect(() => parseLocalCodexStageAArgs(["--live-local-subscription", "--diagnostic", "--diagnostic"])).toThrow("local_codex_stage_a_invalid_arguments");
+    await expect(runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], deterministicDependencies()))
+      .resolves.toEqual({ exitCode: 0, stderr: "" });
+  });
+
   test.each([undefined, REVIEWED_CODEX_EXECUTABLE])(
     "verifies the reviewed installation before registration and subscription for override %s",
     async (executableOverride) => {

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, relative, resolve } from "node:path";
 import { types } from "node:util";
 
-import { CODEX_CLI_COMPATIBILITY_POLICY, CODEX_CLI_PROTOCOL_VERSION, CODEX_MODEL, CodexRuntimeError, createCodexJsonInvocation } from "../src/infrastructure/codex-cli/contracts";
+import { CODEX_CLI_COMPATIBILITY_POLICY, CODEX_CLI_PROTOCOL_VERSION, CODEX_MODEL, CodexRuntimeError, createCodexJsonInvocation, type CodexRuntimeErrorCode } from "../src/infrastructure/codex-cli/contracts";
 import { getCodexCliModelAdapter, verifyCodexCliCapabilities } from "../src/infrastructure/codex-cli/runtime";
 import { registerNodeCodexRuntime } from "../src/instrumentation-node";
 import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "../src/infrastructure/codex-cli/reviewed-installation";
@@ -20,7 +20,7 @@ const ARTIFACT_SCHEMA = "local-codex-stage-a@1" as const;
 const ARTIFACT_PATH = "data/evals/local-codex-stage-a/result.json";
 const EVENT_LIMIT = 128;
 
-export type LocalCodexStageAArguments = Readonly<{ live: boolean; artifactPath: string }>;
+export type LocalCodexStageAArguments = Readonly<{ live: boolean; diagnostic?: true; artifactPath: string }>;
 export type LocalCodexStageAEntrypointResult = Readonly<{ exitCode: 0 | 1; stderr: string }>;
 type Probe = Readonly<{ passed: true; webSearchCount: number }>;
 type Artifact = Readonly<{
@@ -72,6 +72,10 @@ type Dependencies = Readonly<{
   now: () => number;
 }>;
 
+type StageADiagnosticStage = "prepare_artifact" | "initialize_runtime" | "onboarding" | "discovery" | "concurrency_1" | "concurrency_2" | "concurrency_5" | "abort" | "proof_validation" | "artifact_write" | "cleanup";
+type FailureObserver = (stage: StageADiagnosticStage, error: unknown) => void;
+const DIAGNOSTIC_CODES: readonly CodexRuntimeErrorCode[] = ["codex_missing", "codex_version_mismatch", "codex_not_authenticated", "codex_protocol_invalid", "codex_tool_event", "codex_output_too_large", "codex_event_limit", "codex_timeout", "codex_aborted", "codex_process_failed", "codex_json_invalid", "codex_temp_root_invalid", "codex_tool_isolation_unproven", "codex_rate_limited", "codex_provider_transient"];
+
 type ReviewedStageARuntimeInitialization<T> = Readonly<{
   executableOverride: string | undefined;
   verifyInstallation: () => Promise<void>;
@@ -88,6 +92,7 @@ export async function initializeReviewedStageARuntimeForTest<T>(
 export function parseLocalCodexStageAArgs(argv: readonly string[]): LocalCodexStageAArguments {
   if (!Array.isArray(argv) || types.isProxy(argv)) throw new TypeError("local_codex_stage_a_invalid_arguments");
   let live = false;
+  let diagnostic = false;
   let artifactPath = ARTIFACT_PATH;
   let index = 0;
   const first = Object.getOwnPropertyDescriptor(argv, "0");
@@ -95,7 +100,8 @@ export function parseLocalCodexStageAArgs(argv: readonly string[]): LocalCodexSt
   for (; index < argv.length; index += 1) {
     const value = Object.getOwnPropertyDescriptor(argv, String(index));
     if (value?.enumerable !== true || !("value" in value) || typeof value.value !== "string") throw new TypeError("local_codex_stage_a_invalid_arguments");
-    if (value.value === "--live-local-subscription") { live = true; continue; }
+    if (value.value === "--live-local-subscription" && !live) { live = true; continue; }
+    if (value.value === "--diagnostic" && !diagnostic) { diagnostic = true; continue; }
     if (value.value === "--artifact" && index + 1 < argv.length) {
       const next = Object.getOwnPropertyDescriptor(argv, String(++index));
       if (next?.enumerable !== true || !("value" in next) || typeof next.value !== "string") throw new TypeError("local_codex_stage_a_invalid_arguments");
@@ -104,29 +110,49 @@ export function parseLocalCodexStageAArgs(argv: readonly string[]): LocalCodexSt
     }
     throw new TypeError("local_codex_stage_a_invalid_arguments");
   }
-  return Object.freeze({ live, artifactPath: validateArtifactPath(artifactPath) });
+  if (diagnostic && !live) throw new TypeError("local_codex_stage_a_invalid_arguments");
+  return Object.freeze(diagnostic ? { live, diagnostic: true as const, artifactPath: validateArtifactPath(artifactPath) } : { live, artifactPath: validateArtifactPath(artifactPath) });
 }
 
 export async function runLocalCodexStageA(
   args: LocalCodexStageAArguments,
   supplied: Partial<Dependencies> = {},
 ): Promise<LocalCodexStageAEntrypointResult> {
+  return runLocalCodexStageAWithFailureObserver(args, supplied);
+}
+
+async function runLocalCodexStageAWithFailureObserver(
+  args: LocalCodexStageAArguments,
+  supplied: Partial<Dependencies>,
+  observeFailure?: FailureObserver,
+): Promise<LocalCodexStageAEntrypointResult> {
   const ownedArgs = readArgs(args);
   if (!ownedArgs.live) return Object.freeze({ exitCode: 1, stderr: OPT_IN_ERROR });
   const dependencies = readDependencies(supplied);
-  // Stale evidence is removed before the first subscription-consuming action.
-  await dependencies.prepareArtifact(ownedArgs.artifactPath);
-  const startedAt = strictNow(dependencies.now());
+  let stage: StageADiagnosticStage = "prepare_artifact";
+  let prepared = false;
   let artifact: Artifact | undefined;
   try {
+    // Stale evidence is removed before the first subscription-consuming action.
+    await dependencies.prepareArtifact(ownedArgs.artifactPath);
+    prepared = true;
+    stage = "initialize_runtime";
+    const startedAt = strictNow(dependencies.now());
     const runtime = await dependencies.initializeRuntime();
     validateRuntime(runtime);
+    stage = "onboarding";
     const onboarding = await dependencies.runOnboarding();
+    stage = "discovery";
     const discovery = await dependencies.runDiscovery();
+    stage = "concurrency_1";
     const one = await dependencies.measureConcurrency(1);
+    stage = "concurrency_2";
     const two = await dependencies.measureConcurrency(2);
+    stage = "concurrency_5";
     const five = await dependencies.measureConcurrency(5);
+    stage = "abort";
     const abort = await dependencies.proveAbort();
+    stage = "proof_validation";
     validateProofs(runtime, onboarding, discovery, [one, two, five], abort);
     artifact = Object.freeze({
     schemaVersion: ARTIFACT_SCHEMA, cliVersion: runtime.cliVersion, protocolVersion: runtime.protocolVersion,
@@ -137,10 +163,21 @@ export async function runLocalCodexStageA(
     });
     if (strictNow(dependencies.now()) < startedAt) throw new TypeError("local_codex_stage_a_invalid_clock");
     validateArtifact(artifact);
+    stage = "artifact_write";
     await dependencies.writeArtifact(ownedArgs.artifactPath, artifact);
   } catch (error) {
     // A failed gate must never leave a plausible-looking report behind.
-    await dependencies.cleanupArtifact(ownedArgs.artifactPath);
+    if (!prepared) {
+      observeFailure?.(stage, error);
+      throw error;
+    }
+    try {
+      await dependencies.cleanupArtifact(ownedArgs.artifactPath);
+    } catch (cleanupError) {
+      observeFailure?.("cleanup", cleanupError);
+      throw cleanupError;
+    }
+    observeFailure?.(stage, error);
     throw error;
   }
   return Object.freeze({ exitCode: 0, stderr: "" });
@@ -152,19 +189,46 @@ export async function runLocalCodexStageAEntrypoint(
   supplied: Partial<Dependencies> = {},
 ): Promise<LocalCodexStageAEntrypointResult> {
   try {
-    return await runLocalCodexStageA(parseLocalCodexStageAArgs(argv), supplied);
-  } catch (error) {
-    if (error instanceof CodexRuntimeError && error.code === "codex_version_mismatch") {
-      return Object.freeze({ exitCode: 1, stderr: "local_codex_stage_a_failed:codex_version_mismatch\n" });
+    const args = parseLocalCodexStageAArgs(argv);
+    let diagnostic: Readonly<{ stage: StageADiagnosticStage; code: CodexRuntimeErrorCode | "unclassified" }> | undefined;
+    try {
+      return await runLocalCodexStageAWithFailureObserver(args, supplied, (stage, error) => {
+        diagnostic = Object.freeze({ stage, code: safeDiagnosticCode(error) });
+      });
+    } catch (error) {
+      if (args.diagnostic && diagnostic !== undefined) {
+        return Object.freeze({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:${diagnostic.stage}:${diagnostic.code}\n` });
+      }
+      if (safeDiagnosticCode(error) === "codex_version_mismatch") {
+        return Object.freeze({ exitCode: 1, stderr: "local_codex_stage_a_failed:codex_version_mismatch\n" });
+      }
+      return Object.freeze({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
     }
+  } catch {
     return Object.freeze({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
   }
 }
 
 function readArgs(value: unknown): LocalCodexStageAArguments {
-  const object = exactObject(value, ["live", "artifactPath"]);
-  if (typeof object.live !== "boolean" || typeof object.artifactPath !== "string") throw new TypeError("local_codex_stage_a_invalid_arguments");
-  return Object.freeze({ live: object.live, artifactPath: validateArtifactPath(object.artifactPath) });
+  const object = exactObject(value, ["live", "diagnostic", "artifactPath"], true);
+  if (typeof object.live !== "boolean" || (object.diagnostic !== undefined && object.diagnostic !== true) || typeof object.artifactPath !== "string" || (object.diagnostic === true && !object.live)) throw new TypeError("local_codex_stage_a_invalid_arguments");
+  return Object.freeze(object.diagnostic === true ? { live: object.live, diagnostic: true as const, artifactPath: validateArtifactPath(object.artifactPath) } : { live: object.live, artifactPath: validateArtifactPath(object.artifactPath) });
+}
+
+function safeDiagnosticCode(error: unknown): CodexRuntimeErrorCode | "unclassified" {
+  try {
+    if (types.isProxy(error) || !types.isNativeError(error) || !(error instanceof CodexRuntimeError)) return "unclassified";
+    const descriptor = Object.getOwnPropertyDescriptor(error, "code");
+    const message = Object.getOwnPropertyDescriptor(error, "message");
+    const name = Object.getOwnPropertyDescriptor(error, "name");
+    if (descriptor?.enumerable !== true || !("value" in descriptor) || typeof descriptor.value !== "string" ||
+      message?.enumerable !== false || !("value" in message) || message.value !== descriptor.value ||
+      name?.enumerable !== true || !("value" in name) || name.value !== "CodexRuntimeError" ||
+      !DIAGNOSTIC_CODES.includes(descriptor.value as CodexRuntimeErrorCode)) return "unclassified";
+    return descriptor.value as CodexRuntimeErrorCode;
+  } catch {
+    return "unclassified";
+  }
 }
 
 function readDependencies(value: unknown): Dependencies {
