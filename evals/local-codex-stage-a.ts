@@ -13,7 +13,7 @@ import { createOnboardingSession } from "../src/decision/onboarding-session";
 import { guardExtraction, projectQuestionnaireForModel } from "../src/decision/onboarding-model-contract";
 import { parseLocalExtractionOutput } from "../src/decision/onboarding-model-output";
 import type { SessionMessage } from "../src/decision/onboarding-session";
-import { reconstructOfficialSourceDiscoveryRequest, type OfficialSourceDiscoveryRequest } from "../src/application/official-source-discovery";
+import { OfficialSourceDiscoveryError, reconstructOfficialSourceDiscoveryRequest, type OfficialSourceDiscoveryErrorCode, type OfficialSourceDiscoveryRequest } from "../src/application/official-source-discovery";
 import { OnboardingModelError, type OnboardingModelErrorCode } from "../src/application/onboarding-contracts";
 
 const OPT_IN_ERROR = "local_codex_live_opt_in_required\n";
@@ -78,17 +78,26 @@ type Dependencies = Readonly<{
 
 type StageADiagnosticStage = "prepare_artifact" | "initialize_runtime" | "onboarding" | "discovery" | "concurrency_1" | "concurrency_2" | "concurrency_5" | "abort" | "proof_validation" | "artifact_write" | "cleanup";
 type StageAOnboardingDiagnosticCode = "onboarding_model_output_invalid" | "onboarding_guard_invalid" | "onboarding_canonical_mismatch" | "onboarding_evidence_mismatch";
-type StageADiagnosticCode = CodexRuntimeErrorCode | OnboardingModelErrorCode | StageAOnboardingDiagnosticCode | "unclassified";
+type StageADiagnosticCode = CodexRuntimeErrorCode | OnboardingModelErrorCode | OfficialSourceDiscoveryErrorCode | StageAOnboardingDiagnosticCode | "discovery_result_invalid" | "unclassified";
 type FailureObserver = (stage: StageADiagnosticStage, error: unknown) => void;
 const DIAGNOSTIC_CODES: readonly CodexRuntimeErrorCode[] = ["codex_missing", "codex_version_mismatch", "codex_not_authenticated", "codex_protocol_invalid", "codex_tool_event", "codex_output_too_large", "codex_event_limit", "codex_timeout", "codex_aborted", "codex_process_failed", "codex_json_invalid", "codex_temp_root_invalid", "codex_tool_isolation_unproven", "codex_rate_limited", "codex_provider_transient"];
 const ONBOARDING_MODEL_DIAGNOSTIC_CODES: readonly OnboardingModelErrorCode[] = ["onboarding_model_aborted", "onboarding_model_integrity_failed", "onboarding_model_invalid", "onboarding_model_runtime_failed"];
 const STAGE_A_ONBOARDING_DIAGNOSTIC_CODES: readonly StageAOnboardingDiagnosticCode[] = ["onboarding_model_output_invalid", "onboarding_guard_invalid", "onboarding_canonical_mismatch", "onboarding_evidence_mismatch"];
+const DISCOVERY_DIAGNOSTIC_CODES: readonly OfficialSourceDiscoveryErrorCode[] = ["official_source_discovery_aborted", "official_source_discovery_integrity_failed", "official_source_discovery_invalid", "official_source_discovery_runtime_failed"];
 
 class StageAOnboardingDiagnosticError extends Error {
   readonly name = "StageAOnboardingDiagnosticError";
 
   constructor(readonly code: StageAOnboardingDiagnosticCode) {
     super(code);
+  }
+}
+class StageADiscoveryDiagnosticError extends Error {
+  readonly name = "StageADiscoveryDiagnosticError";
+  readonly code = "discovery_result_invalid" as const;
+
+  constructor() {
+    super("discovery_result_invalid");
   }
 }
 
@@ -245,8 +254,17 @@ function safeDiagnosticCode(error: unknown): StageADiagnosticCode {
         : runtimeCode.value !== undefined) return "unclassified";
       return onboardingCode as OnboardingModelErrorCode;
     }
+    const discoveryCode = exactNativeErrorCode(error, OfficialSourceDiscoveryError.prototype, "OfficialSourceDiscoveryError", DISCOVERY_DIAGNOSTIC_CODES);
+    if (discoveryCode !== undefined) {
+      const runtimeCode = Object.getOwnPropertyDescriptor(error, "runtimeCode");
+      if (discoveryCode === "official_source_discovery_runtime_failed") {
+        if (runtimeCode?.enumerable !== true || !("value" in runtimeCode) || typeof runtimeCode.value !== "string" || !DIAGNOSTIC_CODES.includes(runtimeCode.value as CodexRuntimeErrorCode)) return "unclassified";
+      } else if (runtimeCode?.enumerable !== true || !("value" in runtimeCode) || runtimeCode.value !== undefined) return "unclassified";
+      return discoveryCode as OfficialSourceDiscoveryErrorCode;
+    }
     const localCode = exactNativeErrorCode(error, StageAOnboardingDiagnosticError.prototype, "StageAOnboardingDiagnosticError", STAGE_A_ONBOARDING_DIAGNOSTIC_CODES);
-    return localCode === undefined ? "unclassified" : localCode as StageAOnboardingDiagnosticCode;
+    if (localCode !== undefined) return localCode as StageAOnboardingDiagnosticCode;
+    return exactNativeErrorCode(error, StageADiscoveryDiagnosticError.prototype, "StageADiscoveryDiagnosticError", ["discovery_result_invalid"]) === undefined ? "unclassified" : "discovery_result_invalid";
   } catch {
     return "unclassified";
   }
@@ -608,14 +626,19 @@ function assertFixtureEvidenceCoverage(
 }
 
 export async function evaluateDiscoveryFixture(fixture: StageADiscoveryFixture, port: Readonly<{ discover(input: OfficialSourceDiscoveryRequest): Promise<unknown> }>): Promise<Artifact["discovery"]> {
-  const result = exactObject(await port.discover({ ...fixture.request, signal: new AbortController().signal }), ["candidates", "metadata"]);
-  const candidates = exactArray(result.candidates);
-  const metadata = exactObject(result.metadata, ["invocationVersion", "protocolVersion", "compatibilityPolicy", "cliVersion", "model", "reasoningEffort", "toolPolicy", "templateVersion", "schemaVersion"]);
-  if (candidates.length < 1 || candidates.length > fixture.candidateLimit ||
-    metadata.invocationVersion !== "codex-cli-invocation@2" || metadata.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || metadata.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY ||
-    typeof metadata.cliVersion !== "string" || metadata.model !== CODEX_MODEL || metadata.reasoningEffort !== "medium" || metadata.toolPolicy !== "codex-tools-web-search@1" ||
-    metadata.templateVersion !== "official-source-discover@1" || metadata.schemaVersion !== "official-source-candidates@1") throw new TypeError("local_codex_stage_a_discovery_invalid");
-  return Object.freeze({ candidateCount: candidates.length, allCandidatesUntrusted: fixture.candidatesUntrusted });
+  const rawResult = await port.discover({ ...fixture.request, signal: new AbortController().signal });
+  try {
+    const result = exactObject(rawResult, ["candidates", "metadata"]);
+    const candidates = exactArray(result.candidates);
+    const metadata = exactObject(result.metadata, ["invocationVersion", "protocolVersion", "compatibilityPolicy", "cliVersion", "model", "reasoningEffort", "toolPolicy", "templateVersion", "schemaVersion"]);
+    if (candidates.length < 1 || candidates.length > fixture.candidateLimit ||
+      metadata.invocationVersion !== "codex-cli-invocation@2" || metadata.protocolVersion !== CODEX_CLI_PROTOCOL_VERSION || metadata.compatibilityPolicy !== CODEX_CLI_COMPATIBILITY_POLICY ||
+      typeof metadata.cliVersion !== "string" || metadata.model !== CODEX_MODEL || metadata.reasoningEffort !== "medium" || metadata.toolPolicy !== "codex-tools-web-search@1" ||
+      metadata.templateVersion !== "official-source-discover@1" || metadata.schemaVersion !== "official-source-candidates@1") throw new TypeError("local_codex_stage_a_discovery_invalid");
+    return Object.freeze({ candidateCount: candidates.length, allCandidatesUntrusted: fixture.candidatesUntrusted });
+  } catch {
+    throw new StageADiscoveryDiagnosticError();
+  }
 }
 
 /** Independently derives the documented guarded shape from the fixture's raw model proposal. */

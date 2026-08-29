@@ -19,6 +19,7 @@ import {
 } from "../../evals/local-codex-stage-a";
 import { CodexRuntimeError } from "../../src/infrastructure/codex-cli/contracts";
 import { OnboardingModelError, type OnboardingModelErrorCode } from "../../src/application/onboarding-contracts";
+import { OfficialSourceDiscoveryError } from "../../src/application/official-source-discovery";
 import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
@@ -42,6 +43,142 @@ const discoveryFixture = {
 };
 
 describe("local Codex Stage A gate", () => {
+  test.each([
+    ["official_source_discovery_aborted", undefined],
+    ["official_source_discovery_integrity_failed", undefined],
+    ["official_source_discovery_invalid", undefined],
+    ["official_source_discovery_runtime_failed", "codex_timeout"],
+  ] as const)("diagnostically classifies exact native discovery %s without leaking content", async (code, runtimeCode) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), runDiscovery: async () => { throw new OfficialSourceDiscoveryError(code, runtimeCode); },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:discovery:${code}\n` });
+  });
+
+  test.each([
+    ["missing runtimeCode", () => {
+      const error = new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout") as { runtimeCode?: unknown };
+      delete error.runtimeCode;
+      return error;
+    }],
+    ["unknown runtimeCode", () => new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_secret_payload" as never)],
+    ["runtimeCode on a non-runtime error", () => new OfficialSourceDiscoveryError("official_source_discovery_invalid", "codex_timeout")],
+  ] as const)("fails closed for discovery errors with %s", async (_case, createError) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), runDiscovery: async () => { throw createError(); },
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:unclassified\n" });
+    expect(result.stderr).not.toMatch(/secret|payload|timeout/i);
+  });
+
+  test("keeps an official discovery failure generic without explicit diagnostic opt-in", async () => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      runDiscovery: async () => { throw new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout"); },
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+    expect(cleanupArtifact).toHaveBeenCalledOnce();
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("reports only discovery_result_invalid for malformed local discovery output and cleans the artifact", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runDiscovery: () => evaluateDiscoveryFixture(fixture, {
+        discover: async () => ({
+          candidates: [{ url: "https://private.example/secret", claimedPublisher: "Private", expectedCoverage: "secret", rationale: "token=credential" }],
+          metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "wrong", schemaVersion: "official-source-candidates@1" },
+        }),
+      }),
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:discovery_result_invalid\n" });
+    expect(result.stderr).not.toMatch(/private|secret|token|credential|https:/i);
+    expect(cleanupArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json");
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("leaves arbitrary discovery-port rejection unclassified and cleans the artifact", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runDiscovery: () => evaluateDiscoveryFixture(fixture, {
+        discover: async () => { throw new Error("https://private.example/query?token=credential"); },
+      }),
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:unclassified\n" });
+    expect(result.stderr).not.toMatch(/private|query|token|credential|https:/i);
+    expect(cleanupArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json");
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("rejects hostile discovery error lookalikes without reading their content", async () => {
+    const getter = new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout");
+    Object.defineProperty(getter, "runtimeCode", {
+      configurable: true,
+      enumerable: true,
+      get: () => { throw new Error("getter token=secret"); },
+    });
+    const prototypeMismatch = new OfficialSourceDiscoveryError("official_source_discovery_invalid");
+    Object.setPrototypeOf(prototypeMismatch, Error.prototype);
+    const nativeSpoof = Object.create(OfficialSourceDiscoveryError.prototype) as object;
+    Object.defineProperties(nativeSpoof, {
+      code: { value: "official_source_discovery_invalid", writable: true, enumerable: true, configurable: true },
+      runtimeCode: { value: undefined, writable: true, enumerable: true, configurable: true },
+      name: { value: "OfficialSourceDiscoveryError", writable: true, enumerable: true, configurable: true },
+      message: { value: "official_source_discovery_invalid", writable: true, enumerable: false, configurable: true },
+    });
+    const proxy = new Proxy(new OfficialSourceDiscoveryError("official_source_discovery_invalid"), {
+      get: () => { throw new Error("proxy token=secret"); },
+      getPrototypeOf: () => { throw new Error("prototype token=secret"); },
+      ownKeys: () => { throw new Error("keys token=secret"); },
+    });
+
+    for (const error of [getter, prototypeMismatch, nativeSpoof, proxy]) {
+      const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+        ...deterministicDependencies(), runDiscovery: async () => { throw error; },
+      });
+      expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:unclassified\n" });
+      expect(result.stderr).not.toMatch(/secret|token|proxy|prototype|keys/i);
+    }
+  });
+
+  test("rejects a symbol-bearing local discovery diagnostic error", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const localError = await evaluateDiscoveryFixture(fixture, {
+      discover: async () => ({
+        candidates: [],
+        metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "official-source-discover@1", schemaVersion: "official-source-candidates@1" },
+      }),
+    }).then(
+      () => { throw new Error("expected invalid local discovery result"); },
+      (error: unknown) => error,
+    );
+    Object.defineProperty(localError as object, Symbol("private"), { value: "token=secret" });
+
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), runDiscovery: async () => { throw localError; },
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:unclassified\n" });
+    expect(result.stderr).not.toMatch(/private|token|secret/i);
+  });
   test("reports an exact reviewed-installation mismatch without registration, subscription, or artifact write", async () => {
     const registerRuntime = vi.fn(async () => undefined);
     const consumeSubscription = vi.fn(async () => deterministicDependencies().initializeRuntime());
@@ -685,7 +822,7 @@ describe("local Codex Stage A gate", () => {
       candidates: [{ url: "https://www.beograd.rs/transport/", claimedPublisher: "City", expectedCoverage: "Transit", rationale: "Official" }],
       metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "wrong", schemaVersion: "official-source-candidates@1" },
     }));
-    await expect(evaluateDiscoveryFixture(fixture, { discover })).rejects.toThrow("local_codex_stage_a_discovery_invalid");
+    await expect(evaluateDiscoveryFixture(fixture, { discover })).rejects.toThrow("discovery_result_invalid");
     expect(discover).toHaveBeenCalledTimes(1);
   });
 });
