@@ -1119,3 +1119,15 @@ export function replayCityEvidence(
     return Promise.reject(normalizedError(error));
   }
 }
+
+/** Synchronous inward replay for a caller-owned SQLite unit of work. */
+export function replayCityEvidenceInTransaction(
+  input: ReplayInput,
+  ports: CityEvidenceReplayPorts,
+): VerifiedCityEvidence {
+  try {
+    return replayOwned(ownInput(input), capturePorts(ports));
+  } catch (error) {
+    throw normalizedError(error);
+  }
+}

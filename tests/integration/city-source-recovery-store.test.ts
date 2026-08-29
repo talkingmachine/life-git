@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import type { CitySourceBindingKeyV1, CitySourceVersionV1 } from "../../src/application/city-source-recovery-contracts";
 import { SqliteCitySourceRecoveryStore } from "../../src/infrastructure/sqlite/city-source-recovery-store";
+import { SqliteCityContinuationUnitOfWork } from "../../src/infrastructure/sqlite/city-continuation-unit-of-work";
 import { createEvidenceIntegrity } from "../../src/infrastructure/integrity";
 
 const directories: string[] = [];
@@ -74,6 +75,18 @@ describe("SqliteCitySourceRecoveryStore", () => {
     const { store } = open(); const cursor = store.loadEffectiveVerified(key).cursor; const input = replacement();
     expect(() => store.appendReplacement({ ...input, revision: { ...input.revision, knowledgeRevisionId: "knowledge:missing" } }, cursor)).toThrow("FOREIGN KEY constraint failed");
     for (const table of ["city_source_versions", "city_source_binding_revisions", "city_source_binding_heads", "official_source_recovery_attempts", "official_source_replacement_events"]) expect(databases[0]!.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+  });
+
+  test("rolls an accepted replacement back when its shared continuation unit fails later", () => {
+    const { store } = open(); const database = databases[0]!;
+    const cursor = store.loadEffectiveVerified(key).cursor;
+    expect(() => new SqliteCityContinuationUnitOfWork(database).run(() => {
+      store.appendReplacementInTransaction(replacement(), cursor);
+      throw new Error("injected_after_replacement");
+    })).toThrow("injected_after_replacement");
+    for (const table of ["city_source_versions", "city_source_binding_revisions", "city_source_binding_heads", "official_source_recovery_attempts", "official_source_replacement_events"]) {
+      expect(database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
   });
 
   test("rejects a tampered persisted replacement event mirror", () => {

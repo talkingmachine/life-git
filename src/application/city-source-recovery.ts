@@ -10,3 +10,8 @@ export type CitySourceInstalledAuthority = Readonly<{ bindingKey: CitySourceBind
 export interface CitySourceInstalledAuthorityPort { loadVerified(bindingKey: CitySourceBindingKeyV1): CitySourceInstalledAuthority | undefined; }
 export interface CitySourceTruthPublicationAuthorityPort { requireVerified(input: Readonly<{ bindingKey: CitySourceBindingKeyV1; sourceVersion: CitySourceVersionV1; revision: CitySourceBindingRevisionV1 }>): void; }
 export type CitySourceRecoveryOutcome = Readonly<{ schemaVersion: "city-source-recovery-outcome@1"; kind: "advanced"; readModel: CityFrontierReadModel }> | Readonly<{ schemaVersion: "city-source-recovery-outcome@1"; kind: "yellow"; source: PublicFactSourceV1 }>;
+
+/** Inward boundary: continuation participants share exactly one synchronous transaction. */
+export interface CityContinuationUnitOfWorkPort {
+  run<T>(operation: () => T): T;
+}
