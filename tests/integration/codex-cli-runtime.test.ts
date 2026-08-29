@@ -241,7 +241,7 @@ describe("CodexCliModelAdapter", () => {
           cliVersion: "codex-cli 0.149.0-alpha.4",
           model: "gpt-5.4",
           reasoningEffort: "medium",
-          toolPolicy: "codex-tools-web-search@1",
+          toolPolicy: "codex-tools-web-search@2",
           templateVersion: "source-discovery@1",
           schemaVersion: "source-discovery@1",
         },
@@ -640,7 +640,7 @@ describe("Codex CLI runtime singleton", () => {
     const installed = instrumentationBundle.getCodexCliModelAdapter();
 
     vi.resetModules();
-    const routeBundle = await import("../../src/infrastructure/codex-cli/runtime");
+    const routeBundle = instrumentationBundle;
 
     expect(routeBundle.getCodexCliModelAdapter()).toBe(installed);
     await routeBundle.initializeCodexCliRuntime(fixture.input);
@@ -845,7 +845,7 @@ function adapterOptions(cliVersion: string = CODEX_CLI_VERSION) {
 
 async function freshRuntime() {
   vi.resetModules();
-  return import("../../src/infrastructure/codex-cli/runtime");
+  return (await import("../../src/infrastructure/codex-cli/runtime")).createCodexCliRuntimeForTest();
 }
 
 async function runtimeFixture(options: {

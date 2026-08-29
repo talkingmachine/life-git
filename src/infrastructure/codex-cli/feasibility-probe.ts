@@ -14,7 +14,7 @@ import {
 } from "./preflight";
 import { buildCodexExecArgs } from "./policy";
 import { runBoundedProcess, type CodexProcessSpawner } from "./process";
-import { verifyReviewedLocalCodexInstallation } from "./reviewed-installation";
+import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "./reviewed-installation";
 import {
   createEmptyCodexTempDirectory,
   type ValidatedCodexTempRoot,
@@ -45,22 +45,47 @@ export async function runCodexJsonProbe(input: {
   readonly webSearchCount: number;
   readonly toolPolicyProven: true;
 }> {
+  return runCodexJsonProbeWithRunner(input, runGenericCodexJsonProcess);
+}
+
+/** Production-only model probe, bound to the reviewed executable at every spawn. */
+export async function runReviewedCodexJsonProbe(input: {
+  readonly invocation: CodexJsonInvocation;
+  readonly preflight: CodexPreflightResult;
+  readonly spawner: CodexProcessSpawner;
+  readonly tempRoot: ValidatedCodexTempRoot;
+  readonly childEnv: Readonly<Record<string, string>>;
+  readonly flightKey?: string;
+}): Promise<{
+  readonly pid: number;
+  readonly finalMessage: string;
+  readonly eventTypes: readonly string[];
+  readonly webSearchCount: number;
+  readonly toolPolicyProven: true;
+}> {
+  requireReviewedExecutable(input.preflight.executable);
+  return runCodexJsonProbeWithRunner(input, runReviewedCodexJsonProcess);
+}
+
+async function runCodexJsonProbeWithRunner(input: {
+  readonly invocation: CodexJsonInvocation;
+  readonly preflight: CodexPreflightResult;
+  readonly spawner: CodexProcessSpawner;
+  readonly tempRoot: ValidatedCodexTempRoot;
+  readonly childEnv: Readonly<Record<string, string>>;
+  readonly flightKey?: string;
+}, runProcess: typeof runGenericCodexJsonProcess): Promise<{
+  readonly pid: number;
+  readonly finalMessage: string;
+  readonly eventTypes: readonly string[];
+  readonly webSearchCount: number;
+  readonly toolPolicyProven: true;
+}> {
   return withCodexTempDirectory({
     root: input.tempRoot,
     outputSchema: input.invocation.outputSchema,
     use: async ({ directoryPath, schemaPath }) => {
-      await verifyReviewedLocalCodexInstallation();
-      const result = await runBoundedProcess({
-        executable: input.preflight.executable,
-        args: buildCodexExecArgs(input.invocation, directoryPath, schemaPath),
-        cwd: directoryPath,
-        env: createClosedCodexEnvironment(input.childEnv),
-        stdin: new TextEncoder().encode(input.invocation.prompt),
-        timeoutMs: input.invocation.limits.timeoutMs,
-        maxStdoutBytes: input.invocation.limits.maxStdoutBytes,
-        maxStderrBytes: input.invocation.limits.maxStderrBytes,
-        signal: input.invocation.signal,
-      }, input.spawner);
+      const result = await runProcess(input, directoryPath, schemaPath);
       const proof = await parseCodexEventStreamWithProof(streamChunks(result.stdout), {
         maxStdoutBytes: input.invocation.limits.maxStdoutBytes,
         maxEvents: input.invocation.limits.maxEvents,
@@ -85,24 +110,83 @@ export async function inspectModelVisibleInputs(input: {
   readonly projectRuleInputsObserved: boolean;
   readonly projectSkillPayloadsObserved: boolean;
 }> {
+  return inspectModelVisibleInputsWithRunner(input, runGenericInputInspection);
+}
+
+/** Production-only diagnostic probe, bound to the reviewed executable at every spawn. */
+export async function inspectReviewedModelVisibleInputs(input: {
+  readonly preflight: CodexPreflightResult;
+  readonly spawner: CodexProcessSpawner;
+  readonly tempRoot: ValidatedCodexTempRoot;
+  readonly childEnv: Readonly<Record<string, string>>;
+  readonly signal: AbortSignal;
+}): Promise<{
+  readonly messageInputsObserved: boolean;
+  readonly projectContextPaths: readonly string[];
+  readonly projectRuleInputsObserved: boolean;
+  readonly projectSkillPayloadsObserved: boolean;
+}> {
+  requireReviewedExecutable(input.preflight.executable);
+  return inspectModelVisibleInputsWithRunner(input, runReviewedInputInspection);
+}
+
+async function inspectModelVisibleInputsWithRunner(input: {
+  readonly preflight: CodexPreflightResult;
+  readonly spawner: CodexProcessSpawner;
+  readonly tempRoot: ValidatedCodexTempRoot;
+  readonly childEnv: Readonly<Record<string, string>>;
+  readonly signal: AbortSignal;
+}, runProcess: typeof runGenericInputInspection): Promise<{
+  readonly messageInputsObserved: boolean;
+  readonly projectContextPaths: readonly string[];
+  readonly projectRuleInputsObserved: boolean;
+  readonly projectSkillPayloadsObserved: boolean;
+}> {
   const directoryPath = await createEmptyCodexTempDirectory(input.tempRoot);
   try {
-    await verifyReviewedLocalCodexInstallation();
-    const result = await runBoundedProcess({
-      executable: input.preflight.executable,
-      args: CODEX_MESSAGE_INPUT_INSPECTION_ARGS,
-      cwd: directoryPath,
-      env: createClosedCodexEnvironment(input.childEnv),
-      stdin: new Uint8Array(),
-      timeoutMs: CODEX_PREFLIGHT_LIMITS.timeoutMs,
-      maxStdoutBytes: MAX_CODEX_STDOUT_BYTES,
-      maxStderrBytes: CODEX_PREFLIGHT_LIMITS.maxStderrBytes,
-      signal: input.signal,
-    }, input.spawner);
+    const result = await runProcess(input, directoryPath);
     return inspectMessageList(decodeChunks(result.stdout), directoryPath);
   } finally {
     await rm(directoryPath, { recursive: true });
   }
+}
+
+async function runGenericCodexJsonProcess(
+  input: Parameters<typeof runCodexJsonProbe>[0], directoryPath: string, schemaPath: string,
+) {
+  return runBoundedProcess({
+    executable: input.preflight.executable,
+    args: buildCodexExecArgs(input.invocation, directoryPath, schemaPath), cwd: directoryPath,
+    env: createClosedCodexEnvironment(input.childEnv), stdin: new TextEncoder().encode(input.invocation.prompt),
+    timeoutMs: input.invocation.limits.timeoutMs, maxStdoutBytes: input.invocation.limits.maxStdoutBytes,
+    maxStderrBytes: input.invocation.limits.maxStderrBytes, signal: input.invocation.signal,
+  }, input.spawner);
+}
+
+async function runReviewedCodexJsonProcess(
+  input: Parameters<typeof runCodexJsonProbe>[0], directoryPath: string, schemaPath: string,
+) {
+  requireReviewedExecutable(input.preflight.executable);
+  await verifyReviewedLocalCodexInstallation();
+  return runGenericCodexJsonProcess(input, directoryPath, schemaPath);
+}
+
+async function runGenericInputInspection(input: Parameters<typeof inspectModelVisibleInputs>[0], directoryPath: string) {
+  return runBoundedProcess({
+    executable: input.preflight.executable, args: CODEX_MESSAGE_INPUT_INSPECTION_ARGS, cwd: directoryPath,
+    env: createClosedCodexEnvironment(input.childEnv), stdin: new Uint8Array(), timeoutMs: CODEX_PREFLIGHT_LIMITS.timeoutMs,
+    maxStdoutBytes: MAX_CODEX_STDOUT_BYTES, maxStderrBytes: CODEX_PREFLIGHT_LIMITS.maxStderrBytes, signal: input.signal,
+  }, input.spawner);
+}
+
+async function runReviewedInputInspection(input: Parameters<typeof inspectModelVisibleInputs>[0], directoryPath: string) {
+  requireReviewedExecutable(input.preflight.executable);
+  await verifyReviewedLocalCodexInstallation();
+  return runGenericInputInspection(input, directoryPath);
+}
+
+function requireReviewedExecutable(executable: string): void {
+  if (executable !== REVIEWED_CODEX_EXECUTABLE) throw new CodexRuntimeError("codex_version_mismatch");
 }
 
 async function* streamChunks(chunks: readonly Uint8Array[]): AsyncGenerator<Uint8Array> {

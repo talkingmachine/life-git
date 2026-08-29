@@ -3,11 +3,13 @@ import { types } from "node:util";
 
 import { CodexRuntimeError, createCodexJsonInvocation, type CodexReasoningEffort } from "./contracts";
 import { CodexFlightPool } from "./flight-pool";
-import { CodexCliModelAdapter } from "./model-adapter";
+import { CodexCliModelAdapter, createCodexCliModelAdapterForTest, createReviewedCodexCliModelAdapter } from "./model-adapter";
 import {
-  createClosedCodexEnvironment,
   preflightCodexCli,
+  createClosedCodexEnvironment,
+  preflightReviewedCodexCli,
   readDisabledFeatureInventory,
+  readReviewedDisabledFeatureInventory,
 } from "./preflight";
 import type { CodexProcessSpawner } from "./process";
 import { scavengeStaleCodexDirectories, validateCodexTempRoot } from "./temp-directory";
@@ -33,16 +35,9 @@ interface CodexCliRuntimeState {
 }
 
 export function initializeCodexCliRuntime(input: InitializeCodexCliRuntimeInput): Promise<void> {
-  return initializeCodexCliRuntimeWithVerifier(input, verifyReviewedLocalCodexInstallation);
-}
-
-function initializeCodexCliRuntimeWithVerifier(
-  input: InitializeCodexCliRuntimeInput,
-  verifyInstallation: () => Promise<void>,
-): Promise<void> {
   const state = runtimeState();
   if (state.initialization === undefined) {
-    const attempt = initializeOnce(snapshotInput(input), state, verifyInstallation);
+    const attempt = initializeOnce(snapshotInput(input), state);
     state.initialization = attempt;
     void attempt.catch(() => {
       if (state.initialization === attempt) state.initialization = undefined;
@@ -55,6 +50,24 @@ export function getCodexCliModelAdapter(): CodexCliModelAdapter {
   const adapter = runtimeState().installedAdapter;
   if (adapter === undefined) throw new CodexRuntimeError("codex_process_failed");
   return adapter;
+}
+
+/** Isolated runtime state for tests; it never reads or writes the production singleton. */
+export function createCodexCliRuntimeForTest(): Readonly<{
+  initializeCodexCliRuntime(input: InitializeCodexCliRuntimeInput): Promise<void>;
+  getCodexCliModelAdapter(): CodexCliModelAdapter;
+  verifyCodexCliCapabilities(signal: AbortSignal): Promise<CodexCliCapabilityVerification>;
+}> {
+  const state: CodexCliRuntimeState = { initialization: undefined, installedAdapter: undefined };
+  const getAdapter = (): CodexCliModelAdapter => {
+    if (state.installedAdapter === undefined) throw new CodexRuntimeError("codex_process_failed");
+    return state.installedAdapter;
+  };
+  return Object.freeze({
+    initializeCodexCliRuntime: (input) => initializeTestRuntime(input, state),
+    getCodexCliModelAdapter: getAdapter,
+    verifyCodexCliCapabilities: (signal) => verifyCapabilities(getAdapter, signal),
+  });
 }
 
 export interface CodexCliCapabilityVerification {
@@ -70,7 +83,14 @@ export interface CodexCliCapabilityVerification {
 
 /** Explicit subscription-consuming gate; startup itself intentionally remains static. */
 export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<CodexCliCapabilityVerification> {
-  const adapter = getCodexCliModelAdapter();
+  return verifyCapabilities(getCodexCliModelAdapter, signal);
+}
+
+async function verifyCapabilities(
+  getAdapter: () => CodexCliModelAdapter,
+  signal: AbortSignal,
+): Promise<CodexCliCapabilityVerification> {
+  const adapter = getAdapter();
   const zeroToolCounts: { low?: 0; medium?: 0 } = {};
   for (const reasoningEffort of ["low", "medium"] as const) {
     const outcome = await adapter.invokeJsonWithEventProof(smokeInvocation(reasoningEffort, signal));
@@ -98,6 +118,32 @@ export async function verifyCodexCliCapabilities(signal: AbortSignal): Promise<C
     if (!isExactNativeSearchNotPerformed(error)) throw error;
   }
   return Object.freeze({ schemaVersion: "codex-runtime-capabilities@1", low: Object.freeze({ webSearchCount: zeroToolCounts.low! }), medium: Object.freeze({ webSearchCount: zeroToolCounts.medium! }), discovery: Object.freeze({ availability: "available", selection: "model-selected", webSearchCount: discoveryCount }) });
+}
+
+function initializeTestRuntime(input: InitializeCodexCliRuntimeInput, state: CodexCliRuntimeState): Promise<void> {
+  if (state.initialization === undefined) {
+    const attempt = initializeTestOnce(snapshotInput(input), state);
+    state.initialization = attempt;
+    void attempt.catch(() => { if (state.initialization === attempt) state.initialization = undefined; });
+  }
+  return state.initialization;
+}
+
+async function initializeTestOnce(input: OwnedInitializationInput, state: CodexCliRuntimeState): Promise<void> {
+  throwIfAborted(input.signal);
+  const tempRoot = await validateCodexTempRoot({ path: input.tempRootPath, currentUid: input.currentUid, userHomePath: homedir(), workspacePath: process.cwd() });
+  const now = input.clock();
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new CodexRuntimeError("codex_process_failed");
+  await scavengeStaleCodexDirectories({ root: tempRoot, now: new Date(now.getTime()), staleAfterMs: 3_600_000 });
+  const preflight = await preflightCodexCli({
+    configuredExecutable: input.configuredExecutable, spawner: input.spawner, childEnv: input.childEnv, signal: input.signal,
+  });
+  await readDisabledFeatureInventory({
+    preflight, spawner: input.spawner, childEnv: input.childEnv, signal: input.signal,
+  });
+  state.installedAdapter = createCodexCliModelAdapterForTest({
+    preflight, spawner: input.spawner, tempRoot, childEnv: input.childEnv,
+  });
 }
 
 function isExactNativeSearchNotPerformed(error: unknown): boolean {
@@ -145,13 +191,12 @@ function snapshotInput(input: InitializeCodexCliRuntimeInput): OwnedInitializati
 async function initializeOnce(
   input: OwnedInitializationInput,
   state: CodexCliRuntimeState,
-  verifyInstallation: () => Promise<void>,
 ): Promise<void> {
   throwIfAborted(input.signal);
   if (input.configuredExecutable !== undefined && input.configuredExecutable !== REVIEWED_CODEX_EXECUTABLE) {
     throw new CodexRuntimeError("codex_version_mismatch");
   }
-  await verifyInstallation();
+  await verifyReviewedLocalCodexInstallation();
   throwIfAborted(input.signal);
   const tempRoot = await validateCodexTempRoot({
     path: input.tempRootPath,
@@ -172,13 +217,13 @@ async function initializeOnce(
   });
   throwIfAborted(input.signal);
 
-  const preflight = await preflightCodexCli({
+  const preflight = await preflightReviewedCodexCli({
     configuredExecutable: REVIEWED_CODEX_EXECUTABLE,
     spawner: input.spawner,
     childEnv: input.childEnv,
     signal: input.signal,
   });
-  await readDisabledFeatureInventory({
+  await readReviewedDisabledFeatureInventory({
     preflight,
     spawner: input.spawner,
     childEnv: input.childEnv,
@@ -186,7 +231,7 @@ async function initializeOnce(
   });
   throwIfAborted(input.signal);
 
-  state.installedAdapter = new CodexCliModelAdapter({
+  state.installedAdapter = createReviewedCodexCliModelAdapter({
     preflight,
     spawner: input.spawner,
     tempRoot,

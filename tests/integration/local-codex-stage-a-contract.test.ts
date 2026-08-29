@@ -606,7 +606,7 @@ describe("local Codex Stage A gate", () => {
       protocolVersion: "codex-cli-protocol@2",
       compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2",
       models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" },
-      writeIsolationProof: { model: "gpt-5.4", codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true },
+      writeIsolationProof: { model: "gpt-5.4", toolPolicy: "codex-tools-web-search@2", codeModeDisabled: true, applyPatchAttempts: 1, writePrevented: true, canaryUnchanged: true },
       effortsProven: ["low", "medium"],
       noToolProbe: { passed: true, webSearchCount: 0 },
       discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 },

@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 import { buildCodexExecArgs } from "../src/infrastructure/codex-cli/policy";
 import {
   createClosedCodexEnvironment,
-  preflightCodexCli,
-  readDisabledFeatureInventory,
+  preflightReviewedCodexCli,
+  preflightReviewedCodexCliForTest,
+  readReviewedDisabledFeatureInventory,
+  readReviewedDisabledFeatureInventoryForTest,
 } from "../src/infrastructure/codex-cli/preflight";
 import {
   nodeCodexProcessSpawner,
@@ -158,7 +160,6 @@ export async function runLocalCodexNegativeCapability(
   let disposeSignalBridge = (): void => undefined;
   try {
     disposeSignalBridge = installTerminationBridge(controller, dependencies.signalSource);
-    await dependencies.verifyInstallation();
     if (!Number.isSafeInteger(dependencies.currentUid)) return failedObservation();
     const currentUid = dependencies.currentUid as number;
     const childEnv = createClosedCodexEnvironment(readClosedEnvironmentSource(
@@ -171,18 +172,13 @@ export async function runLocalCodexNegativeCapability(
       userHomePath: dependencies.userHomePath,
       workspacePath: dependencies.workspacePath,
     });
-    const preflight = await preflightCodexCli({
-      configuredExecutable: dependencies.reviewedExecutable,
-      spawner: dependencies.spawner,
-      childEnv,
-      signal: controller.signal,
-    });
-    await readDisabledFeatureInventory({
-      preflight,
-      spawner: dependencies.spawner,
-      childEnv,
-      signal: controller.signal,
-    });
+    const preflightInput = { configuredExecutable: dependencies.reviewedExecutable, spawner: dependencies.spawner, childEnv, signal: controller.signal };
+    const preflight = supplied === undefined
+      ? await preflightReviewedCodexCli(preflightInput)
+      : await preflightReviewedCodexCliForTest(preflightInput, dependencies.reviewedExecutable, dependencies.verifyInstallation);
+    const inventoryInput = { preflight, spawner: dependencies.spawner, childEnv, signal: controller.signal };
+    if (supplied === undefined) await readReviewedDisabledFeatureInventory(inventoryInput);
+    else await readReviewedDisabledFeatureInventoryForTest(inventoryInput, dependencies.reviewedExecutable, dependencies.verifyInstallation);
 
     const observed = await withCodexTempDirectory({
       root: tempRoot,
@@ -192,9 +188,10 @@ export async function runLocalCodexNegativeCapability(
         const canaryPath = resolve(directory.directoryPath, CANARY_NAME);
         await writeCanary(canaryPath, currentUid);
         const before = await canarySnapshot(canaryPath);
-        await verifyReviewedLocalCodexInstallation();
+        if (preflight.executable !== dependencies.reviewedExecutable) throw new Error();
+        await dependencies.verifyInstallation();
         const result = await runBoundedProcess({
-          executable: preflight.executable,
+          executable: dependencies.reviewedExecutable,
           args: buildCodexExecArgs({ capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2" }, directory.directoryPath, directory.schemaPath),
           cwd: directory.directoryPath,
           env: childEnv,

@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { CodexRuntimeError } from "./contracts";
 import { CODEX_DISABLED_FEATURES, parseSupportedCodexCliVersion } from "./policy";
 import { runBoundedProcess, type CodexProcessSpawner } from "./process";
-import { verifyReviewedLocalCodexInstallation } from "./reviewed-installation";
+import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from "./reviewed-installation";
 
 export const CODEX_PREFLIGHT_LIMITS = Object.freeze({
   timeoutMs: 5_000,
@@ -26,7 +26,7 @@ export const CODEX_FEATURE_INVENTORY_ARGS = Object.freeze([
   "list",
 ] as const);
 
-const CHATGPT_APP_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex";
+const CHATGPT_APP_CODEX = REVIEWED_CODEX_EXECUTABLE;
 const KNOWN_PATH_ALIAS_WARNING =
   "WARNING: proceeding, even though we could not create PATH aliases: Operation not permitted (os error 1)\n";
 const CHATGPT_LOGIN_STATUS = "Logged in using ChatGPT\n";
@@ -44,10 +44,51 @@ export async function preflightCodexCli(input: {
   readonly childEnv: Readonly<Record<string, string>>;
   readonly signal: AbortSignal;
 }): Promise<CodexPreflightResult> {
+  return preflightWithProbe(input, runTextProbe);
+}
+
+/** Production-only preflight: every child is re-attested and bound to the reviewed executable. */
+export async function preflightReviewedCodexCli(input: {
+  readonly configuredExecutable?: string;
+  readonly pathValue?: string;
+  readonly spawner: CodexProcessSpawner;
+  readonly childEnv: Readonly<Record<string, string>>;
+  readonly signal: AbortSignal;
+}): Promise<CodexPreflightResult> {
+  if (input.configuredExecutable !== undefined && input.configuredExecutable !== REVIEWED_CODEX_EXECUTABLE) {
+    throw new CodexRuntimeError("codex_version_mismatch");
+  }
+  return preflightWithProbe({ ...input, configuredExecutable: REVIEWED_CODEX_EXECUTABLE }, createReviewedTextProbe(REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation));
+}
+
+/** Isolated-only seam for adapter tests; it cannot alter the production reviewed path. */
+export async function preflightReviewedCodexCliForTest(input: {
+  readonly configuredExecutable?: string;
+  readonly pathValue?: string;
+  readonly spawner: CodexProcessSpawner;
+  readonly childEnv: Readonly<Record<string, string>>;
+  readonly signal: AbortSignal;
+}, reviewedExecutable: string, verifyInstallation: () => Promise<void>): Promise<CodexPreflightResult> {
+  if (input.configuredExecutable !== undefined && input.configuredExecutable !== reviewedExecutable) {
+    throw new CodexRuntimeError("codex_version_mismatch");
+  }
+  return preflightWithProbe({ ...input, configuredExecutable: reviewedExecutable }, createReviewedTextProbe(reviewedExecutable, verifyInstallation));
+}
+
+async function preflightWithProbe(
+  input: {
+    readonly configuredExecutable?: string;
+    readonly pathValue?: string;
+    readonly spawner: CodexProcessSpawner;
+    readonly childEnv: Readonly<Record<string, string>>;
+    readonly signal: AbortSignal;
+  },
+  probe: typeof runTextProbe,
+): Promise<CodexPreflightResult> {
   const executable = await resolveCodexExecutable(input.configuredExecutable, input.pathValue);
   if (executable === undefined) throw new CodexRuntimeError("codex_missing");
 
-  const version = await runTextProbe(executable, ["--version"], input, { captureStderr: true });
+  const version = await probe(executable, ["--version"], input, { captureStderr: true });
   if (
     (version.stderr !== "" && version.stderr !== KNOWN_PATH_ALIAS_WARNING)
   ) {
@@ -55,7 +96,7 @@ export async function preflightCodexCli(input: {
   }
   const cliVersion = parseSupportedCodexCliVersion(version.stdout);
 
-  const loginStatus = await runTextProbe(executable, ["login", "status"], input, {
+  const loginStatus = await probe(executable, ["login", "status"], input, {
     captureStderr: true,
   });
   if (
@@ -75,7 +116,41 @@ export async function readDisabledFeatureInventory(input: {
   readonly childEnv: Readonly<Record<string, string>>;
   readonly signal: AbortSignal;
 }): Promise<Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>> {
-  const { stdout } = await runTextProbe(input.preflight.executable, CODEX_FEATURE_INVENTORY_ARGS, input, {
+  return readFeatureInventoryWithProbe(input, runTextProbe);
+}
+
+/** Production-only feature gate: it never probes a caller-selected binary. */
+export async function readReviewedDisabledFeatureInventory(input: {
+  readonly preflight: CodexPreflightResult;
+  readonly spawner: CodexProcessSpawner;
+  readonly childEnv: Readonly<Record<string, string>>;
+  readonly signal: AbortSignal;
+}): Promise<Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>> {
+  if (input.preflight.executable !== REVIEWED_CODEX_EXECUTABLE) throw new CodexRuntimeError("codex_version_mismatch");
+  return readFeatureInventoryWithProbe(input, createReviewedTextProbe(REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation));
+}
+
+/** Isolated-only seam for adapter tests; it cannot alter the production reviewed path. */
+export async function readReviewedDisabledFeatureInventoryForTest(input: {
+  readonly preflight: CodexPreflightResult;
+  readonly spawner: CodexProcessSpawner;
+  readonly childEnv: Readonly<Record<string, string>>;
+  readonly signal: AbortSignal;
+}, reviewedExecutable: string, verifyInstallation: () => Promise<void>): Promise<Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>> {
+  if (input.preflight.executable !== reviewedExecutable) throw new CodexRuntimeError("codex_version_mismatch");
+  return readFeatureInventoryWithProbe(input, createReviewedTextProbe(reviewedExecutable, verifyInstallation));
+}
+
+async function readFeatureInventoryWithProbe(
+  input: {
+    readonly preflight: CodexPreflightResult;
+    readonly spawner: CodexProcessSpawner;
+    readonly childEnv: Readonly<Record<string, string>>;
+    readonly signal: AbortSignal;
+  },
+  probe: typeof runTextProbe,
+): Promise<Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>> {
+  const { stdout } = await probe(input.preflight.executable, CODEX_FEATURE_INVENTORY_ARGS, input, {
     limits: CODEX_FEATURE_INVENTORY_LIMITS,
   });
   const inventory = parseFeatureInventory(stdout);
@@ -137,7 +212,6 @@ async function runTextProbe(
     };
   } = {},
 ): Promise<{ readonly stdout: string; readonly stderr?: string }> {
-  await verifyReviewedLocalCodexInstallation();
   const result = await runBoundedProcess({
     executable,
     args,
@@ -151,6 +225,14 @@ async function runTextProbe(
   return {
     stdout: decodeChunks(result.stdout),
     ...(result.stderr === undefined ? {} : { stderr: decodeChunks(result.stderr) }),
+  };
+}
+
+function createReviewedTextProbe(reviewedExecutable: string, verifyInstallation: () => Promise<void>): typeof runTextProbe {
+  return async (executable, args, input, options = {}) => {
+    if (executable !== reviewedExecutable) throw new CodexRuntimeError("codex_version_mismatch");
+    await verifyInstallation();
+    return runTextProbe(executable, args, input, options);
   };
 }
 

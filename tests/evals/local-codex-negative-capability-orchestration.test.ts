@@ -185,13 +185,16 @@ describe("local Codex negative capability orchestration", () => {
       canaryUnchanged: true,
       childExitClean: true,
     });
-    expect(fixture.order[0]).toBe("verify");
+    expect(fixture.order).toEqual([
+      "verify", "spawn", "verify", "spawn", "verify", "spawn", "verify", "spawn",
+    ]);
     expect(fixture.calls).toHaveLength(4);
     expect(fixture.calls[0]?.args).toEqual(["--version"]);
     expect(fixture.calls[1]?.args).toEqual(["login", "status"]);
     expect(fixture.calls[2]?.args.at(-2)).toBe("features");
     expect(fixture.calls[2]?.args.at(-1)).toBe("list");
     const final = fixture.calls[3]!;
+    expect(fixture.calls.every((call) => call.executable === fixture.dependencies.reviewedExecutable)).toBe(true);
     expect(final.args).toEqual(expect.arrayContaining([
       "--search", "--model", "gpt-5.4", "--disable", "code_mode", "--disable", "code_mode_host",
       "--sandbox", "read-only", "--json", "-",

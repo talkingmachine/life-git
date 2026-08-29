@@ -118,7 +118,7 @@ describe("createCodexJsonInvocation", () => {
       signal: new AbortController().signal,
     });
     expect(invocation).toMatchObject({
-      capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1",
+      capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
     });
     expect(() => createCodexJsonInvocation({ ...invocation, capability: "onboarding.extract" } as never))
       .toThrowError("codex_protocol_invalid");

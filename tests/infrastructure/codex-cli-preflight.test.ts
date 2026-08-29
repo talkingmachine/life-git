@@ -14,8 +14,10 @@ import {
   CODEX_DISABLED_FEATURES,
   CODEX_PREFLIGHT_LIMITS,
   preflightCodexCli,
+  preflightReviewedCodexCli,
   readDisabledFeatureInventory,
 } from "../../src/infrastructure/codex-cli/preflight";
+import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import type { CodexProcessSpawner, SpawnedCodexProcess } from "../../src/infrastructure/codex-cli/process";
 
 const encoder = new TextEncoder();
@@ -99,18 +101,33 @@ afterEach(async () => {
   await Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
-test("attests immediately before each preflight child spawn", async () => {
+test("reviewed preflight rejects a configured executable other than the reviewed executable before spawning", async () => {
   const fixture = await executableFixture();
+  const spawner = sequenceSpawner([]);
+
+  await expect(preflightReviewedCodexCli({
+    configuredExecutable: fixture.executable,
+    spawner,
+    childEnv: {},
+    signal: new AbortController().signal,
+  })).rejects.toMatchObject({ code: "codex_version_mismatch" });
+
+  expect(spawner.spawn).not.toHaveBeenCalled();
+  expect(reviewedVerifier).not.toHaveBeenCalled();
+});
+
+test("reviewed preflight attests immediately before each reviewed child spawn", async () => {
   const order: string[] = [];
   reviewedVerifier.mockImplementation(async () => { order.push("verify"); });
-  const spawner = sequenceSpawner([
-    spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output("") }),
-    spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }),
-  ]);
-  spawner.spawn.mockImplementationOnce((input) => { order.push("version"); return spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output("") }); })
-    .mockImplementationOnce((input) => { order.push("login"); return spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }); });
-  await preflightCodexCli({ configuredExecutable: fixture.executable, spawner, childEnv: {}, signal: new AbortController().signal });
+  const spawner = sequenceSpawner([]);
+  spawner.spawn.mockImplementationOnce(() => { order.push("version"); return spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output("") }); })
+    .mockImplementationOnce(() => { order.push("login"); return spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }); });
+  await preflightReviewedCodexCli({ configuredExecutable: REVIEWED_CODEX_EXECUTABLE, spawner, childEnv: {}, signal: new AbortController().signal });
   expect(order).toEqual(["verify", "version", "verify", "login"]);
+  expect(spawner.spawn.mock.calls.map(([request]) => request.executable)).toEqual([
+    REVIEWED_CODEX_EXECUTABLE,
+    REVIEWED_CODEX_EXECUTABLE,
+  ]);
 });
 
 async function executableFixture(): Promise<{ readonly root: string; readonly executable: string }> {

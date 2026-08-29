@@ -9,7 +9,7 @@ import {
   type CodexJsonInvocation,
   type CodexJsonResult,
 } from "./contracts";
-import { runCodexJsonProbe } from "./feasibility-probe";
+import { runCodexJsonProbe, runReviewedCodexJsonProbe } from "./feasibility-probe";
 import { CodexFlightPool } from "./flight-pool";
 import { snapshotOwnedJson, type JsonValue } from "./owned-json";
 import { codexPolicyFingerprint, modelForCodexCapability } from "./policy";
@@ -22,6 +22,7 @@ const NATIVE_REASON_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototy
 const DISCOVERY_RETRY_POLICY_REVISION = "missing-native-search-once-shared-deadline@1" as const;
 
 type CodexProbeResult = Awaited<ReturnType<typeof runCodexJsonProbe>>;
+type CodexProbeRunner = typeof runCodexJsonProbe;
 
 type DiscoveryDeadline = {
   readonly deadlineMs: number;
@@ -51,8 +52,9 @@ export class CodexCliModelAdapter {
   readonly #childEnv: Readonly<Record<string, string>>;
   readonly #flightPool: CodexFlightPool;
   readonly #monotonicNowMs: () => number;
+  readonly #runProbe: CodexProbeRunner;
 
-  constructor(options: CodexCliModelAdapterOptions) {
+  private constructor(options: CodexCliModelAdapterOptions, runProbe: CodexProbeRunner) {
     this.#monotonicNowMs = readConfiguredMonotonicClock(options);
     this.#preflight = Object.freeze({
       executable: options.preflight.executable,
@@ -68,6 +70,15 @@ export class CodexCliModelAdapter {
       now: Date.now,
       classifyPressure,
     });
+    this.#runProbe = runProbe;
+  }
+
+  static forGenericTest(options: CodexCliModelAdapterOptions): CodexCliModelAdapter {
+    return new CodexCliModelAdapter(options, runCodexJsonProbe);
+  }
+
+  static forReviewedProduction(options: CodexCliModelAdapterOptions): CodexCliModelAdapter {
+    return new CodexCliModelAdapter(options, runReviewedCodexJsonProbe);
   }
 
   async invokeJson(input: CodexJsonInvocation): Promise<CodexJsonResult> {
@@ -89,6 +100,9 @@ export class CodexCliModelAdapter {
   }
 
   private invokeFlightOutcome(input: CodexJsonInvocation): Promise<CodexCliInvocationOutcome> {
+    if (input.toolPolicy === "codex-tools-web-search@2" && this.#preflight.cliVersion !== "codex-cli 0.149.0-alpha.4") {
+      return Promise.reject(new CodexRuntimeError("codex_version_mismatch"));
+    }
     const key = deriveCodexFlightKey(input);
     return this.#flightPool.run({
       key,
@@ -102,7 +116,7 @@ export class CodexCliModelAdapter {
           let acceptedProbe: CodexProbeResult | undefined;
           for (let attempt = 0; attempt < 2; attempt += 1) {
             throwIfAborted(signal);
-            const candidate = await runCodexJsonProbe({
+            const candidate = await this.#runProbe({
               invocation,
               preflight: this.#preflight,
               spawner: this.#spawner,
@@ -131,7 +145,7 @@ export class CodexCliModelAdapter {
           if (acceptedProbe === undefined) throw new CodexRuntimeError("codex_search_not_performed");
           probe = acceptedProbe;
         } else {
-          probe = await runCodexJsonProbe({
+          probe = await this.#runProbe({
             invocation: createLeaderInvocation(input, signal, input.limits),
             preflight: this.#preflight,
             spawner: this.#spawner,
@@ -305,7 +319,14 @@ function clockIntegrityInvalid(): CodexRuntimeError {
 export function createCodexCliModelAdapterForTest(
   options: CodexCliModelAdapterOptions,
 ): CodexCliModelAdapter {
-  return new CodexCliModelAdapter(options);
+  return CodexCliModelAdapter.forGenericTest(options);
+}
+
+/** The only production adapter factory: its process runner is not injectable. */
+export function createReviewedCodexCliModelAdapter(
+  options: CodexCliModelAdapterOptions,
+): CodexCliModelAdapter {
+  return CodexCliModelAdapter.forReviewedProduction(options);
 }
 
 function freezeJson(value: JsonValue): JsonValue {
