@@ -2,7 +2,7 @@ import {
   OnboardingModelError,
   type OnboardingModelPort,
 } from "../../application/onboarding-contracts";
-import { ONBOARDING_MODEL_VERSIONS_V4 } from "../../application/onboarding-model-versions";
+import { ONBOARDING_MODEL_VERSIONS_V5 } from "../../application/onboarding-model-versions";
 import { reconstructOnboardingQuestionnaireProjection } from "../../decision/onboarding-model-contract";
 import {
   parseLocalReviewOutput,
@@ -24,7 +24,7 @@ import {
   ONBOARDING_REVIEW_SCHEMA,
 } from "./onboarding-schema";
 
-export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V4;
+export const ONBOARDING_MODEL_VERSIONS = ONBOARDING_MODEL_VERSIONS_V5;
 
 export const ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES = 65_536;
 export const ONBOARDING_REVIEW_MAX_PROMPT_BYTES = 98_304;
@@ -56,6 +56,7 @@ export const ONBOARDING_EXTRACTION_PROMPT_TEMPLATE = [
   "Use questionnaire only as context; do not copy facts that are absent from the current message.",
   "Return only {schemaVersion,proposals,nextQuestion}; every proposal is exactly {f,v,s,e}.",
   "s and e are exact UTF-16 offsets for supporting text in currentUserMessage.text.",
+  "Every s:e must be the smallest exact value-bearing phrase in currentUserMessage.text that independently supports v; never point to adjacent/general context that does not itself support v.",
   ONBOARDING_EXTRACTION_WIRE_ALGEBRA,
   "For a participants roster value, use self/self first, then companion.0, companion.1, and so on in mention order; never use self for a companion.",
   "Use those same participant descriptors in participant values. Never emit the same f twice.",

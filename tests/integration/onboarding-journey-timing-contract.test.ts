@@ -33,7 +33,7 @@ import {
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
-  ONBOARDING_MODEL_VERSIONS_V4 as ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V5 as ONBOARDING_MODEL_VERSIONS_V3,
 } from "../../src/application/onboarding-model-versions";
 import type { OnboardingSessionState } from "../../src/decision/onboarding-session";
 

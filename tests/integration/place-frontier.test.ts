@@ -28,6 +28,7 @@ import {
   ONBOARDING_MODEL_VERSIONS_V2,
   ONBOARDING_MODEL_VERSIONS_V3,
   ONBOARDING_MODEL_VERSIONS_V4,
+  ONBOARDING_MODEL_VERSIONS_V5,
 } from "../../src/application/onboarding-model-versions";
 import type { ColdStartEvent } from "../../src/application/cold-start";
 import {
@@ -1216,9 +1217,10 @@ async function concurrentStoreWrites(input: {
 describe("Onboarding receipt Place Frontier", () => {
   test.each([
     ["historical V1", ONBOARDING_MODEL_VERSIONS_V1],
-    ["current V2", ONBOARDING_MODEL_VERSIONS_V2],
-    ["current V3", ONBOARDING_MODEL_VERSIONS_V3],
-    ["current V4", ONBOARDING_MODEL_VERSIONS_V4],
+    ["historical V2", ONBOARDING_MODEL_VERSIONS_V2],
+    ["historical V3", ONBOARDING_MODEL_VERSIONS_V3],
+    ["historical V4", ONBOARDING_MODEL_VERSIONS_V4],
+    ["current V5", ONBOARDING_MODEL_VERSIONS_V5],
   ] as const)("prepares the exact %s lineage at its fixed run and time, then fast-replays it", async (
     _lineage,
     versions,

@@ -11,9 +11,9 @@ import {
   type OnboardingRuntimeErrorCode,
 } from "../src/application/onboarding-contracts";
 import {
-  ONBOARDING_MODEL_VERSIONS_V4,
+  ONBOARDING_MODEL_VERSIONS_V5,
   reconstructOnboardingModelVersions,
-  type OnboardingModelVersionsV4,
+  type OnboardingModelVersionsV5,
 } from "../src/application/onboarding-model-versions";
 import {
   PARTICIPANT_LEAF_IDS,
@@ -122,16 +122,16 @@ export interface OnboardingModelFeasibilityArtifact {
   readonly schemaVersion: typeof ARTIFACT_VERSION;
   readonly fixtureVersion: typeof FIXTURE_VERSION;
   readonly fixtureDigest: string;
-  readonly invocationVersion: OnboardingModelVersionsV4["invocation"];
+  readonly invocationVersion: OnboardingModelVersionsV5["invocation"];
   readonly protocolVersion: "codex-cli-protocol@2";
   readonly model: "gpt-5.6-terra";
   readonly reasoningEffort: "low";
   readonly toolPolicy: "codex-tools-none@2";
-  readonly cliVersion: OnboardingModelVersionsV4["cliVersion"];
-  readonly extractionPromptVersion: OnboardingModelVersionsV4["extractionPrompt"];
-  readonly reviewPromptVersion: OnboardingModelVersionsV4["reviewPrompt"];
-  readonly extractionSchemaVersion: OnboardingModelVersionsV4["extractionSchema"];
-  readonly reviewSchemaVersion: OnboardingModelVersionsV4["reviewSchema"];
+  readonly cliVersion: OnboardingModelVersionsV5["cliVersion"];
+  readonly extractionPromptVersion: OnboardingModelVersionsV5["extractionPrompt"];
+  readonly reviewPromptVersion: OnboardingModelVersionsV5["reviewPrompt"];
+  readonly extractionSchemaVersion: OnboardingModelVersionsV5["extractionSchema"];
+  readonly reviewSchemaVersion: OnboardingModelVersionsV5["reviewSchema"];
   readonly extractionPromptDigest: string;
   readonly reviewPromptDigest: string;
   readonly extractionSchemaDigest: string;
@@ -662,10 +662,10 @@ function requireDistinctDiagnosticPath(value: unknown, artifactPath: string): st
   return diagnosticPath;
 }
 
-function requireCurrentModelVersions(value: unknown): OnboardingModelVersionsV4 {
+function requireCurrentModelVersions(value: unknown): OnboardingModelVersionsV5 {
   try {
     const versions = reconstructOnboardingModelVersions(value);
-    if (versions !== ONBOARDING_MODEL_VERSIONS_V4) throw failed();
+    if (versions !== ONBOARDING_MODEL_VERSIONS_V5) throw failed();
     return versions;
   } catch {
     throw failed();

@@ -7,6 +7,8 @@ import {
   OnboardingModelError,
   type OnboardingModelPort,
 } from "../../src/application/onboarding-contracts";
+import { ONBOARDING_MODEL_VERSIONS_V5 } from
+  "../../src/application/onboarding-model-versions";
 import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
 import { createOnboardingSession, type SessionMessage } from "../../src/decision/onboarding-session";
 import {
@@ -109,7 +111,7 @@ function extractionMetadata(): CodexJsonResult["metadata"] {
     model: CODEX_MODEL,
     reasoningEffort: "low",
     toolPolicy: "codex-tools-none@2",
-    templateVersion: "onboarding-extract@4",
+    templateVersion: "onboarding-extract@5",
     schemaVersion: "onboarding-extraction-wire@2",
   };
 }
@@ -202,7 +204,7 @@ describe("Codex onboarding model", () => {
     expect(ONBOARDING_MODEL_VERSIONS).toEqual({
       invocation: "codex-cli-invocation@2",
       cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
-      extractionPrompt: "onboarding-extract@4",
+      extractionPrompt: "onboarding-extract@5",
       reviewPrompt: "onboarding-review@2",
       extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
@@ -223,6 +225,7 @@ describe("Codex onboarding model", () => {
     });
     expect(Object.keys(model)).toEqual(["versions", "extract", "review"]);
     expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS);
+    expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V5);
     expect(Object.isFrozen(model)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_EXTRACTION_LIMITS)).toBe(true);
@@ -248,7 +251,7 @@ describe("Codex onboarding model", () => {
     const invocation = invokeJson.mock.calls[0]?.[0];
     expect(invocation).toMatchObject({
       capability: "onboarding.extract",
-      templateVersion: "onboarding-extract@4",
+      templateVersion: "onboarding-extract@5",
       schemaVersion: "onboarding-extraction-wire@2",
       limits: ONBOARDING_EXTRACTION_LIMITS,
     });
@@ -261,9 +264,9 @@ describe("Codex onboarding model", () => {
     expect(invocation?.prompt).not.toContain("messageId");
     expect(invocation?.prompt).toContain("onboarding-questionnaire-projection@1");
     const staticTemplate = ONBOARDING_EXTRACTION_PROMPT_TEMPLATE;
-    expect(utf8Bytes(staticTemplate)).toBe(1_962);
+    expect(utf8Bytes(staticTemplate)).toBe(2_150);
     expect(createHash("sha256").update(staticTemplate).digest("hex")).toBe(
-      "943f208c6b53ee409a21425d372b456a253e9ddcfd9d3f004c35be2d8c719435",
+      "bb578761419ad936e9ea069d369e21184111e2d59a9cd289ca48031aa5fa3a85",
     );
     expect(utf8Bytes(staticTemplate)).toBeLessThanOrEqual(2_500);
     expect(staticTemplate).toContain(ONBOARDING_EXTRACTION_WIRE_ALGEBRA);
@@ -292,9 +295,12 @@ describe("Codex onboarding model", () => {
         questionnaire: projectQuestionnaireForModel(emptySession),
       }),
     );
-    expect(utf8Bytes(canonicalPrompt)).toBe(8_158);
+    expect(utf8Bytes(canonicalPrompt)).toBe(8_346);
     expect(utf8Bytes(canonicalPrompt)).toBeLessThanOrEqual(9_000);
     expect(invocation?.prompt).toContain("Never emit the same f twice");
+    expect(invocation?.prompt).toContain(
+      "Every s:e must be the smallest exact value-bearing phrase in currentUserMessage.text that independently supports v; never point to adjacent/general context that does not itself support v.",
+    );
     expect(invocation?.prompt).toContain(
       "Normalize city names to their canonical nominative Russian form",
     );
