@@ -91,6 +91,7 @@ describe("negative capability structural observation", () => {
 
     expect(observation).toEqual({
       schemaVersion: "local-codex-negative-capability-observation@2",
+      model: "gpt-5.4", toolPolicy: "codex-tools-web-search@2", codeModeDisabled: true,
       mode: "structural_observation",
       stableCode: "codex_negative_capability_shape_unreviewed",
       passed: false,
@@ -166,6 +167,11 @@ describe("negative capability structural observation", () => {
 });
 
 describe("negative capability strict JSONL protocol", () => {
+  test("rejects an item event with an extra top-level key", async () => {
+    const events = structuredClone(validProtocol());
+    (events[6] as Record<string, unknown>).extra = "ignored-before-fix";
+    await expect(observe(events)).resolves.toMatchObject({ protocolValid: false, unknownEventSeen: true });
+  });
   test("accepts only the complete reviewed protocol", async () => {
     const observation = await observe(validProtocol());
     expect(observation.protocolValid).toBe(true);

@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { CodexRuntimeError } from "./contracts";
 import { CODEX_DISABLED_FEATURES, parseSupportedCodexCliVersion } from "./policy";
 import { runBoundedProcess, type CodexProcessSpawner } from "./process";
+import { verifyReviewedLocalCodexInstallation } from "./reviewed-installation";
 
 export const CODEX_PREFLIGHT_LIMITS = Object.freeze({
   timeoutMs: 5_000,
@@ -136,6 +137,7 @@ async function runTextProbe(
     };
   } = {},
 ): Promise<{ readonly stdout: string; readonly stderr?: string }> {
+  await verifyReviewedLocalCodexInstallation();
   const result = await runBoundedProcess({
     executable,
     args,

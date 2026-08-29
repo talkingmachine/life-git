@@ -14,6 +14,7 @@ import {
 } from "./preflight";
 import { buildCodexExecArgs } from "./policy";
 import { runBoundedProcess, type CodexProcessSpawner } from "./process";
+import { verifyReviewedLocalCodexInstallation } from "./reviewed-installation";
 import {
   createEmptyCodexTempDirectory,
   type ValidatedCodexTempRoot,
@@ -48,6 +49,7 @@ export async function runCodexJsonProbe(input: {
     root: input.tempRoot,
     outputSchema: input.invocation.outputSchema,
     use: async ({ directoryPath, schemaPath }) => {
+      await verifyReviewedLocalCodexInstallation();
       const result = await runBoundedProcess({
         executable: input.preflight.executable,
         args: buildCodexExecArgs(input.invocation, directoryPath, schemaPath),
@@ -85,6 +87,7 @@ export async function inspectModelVisibleInputs(input: {
 }> {
   const directoryPath = await createEmptyCodexTempDirectory(input.tempRoot);
   try {
+    await verifyReviewedLocalCodexInstallation();
     const result = await runBoundedProcess({
       executable: input.preflight.executable,
       args: CODEX_MESSAGE_INPUT_INSPECTION_ARGS,

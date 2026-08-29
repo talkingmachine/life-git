@@ -192,6 +192,7 @@ export async function runLocalCodexNegativeCapability(
         const canaryPath = resolve(directory.directoryPath, CANARY_NAME);
         await writeCanary(canaryPath, currentUid);
         const before = await canarySnapshot(canaryPath);
+        await verifyReviewedLocalCodexInstallation();
         const result = await runBoundedProcess({
           executable: preflight.executable,
           args: buildCodexExecArgs({ capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2" }, directory.directoryPath, directory.schemaPath),
@@ -340,6 +341,11 @@ function isPreTurnNotice(event: Record<string, unknown>): boolean {
 }
 
 function observeItem(event: Record<string, unknown>, state: EventState): void {
+  if (!hasExactKeys(event, ["type", "item"])) {
+    state.unknownEventSeen = true;
+    state.malformed = true;
+    return;
+  }
   const item = event.item;
   if (!isObject(item) || typeof item.type !== "string") { state.malformed = true; return; }
   if (["web_search", "file_change", "reasoning", "agent_message"].includes(item.type)) increment(state.eventTypeCounts, item.type);
