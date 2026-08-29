@@ -27,6 +27,7 @@ import {
 import type {
   CitySafetyCandidateInspectionInput,
   CitySafetyDiscoveryResult,
+  CitySafetyOfficialDiscoveryPort,
   RunCitySafetyDiscoveryInput,
 } from "./city-safety-contracts";
 
@@ -126,6 +127,16 @@ function validatePrevious(
     !urlAllowedByPublisher(previous.resolvedEvidenceUrl, publisher)) {
     throw new Error("invalid_city_safety_previous");
   }
+}
+
+function priorRecoveryReason(attempt: CitySafetyCandidateAttempt | undefined):
+  | "unavailable" | "stale" | "empty" | "not_covering_fact" | undefined {
+  if (attempt === undefined) return undefined;
+  if (attempt.disposition === "usable") return attempt.periodDisposition === "fallback" ? "stale" : undefined;
+  if (attempt.reason === "stale") return "stale";
+  if (attempt.reason === "scope_mismatch" || attempt.reason === "definition_mismatch") return "not_covering_fact";
+  if (attempt.reason === "missing_numerator" || attempt.reason === "denominator_missing") return "empty";
+  return "unavailable";
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -938,6 +949,7 @@ async function executeDiscovery(
   ports: {
     readonly search: import("./city-safety-contracts").CitySafetySearchPort;
     readonly officialDocuments: import("./city-safety-contracts").CitySafetyOfficialDocumentPort;
+    readonly officialDiscovery?: CitySafetyOfficialDiscoveryPort;
     readonly clock: () => Date;
   },
 ): Promise<CitySafetyDiscoveryResult> {
@@ -972,10 +984,6 @@ async function executeDiscovery(
       publisherId: route.publisherId,
       publisherNavigationUrl: route.navigationUrl,
     },
-  }));
-  input.recoveryCandidates?.forEach((url) => queue.push({
-    url: canonicalizeCitySafetyCandidateUrl(url),
-    origin: { kind: "search", queryId: `official-source-recovery:${input.runId}` },
   }));
 
   const seen = new Set<string>();
@@ -1024,9 +1032,34 @@ async function executeDiscovery(
   };
 
   await inspectQueued();
+  const previousAttempt = candidateAttempts.find((attempt) => attempt.origin.kind === "previous");
+  const recoveryReason = input.previousAccepted === undefined ? undefined : priorRecoveryReason(previousAttempt);
+  if (recoveryReason !== undefined && acceptedPreferred === undefined && ports.officialDiscovery !== undefined &&
+    candidateAttempts.length < MAX_CANDIDATES) {
+    const discovery = await ports.officialDiscovery.discover({
+      runId: input.runId,
+      catalog: input.catalog,
+      integrity: input.integrity,
+      sourcePlan: input.sourcePlan,
+      authorityDirectory: input.authorityDirectory,
+      cityId: input.cityId,
+      failedUrl: previousAttempt!.canonicalUrl,
+      reason: recoveryReason,
+      signal: input.signal,
+    });
+    abortIfNeeded(input.signal);
+    if (discovery.kind === "candidates") {
+      discovery.urls.forEach((url) => queue.push({
+        url: canonicalizeCitySafetyCandidateUrl(url),
+        origin: { kind: "search", queryId: `official-source-recovery:${input.runId}` },
+      }));
+      await inspectQueued();
+    }
+  }
   for (let queryIndex = 0;
     queryIndex < queries.length && candidateAttempts.length < MAX_CANDIDATES && acceptedPreferred === undefined;
     queryIndex += 1) {
+    if (recoveryReason !== undefined && ports.officialDiscovery !== undefined) break;
     abortIfNeeded(input.signal);
     const queryId = `city-safety-query:${input.runId}:${queryIndex + 1}`;
     const searchedAt = clockInstant(ports.clock);
