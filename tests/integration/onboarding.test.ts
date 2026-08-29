@@ -216,6 +216,64 @@ describe("onboarding application use cases", () => {
     ]);
   });
 
+  test("offers guard-only semantic acceptance without allocating IDs before final revalidation", async () => {
+    // Break caught: the application cannot ask for a guard retry, or its advisory validator mutates session state.
+    const valid = {
+      schemaVersion: "onboarding-model-output@1" as const,
+      proposals: [{
+        fieldId: "move_horizon" as const,
+        typedValue: "within_3_months" as const,
+        messageId: USER_MESSAGE,
+        sourceSpan: { start: 0, end: 10 },
+      }],
+      nextQuestion: "When are you moving?",
+    };
+    const invalid = {
+      ...valid,
+      proposals: [{ ...valid.proposals[0], sourceSpan: { start: 0, end: 0 } }],
+    };
+    const nextParticipantId = vi.fn(() => "40000000-0000-4000-8000-000000000001");
+    const nextAssistantMessageId = vi.fn(() => ASSISTANT_MESSAGE);
+    const nextCompletionCommandId = vi.fn(() => COMMAND_2);
+    const base = model();
+    const extract = vi.fn<OnboardingModelPort["extract"]>(async (input) => {
+      expect(input.acceptExtraction).toBeTypeOf("function");
+      const attempt = Object.freeze({ attempt: "initial" as const });
+      expect(input.acceptExtraction?.(invalid, attempt)).toEqual({
+        kind: "retryable",
+        reason: "guard_invalid",
+      });
+      expect(nextParticipantId).not.toHaveBeenCalled();
+      expect(nextAssistantMessageId).not.toHaveBeenCalled();
+      expect(nextCompletionCommandId).not.toHaveBeenCalled();
+      expect(input.acceptExtraction?.(valid, attempt)).toEqual({ kind: "accepted" });
+      expect(nextParticipantId).not.toHaveBeenCalled();
+      expect(nextAssistantMessageId).not.toHaveBeenCalled();
+      expect(nextCompletionCommandId).not.toHaveBeenCalled();
+      return valid;
+    });
+    const localModel: OnboardingModelPort = Object.freeze({ ...base, extract });
+
+    const session = await extractMessage({
+      schemaVersion: "onboarding-message-command@1",
+      session: emptySession(),
+      message: { messageId: USER_MESSAGE, role: "user", text: "This winter" },
+    }, {
+      model: localModel,
+      nextParticipantId,
+      nextAssistantMessageId,
+      nextCompletionCommandId,
+    }, new AbortController().signal);
+
+    expect(session.messages).toEqual([
+      { messageId: USER_MESSAGE, role: "user", text: "This winter" },
+      { messageId: ASSISTANT_MESSAGE, role: "assistant", text: "When are you moving?" },
+    ]);
+    expect(nextParticipantId).not.toHaveBeenCalled();
+    expect(nextAssistantMessageId).toHaveBeenCalledOnce();
+    expect(nextCompletionCommandId).toHaveBeenCalledOnce();
+  });
+
   test("falls back to one fixed question when extraction model is unavailable", async () => {
     // Break caught: rejecting an unavailable model instead of preserving the deterministic questionnaire.
     const nextParticipantId = vi.fn(() => "40000000-0000-4000-8000-000000000001");

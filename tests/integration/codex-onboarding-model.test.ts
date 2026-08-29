@@ -338,6 +338,195 @@ describe("Codex onboarding model", () => {
     ]);
   });
 
+  test("shares one low-to-medium budget with a semantic acceptance retry", async () => {
+    // Break caught: a schema-valid but guard-invalid low result bypasses the one allowed medium retry.
+    const signal = new AbortController().signal;
+    const { runtime, invokeJson } = fakeRuntime(async (invocation) => ({
+      ...extractionResult(),
+      metadata: { ...extractionMetadata(), reasoningEffort: invocation.reasoningEffort },
+    }));
+    const model = createCodexOnboardingModel(runtime);
+    let acceptanceCalls = 0;
+    const acceptExtraction = vi.fn((output: unknown) => {
+      acceptanceCalls += 1;
+      expect(Object.isFrozen(output)).toBe(true);
+      const proposal = (output as { proposals: readonly unknown[] }).proposals[0];
+      expect(Object.isFrozen((output as { proposals: readonly unknown[] }).proposals)).toBe(true);
+      expect(Object.isFrozen(proposal)).toBe(true);
+      return acceptanceCalls === 1
+        ? Object.freeze({ kind: "retryable" as const, reason: "guard_invalid" as const })
+        : Object.freeze({ kind: "accepted" as const });
+    });
+
+    await expect(model.extract({
+      message: message(), questionnaire: questionnaire(), signal, acceptExtraction,
+    })).resolves.toEqual(decodedExtractionResult());
+
+    expect(invokeJson.mock.calls.map(([call]) => [call.reasoningEffort, call.signal])).toEqual([
+      ["low", signal],
+      ["medium", signal],
+    ]);
+    expect(acceptExtraction).toHaveBeenCalledTimes(2);
+  });
+
+  test("shares one monotonic deadline across semantic low-to-medium retry", async () => {
+    let nowMs = 1_000;
+    const signal = new AbortController().signal;
+    const { runtime, invokeJson } = fakeRuntime(async (invocation) => ({
+      ...extractionResult(),
+      metadata: { ...extractionMetadata(), reasoningEffort: invocation.reasoningEffort },
+    }));
+    const model = createCodexOnboardingModel(runtime, { monotonicNowMs: () => nowMs });
+    const attempts: unknown[] = [];
+
+    await expect(model.extract({
+      message: message(), questionnaire: questionnaire(), signal,
+      acceptExtraction: (_output, attempt) => {
+        attempts.push(attempt);
+        expect(Object.isFrozen(attempt)).toBe(true);
+        if (attempt.attempt === "initial") {
+          nowMs += 12_345;
+          return Object.freeze({ kind: "retryable" as const, reason: "guard_invalid" as const });
+        }
+        return Object.freeze({ kind: "accepted" as const });
+      },
+    })).resolves.toEqual(decodedExtractionResult());
+
+    expect(invokeJson.mock.calls.map(([invocation]) => ({
+      effort: invocation.reasoningEffort,
+      timeoutMs: invocation.limits.timeoutMs,
+      frozen: Object.isFrozen(invocation.limits),
+      signal: invocation.signal,
+    }))).toEqual([
+      { effort: "low", timeoutMs: 30_000, frozen: true, signal },
+      { effort: "medium", timeoutMs: 17_655, frozen: true, signal },
+    ]);
+    expect(attempts).toEqual([{ attempt: "initial" }, { attempt: "retry" }]);
+  });
+
+  test("does not start medium after the shared extraction deadline is exhausted", async () => {
+    let nowMs = 0;
+    const { runtime, invokeJson } = fakeRuntime(async () => extractionResult());
+    const model = createCodexOnboardingModel(runtime, { monotonicNowMs: () => nowMs });
+    const acceptExtraction = vi.fn(() => {
+      nowMs = ONBOARDING_EXTRACTION_LIMITS.timeoutMs;
+      return Object.freeze({ kind: "retryable" as const, reason: "guard_invalid" as const });
+    });
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(),
+      signal: new AbortController().signal, acceptExtraction,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_runtime_failed");
+    expect(error.runtimeCode).toBe("codex_timeout");
+    expect(invokeJson).toHaveBeenCalledOnce();
+  });
+
+  test("rejects a schema-valid result that arrives after the shared extraction deadline", async () => {
+    let nowMs = 0;
+    const { runtime, invokeJson } = fakeRuntime(async () => {
+      nowMs = ONBOARDING_EXTRACTION_LIMITS.timeoutMs;
+      return extractionResult();
+    });
+    const model = createCodexOnboardingModel(runtime, { monotonicNowMs: () => nowMs });
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_runtime_failed");
+    expect(error.runtimeCode).toBe("codex_timeout");
+    expect(invokeJson).toHaveBeenCalledOnce();
+  });
+
+  test("fails closed when the extraction clock moves backwards", async () => {
+    const values = [10, 9];
+    const { runtime, invokeJson } = fakeRuntime(async () => extractionResult());
+    const model = createCodexOnboardingModel(runtime, {
+      monotonicNowMs: () => values.shift() ?? 9,
+    });
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_integrity_failed");
+    expect(invokeJson).toHaveBeenCalledOnce();
+  });
+
+  test("fails closed before invocation when the extraction clock is invalid", async () => {
+    const { runtime, invokeJson } = fakeRuntime(async () => extractionResult());
+    const model = createCodexOnboardingModel(runtime, { monotonicNowMs: () => Number.NaN });
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(), signal: new AbortController().signal,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_integrity_failed");
+    expect(invokeJson).not.toHaveBeenCalled();
+  });
+
+  test("stops after two retryable semantic outcomes", async () => {
+    // Break caught: semantic ambiguity creates a third call or returns a rejected medium result.
+    const { runtime, invokeJson } = fakeRuntime(async (invocation) => ({
+      ...extractionResult(),
+      metadata: { ...extractionMetadata(), reasoningEffort: invocation.reasoningEffort },
+    }));
+    const model = createCodexOnboardingModel(runtime);
+    const acceptExtraction = vi.fn(() =>
+      Object.freeze({ kind: "retryable" as const, reason: "guard_invalid" as const }));
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(),
+      signal: new AbortController().signal, acceptExtraction,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_invalid");
+    expect(invokeJson.mock.calls.map(([call]) => call.reasoningEffort)).toEqual(["low", "medium"]);
+    expect(acceptExtraction).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
+    ["throws", () => { throw new Error(SECRET); }],
+    ["returns a malformed outcome", () => "retryable" as unknown],
+  ] as const)("maps an acceptance callback that %s to integrity failure without retry", async (_case, implementation) => {
+    // Break caught: callback bugs become retries/fallbacks or leak their thrown content.
+    const { runtime, invokeJson } = fakeRuntime(async () => extractionResult());
+    const model = createCodexOnboardingModel(runtime);
+    const acceptExtraction = vi.fn(implementation) as unknown as
+      (output: unknown) => Readonly<{ kind: "accepted" }>;
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(),
+      signal: new AbortController().signal, acceptExtraction,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_integrity_failed");
+    expect(invokeJson).toHaveBeenCalledOnce();
+    expect(acceptExtraction).toHaveBeenCalledOnce();
+  });
+
+  test("does not start medium when the caller aborts during semantic acceptance", async () => {
+    // Break caught: a false low semantic result wins over abort and launches a late medium child.
+    const controller = new AbortController();
+    const { runtime, invokeJson } = fakeRuntime(async () => extractionResult());
+    const model = createCodexOnboardingModel(runtime);
+    const acceptExtraction = vi.fn(() => {
+      controller.abort(new Error(SECRET));
+      return Object.freeze({ kind: "retryable" as const, reason: "guard_invalid" as const });
+    });
+
+    const error = await modelError(model.extract({
+      message: message(), questionnaire: questionnaire(),
+      signal: controller.signal, acceptExtraction,
+    }));
+
+    expectContentFreeError(error, "onboarding_model_aborted");
+    expect(invokeJson).toHaveBeenCalledOnce();
+    expect(acceptExtraction).toHaveBeenCalledOnce();
+  });
+
   test("reviews through exactly one separately bound shared-runtime invocation", async () => {
     const { runtime, invokeJson } = fakeRuntime(async () => reviewResult());
     const model = createCodexOnboardingModel(runtime);

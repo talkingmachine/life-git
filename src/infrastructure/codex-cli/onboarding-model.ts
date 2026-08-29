@@ -1,5 +1,8 @@
 import {
   OnboardingModelError,
+  type OnboardingExtractionAcceptance,
+  type OnboardingExtractionAcceptor,
+  type OnboardingExtractionAttemptContext,
   type OnboardingModelPort,
 } from "../../application/onboarding-contracts";
 import { ONBOARDING_MODEL_VERSIONS_V5 } from "../../application/onboarding-model-versions";
@@ -45,10 +48,25 @@ export const ONBOARDING_REVIEW_LIMITS = Object.freeze({
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ABORTED = Symbol("onboarding-model-aborted");
-const EXTRACTION_SCHEMA_INVALID = Symbol("onboarding-extraction-schema-invalid");
+const EXTRACTION_RETRYABLE_INVALID = Symbol("onboarding-extraction-retryable-invalid");
+const EXTRACTION_ACCEPTANCE_INTEGRITY_INVALID =
+  Symbol("onboarding-extraction-acceptance-integrity-invalid");
+const EXTRACTION_CLOCK_INTEGRITY_INVALID = Symbol("onboarding-extraction-clock-integrity-invalid");
 const RESULT_INTEGRITY_INVALID = Symbol("onboarding-model-result-integrity-invalid");
 const NATIVE_ABORTED_GETTER = Object.getOwnPropertyDescriptor(AbortSignal.prototype, "aborted")?.get;
 const INPUT_JSON_PLACEHOLDER = "{{ONBOARDING_INPUT_JSON}}";
+const INITIAL_EXTRACTION_ATTEMPT = Object.freeze({ attempt: "initial" as const });
+const RETRY_EXTRACTION_ATTEMPT = Object.freeze({ attempt: "retry" as const });
+
+type ExtractionDeadline = {
+  readonly deadlineMs: number;
+  readonly monotonicNowMs: () => number;
+  lastObservedMs: number;
+};
+
+export type CodexOnboardingModelOptions = Readonly<{
+  readonly monotonicNowMs?: () => number;
+}>;
 
 export const ONBOARDING_EXTRACTION_PROMPT_TEMPLATE = [
   "Extract only explicit, conscious facts from currentUserMessage.text into the exact JSON schema.",
@@ -79,10 +97,15 @@ export const ONBOARDING_REVIEW_PROMPT_TEMPLATE = [
   "END_ONBOARDING_INPUT_JSON",
 ].join("\n");
 
-export function createCodexOnboardingModel(runtime: CodexCliModelAdapter): OnboardingModelPort {
+export function createCodexOnboardingModel(
+  runtime: CodexCliModelAdapter,
+  options: CodexOnboardingModelOptions = {},
+): OnboardingModelPort {
+  const monotonicNowMs = options.monotonicNowMs ?? defaultMonotonicNowMs;
   const model = {
     versions: ONBOARDING_MODEL_VERSIONS,
-    extract: (input: Parameters<OnboardingModelPort["extract"]>[0]) => extract(runtime, input),
+    extract: (input: Parameters<OnboardingModelPort["extract"]>[0]) =>
+      extract(runtime, monotonicNowMs, input),
     review: (input: Parameters<OnboardingModelPort["review"]>[0]) => review(runtime, input),
   } satisfies OnboardingModelPort;
   return Object.freeze(model);
@@ -90,28 +113,44 @@ export function createCodexOnboardingModel(runtime: CodexCliModelAdapter): Onboa
 
 async function extract(
   runtime: CodexCliModelAdapter,
+  monotonicNowMs: () => number,
   input: Parameters<OnboardingModelPort["extract"]>[0],
 ): ReturnType<OnboardingModelPort["extract"]> {
   let signal: AbortSignal | undefined;
   try {
-    const values = readExactPlainObject(input, ["message", "questionnaire", "signal"]);
+    const values = readExactPlainObject(
+      input,
+      ["message", "questionnaire", "signal"],
+      ["acceptExtraction"],
+    );
     signal = readSignal(values.signal);
     throwIfAborted(signal);
     const message = readUserMessage(values.message);
     const questionnaire = reconstructOnboardingQuestionnaireProjection(values.questionnaire);
+    const acceptExtraction = readExtractionAcceptor(values.acceptExtraction);
     const prompt = buildPrompt(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE, {
       currentUserMessage: { text: message.text },
       questionnaire,
     });
     requirePromptSize(prompt, ONBOARDING_EXTRACTION_MAX_PROMPT_BYTES);
+    const deadline = createExtractionDeadline(monotonicNowMs);
     try {
       return await invokeExtraction(runtime, {
-        prompt, messageId: message.messageId, signal, reasoningEffort: "low",
+        prompt, messageId: message.messageId, signal, reasoningEffort: "low", acceptExtraction,
+        attempt: INITIAL_EXTRACTION_ATTEMPT,
+        deadline,
+        limits: extractionLimits(ONBOARDING_EXTRACTION_LIMITS.timeoutMs),
       });
     } catch (error) {
-      if (error !== EXTRACTION_SCHEMA_INVALID) throw error;
+      if (error !== EXTRACTION_RETRYABLE_INVALID) throw error;
+      throwIfAborted(signal);
+      const limits = remainingExtractionLimits(deadline);
+      throwIfAborted(signal);
       return await invokeExtraction(runtime, {
-        prompt, messageId: message.messageId, signal, reasoningEffort: "medium",
+        prompt, messageId: message.messageId, signal, reasoningEffort: "medium", acceptExtraction,
+        attempt: RETRY_EXTRACTION_ATTEMPT,
+        deadline,
+        limits,
       });
     }
   } catch (error) {
@@ -126,6 +165,10 @@ async function invokeExtraction(
     readonly messageId: string;
     readonly signal: AbortSignal;
     readonly reasoningEffort: "low" | "medium";
+    readonly acceptExtraction: OnboardingExtractionAcceptor | undefined;
+    readonly attempt: OnboardingExtractionAttemptContext;
+    readonly deadline: ExtractionDeadline;
+    readonly limits: CodexInvocationLimits;
   },
 ): Promise<ReturnType<typeof decodeOnboardingExtractionWire>> {
   const invocation = createCodexJsonInvocation({
@@ -136,11 +179,12 @@ async function invokeExtraction(
     schemaVersion: ONBOARDING_MODEL_VERSIONS.extractionSchema,
     prompt: input.prompt,
     outputSchema: ONBOARDING_EXTRACTION_SCHEMA,
-    limits: ONBOARDING_EXTRACTION_LIMITS,
+    limits: input.limits,
     signal: input.signal,
   });
   const result = await runtime.invokeJson(invocation);
   throwIfAborted(input.signal);
+  requireExtractionDeadlineOpen(input.deadline);
   let value: unknown;
   try {
     value = requireBoundResult(result, {
@@ -151,11 +195,37 @@ async function invokeExtraction(
   } catch {
     throw RESULT_INTEGRITY_INVALID;
   }
+  let output: ReturnType<typeof decodeOnboardingExtractionWire>;
   try {
-    return decodeOnboardingExtractionWire({ value, messageId: input.messageId });
+    output = decodeOnboardingExtractionWire({ value, messageId: input.messageId });
   } catch {
-    throw EXTRACTION_SCHEMA_INVALID;
+    throw EXTRACTION_RETRYABLE_INVALID;
   }
+  throwIfAborted(input.signal);
+  requireExtractionDeadlineOpen(input.deadline);
+  if (input.acceptExtraction !== undefined) {
+    let borrowedAcceptance: unknown;
+    try {
+      borrowedAcceptance = input.acceptExtraction(output, input.attempt);
+    } catch {
+      throw EXTRACTION_ACCEPTANCE_INTEGRITY_INVALID;
+    }
+    throwIfAborted(input.signal);
+    requireExtractionDeadlineOpen(input.deadline);
+    let acceptance: OnboardingExtractionAcceptance;
+    try {
+      acceptance = reconstructExtractionAcceptance(borrowedAcceptance);
+    } catch {
+      throw EXTRACTION_ACCEPTANCE_INTEGRITY_INVALID;
+    }
+    throwIfAborted(input.signal);
+    requireExtractionDeadlineOpen(input.deadline);
+    if (acceptance.kind === "retryable") throw EXTRACTION_RETRYABLE_INVALID;
+  }
+  throwIfAborted(input.signal);
+  requireExtractionDeadlineOpen(input.deadline);
+  throwIfAborted(input.signal);
+  return output;
 }
 
 async function review(
@@ -232,6 +302,44 @@ function readSignal(value: unknown): AbortSignal {
   return value as AbortSignal;
 }
 
+function readExtractionAcceptor(value: unknown): OnboardingExtractionAcceptor | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "function" || types.isProxy(value)) {
+    throw new TypeError("Invalid onboarding model input");
+  }
+  return value as OnboardingExtractionAcceptor;
+}
+
+function reconstructExtractionAcceptance(value: unknown): OnboardingExtractionAcceptance {
+  if (value === null || typeof value !== "object" || types.isProxy(value) || Array.isArray(value)) {
+    throw new TypeError("Invalid onboarding extraction acceptance");
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if ((prototype !== Object.prototype && prototype !== null) ||
+    Object.getOwnPropertySymbols(value).length !== 0) {
+    throw new TypeError("Invalid onboarding extraction acceptance");
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const kind = descriptors.kind;
+  if (kind?.enumerable !== true || !("value" in kind)) {
+    throw new TypeError("Invalid onboarding extraction acceptance");
+  }
+  if (kind.value === "accepted") {
+    if (Object.keys(descriptors).length !== 1) {
+      throw new TypeError("Invalid onboarding extraction acceptance");
+    }
+    return Object.freeze({ kind: "accepted" as const });
+  }
+  const reason = descriptors.reason;
+  if (kind.value !== "retryable" || Object.keys(descriptors).length !== 2 ||
+    reason?.enumerable !== true || !("value" in reason) ||
+    (reason.value !== "guard_invalid" && reason.value !== "canonical_mismatch" &&
+      reason.value !== "evidence_mismatch")) {
+    throw new TypeError("Invalid onboarding extraction acceptance");
+  }
+  return Object.freeze({ kind: "retryable" as const, reason: reason.value });
+}
+
 function throwIfAborted(signal: AbortSignal): void {
   if (NATIVE_ABORTED_GETTER?.call(signal) === true) throw ABORTED;
 }
@@ -293,6 +401,7 @@ function requireBoundResult(
 function readExactPlainObject(
   value: unknown,
   expectedKeys: readonly string[],
+  optionalKeys: readonly string[] = [],
 ): Record<string, unknown> {
   if (value === null || typeof value !== "object" || types.isProxy(value) || Array.isArray(value)) {
     throw new TypeError("Invalid onboarding model value");
@@ -304,12 +413,16 @@ function readExactPlainObject(
   }
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const keys = Object.keys(descriptors);
-  if (keys.length !== expectedKeys.length || !expectedKeys.every((key) => keys.includes(key))) {
+  const allowedKeys = new Set([...expectedKeys, ...optionalKeys]);
+  if (keys.length < expectedKeys.length || keys.length > allowedKeys.size ||
+    !expectedKeys.every((key) => keys.includes(key)) ||
+    keys.some((key) => !allowedKeys.has(key))) {
     throw new TypeError("Invalid onboarding model value");
   }
   const copy = Object.create(null) as Record<string, unknown>;
-  for (const key of expectedKeys) {
+  for (const key of [...expectedKeys, ...optionalKeys]) {
     const descriptor = descriptors[key];
+    if (descriptor === undefined && optionalKeys.includes(key)) continue;
     if (descriptor?.enumerable !== true || !("value" in descriptor)) {
       throw new TypeError("Invalid onboarding model value");
     }
@@ -318,11 +431,71 @@ function readExactPlainObject(
   return copy;
 }
 
+function createExtractionDeadline(monotonicNowMs: () => number): ExtractionDeadline {
+  const startedAt = readMonotonicNow(monotonicNowMs);
+  if (startedAt > Number.MAX_SAFE_INTEGER - ONBOARDING_EXTRACTION_LIMITS.timeoutMs) {
+    throw EXTRACTION_CLOCK_INTEGRITY_INVALID;
+  }
+  return {
+    deadlineMs: startedAt + ONBOARDING_EXTRACTION_LIMITS.timeoutMs,
+    monotonicNowMs,
+    lastObservedMs: startedAt,
+  };
+}
+
+function remainingExtractionLimits(deadline: ExtractionDeadline): CodexInvocationLimits {
+  const remainingMs = Math.floor(deadline.deadlineMs - observeExtractionClock(deadline));
+  if (remainingMs < 1) throw new CodexRuntimeError("codex_timeout");
+  return extractionLimits(remainingMs);
+}
+
+function requireExtractionDeadlineOpen(deadline: ExtractionDeadline): void {
+  if (observeExtractionClock(deadline) >= deadline.deadlineMs) {
+    throw new CodexRuntimeError("codex_timeout");
+  }
+}
+
+function extractionLimits(timeoutMs: number): CodexInvocationLimits {
+  return Object.freeze({
+    ...ONBOARDING_EXTRACTION_LIMITS,
+    timeoutMs,
+  });
+}
+
+function observeExtractionClock(deadline: ExtractionDeadline): number {
+  const observed = readMonotonicNow(deadline.monotonicNowMs);
+  if (observed < deadline.lastObservedMs) throw EXTRACTION_CLOCK_INTEGRITY_INVALID;
+  deadline.lastObservedMs = observed;
+  return observed;
+}
+
+function readMonotonicNow(monotonicNowMs: () => number): number {
+  let observed: unknown;
+  try {
+    if (typeof monotonicNowMs !== "function" || types.isProxy(monotonicNowMs)) {
+      throw EXTRACTION_CLOCK_INTEGRITY_INVALID;
+    }
+    observed = monotonicNowMs();
+  } catch {
+    throw EXTRACTION_CLOCK_INTEGRITY_INVALID;
+  }
+  if (typeof observed !== "number" || !Number.isFinite(observed) || observed < 0 ||
+    observed > Number.MAX_SAFE_INTEGER) {
+    throw EXTRACTION_CLOCK_INTEGRITY_INVALID;
+  }
+  return observed;
+}
+
+function defaultMonotonicNowMs(): number {
+  return performance.now();
+}
+
 function mapModelError(error: unknown, signal: AbortSignal | undefined): OnboardingModelError {
   if (error === ABORTED || isAborted(signal)) {
     return new OnboardingModelError("onboarding_model_aborted");
   }
-  if (error === RESULT_INTEGRITY_INVALID) {
+  if (error === RESULT_INTEGRITY_INVALID || error === EXTRACTION_ACCEPTANCE_INTEGRITY_INVALID ||
+    error === EXTRACTION_CLOCK_INTEGRITY_INVALID) {
     return new OnboardingModelError("onboarding_model_integrity_failed");
   }
   if (error instanceof CodexRuntimeError) {

@@ -18,7 +18,7 @@ import {
   initializeReviewedStageARuntimeForTest,
 } from "../../evals/local-codex-stage-a";
 import { CodexRuntimeError } from "../../src/infrastructure/codex-cli/contracts";
-import { OnboardingModelError, type OnboardingModelErrorCode } from "../../src/application/onboarding-contracts";
+import { OnboardingModelError, type OnboardingModelErrorCode, type OnboardingModelPort } from "../../src/application/onboarding-contracts";
 import { OfficialSourceDiscoveryError } from "../../src/application/official-source-discovery";
 import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import { createOnboardingSession } from "../../src/decision/onboarding-session";
@@ -647,6 +647,128 @@ describe("local Codex Stage A gate", () => {
       nextParticipantId: () => "00000000-0000-4000-8000-000000000001",
       nextCompletionCommandId: () => "00000000-0000-4000-8000-000000000002",
     })));
+  });
+
+  test("deeply owns and freezes the Stage A onboarding oracle", () => {
+    // Break caught: a caller can mutate nested expected values after validation and steer semantic retry.
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const proposal = fixture.expected.proposals[0]!;
+
+    expect(Object.isFrozen(fixture)).toBe(true);
+    expect(Object.isFrozen(fixture.message)).toBe(true);
+    expect(Object.isFrozen(fixture.expected)).toBe(true);
+    expect(Object.isFrozen(fixture.expected.proposals)).toBe(true);
+    expect(Object.isFrozen(proposal)).toBe(true);
+    expect(Object.isFrozen(proposal.typedValue)).toBe(true);
+    expect(Object.isFrozen(proposal.sourceSpan)).toBe(true);
+  });
+
+  test("rejects a defective Stage A oracle before the model call", async () => {
+    // Break caught: invalid expected evidence is mistaken for model ambiguity and consumes subscription calls.
+    const defective = structuredClone(onboardingFixture);
+    defective.expected.proposals[0]!.text = "не тот фрагмент";
+    const extract = vi.fn(async () => onboardingOutput());
+
+    await expect(evaluateOnboardingFixture(defective as never, { extract }))
+      .rejects.toThrow("local_codex_stage_a_invalid_fixture");
+    expect(extract).not.toHaveBeenCalled();
+  });
+
+  test("rejects a nested typed-value proxy without touching its traps or calling the model", async () => {
+    let trapReads = 0;
+    const typedValue = new Proxy({ countryCode: "RU", city: "Москва" }, {
+      get: () => {
+        trapReads += 1;
+        throw new Error("nested fixture getter must not run");
+      },
+    });
+    const defective = {
+      ...onboardingFixture,
+      expected: {
+        ...onboardingFixture.expected,
+        proposals: [{ ...onboardingFixture.expected.proposals[0]!, typedValue }],
+      },
+    };
+    const extract = vi.fn(async () => onboardingOutput());
+
+    await expect(evaluateOnboardingFixture(defective as never, { extract }))
+      .rejects.toThrow("local_codex_stage_a_invalid_fixture");
+    expect(trapReads).toBe(0);
+    expect(extract).not.toHaveBeenCalled();
+  });
+
+  test("supplies a full advisory semantic validator and revalidates its returned output", async () => {
+    // Break caught: Stage A cannot ask the adapter to retry a schema-valid semantic ambiguity.
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const extract = vi.fn(async (input: Parameters<OnboardingModelPort["extract"]>[0]) => {
+      const attempt = Object.freeze({ attempt: "initial" as const });
+      expect(input.acceptExtraction).toBeTypeOf("function");
+      expect(input.acceptExtraction?.(onboardingOutput({ sourceSpan: { start: 0, end: 0 } }) as never, attempt))
+        .toEqual({ kind: "retryable", reason: "guard_invalid" });
+      expect(input.acceptExtraction?.(onboardingOutput({
+        typedValue: { countryCode: "RU", city: "Тверь" },
+      }) as never, attempt)).toEqual({ kind: "retryable", reason: "canonical_mismatch" });
+      expect(input.acceptExtraction?.(onboardingOutput({ sourceSpan: { start: 0, end: 6 } }) as never, attempt))
+        .toEqual({ kind: "retryable", reason: "evidence_mismatch" });
+      expect(input.acceptExtraction?.(onboardingOutput() as never, attempt)).toEqual({ kind: "accepted" });
+      return onboardingOutput();
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract }))
+      .resolves.toEqual({ guardedProposalCount: 1, inventedValueCount: 0 });
+    expect(extract).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    ["guard_invalid", onboardingOutput({ sourceSpan: { start: 0, end: 0 } }), "onboarding_guard_invalid"],
+    ["canonical_mismatch", onboardingOutput({ typedValue: { countryCode: "RU", city: "Тверь" } }), "onboarding_canonical_mismatch"],
+    ["evidence_mismatch", onboardingOutput({ sourceSpan: { start: 0, end: 6 } }), "onboarding_evidence_mismatch"],
+  ] as const)("preserves exhausted retry reason %s as an exact Stage A diagnostic", async (
+    reason,
+    candidate,
+    diagnostic,
+  ) => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const extract = async (input: Parameters<OnboardingModelPort["extract"]>[0]): Promise<never> => {
+      const initial = Object.freeze({ attempt: "initial" as const });
+      const retry = Object.freeze({ attempt: "retry" as const });
+      expect(input.acceptExtraction?.(candidate as never, initial)).toEqual({ kind: "retryable", reason });
+      expect(input.acceptExtraction?.(candidate as never, retry)).toEqual({ kind: "retryable", reason });
+      throw new OnboardingModelError("onboarding_model_invalid");
+    };
+
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toThrow(diagnostic);
+  });
+
+  test("does not attribute a schema-invalid retry to the initial semantic reason", async () => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const typed = new OnboardingModelError("onboarding_model_invalid");
+    const extract = async (input: Parameters<OnboardingModelPort["extract"]>[0]): Promise<never> => {
+      expect(input.acceptExtraction?.(
+        onboardingOutput({ sourceSpan: { start: 0, end: 0 } }) as never,
+        Object.freeze({ attempt: "initial" as const }),
+      )).toEqual({ kind: "retryable", reason: "guard_invalid" });
+      throw typed;
+    };
+
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toBe(typed);
+  });
+
+  test.each([
+    new OnboardingModelError("onboarding_model_aborted"),
+    new OnboardingModelError("onboarding_model_integrity_failed"),
+    new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout"),
+  ])("never remaps a non-invalid model failure after a retry semantic rejection", async (typed) => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const extract = async (input: Parameters<OnboardingModelPort["extract"]>[0]): Promise<never> => {
+      expect(input.acceptExtraction?.(
+        onboardingOutput({ sourceSpan: { start: 0, end: 0 } }) as never,
+        Object.freeze({ attempt: "retry" as const }),
+      )).toEqual({ kind: "retryable", reason: "guard_invalid" });
+      throw typed;
+    };
+
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toBe(typed);
   });
 
   test("accepts canonical guarded facts with alternative valid evidence and a filtered no-op roster", async () => {

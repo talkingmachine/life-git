@@ -10,11 +10,11 @@ import { REVIEWED_CODEX_EXECUTABLE, verifyReviewedLocalCodexInstallation } from 
 import { createCodexOnboardingModel } from "../src/infrastructure/codex-cli/onboarding-model";
 import { createCodexOfficialSourceDiscovery } from "../src/infrastructure/codex-cli/official-source-discovery";
 import { createOnboardingSession } from "../src/decision/onboarding-session";
-import { guardExtraction, projectQuestionnaireForModel } from "../src/decision/onboarding-model-contract";
+import { guardExtraction, isOnboardingGuardContractError, projectQuestionnaireForModel } from "../src/decision/onboarding-model-contract";
 import { parseLocalExtractionOutput } from "../src/decision/onboarding-model-output";
 import type { SessionMessage } from "../src/decision/onboarding-session";
 import { OfficialSourceDiscoveryError, reconstructOfficialSourceDiscoveryRequest, type OfficialSourceDiscoveryErrorCode, type OfficialSourceDiscoveryRequest } from "../src/application/official-source-discovery";
-import { OnboardingModelError, type OnboardingModelErrorCode } from "../src/application/onboarding-contracts";
+import { OnboardingModelError, type OnboardingExtractionAcceptance, type OnboardingExtractionAcceptor, type OnboardingExtractionRetryReason, type OnboardingModelErrorCode } from "../src/application/onboarding-contracts";
 
 const OPT_IN_ERROR = "local_codex_live_opt_in_required\n";
 const ARTIFACT_SCHEMA = "local-codex-stage-a@1" as const;
@@ -23,6 +23,10 @@ const EVENT_LIMIT = 128;
 const INFORMATIVE_EVIDENCE_TOKEN = /(?:(?:\p{L}\p{M}*){2,}|\p{N}+)/u;
 const UNICODE_TOKEN_CONTINUATION_AT_START = /^[\p{L}\p{M}\p{N}]/u;
 const UNICODE_TOKEN_CONTINUATION_AT_END = /[\p{L}\p{M}\p{N}]$/u;
+const ONBOARDING_ACCEPTED = Object.freeze({ kind: "accepted" as const });
+const ONBOARDING_GUARD_RETRY = Object.freeze({ kind: "retryable" as const, reason: "guard_invalid" as const });
+const ONBOARDING_CANONICAL_RETRY = Object.freeze({ kind: "retryable" as const, reason: "canonical_mismatch" as const });
+const ONBOARDING_EVIDENCE_RETRY = Object.freeze({ kind: "retryable" as const, reason: "evidence_mismatch" as const });
 
 export type LocalCodexStageAArguments = Readonly<{ live: boolean; diagnostic?: true; artifactPath: string }>;
 export type LocalCodexStageAEntrypointResult = Readonly<{ exitCode: 0 | 1; stderr: string }>;
@@ -554,6 +558,8 @@ export function parseOnboardingFixture(value: unknown): StageAOnboardingFixture 
     const message = exactObject(root.message, ["messageId", "role", "text"]);
     const expectedRoot = exactObject(root.expected, ["schemaVersion", "proposals", "nextQuestion"]);
     if (message.role !== "user" || typeof message.messageId !== "string" || typeof message.text !== "string" || !Array.isArray(expectedRoot.proposals)) throw new TypeError();
+    const messageId = message.messageId;
+    const messageText = message.text;
     const fixtureProposals = expectedRoot.proposals.map((proposalValue) => {
       const proposal = exactObject(proposalValue, ["fieldId", "typedValue", "messageId", "sourceSpan", "text"]);
       if (typeof proposal.text !== "string") throw new TypeError();
@@ -562,7 +568,28 @@ export function parseOnboardingFixture(value: unknown): StageAOnboardingFixture 
     const parsed = parseLocalExtractionOutput({ schemaVersion: expectedRoot.schemaVersion, proposals: fixtureProposals.map((proposal) => ({ fieldId: proposal.fieldId, typedValue: proposal.typedValue, messageId: proposal.messageId, sourceSpan: proposal.sourceSpan })), nextQuestion: expectedRoot.nextQuestion });
     const texts = fixtureProposals.map((proposal) => proposal.text).filter((text): text is string => typeof text === "string");
     if (texts.length !== fixtureProposals.length) throw new TypeError();
-    return Object.freeze({ message: Object.freeze({ messageId: message.messageId, role: "user", text: message.text }), expected: Object.freeze({ schemaVersion: parsed.schemaVersion, nextQuestion: parsed.nextQuestion, proposals: parsed.proposals.map((proposal, index) => Object.freeze({ ...proposal, text: texts[index]! })) }) });
+    const proposals = parsed.proposals.map((proposal, index) => {
+      const text = texts[index]!;
+      if (proposal.messageId !== messageId ||
+        proposal.sourceSpan.start >= proposal.sourceSpan.end ||
+        proposal.sourceSpan.end > messageText.length ||
+        messageText.slice(proposal.sourceSpan.start, proposal.sourceSpan.end) !== text) {
+        throw new TypeError();
+      }
+      return {
+        ...proposal,
+        sourceSpan: { ...proposal.sourceSpan },
+        text,
+      };
+    });
+    return deepFreeze({
+      message: { messageId, role: "user" as const, text: messageText },
+      expected: {
+        schemaVersion: parsed.schemaVersion,
+        nextQuestion: parsed.nextQuestion,
+        proposals,
+      },
+    });
   } catch { throw new TypeError("local_codex_stage_a_invalid_fixture"); }
 }
 
@@ -580,17 +607,129 @@ export function parseDiscoveryFixture(value: unknown): StageADiscoveryFixture {
   } catch { throw new TypeError("local_codex_stage_a_invalid_fixture"); }
 }
 
-export async function evaluateOnboardingFixture(fixture: StageAOnboardingFixture, model: Readonly<{ extract(input: { readonly message: SessionMessage; readonly questionnaire: unknown; readonly signal: AbortSignal }): Promise<unknown> }>): Promise<Artifact["onboarding"]> {
+export async function evaluateOnboardingFixture(fixture: StageAOnboardingFixture, model: Readonly<{ extract(input: { readonly message: SessionMessage; readonly questionnaire: unknown; readonly signal: AbortSignal; readonly acceptExtraction?: OnboardingExtractionAcceptor }): Promise<unknown> }>): Promise<Artifact["onboarding"]> {
+  const oracle = parseOnboardingFixture(fixture);
   const session = createOnboardingSession({
     nextParticipantId: () => "00000000-0000-4000-8000-000000000001",
     nextCompletionCommandId: () => "00000000-0000-4000-8000-000000000002",
   });
-  const rawOutput = await model.extract({ message: fixture.message, questionnaire: projectQuestionnaireForModel(session), signal: new AbortController().signal });
+  requireValidOnboardingOracle(oracle, session);
+  let exhaustedRetryReason: OnboardingExtractionRetryReason | undefined;
+  let rawOutput: unknown;
+  try {
+    rawOutput = await model.extract({
+      message: oracle.message,
+      questionnaire: projectQuestionnaireForModel(session),
+      signal: new AbortController().signal,
+      acceptExtraction: (candidate, attempt) => {
+        const acceptance = classifyOnboardingFixtureCandidate(oracle, session, candidate);
+        if (attempt.attempt === "retry") {
+          exhaustedRetryReason = acceptance.kind === "retryable" ? acceptance.reason : undefined;
+        }
+        return acceptance;
+      },
+    });
+  } catch (error) {
+    if (exhaustedRetryReason !== undefined && isExactOnboardingModelInvalid(error)) {
+      throw new StageAOnboardingDiagnosticError(stageADiagnosticForRetryReason(exhaustedRetryReason));
+    }
+    throw error;
+  }
   const output = onboardingDiagnosticBoundary("onboarding_model_output_invalid", () => parseLocalExtractionOutput(rawOutput));
-  const guarded = onboardingDiagnosticBoundary("onboarding_guard_invalid", () => guardExtraction({ session, userMessage: fixture.message, rawModelOutput: output }));
-  onboardingDiagnosticBoundary("onboarding_canonical_mismatch", () => assertGuardedFixtureProposals(fixture, guarded.proposals));
-  onboardingDiagnosticBoundary("onboarding_evidence_mismatch", () => assertFixtureEvidenceCoverage(fixture, output.proposals));
+  const guarded = onboardingDiagnosticBoundary("onboarding_guard_invalid", () => guardExtraction({ session, userMessage: oracle.message, rawModelOutput: output }));
+  onboardingDiagnosticBoundary("onboarding_canonical_mismatch", () => assertGuardedFixtureProposals(oracle, guarded.proposals));
+  onboardingDiagnosticBoundary("onboarding_evidence_mismatch", () => assertFixtureEvidenceCoverage(oracle, output.proposals));
   return Object.freeze({ guardedProposalCount: guarded.proposals.length, inventedValueCount: 0 });
+}
+
+function requireValidOnboardingOracle(
+  fixture: StageAOnboardingFixture,
+  session: ReturnType<typeof createOnboardingSession>,
+): void {
+  try {
+    const output = fixtureExtractionOutput(fixture);
+    const guarded = guardExtraction({
+      session,
+      userMessage: fixture.message,
+      rawModelOutput: output,
+    });
+    assertGuardedFixtureProposals(fixture, guarded.proposals);
+    assertFixtureEvidenceCoverage(fixture, output.proposals);
+  } catch {
+    throw new TypeError("local_codex_stage_a_invalid_fixture");
+  }
+}
+
+function classifyOnboardingFixtureCandidate(
+  fixture: StageAOnboardingFixture,
+  session: ReturnType<typeof createOnboardingSession>,
+  candidate: unknown,
+): OnboardingExtractionAcceptance {
+  const output = parseLocalExtractionOutput(candidate);
+  let guarded: ReturnType<typeof guardExtraction>;
+  try {
+    guarded = guardExtraction({
+      session,
+      userMessage: fixture.message,
+      rawModelOutput: output,
+    });
+  } catch (error) {
+    if (!isOnboardingGuardContractError(error)) throw error;
+    return ONBOARDING_GUARD_RETRY;
+  }
+  try {
+    assertGuardedFixtureProposals(fixture, guarded.proposals);
+  } catch (error) {
+    if (!isExactStageAOnboardingError(error)) throw error;
+    return ONBOARDING_CANONICAL_RETRY;
+  }
+  try {
+    assertFixtureEvidenceCoverage(fixture, output.proposals);
+  } catch (error) {
+    if (!isExactStageAOnboardingError(error)) throw error;
+    return ONBOARDING_EVIDENCE_RETRY;
+  }
+  return ONBOARDING_ACCEPTED;
+}
+
+function fixtureExtractionOutput(
+  fixture: StageAOnboardingFixture,
+): ReturnType<typeof parseLocalExtractionOutput> {
+  return parseLocalExtractionOutput({
+    schemaVersion: fixture.expected.schemaVersion,
+    proposals: fixture.expected.proposals.map((proposal) => ({
+      fieldId: proposal.fieldId,
+      typedValue: proposal.typedValue,
+      messageId: proposal.messageId,
+      sourceSpan: proposal.sourceSpan,
+    })),
+    nextQuestion: fixture.expected.nextQuestion,
+  });
+}
+
+function isExactStageAOnboardingError(error: unknown): boolean {
+  try {
+    if (error === null || typeof error !== "object" ||
+      Object.getPrototypeOf(error) !== TypeError.prototype ||
+      Object.getOwnPropertySymbols(error).length !== 0) return false;
+    const message = Object.getOwnPropertyDescriptor(error, "message");
+    return message !== undefined && "value" in message &&
+      message.value === "local_codex_stage_a_onboarding_invalid";
+  } catch {
+    return false;
+  }
+}
+
+function isExactOnboardingModelInvalid(error: unknown): boolean {
+  return safeDiagnosticCode(error) === "onboarding_model_invalid";
+}
+
+function stageADiagnosticForRetryReason(
+  reason: OnboardingExtractionRetryReason,
+): StageAOnboardingDiagnosticCode {
+  if (reason === "guard_invalid") return "onboarding_guard_invalid";
+  if (reason === "canonical_mismatch") return "onboarding_canonical_mismatch";
+  return "onboarding_evidence_mismatch";
 }
 
 function onboardingDiagnosticBoundary<T>(code: StageAOnboardingDiagnosticCode, operation: () => T): T {
@@ -693,7 +832,8 @@ function ownedRecord(value: object): value is Record<string, unknown> {
 }
 
 function assertOwnedJson(value: unknown): void {
-  if (value === null || typeof value !== "object" || types.isProxy(value)) return;
+  if (value === null || typeof value !== "object") return;
+  if (types.isProxy(value)) throw new TypeError("local_codex_stage_a_invalid_fixture");
   if (Array.isArray(value)) {
     if (Object.getPrototypeOf(value) !== Array.prototype || Object.getOwnPropertySymbols(value).length !== 0) throw new TypeError("local_codex_stage_a_invalid_fixture");
     const descriptors = Object.getOwnPropertyDescriptors(value);
@@ -703,6 +843,14 @@ function assertOwnedJson(value: unknown): void {
   }
   if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null || Object.getOwnPropertySymbols(value).length !== 0) throw new TypeError("local_codex_stage_a_invalid_fixture");
   for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) { if (descriptor.enumerable !== true || !("value" in descriptor)) throw new TypeError("local_codex_stage_a_invalid_fixture"); assertOwnedJson(descriptor.value); }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
 }
 
 function exactArray(value: unknown): readonly unknown[] {

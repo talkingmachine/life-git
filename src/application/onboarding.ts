@@ -5,11 +5,13 @@ import {
   type ContinueOnboardingCommand,
   type ExtractOnboardingMessageCommand,
   type OnboardingCompletionPort,
+  type OnboardingExtractionAcceptance,
   type OnboardingModelPort,
 } from "./onboarding-contracts";
 import {
   corroborateModelReview,
   guardExtraction,
+  isOnboardingGuardContractError,
   projectQuestionnaireForModel,
 } from "../decision/onboarding-model-contract";
 import {
@@ -27,6 +29,11 @@ import {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const FOLLOW_UP_QUESTION = "Заполните выделенные поля.";
+const EXTRACTION_ACCEPTED = Object.freeze({ kind: "accepted" as const });
+const EXTRACTION_GUARD_RETRY = Object.freeze({
+  kind: "retryable" as const,
+  reason: "guard_invalid" as const,
+});
 
 export function reconstructExtractOnboardingMessageCommand(
   value: unknown,
@@ -71,6 +78,11 @@ export async function extractMessage(
       message: current.message,
       questionnaire: projectQuestionnaireForModel(current.session),
       signal,
+      acceptExtraction: (candidate) => acceptGuardedExtraction(
+        current.session,
+        current.message,
+        candidate,
+      ),
     });
     abortIfNeeded(signal);
   } catch (error) {
@@ -95,6 +107,20 @@ export async function extractMessage(
     nextAssistantMessageId: ports.nextAssistantMessageId,
     nextCompletionCommandId: ports.nextCompletionCommandId,
   });
+}
+
+function acceptGuardedExtraction(
+  session: OnboardingSessionState,
+  message: SessionMessage,
+  output: unknown,
+): OnboardingExtractionAcceptance {
+  try {
+    guardExtraction({ session, userMessage: message, rawModelOutput: output });
+    return EXTRACTION_ACCEPTED;
+  } catch (error) {
+    if (!isOnboardingGuardContractError(error)) throw error;
+    return EXTRACTION_GUARD_RETRY;
+  }
 }
 
 export async function completeOnboarding(
