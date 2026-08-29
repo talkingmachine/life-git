@@ -17,6 +17,8 @@ import {
   ONBOARDING_MODEL_VERSIONS_V7,
   ONBOARDING_MODEL_VERSIONS_V8,
   ONBOARDING_MODEL_VERSIONS_V9,
+  ONBOARDING_MODEL_VERSIONS_V10,
+  ONBOARDING_MODEL_VERSIONS_V11,
 } from "../../src/application/onboarding-model-versions";
 import { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from
   "../../src/decision/onboarding-catalog";
@@ -331,6 +333,16 @@ describe("SQLite onboarding confirmation persistence", () => {
       preferenceProfileId: receipt.preferenceProfileId,
     })).versions).toBe(ONBOARDING_MODEL_VERSIONS_V9);
     expect(V8_VERSIONS_JSON).toBe('{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@8","extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2","reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}');
+  });
+
+  test.each([["historical V10", ONBOARDING_MODEL_VERSIONS_V10], ["current V11", ONBOARDING_MODEL_VERSIONS_V11]] as const)("persists and reopens %s as the canonical singleton", async (_lineage, versions) => {
+    const database = track(openEvidenceDatabase(temporaryDatabasePath("onboarding-v10-v11-lineage-")));
+    const store = createStore(database);
+    const receipt = await commit(store, COMMAND_1, confirmedValues(), versions);
+    const row = database.prepare("SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId) as { versions_json: string };
+    expect(JSON.parse(row.versions_json)).toEqual(versions);
+    expect(Object.keys(JSON.parse(row.versions_json))).toEqual(["cliVersion", "extractionPrompt", "extractionSchema", "invocation", "reviewPrompt", "reviewSchema"]);
+    expect((await store.loadBySnapshotBindingsVerified({ profileId: receipt.profileId, preferenceProfileId: receipt.preferenceProfileId })).versions).toBe(versions);
   });
 
   test("replays an ambiguous successful submission without another clock, materializer, or write", async () => {

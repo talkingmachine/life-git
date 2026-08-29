@@ -12,6 +12,8 @@ import {
   ONBOARDING_MODEL_VERSIONS_V7,
   ONBOARDING_MODEL_VERSIONS_V8,
   ONBOARDING_MODEL_VERSIONS_V9,
+  ONBOARDING_MODEL_VERSIONS_V10,
+  ONBOARDING_MODEL_VERSIONS_V11,
   reconstructOnboardingModelVersions,
 } from "../../src/application/onboarding-model-versions";
 import {
@@ -276,6 +278,8 @@ describe("onboarding model version lineage", () => {
       extractionSchema: "onboarding-extraction-wire@3",
       reviewSchema: "onboarding-review-output@1",
     });
+    expect(ONBOARDING_MODEL_VERSIONS_V10).toEqual({ invocation: "codex-cli-invocation@2", cliVersion: "codex-cli-0.149.0-alpha.4-plus@2", extractionPrompt: "onboarding-extract@9", reviewPrompt: "onboarding-review@2", extractionSchema: "onboarding-extraction-wire@3", reviewSchema: "onboarding-review-output@1" });
+    expect(ONBOARDING_MODEL_VERSIONS_V11).toEqual({ invocation: "codex-cli-invocation@2", cliVersion: "codex-cli-0.149.0-alpha.4-plus@2", extractionPrompt: "onboarding-extract@10", reviewPrompt: "onboarding-review@2", extractionSchema: "onboarding-extraction-wire@3", reviewSchema: "onboarding-review-output@1" });
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V1)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V2)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V3)).toBe(true);
@@ -285,6 +289,8 @@ describe("onboarding model version lineage", () => {
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V7)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V8)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V9)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V10)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V11)).toBe(true);
     expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V1 }))
       .toBe(ONBOARDING_MODEL_VERSIONS_V1);
     expect(reconstructOnboardingModelVersions(Object.assign(
@@ -305,6 +311,8 @@ describe("onboarding model version lineage", () => {
       .toBe(ONBOARDING_MODEL_VERSIONS_V8);
     expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V9 }))
       .toBe(ONBOARDING_MODEL_VERSIONS_V9);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V10 })).toBe(ONBOARDING_MODEL_VERSIONS_V10);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V11 })).toBe(ONBOARDING_MODEL_VERSIONS_V11);
   });
 
   test("accepts exact whole tuples and rejects every meaningful prompt/schema mismatch", () => {
@@ -318,6 +326,8 @@ describe("onboarding model version lineage", () => {
       ONBOARDING_MODEL_VERSIONS_V7,
       ONBOARDING_MODEL_VERSIONS_V8,
       ONBOARDING_MODEL_VERSIONS_V9,
+      ONBOARDING_MODEL_VERSIONS_V10,
+      ONBOARDING_MODEL_VERSIONS_V11,
     ] as const;
 
     for (const tuple of exactTuples) {

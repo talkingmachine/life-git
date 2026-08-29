@@ -233,6 +233,8 @@ describe("Codex onboarding model", () => {
     expect(Object.keys(model)).toEqual(["versions", "extract", "review"]);
     expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS);
     expect(model.versions).toBe(ONBOARDING_MODEL_VERSIONS_V11);
+    expect(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE).toContain("moving_party, pronouns, or questionnaire");
+    expect(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE).toContain("no no-op roster");
     expect(Object.isFrozen(model)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_EXTRACTION_LIMITS)).toBe(true);
