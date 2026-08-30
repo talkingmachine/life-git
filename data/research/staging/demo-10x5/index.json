@@ -11,9 +11,9 @@
     "countries": 10,
     "cities": 50,
     "coverage": {
-      "full": 5,
-      "partial": 40,
-      "zero": 5
+      "full": 44,
+      "partial": 6,
+      "zero": 0
     }
   },
   "countries": [
@@ -23,40 +23,40 @@
       "sourceFile": "si.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
-        "partial": 5,
+        "full": 5,
+        "partial": 0,
         "zero": 0
       },
       "cities": [
         {
           "cityId": "ljubljana",
           "seedName": "Ljubljana",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "maribor",
           "seedName": "Maribor",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "koper",
           "seedName": "Koper",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "celje",
           "seedName": "Celje",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "kranj",
           "seedName": "Kranj",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         }
       ]
     },
@@ -109,40 +109,40 @@
       "sourceFile": "es.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
-        "partial": 5,
+        "full": 5,
+        "partial": 0,
         "zero": 0
       },
       "cities": [
         {
           "cityId": "madrid",
           "seedName": "Madrid",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "barcelona",
           "seedName": "Barcelona",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "valencia",
           "seedName": "Valencia",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "alicante",
           "seedName": "Alicante",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "malaga",
           "seedName": "Malaga",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         }
       ]
     },
@@ -152,40 +152,40 @@
       "sourceFile": "de.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
-        "partial": 5,
+        "full": 5,
+        "partial": 0,
         "zero": 0
       },
       "cities": [
         {
           "cityId": "berlin",
           "seedName": "Berlin",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "munich",
           "seedName": "Munich",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "hamburg",
           "seedName": "Hamburg",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "frankfurt-am-main",
           "seedName": "Frankfurt am Main",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "dusseldorf",
           "seedName": "Dusseldorf",
-          "officialCandidateFactCount": 3,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         }
       ]
     },
@@ -195,40 +195,40 @@
       "sourceFile": "rs.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
-        "partial": 3,
-        "zero": 2
+        "full": 5,
+        "partial": 0,
+        "zero": 0
       },
       "cities": [
         {
           "cityId": "belgrade",
           "seedName": "Belgrade",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "novi-sad",
           "seedName": "Novi Sad",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "nis",
           "seedName": "Niš",
-          "officialCandidateFactCount": 0,
-          "coverageStatus": "zero"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "subotica",
           "seedName": "Subotica",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "kragujevac",
           "seedName": "Kragujevac",
-          "officialCandidateFactCount": 0,
-          "coverageStatus": "zero"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         }
       ]
     },
@@ -238,40 +238,40 @@
       "sourceFile": "me.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
+        "full": 3,
         "partial": 2,
-        "zero": 3
+        "zero": 0
       },
       "cities": [
         {
           "cityId": "podgorica",
           "seedName": "Podgorica",
-          "officialCandidateFactCount": 1,
+          "officialCandidateFactCount": 3,
           "coverageStatus": "partial"
         },
         {
           "cityId": "budva",
           "seedName": "Budva",
-          "officialCandidateFactCount": 0,
-          "coverageStatus": "zero"
+          "officialCandidateFactCount": 3,
+          "coverageStatus": "partial"
         },
         {
           "cityId": "bar",
           "seedName": "Bar",
-          "officialCandidateFactCount": 0,
-          "coverageStatus": "zero"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "herceg-novi",
           "seedName": "Herceg Novi",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "tivat",
           "seedName": "Tivat",
-          "officialCandidateFactCount": 0,
-          "coverageStatus": "zero"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         }
       ]
     },
@@ -281,39 +281,39 @@
       "sourceFile": "ge.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
-        "partial": 5,
+        "full": 1,
+        "partial": 4,
         "zero": 0
       },
       "cities": [
         {
           "cityId": "tbilisi",
           "seedName": "Tbilisi",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "batumi",
           "seedName": "Batumi",
-          "officialCandidateFactCount": 1,
+          "officialCandidateFactCount": 3,
           "coverageStatus": "partial"
         },
         {
           "cityId": "kutaisi",
           "seedName": "Kutaisi",
-          "officialCandidateFactCount": 1,
+          "officialCandidateFactCount": 3,
           "coverageStatus": "partial"
         },
         {
           "cityId": "rustavi",
           "seedName": "Rustavi",
-          "officialCandidateFactCount": 1,
+          "officialCandidateFactCount": 3,
           "coverageStatus": "partial"
         },
         {
           "cityId": "poti",
           "seedName": "Poti",
-          "officialCandidateFactCount": 1,
+          "officialCandidateFactCount": 3,
           "coverageStatus": "partial"
         }
       ]
@@ -324,40 +324,40 @@
       "sourceFile": "tr.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
-        "partial": 5,
+        "full": 5,
+        "partial": 0,
         "zero": 0
       },
       "cities": [
         {
           "cityId": "ankara",
           "seedName": "Ankara",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "istanbul",
           "seedName": "Istanbul",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "izmir",
           "seedName": "Izmir",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "antalya",
           "seedName": "Antalya",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "mersin",
           "seedName": "Mersin",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         }
       ]
     },
@@ -367,40 +367,40 @@
       "sourceFile": "ae.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
-        "partial": 5,
+        "full": 5,
+        "partial": 0,
         "zero": 0
       },
       "cities": [
         {
           "cityId": "abu-dhabi",
           "seedName": "Abu Dhabi",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "dubai",
           "seedName": "Dubai",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "sharjah",
           "seedName": "Sharjah",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "ajman",
           "seedName": "Ajman",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "ras-al-khaimah",
           "seedName": "Ras Al Khaimah",
-          "officialCandidateFactCount": 2,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         }
       ]
     },
@@ -410,40 +410,40 @@
       "sourceFile": "th.json",
       "cityCount": 5,
       "coverage": {
-        "full": 0,
-        "partial": 5,
+        "full": 5,
+        "partial": 0,
         "zero": 0
       },
       "cities": [
         {
           "cityId": "bangkok",
           "seedName": "Bangkok",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "chiang-mai",
           "seedName": "Chiang Mai",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "phuket-city",
           "seedName": "Phuket City",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "pattaya",
           "seedName": "Pattaya",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         },
         {
           "cityId": "hua-hin",
           "seedName": "Hua Hin",
-          "officialCandidateFactCount": 1,
-          "coverageStatus": "partial"
+          "officialCandidateFactCount": 4,
+          "coverageStatus": "full"
         }
       ]
     }

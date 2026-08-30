@@ -17,26 +17,26 @@ This catalog is a staging handoff for the source-verification mechanism. It cont
 
 | Country | Cities | Full | Partial | Zero | Official fact candidates / 20 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SI — Slovenia | 5 | 0 | 5 | 0 | 10 |
+| SI — Slovenia | 5 | 5 | 0 | 0 | 20 |
 | PT — Portugal | 5 | 5 | 0 | 0 | 20 |
-| ES — Spain | 5 | 0 | 5 | 0 | 15 |
-| DE — Germany | 5 | 0 | 5 | 0 | 15 |
-| RS — Serbia | 5 | 0 | 3 | 2 | 3 |
-| ME — Montenegro | 5 | 0 | 2 | 3 | 2 |
-| GE — Georgia | 5 | 0 | 5 | 0 | 6 |
-| TR — Türkiye | 5 | 0 | 5 | 0 | 7 |
-| AE — United Arab Emirates | 5 | 0 | 5 | 0 | 10 |
-| TH — Thailand | 5 | 0 | 5 | 0 | 5 |
-| **Total** | **50** | **5** | **40** | **5** | **93 / 200** |
+| ES — Spain | 5 | 5 | 0 | 0 | 20 |
+| DE — Germany | 5 | 5 | 0 | 0 | 20 |
+| RS — Serbia | 5 | 5 | 0 | 0 | 20 |
+| ME — Montenegro | 5 | 3 | 2 | 0 | 18 |
+| GE — Georgia | 5 | 1 | 4 | 0 | 16 |
+| TR — Türkiye | 5 | 5 | 0 | 0 | 20 |
+| AE — United Arab Emirates | 5 | 5 | 0 | 0 | 20 |
+| TH — Thailand | 5 | 5 | 0 | 0 | 20 |
+| **Total** | **50** | **44** | **6** | **0** | **194 / 200** |
 
 Coverage by fact:
 
 | Fact | Official candidate | Ambiguous official source | Not found |
 | --- | ---: | ---: | ---: |
-| Safety | 20 | 30 | 0 |
-| Long-term rent | 15 | 5 | 30 |
-| Urban transit | 38 | 12 | 0 |
-| Fixed broadband | 20 | 30 | 0 |
+| Safety | 50 | 0 | 0 |
+| Long-term rent | 44 | 0 | 6 |
+| Urban transit | 50 | 0 | 0 |
+| Fixed broadband | 50 | 0 | 0 |
 
 All 50 cities have an official identity candidate. Population has 41 official candidates and 9 ambiguous official sources. Coordinates or official geometry have 30 official candidates and 20 ambiguous official sources; no coordinate point was extracted during this read-only pass.
 
@@ -51,7 +51,23 @@ There are 75 city records with both `official_candidate_found` and an `observedV
 
 These records have publisher, authority root, source/final URL, period, geographic scope, locator, access date, limitations, and rejection notes. They are ready for the main agent's normalization and source-verification pipeline, not for direct production publication. In particular, the country streams use several equivalent `factKey` spellings and both scalar and structured `observedValue` shapes; an importer should normalize those representations before schema validation.
 
-Additional candidates are useful but still need extraction. Examples include official Portuguese crime, rent, transport, and broadband sources; Spanish and German official city safety/rent/transport sources; Turkish BTK provincial broadband tables; and official WFS or boundary datasets for coordinates.
+Additional candidates are useful but still need extraction. Examples include Slovenian GURS lease transactions, Spanish CNMC and German BNetzA municipal broadband tables, Serbian RATEL and Montenegro EKIP coverage maps, the Turkish central-bank New Tenant Rent Index, UAE emirate rental indices and TDRA fiber maps, Thai province CPI tables and the NBTC urban broadband report, and official WFS or boundary datasets for coordinates.
+
+## Alternative-source recovery
+
+The follow-up pass did not relax the official-primary-source rule. It recovered candidates that the first pass missed, including:
+
+- city or police-station safety records for four Slovenian cities and Koper;
+- Slovenian GURS lease transactions, Spanish CNMC municipal broadband data, and German BNetzA municipality-level broadband availability;
+- Serbian ABS/RATEL sources, Montenegro MUP/EKIP sources, and official municipal line plans for Budva, Bar, and Tivat;
+- Georgian MIA territorial crime statistics, official municipal transport sources including Poti Transport Company, and the National Bank of Georgia rent index for Tbilisi;
+- Turkish governorate safety publications and the CBRT New Tenant Rent Index for all five seed regions;
+- UAE emirate rental indices/statistics and TDRA point-specific fiber maps;
+- Thai provincial safety tables, the NBTC nationwide urban fixed-broadband statement, and Ministry of Commerce province CPI tables with a separate housing-rent item.
+
+The append-only stream logs retain both the original unsuccessful query and the later successful replacement so the recovery trail is auditable.
+
+The Thai broadband candidate was also re-audited at resource-schema level. The NSO catalog exposes province and connection type in separate resources, so it was not used for a province-level fixed-broadband claim. The final candidate is instead the NBTC report whose Figure 1 and 1st Target explicitly state that fixed-broadband networks serve all cities; this establishes coverage, not a city-specific value.
 
 ## Official sites unavailable during the pass
 
@@ -76,13 +92,12 @@ The raw format labels reduce to these parser families:
 
 ## Yellow gaps
 
-- Safety: 30 cities still have only a broad or non-comparable official source; a common city-level measure and period are not yet pinned.
-- Long-term rent: no official series was found for 30 cities, and five Slovenian records remain ambiguous. Commercial listing prices were deliberately rejected.
-- Fixed broadband: 30 cities have regulator or operator evidence without a stable comparable city-level aggregate.
-- Urban transit: 12 cities have an official authority/operator candidate but no sufficiently pinned service dataset.
+- Long-term rent is the only remaining four-fact gap: Batumi, Kutaisi, Rustavi, Poti, Podgorica, and Budva remain incomplete.
+- For the four Georgian cities, the pass checked Geostat CPI and household-expenditure outputs, National Bank real-estate indices, NAPR registration/information services, and municipal housing/property pages. Geostat's public CPI publishes a national actual-rent result; Batumi and Kutaisi are collection cities, but no city result is exposed. The National Bank's official rent index is expressly limited to two Tbilisi segments. NAPR registers lease rights but exposes no public city rent-price series or aggregate. Municipal records concern assistance or public property rather than the residential market.
+- For Podgorica and Budva, the pass checked MONSTAT CPI/HICP and housing releases, CBCG real-estate analysis, the Real Estate Administration, and municipal property/housing pages. MONSTAT publishes actual-rent inflation only for Montenegro as a whole; its Podgorica/coastal housing tables are sale prices for new dwellings. CBCG material located was also sale-price analysis. Municipal and government lease records concern public/commercial property or targeted housing, not general long-term residential rents.
+- Commercial listings and aggregators were deliberately rejected in all six cases. These records stay `not_found` rather than being promoted from national rent inflation, sale prices, social-housing tariffs, or individual public-property leases.
 - Population: only 20 cities currently have an unambiguous extracted value; the other official candidates need table/API extraction or scope reconciliation.
 - Coordinates: official geometry candidates exist for 30 cities, but none yet has an extracted official point or a recorded deterministic centroid calculation.
-- Serbia and Montenegro contain the five zero-coverage cities: Niš, Kragujevac, Budva, Bar, and Tivat. Their identity/population/geography records are still useful, but none of the four requested city facts reached `official_candidate_found`.
 
 ## Artifacts
 
