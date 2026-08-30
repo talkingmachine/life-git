@@ -4,13 +4,14 @@ import { dirname, relative, resolve } from "node:path";
 import { types } from "node:util";
 
 import { canonicalHttpsUrl } from "../src/application/official-source-discovery";
-import type { HttpStepRequest } from "../src/research/contracts";
-import { captureHttpWithTrace, type HttpCaptureLimits, type TracedLiveCapture } from "../src/infrastructure/sources/gateway";
+import type { CaptureFailureKind, HttpStepRequest } from "../src/research/contracts";
+import { captureHttpWithTrace, SourceCaptureError, type HttpCaptureLimits, type TracedLiveCapture } from "../src/infrastructure/sources/gateway";
 import { SLOVENIA_OFFICIAL_DIRECTORY_BOOTSTRAP, sloveniaBootstrapUrlSha256, type SloveniaOfficialDirectoryBootstrapEntry } from "../src/infrastructure/sources/slovenia-official-directory-bootstrap";
 
 const INPUT_PATH = "data/evals/prepare-slovenia-demo-package/result.json";
 const OUTPUT_ROOT = "data/evals/capture-slovenia-demo-sources";
 const MANIFEST_PATH = `${OUTPUT_ROOT}/manifest.json`;
+const FAILURE_PATH = `${OUTPUT_ROOT}/failure.json`;
 const OPT_IN_ERROR = "live_official_sources_opt_in_required\n";
 const FAILED = "capture_slovenia_demo_sources_failed\n";
 const SCHEMA = "si-demo-package-capture-staging@1" as const;
@@ -20,7 +21,7 @@ type Manifest = Readonly<{ schemaVersion: typeof SCHEMA; runId: string; stagingO
 export type CaptureSloveniaDemoSourcesArguments = Readonly<{ live: true }>;
 type CaptureFn = (request: HttpStepRequest<string>, signal: AbortSignal, limits: HttpCaptureLimits) => Promise<Capture>;
 
-type Dependencies = Readonly<{ readInput: () => Promise<unknown>; capture: CaptureFn; store: CaptureStore; createRunId: () => string }>;
+type Dependencies = Readonly<{ readInput: () => Promise<unknown>; capture: CaptureFn; store: CaptureStore; createRunId: () => string; writeFailure: (value: FailureRecord) => Promise<void> }>;
 export type CaptureStore = Readonly<{ prepare(): Promise<void>; cleanup(): Promise<void>; write(captures: readonly Readonly<{ policy: SloveniaOfficialDirectoryBootstrapEntry; capture: Capture }>[]): Promise<void> }>;
 
 export function parseCaptureSloveniaDemoSourcesArgs(argv: readonly string[]): CaptureSloveniaDemoSourcesArguments {
@@ -35,9 +36,11 @@ export async function runCaptureSloveniaDemoSources(args: CaptureSloveniaDemoSou
   const readInput = supplied.readInput ?? (async () => JSON.parse(await readFile(INPUT_PATH, "utf8")) as unknown);
   const capture = supplied.capture ?? captureHttpWithTrace;
   const createRunId = supplied.createRunId ?? randomUUID;
+  const writeFailure = supplied.writeFailure ?? createFailureStore({ workspaceRoot: process.cwd() });
   const store = supplied.store ?? createCaptureStore({ workspaceRoot: process.cwd() });
-  if (typeof readInput !== "function" || typeof capture !== "function" || typeof createRunId !== "function" || store === null || typeof store !== "object" || typeof store.prepare !== "function" || typeof store.cleanup !== "function" || typeof store.write !== "function") invalid();
+  if (typeof readInput !== "function" || typeof capture !== "function" || typeof createRunId !== "function" || typeof writeFailure !== "function" || store === null || typeof store !== "object" || typeof store.prepare !== "function" || typeof store.cleanup !== "function" || typeof store.write !== "function") invalid();
   let prepared = false;
+  let routeId: string | undefined;
   try {
     await store.prepare(); prepared = true; // Remove stale plausible output before any gate.
     const input = await readInput();
@@ -45,16 +48,70 @@ export async function runCaptureSloveniaDemoSources(args: CaptureSloveniaDemoSou
     const runId = createRunId(); if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(runId)) invalid();
     const captures: { policy: SloveniaOfficialDirectoryBootstrapEntry; capture: Capture }[] = [];
     for (const policy of SLOVENIA_OFFICIAL_DIRECTORY_BOOTSTRAP.routes) {
+      routeId = policy.routeId;
       const request: HttpStepRequest<string> = Object.freeze({ runId, sourceId: policy.sourceId, role: policy.role, method: "GET", url: policy.url, headers: Object.freeze({ accept: "text/html" }), allowedHosts: policy.allowedHosts, allowedMediaTypes: policy.allowedMediaTypes });
       const signal = AbortSignal.timeout(policy.timeoutMs);
-      captures.push({ policy, capture: snapshotCapture(policy, await capture(request, signal, { maxBytes: policy.maxBytes, maxRedirects: policy.maxRedirects }), runId) });
+      captures.push({ policy, capture: snapshotCapture(policy, await capture(request, signal, { maxBytes: policy.maxBytes, maxRedirects: policy.maxRedirects }), runId) }); routeId = undefined;
     }
     await store.write(captures);
   } catch (error) {
     if (prepared) await store.cleanup();
+    if (routeId !== undefined) await writeFailure(failureRecord(routeId, error)).catch(() => undefined);
     throw error;
   }
 }
+
+type FailureKind = CaptureFailureKind | "unclassified";
+type FailureRouteId = SloveniaOfficialDirectoryBootstrapEntry["routeId"];
+type FailureRecord = Readonly<{ schemaVersion: "si-demo-package-capture-failure@1"; stagingOnly: true; phase: "capture"; routeId: FailureRouteId; kind: FailureKind; retryable: boolean; responseStatus?: number; mediaType?: string }>;
+function failureRecord(routeId: string, error: unknown): FailureRecord {
+  const fixedRouteId = SLOVENIA_OFFICIAL_DIRECTORY_BOOTSTRAP.routes.find((route) => route.routeId === routeId)?.routeId;
+  if (fixedRouteId === undefined) invalid();
+  const trusted = trustedCaptureError(error);
+  return Object.freeze({ schemaVersion: "si-demo-package-capture-failure@1", stagingOnly: true, phase: "capture", routeId: fixedRouteId, kind: trusted?.kind ?? "unclassified", retryable: trusted?.retryable ?? false, ...(trusted?.responseStatus === undefined ? {} : { responseStatus: trusted.responseStatus }), ...(trusted?.mediaType === undefined ? {} : { mediaType: trusted.mediaType }) });
+}
+
+function trustedCaptureError(value: unknown): Readonly<{ kind: CaptureFailureKind; retryable: boolean; responseStatus?: number; mediaType?: string }> | undefined {
+  if (value === null || typeof value !== "object" || types.isProxy(value) || !types.isNativeError(value) || Object.getPrototypeOf(value) !== SourceCaptureError.prototype) return undefined;
+  const fields = Object.getOwnPropertyDescriptors(value); const kind = fields.kind; const retryable = fields.retryable; const trace = fields.trace;
+  if (kind?.enumerable !== true || !("value" in kind) || !isCaptureFailureKind(kind.value) || retryable?.enumerable !== true || !("value" in retryable) || typeof retryable.value !== "boolean" || retryable.value !== isRetryableCaptureKind(kind.value)) return undefined;
+  if (trace === undefined || trace.enumerable !== true || !("value" in trace)) return undefined;
+  if (trace.value === undefined) return Object.freeze({ kind: kind.value, retryable: retryable.value });
+  if (!isObject(trace.value) || types.isProxy(trace.value) || Object.getPrototypeOf(trace.value) !== Object.prototype || !Object.isFrozen(trace.value)) return undefined;
+  const details = Object.getOwnPropertyDescriptors(trace.value); const status = details.responseStatus; const media = details.mediaType;
+  const responseStatus = status?.enumerable === true && "value" in status && Number.isSafeInteger(status.value) && status.value >= 100 && status.value <= 599 ? status.value : undefined;
+  const mediaType = media?.enumerable === true && "value" in media && typeof media.value === "string" ? media.value.split(";", 1)[0]?.trim().toLowerCase() : undefined;
+  return Object.freeze({ kind: kind.value, retryable: retryable.value, ...(responseStatus === undefined ? {} : { responseStatus }), ...(mediaType !== undefined && /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(mediaType) ? { mediaType } : {}) });
+}
+
+function createFailureStore(options: Readonly<{ workspaceRoot: string }>): (value: FailureRecord) => Promise<void> {
+  const root = resolve(options.workspaceRoot);
+  return async (value) => { const record = snapshotFailureRecord(value); const target = resolve(root, FAILURE_PATH); if (relative(root, target) !== FAILURE_PATH) invalid(); await atomicWrite(target, new TextEncoder().encode(`${JSON.stringify(record)}\n`), root, randomUUID); };
+}
+
+function snapshotFailureRecord(value: unknown): FailureRecord {
+  if (!isObject(value) || Object.getOwnPropertySymbols(value).length !== 0) invalid();
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const required = ["schemaVersion", "stagingOnly", "phase", "routeId", "kind", "retryable"];
+  const optional = ["responseStatus", "mediaType"];
+  const keys = Object.keys(descriptors);
+  if (!required.every((key) => keys.includes(key)) || keys.some((key) => !required.includes(key) && !optional.includes(key)) ||
+    keys.some((key) => descriptors[key]?.enumerable !== true || !("value" in descriptors[key]!))) invalid();
+  const read = (key: string): unknown => (descriptors[key] as PropertyDescriptor & { value: unknown } | undefined)?.value;
+  const routeId = read("routeId"); const kind = read("kind"); const retryable = read("retryable");
+  if (read("schemaVersion") !== "si-demo-package-capture-failure@1" || read("stagingOnly") !== true || read("phase") !== "capture" ||
+    !isFailureRouteId(routeId) || !isFailureKind(kind) || typeof retryable !== "boolean" ||
+    retryable !== (kind === "unclassified" ? false : isRetryableCaptureKind(kind))) invalid();
+  const responseStatus = read("responseStatus"); const mediaType = read("mediaType");
+  if (responseStatus !== undefined && (!Number.isSafeInteger(responseStatus) || (responseStatus as number) < 100 || (responseStatus as number) > 599)) invalid();
+  if (mediaType !== undefined && (typeof mediaType !== "string" || mediaType.length > 128 || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(mediaType))) invalid();
+  return Object.freeze({ schemaVersion: "si-demo-package-capture-failure@1", stagingOnly: true, phase: "capture", routeId, kind, retryable, ...(responseStatus === undefined ? {} : { responseStatus: responseStatus as number }), ...(mediaType === undefined ? {} : { mediaType }) });
+}
+
+function isCaptureFailureKind(value: unknown): value is CaptureFailureKind { return value === "timeout" || value === "rate_limited" || value === "server_error" || value === "http_error" || value === "wrong_media_type" || value === "too_large" || value === "navigation_mismatch"; }
+function isRetryableCaptureKind(value: CaptureFailureKind): boolean { return value === "timeout" || value === "rate_limited" || value === "server_error"; }
+function isFailureKind(value: unknown): value is FailureKind { return value === "unclassified" || isCaptureFailureKind(value); }
+function isFailureRouteId(value: unknown): value is FailureRouteId { return SLOVENIA_OFFICIAL_DIRECTORY_BOOTSTRAP.routes.some((route) => route.routeId === value); }
 
 export async function runCaptureSloveniaDemoSourcesEntrypoint(argv: readonly string[], supplied: Partial<Dependencies> = {}): Promise<Readonly<{ exitCode: 0 | 1; stderr: string }>> {
   try { await runCaptureSloveniaDemoSources(parseCaptureSloveniaDemoSourcesArgs(argv), supplied); return Object.freeze({ exitCode: 0, stderr: "" }); }
@@ -90,7 +147,7 @@ function assertExpectedCandidates(value: unknown): void {
 export function createCaptureStore(options: Readonly<{ workspaceRoot: string; randomId?: () => string }>): CaptureStore {
   const root = resolve(options.workspaceRoot); const randomId = options.randomId ?? randomUUID;
   const absolute = (path: string) => { const target = resolve(root, path); if (relative(root, target) !== path) invalid(); return target; };
-  const paths = () => [MANIFEST_PATH, ...SLOVENIA_OFFICIAL_DIRECTORY_BOOTSTRAP.routes.map((route) => `${OUTPUT_ROOT}/raw/${route.routeId}.bin`)];
+  const paths = () => [MANIFEST_PATH, FAILURE_PATH, ...SLOVENIA_OFFICIAL_DIRECTORY_BOOTSTRAP.routes.map((route) => `${OUTPUT_ROOT}/raw/${route.routeId}.bin`)];
   const cleanup = async () => { for (const path of paths()) { const target = absolute(path); await safe(target, root, false); await unlink(target).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }); } };
   return Object.freeze({
     prepare: cleanup, cleanup,

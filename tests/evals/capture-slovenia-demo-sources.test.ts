@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { createCaptureStore, runCaptureSloveniaDemoSourcesEntrypoint } from "../../evals/capture-slovenia-demo-sources";
 import { SLOVENIA_OFFICIAL_DIRECTORY_BOOTSTRAP } from "../../src/infrastructure/sources/slovenia-official-directory-bootstrap";
+import { SourceCaptureError } from "../../src/infrastructure/sources/gateway";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const input = () => ({
@@ -38,6 +39,63 @@ function captured(request: { runId: string; sourceId: string; role: string; url:
 }
 
 describe("capture Slovenia demo sources", () => {
+  test("does not write a diagnostic before the network admission gate", async () => {
+    const writeFailure = vi.fn(async () => undefined); const capture = vi.fn();
+    await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], { readInput: async () => ({ ...input(), jobs: [] }), capture, writeFailure, store: { prepare: async () => undefined, cleanup: async () => undefined, write: async () => undefined } });
+    expect(capture).not.toHaveBeenCalled(); expect(writeFailure).not.toHaveBeenCalled();
+  });
+
+  test("writes only the closed safe SourceCaptureError diagnostic", async () => {
+    const writeFailure = vi.fn(async () => undefined);
+    const error = new SourceCaptureError("wrong_media_type", "PRIVATE https://secret.example/", undefined, { redirectChain: [], mediaType: "TEXT/HTML; charset=utf-8", responseStatus: 418 });
+    await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], { readInput: async () => input(), capture: async () => { throw error; }, writeFailure, store: { prepare: async () => undefined, cleanup: async () => undefined, write: async () => undefined } });
+    expect(writeFailure).toHaveBeenCalledWith({ schemaVersion: "si-demo-package-capture-failure@1", stagingOnly: true, phase: "capture", routeId: "police-pu-ljubljana-stats", kind: "wrong_media_type", retryable: false, mediaType: "text/html", responseStatus: 418 });
+    expect(JSON.stringify(writeFailure.mock.calls[0])).not.toMatch(/secret|PRIVATE/i);
+  });
+
+  test("does not invoke getters on a spoofed SourceCaptureError", async () => {
+    let reads = 0;
+    const spoof = Object.setPrototypeOf(new Error("PRIVATE https://secret.example/"), SourceCaptureError.prototype);
+    Object.defineProperties(spoof, {
+      kind: { enumerable: true, get: () => { reads += 1; return "wrong_media_type"; } },
+      retryable: { enumerable: true, value: false },
+      trace: { enumerable: true, value: Object.freeze({ redirectChain: Object.freeze(["https://secret.example/"]) }) },
+    });
+    const writeFailure = vi.fn(async () => undefined);
+    await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], { readInput: async () => input(), capture: async () => { throw spoof; }, writeFailure, store: { prepare: async () => undefined, cleanup: async () => undefined, write: async () => undefined } });
+    expect(reads).toBe(0);
+    expect(writeFailure).toHaveBeenCalledWith({ schemaVersion: "si-demo-package-capture-failure@1", stagingOnly: true, phase: "capture", routeId: "police-pu-ljubljana-stats", kind: "unclassified", retryable: false });
+    expect(JSON.stringify(writeFailure.mock.calls[0])).not.toMatch(/secret|PRIVATE/i);
+  });
+
+  test("keeps fixed terminal output when writing the diagnostic fails", async () => {
+    const result = await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], {
+      readInput: async () => input(),
+      capture: async () => { throw new SourceCaptureError("timeout", "PRIVATE"); },
+      writeFailure: async () => { throw new Error("PRIVATE diagnostic storage failure"); },
+      store: { prepare: async () => undefined, cleanup: async () => undefined, write: async () => undefined },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "capture_slovenia_demo_sources_failed\n" });
+  });
+
+  test("atomically stores the safe diagnostic with private permissions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "si-capture-diagnostic-"));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(root);
+    const failure = join(root, "data", "evals", "capture-slovenia-demo-sources", "failure.json");
+    try {
+      const result = await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], {
+        readInput: async () => input(),
+        capture: async () => { throw new SourceCaptureError("server_error", "PRIVATE", undefined, { redirectChain: ["https://secret.example/"], responseStatus: 503, responseUrl: "https://secret.example/" }); },
+        createRunId: () => runId,
+        store: createCaptureStore({ workspaceRoot: root }),
+      });
+      expect(result).toEqual({ exitCode: 1, stderr: "capture_slovenia_demo_sources_failed\n" });
+      const raw = await readFile(failure, "utf8");
+      expect(JSON.parse(raw)).toEqual({ schemaVersion: "si-demo-package-capture-failure@1", stagingOnly: true, phase: "capture", routeId: "police-pu-ljubljana-stats", kind: "server_error", retryable: true, responseStatus: 503 });
+      expect(raw).not.toMatch(/secret|PRIVATE/i);
+      expect((await stat(failure)).mode & 0o777).toBe(0o600);
+    } finally { cwd.mockRestore(); await rm(root, { recursive: true, force: true }); }
+  });
   test("does not capture before a fully valid discovery staging input", async () => {
     const capture = vi.fn();
     const result = await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], {
@@ -133,6 +191,25 @@ describe("capture Slovenia demo sources", () => {
       expect(stored.toString("utf8")).toBe("first");
       const manifest = JSON.parse(await readFile(join(root, "data", "evals", "capture-slovenia-demo-sources", "manifest.json"), "utf8")) as { captures: { sha256: string }[] };
       expect(manifest.captures[0]?.sha256).toBe(digest("first"));
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  test("removes a stale failure marker before a successful capture", async () => {
+    const root = await mkdtemp(join(tmpdir(), "si-capture-stale-failure-"));
+    const output = join(root, "data", "evals", "capture-slovenia-demo-sources");
+    const failure = join(output, "failure.json");
+    try {
+      await mkdir(output, { recursive: true });
+      await writeFile(failure, "stale");
+      const result = await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], {
+        readInput: async () => input(),
+        capture: (async (request: { runId: string; sourceId: string; role: string; url: string }) => captured(request, new TextEncoder().encode(request.role))) as never,
+        createRunId: () => runId,
+        writeFailure: async () => undefined,
+        store: createCaptureStore({ workspaceRoot: root }),
+      });
+      expect(result).toEqual({ exitCode: 0, stderr: "" });
+      await expect(readFile(failure)).rejects.toMatchObject({ code: "ENOENT" });
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
