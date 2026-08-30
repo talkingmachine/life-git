@@ -290,7 +290,8 @@ chained directly into Stage B: staging must be reviewed and pinned in a separate
 ```bash
 pnpm eval:local-codex-stage-a -- --live-local-subscription \
   --artifact data/evals/local-codex-stage-a/result.json
-pnpm prepare:si-demo-package -- --live-official-sources
+pnpm prepare:si-demo-package -- --live-local-subscription
+pnpm capture:si-demo-sources -- --live-official-sources
 # stop: independently review staging, create/pin the policy lock, commit, then rerun offline gates
 pnpm eval:local-codex-stage-b -- --live-local-subscription \
   --artifact data/evals/local-codex-stage-b/result.json
