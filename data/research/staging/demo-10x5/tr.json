@@ -1,0 +1,981 @@
+{
+  "schemaVersion": "demo-10x5-country-staging@1",
+  "country": {
+    "countryCode": "TR",
+    "officialName": "Republic of Türkiye",
+    "isoCode": "TR",
+    "accessedAt": "2026-08-30",
+    "authorities": [
+      {
+        "authorityType": "official_name_iso",
+        "publisher": "Republic of Türkiye e-Government Gateway",
+        "publisherType": "national_government",
+        "authorityRootUrl": "https://www.turkiye.gov.tr/",
+        "sourceUrl": "https://www.turkiye.gov.tr/e-devlet-kapisi",
+        "finalUrl": "https://www.turkiye.gov.tr/e-devlet-kapisi",
+        "factKey": "country_identity",
+        "cityId": null,
+        "officialStatus": "official national e-government portal",
+        "period": null,
+        "geographicScope": "Türkiye",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "e-Devlet Kapısı page, institution/address section",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "ISO code requires later machine validation."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Portal states it is operated for state services; turkiye.gov.tr is direct domain-ownership evidence."
+      },
+      {
+        "authorityType": "government_portal",
+        "publisher": "Republic of Türkiye e-Government Gateway",
+        "publisherType": "national_government",
+        "authorityRootUrl": "https://www.turkiye.gov.tr/",
+        "sourceUrl": "https://www.turkiye.gov.tr/",
+        "finalUrl": "https://www.turkiye.gov.tr/",
+        "factKey": "government_portal",
+        "cityId": null,
+        "officialStatus": "official national e-government portal",
+        "period": null,
+        "geographicScope": "Türkiye",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "Homepage identifies public institutions and e-services."
+      },
+      {
+        "authorityType": "statistics",
+        "publisher": "Turkish Statistical Institute (TurkStat / TÜİK)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://veriportali.tuik.gov.tr/",
+        "sourceUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "finalUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "factKey": "population",
+        "cityId": null,
+        "officialStatus": "official statistical release",
+        "period": "31 December 2024",
+        "geographicScope": "Türkiye, provinces/districts/municipalities",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "ABPRS 2024, Explanations",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "TurkStat data portal hosts the ABPRS release and identifies TurkStat as source."
+      },
+      {
+        "authorityType": "police_safety",
+        "publisher": "General Directorate of Security (EGM)",
+        "publisherType": "national_police",
+        "authorityRootUrl": "https://www.egm.gov.tr/",
+        "sourceUrl": "https://www.egm.gov.tr/",
+        "finalUrl": "https://www.egm.gov.tr/",
+        "factKey": "safety",
+        "cityId": null,
+        "officialStatus": "official national police portal",
+        "period": null,
+        "geographicScope": "Türkiye",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "homepage; Suçla Mücadele Verileri",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "EGM's agency-branded .gov.tr domain and homepage identify publisher ownership."
+      },
+      {
+        "authorityType": "cadastre_geography",
+        "publisher": "General Directorate of Land Registry and Cadastre (TKGM)",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.tkgm.gov.tr/",
+        "sourceUrl": "https://www.tkgm.gov.tr/en/history-responsibilities",
+        "finalUrl": "https://www.tkgm.gov.tr/en/history-responsibilities",
+        "factKey": "geography",
+        "cityId": null,
+        "officialStatus": "official cadastral authority",
+        "period": null,
+        "geographicScope": "Türkiye",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "General Duties: conduct the country's cadastral survey",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "TKGM page identifies statutory cadastral role and official .gov.tr domain."
+      },
+      {
+        "authorityType": "telecom_regulator",
+        "publisher": "Information and Communication Technologies Authority (BTK)",
+        "publisherType": "national_regulator",
+        "authorityRootUrl": "https://www.btk.gov.tr/",
+        "sourceUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+        "finalUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+        "factKey": "fixed_broadband",
+        "cityId": null,
+        "officialStatus": "official regulator statistics bulletin",
+        "period": "2024",
+        "geographicScope": "Türkiye provinces",
+        "format": "PDF",
+        "language": "tr",
+        "exactLocator": "2024 annual provincial statistics bulletin; broadband subscriptions tables",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [],
+        "rejectedAlternatives": [],
+        "notes": "BTK-branded .gov.tr publishing path identifies regulator ownership."
+      },
+      {
+        "authorityType": "telecom_operator",
+        "publisher": "Türk Telekom",
+        "publisherType": "licensed_fixed_network_operator",
+        "authorityRootUrl": "https://www.turktelekom.com.tr/",
+        "sourceUrl": "https://www.turktelekom.com.tr/",
+        "finalUrl": "https://www.turktelekom.com.tr/",
+        "factKey": "telecom_operator",
+        "cityId": null,
+        "officialStatus": "operator portal candidate",
+        "period": null,
+        "geographicScope": "Türkiye",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "This pass did not locate a BTK operator-register record linking the retail domain to a licence."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Keep as operator discovery candidate, not verified ownership evidence."
+      }
+    ]
+  },
+  "cities": [
+    {
+      "cityId": "ankara",
+      "seedName": "Ankara",
+      "officialIdentity": {
+        "publisher": "Ankara Metropolitan Municipality",
+        "publisherType": "metropolitan_municipality",
+        "authorityRootUrl": "https://www.ankara.bel.tr/",
+        "sourceUrl": "https://www.ankara.bel.tr/",
+        "finalUrl": "https://www.ankara.bel.tr/",
+        "factKey": "official_identity",
+        "cityId": "ankara",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Ankara metropolitan municipality/province",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Administrative code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal .bel.tr domain is official identity candidate."
+      },
+      "population": {
+        "publisher": "Turkish Statistical Institute (TurkStat / TÜİK)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://veriportali.tuik.gov.tr/",
+        "sourceUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "finalUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "factKey": "population",
+        "cityId": "ankara",
+        "officialStatus": "official statistical release",
+        "period": "31 December 2024",
+        "geographicScope": "Ankara province",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "ABPRS 2024: Ankara 5,864,049",
+        "observedValue": 5864049,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Seed city is mapped to province; municipal-core population differs."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official release reports province resident population."
+      },
+      "coordinates": {
+        "publisher": "General Directorate of Land Registry and Cadastre (TKGM)",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.tkgm.gov.tr/",
+        "sourceUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "finalUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "factKey": "coordinates",
+        "cityId": "ankara",
+        "officialStatus": "official geographic-information authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "TUCBS project page",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public coordinate or geometry service endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official maps excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Ankara Governorate",
+          "publisherType": "provincial_governorate_and_security_authorities",
+          "authorityRootUrl": "https://www.ankara.gov.tr/",
+          "sourceUrl": "https://www.ankara.gov.tr/aranan-sahislarin-yakalanmasina-yonelik-operasyon-sonuclarina-iliskin-bilgilendirme-28-06-2024",
+          "finalUrl": null,
+          "factKey": "safety",
+          "cityId": "ankara",
+          "officialStatus": "official candidate",
+          "period": "14-27 June 2024",
+          "geographicScope": "Ankara Province",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "Operation-results notice: wanted persons captured by sentence band",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Enforcement-output indicator rather than a comprehensive crime-incidence series.",
+            "Province scope may include areas outside the core municipality."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official governorate publication reporting provincial police/jandarma public-order outcomes."
+        },
+        "longTermRent": {
+          "publisher": "Central Bank of the Republic of Türkiye (CBRT)",
+          "publisherType": "central_bank",
+          "authorityRootUrl": "https://www.tcmb.gov.tr/",
+          "sourceUrl": "https://www.tcmb.gov.tr/wps/wcm/connect/21c8c007-4006-45ee-bbc2-852f396a23f0/RPPI.pdf?CACHEID=ROOTWORKSPACE-21c8c007-4006-45ee-bbc2-852f396a23f0-pNGpxHc&MOD=AJPERES",
+          "finalUrl": null,
+          "factKey": "longTermRent",
+          "cityId": "ankara",
+          "officialStatus": "official candidate",
+          "period": "monthly; January 2026 pinned release",
+          "geographicScope": "Ankara",
+          "format": "PDF/EVDS time series",
+          "language": "en",
+          "exactLocator": "Residential Property Price Index and New Tenant Rent Index, Graph 8 region Ankara; Table 2/Graph 7 city index in monthly releases",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Index measures new-tenant rent change, not a rent-level quote for a specific dwelling."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official monthly NTRI uses rental valuations in bank appraisal reports; EVDS supplies time series."
+        },
+        "urbanTransit": {
+          "publisher": "EGO General Directorate",
+          "publisherType": "municipal_operator",
+          "authorityRootUrl": "https://www.ego.gov.tr/",
+          "sourceUrl": "https://www.ego.gov.tr/",
+          "finalUrl": "https://www.ego.gov.tr/",
+          "factKey": "urban_transit",
+          "cityId": "ankara",
+          "officialStatus": "municipal transport operator portal",
+          "period": null,
+          "geographicScope": "Ankara",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "operator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Routes/fares not extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official operator candidate."
+        },
+        "fixedBroadband": {
+          "publisher": "Information and Communication Technologies Authority (BTK)",
+          "publisherType": "national_regulator",
+          "authorityRootUrl": "https://www.btk.gov.tr/",
+          "sourceUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "finalUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "factKey": "fixed_broadband",
+          "cityId": "ankara",
+          "officialStatus": "official regulator statistics bulletin",
+          "period": "2024",
+          "geographicScope": "Ankara province",
+          "format": "PDF",
+          "language": "tr",
+          "exactLocator": "2024 annual provincial statistics bulletin; broadband subscription tables",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Subscription totals are province-level, not address availability."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official source candidate."
+        }
+      }
+    },
+    {
+      "cityId": "istanbul",
+      "seedName": "Istanbul",
+      "officialIdentity": {
+        "publisher": "Istanbul Metropolitan Municipality",
+        "publisherType": "metropolitan_municipality",
+        "authorityRootUrl": "https://www.ibb.istanbul/",
+        "sourceUrl": "https://www.ibb.istanbul/",
+        "finalUrl": "https://www.ibb.istanbul/",
+        "factKey": "official_identity",
+        "cityId": "istanbul",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Istanbul metropolitan municipality/province",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Administrative code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal .istanbul domain identity candidate."
+      },
+      "population": {
+        "publisher": "Turkish Statistical Institute (TurkStat / TÜİK)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://veriportali.tuik.gov.tr/",
+        "sourceUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "finalUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "factKey": "population",
+        "cityId": "istanbul",
+        "officialStatus": "official statistical release",
+        "period": "31 December 2024",
+        "geographicScope": "Istanbul province",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "ABPRS 2024: İstanbul 15,701,602",
+        "observedValue": 15701602,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Province, not municipal-core, scope."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official release."
+      },
+      "coordinates": {
+        "publisher": "General Directorate of Land Registry and Cadastre (TKGM)",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.tkgm.gov.tr/",
+        "sourceUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "finalUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "factKey": "coordinates",
+        "cityId": "istanbul",
+        "officialStatus": "official geographic-information authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "TUCBS project page",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public coordinate/geometry endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official maps excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Istanbul Governorate",
+          "publisherType": "provincial_governorate_and_security_authorities",
+          "authorityRootUrl": "https://www.istanbul.gov.tr/",
+          "sourceUrl": "https://istanbul.gov.tr/vali-gul-istanbulun-2024-yilina-iliskin-emniyet-verilerini-acikladi",
+          "finalUrl": null,
+          "factKey": "safety",
+          "cityId": "istanbul",
+          "officialStatus": "official candidate",
+          "period": "2024",
+          "geographicScope": "Istanbul Province",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "2024 public-order data: changes and clearance rates for crimes against person and property",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Province scope may include areas outside the core municipality."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official governorate publication reporting provincial police/jandarma public-order outcomes."
+        },
+        "longTermRent": {
+          "publisher": "Central Bank of the Republic of Türkiye (CBRT)",
+          "publisherType": "central_bank",
+          "authorityRootUrl": "https://www.tcmb.gov.tr/",
+          "sourceUrl": "https://www.tcmb.gov.tr/wps/wcm/connect/21c8c007-4006-45ee-bbc2-852f396a23f0/RPPI.pdf?CACHEID=ROOTWORKSPACE-21c8c007-4006-45ee-bbc2-852f396a23f0-pNGpxHc&MOD=AJPERES",
+          "finalUrl": null,
+          "factKey": "longTermRent",
+          "cityId": "istanbul",
+          "officialStatus": "official candidate",
+          "period": "monthly; January 2026 pinned release",
+          "geographicScope": "Istanbul",
+          "format": "PDF/EVDS time series",
+          "language": "en",
+          "exactLocator": "Residential Property Price Index and New Tenant Rent Index, Graph 8 region Istanbul; Table 2/Graph 7 city index in monthly releases",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Index measures new-tenant rent change, not a rent-level quote for a specific dwelling."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official monthly NTRI uses rental valuations in bank appraisal reports; EVDS supplies time series."
+        },
+        "urbanTransit": {
+          "publisher": "IETT General Directorate",
+          "publisherType": "municipal_operator",
+          "authorityRootUrl": "https://iett.istanbul/",
+          "sourceUrl": "https://iett.istanbul/",
+          "finalUrl": "https://iett.istanbul/",
+          "factKey": "urban_transit",
+          "cityId": "istanbul",
+          "officialStatus": "municipal transport operator portal",
+          "period": null,
+          "geographicScope": "Istanbul",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "operator homepage",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Routes/fares not extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official operator candidate."
+        },
+        "fixedBroadband": {
+          "publisher": "Information and Communication Technologies Authority (BTK)",
+          "publisherType": "national_regulator",
+          "authorityRootUrl": "https://www.btk.gov.tr/",
+          "sourceUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "finalUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "factKey": "fixed_broadband",
+          "cityId": "istanbul",
+          "officialStatus": "official regulator statistics bulletin",
+          "period": "2024",
+          "geographicScope": "Istanbul province",
+          "format": "PDF",
+          "language": "tr",
+          "exactLocator": "2024 annual provincial statistics bulletin; broadband tables",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Province subscriptions; not address availability."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official source candidate."
+        }
+      }
+    },
+    {
+      "cityId": "izmir",
+      "seedName": "Izmir",
+      "officialIdentity": {
+        "publisher": "İzmir Metropolitan Municipality",
+        "publisherType": "metropolitan_municipality",
+        "authorityRootUrl": "https://www.izmir.bel.tr/",
+        "sourceUrl": "https://www.izmir.bel.tr/",
+        "finalUrl": "https://www.izmir.bel.tr/",
+        "factKey": "official_identity",
+        "cityId": "izmir",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "İzmir metropolitan municipality/province",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Administrative code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal .bel.tr identity candidate."
+      },
+      "population": {
+        "publisher": "Turkish Statistical Institute (TurkStat / TÜİK)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://veriportali.tuik.gov.tr/",
+        "sourceUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "finalUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "factKey": "population",
+        "cityId": "izmir",
+        "officialStatus": "official statistical release",
+        "period": "31 December 2024",
+        "geographicScope": "İzmir province",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "ABPRS 2024: İzmir 4,493,242",
+        "observedValue": 4493242,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Province, not municipal-core, scope."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official release."
+      },
+      "coordinates": {
+        "publisher": "General Directorate of Land Registry and Cadastre (TKGM)",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.tkgm.gov.tr/",
+        "sourceUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "finalUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "factKey": "coordinates",
+        "cityId": "izmir",
+        "officialStatus": "official geographic-information authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "TUCBS project page",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public coordinate/geometry endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official maps excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Izmir Governorate",
+          "publisherType": "provincial_governorate_and_security_authorities",
+          "authorityRootUrl": "https://www.izmir.gov.tr/",
+          "sourceUrl": "https://www.izmir.gov.tr/valimiz-dr-suleyman-elban-guvenlik-ve-asayis-bilgilendirme-toplantisi-duzenledi",
+          "finalUrl": null,
+          "factKey": "safety",
+          "cityId": "izmir",
+          "officialStatus": "official candidate",
+          "period": "September 2024 / prior-year comparison",
+          "geographicScope": "Izmir Province",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "Security and public-order briefing with statistical information and crime-category trends",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Province scope may include areas outside the core municipality."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official governorate publication reporting provincial police/jandarma public-order outcomes."
+        },
+        "longTermRent": {
+          "publisher": "Central Bank of the Republic of Türkiye (CBRT)",
+          "publisherType": "central_bank",
+          "authorityRootUrl": "https://www.tcmb.gov.tr/",
+          "sourceUrl": "https://www.tcmb.gov.tr/wps/wcm/connect/21c8c007-4006-45ee-bbc2-852f396a23f0/RPPI.pdf?CACHEID=ROOTWORKSPACE-21c8c007-4006-45ee-bbc2-852f396a23f0-pNGpxHc&MOD=AJPERES",
+          "finalUrl": null,
+          "factKey": "longTermRent",
+          "cityId": "izmir",
+          "officialStatus": "official candidate",
+          "period": "monthly; January 2026 pinned release",
+          "geographicScope": "Izmir",
+          "format": "PDF/EVDS time series",
+          "language": "en",
+          "exactLocator": "Residential Property Price Index and New Tenant Rent Index, Graph 8 region Izmir; Table 2/Graph 7 city index in monthly releases",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Index measures new-tenant rent change, not a rent-level quote for a specific dwelling."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official monthly NTRI uses rental valuations in bank appraisal reports; EVDS supplies time series."
+        },
+        "urbanTransit": {
+          "publisher": "ESHOT General Directorate",
+          "publisherType": "municipal_operator",
+          "authorityRootUrl": "https://www.eshot.gov.tr/",
+          "sourceUrl": "https://www.eshot.gov.tr/tr/UlasimSaatleri/769/288",
+          "finalUrl": "https://www.eshot.gov.tr/tr/UlasimSaatleri/769/288",
+          "factKey": "urban_transit",
+          "cityId": "izmir",
+          "officialStatus": "municipal official portal",
+          "period": null,
+          "geographicScope": "İzmir",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "Ulaşım Saatleri route-and-timetable page; Hat Güzergahı",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Individual route page selected; a complete export still requires parser discovery."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "İzmir Metropolitan Municipality FAQ identifies ESHOT as an official transit information channel."
+        },
+        "fixedBroadband": {
+          "publisher": "Information and Communication Technologies Authority (BTK)",
+          "publisherType": "national_regulator",
+          "authorityRootUrl": "https://www.btk.gov.tr/",
+          "sourceUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "finalUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "factKey": "fixed_broadband",
+          "cityId": "izmir",
+          "officialStatus": "official regulator statistics bulletin",
+          "period": "2024",
+          "geographicScope": "İzmir province",
+          "format": "PDF",
+          "language": "tr",
+          "exactLocator": "2024 annual provincial statistics bulletin; broadband tables",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Province subscriptions; not address availability."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official source candidate."
+        }
+      }
+    },
+    {
+      "cityId": "antalya",
+      "seedName": "Antalya",
+      "officialIdentity": {
+        "publisher": "Antalya Metropolitan Municipality",
+        "publisherType": "metropolitan_municipality",
+        "authorityRootUrl": "https://www.antalya.bel.tr/",
+        "sourceUrl": "https://www.antalya.bel.tr/",
+        "finalUrl": "https://www.antalya.bel.tr/",
+        "factKey": "official_identity",
+        "cityId": "antalya",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Antalya metropolitan municipality/province",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Administrative code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal .bel.tr identity candidate."
+      },
+      "population": {
+        "publisher": "Turkish Statistical Institute (TurkStat / TÜİK)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://veriportali.tuik.gov.tr/",
+        "sourceUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "finalUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "factKey": "population",
+        "cityId": "antalya",
+        "officialStatus": "official statistical release",
+        "period": "31 December 2024",
+        "geographicScope": "Antalya province",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "ABPRS 2024: Antalya 2,722,103",
+        "observedValue": 2722103,
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Province, not municipal-core, scope."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official release."
+      },
+      "coordinates": {
+        "publisher": "General Directorate of Land Registry and Cadastre (TKGM)",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.tkgm.gov.tr/",
+        "sourceUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "finalUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "factKey": "coordinates",
+        "cityId": "antalya",
+        "officialStatus": "official geographic-information authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "TUCBS project page",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public coordinate/geometry endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official maps excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Antalya Governorate",
+          "publisherType": "provincial_governorate_and_security_authorities",
+          "authorityRootUrl": "https://www.antalya.gov.tr/",
+          "sourceUrl": "https://www.antalya.gov.tr/eylul-ayi-guvenlik-ve-asayis-rakamlari-aciklandi",
+          "finalUrl": null,
+          "factKey": "safety",
+          "cityId": "antalya",
+          "officialStatus": "official candidate",
+          "period": "September 2024",
+          "geographicScope": "Antalya Province",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "Public-order briefing: total incidents, person/property incidents and clearance rate",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Province scope may include areas outside the core municipality."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official governorate publication reporting provincial police/jandarma public-order outcomes."
+        },
+        "longTermRent": {
+          "publisher": "Central Bank of the Republic of Türkiye (CBRT)",
+          "publisherType": "central_bank",
+          "authorityRootUrl": "https://www.tcmb.gov.tr/",
+          "sourceUrl": "https://www.tcmb.gov.tr/wps/wcm/connect/21c8c007-4006-45ee-bbc2-852f396a23f0/RPPI.pdf?CACHEID=ROOTWORKSPACE-21c8c007-4006-45ee-bbc2-852f396a23f0-pNGpxHc&MOD=AJPERES",
+          "finalUrl": null,
+          "factKey": "longTermRent",
+          "cityId": "antalya",
+          "officialStatus": "official candidate",
+          "period": "monthly; January 2026 pinned release",
+          "geographicScope": "Antalya-Burdur-Isparta statistical region proxy",
+          "format": "PDF/EVDS time series",
+          "language": "en",
+          "exactLocator": "Residential Property Price Index and New Tenant Rent Index, Graph 8 region Antalya, Burdur, Isparta",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Statistical-region proxy includes other provinces.",
+            "Index measures new-tenant rent change, not a rent-level quote for a specific dwelling."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official monthly NTRI uses rental valuations in bank appraisal reports; EVDS supplies time series."
+        },
+        "urbanTransit": {
+          "publisher": "Antalya Metropolitan Municipality",
+          "publisherType": "metropolitan_municipality",
+          "authorityRootUrl": "https://www.antalya.bel.tr/",
+          "sourceUrl": "https://ulasim.antalya.bel.tr/Home/TopluTasimaSubeMd",
+          "finalUrl": "https://ulasim.antalya.bel.tr/Home/TopluTasimaSubeMd",
+          "factKey": "urban_transit",
+          "cityId": "antalya",
+          "officialStatus": "municipal official portal",
+          "period": null,
+          "geographicScope": "Antalya",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "Toplu Taşıma Şube Müdürlüğü duties: routes, route revisions and UKOME submissions",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Department duties prove authority; a current route feed was not extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official municipality transport subdomain and department page located."
+        },
+        "fixedBroadband": {
+          "publisher": "Information and Communication Technologies Authority (BTK)",
+          "publisherType": "national_regulator",
+          "authorityRootUrl": "https://www.btk.gov.tr/",
+          "sourceUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "finalUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "factKey": "fixed_broadband",
+          "cityId": "antalya",
+          "officialStatus": "official regulator statistics bulletin",
+          "period": "2024",
+          "geographicScope": "Antalya province",
+          "format": "PDF",
+          "language": "tr",
+          "exactLocator": "2024 annual provincial statistics bulletin; broadband tables",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Province subscriptions; not address availability."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official source candidate."
+        }
+      }
+    },
+    {
+      "cityId": "mersin",
+      "seedName": "Mersin",
+      "officialIdentity": {
+        "publisher": "Mersin Metropolitan Municipality",
+        "publisherType": "metropolitan_municipality",
+        "authorityRootUrl": "https://www.mersin.bel.tr/",
+        "sourceUrl": "https://www.mersin.bel.tr/",
+        "finalUrl": "https://www.mersin.bel.tr/",
+        "factKey": "official_identity",
+        "cityId": "mersin",
+        "officialStatus": "municipal official portal",
+        "period": null,
+        "geographicScope": "Mersin metropolitan municipality/province",
+        "format": "HTML",
+        "language": "tr",
+        "exactLocator": "homepage",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Administrative code not extracted."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Municipal .bel.tr identity candidate."
+      },
+      "population": {
+        "publisher": "Turkish Statistical Institute (TurkStat / TÜİK)",
+        "publisherType": "national_statistics_office",
+        "authorityRootUrl": "https://veriportali.tuik.gov.tr/",
+        "sourceUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "finalUrl": "https://veriportali.tuik.gov.tr/Bulten/Index?dil=2&p=The-Results-of-Address-Based-Population-Registration-System-2023-53783",
+        "factKey": "population",
+        "cityId": "mersin",
+        "officialStatus": "official statistical release",
+        "period": "31 December 2024",
+        "geographicScope": "Mersin province",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "ABPRS 2024 province table; select Mersin",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_candidate_found",
+        "limitations": [
+          "Value not transcribed; city/province distinction requires import rule."
+        ],
+        "rejectedAlternatives": [],
+        "notes": "Official provincial series candidate."
+      },
+      "coordinates": {
+        "publisher": "General Directorate of Land Registry and Cadastre (TKGM)",
+        "publisherType": "national_cadastre",
+        "authorityRootUrl": "https://www.tkgm.gov.tr/",
+        "sourceUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "finalUrl": "https://www.tkgm.gov.tr/en/turkiye%27s-national-geographic-information-system-tucbs-project",
+        "factKey": "coordinates",
+        "cityId": "mersin",
+        "officialStatus": "official geographic-information authority",
+        "period": null,
+        "geographicScope": "city",
+        "format": "HTML",
+        "language": "en",
+        "exactLocator": "TUCBS project page",
+        "accessedAt": "2026-08-30",
+        "candidateStatus": "official_source_ambiguous",
+        "limitations": [
+          "No public coordinate/geometry endpoint established."
+        ],
+        "rejectedAlternatives": [
+          "Non-official maps excluded."
+        ],
+        "notes": "No coordinate value."
+      },
+      "facts": {
+        "safety": {
+          "publisher": "Mersin Governorate",
+          "publisherType": "provincial_governorate_and_security_authorities",
+          "authorityRootUrl": "https://www.mersin.gov.tr/",
+          "sourceUrl": "https://www.mersin.gov.tr/valimiz-sayin-atilla-toros-ilimizde-yurutulmekte-olan-guvenlik-ve-asayis-hizmetlerine-iliskin-aciklamalarda-bulundu",
+          "finalUrl": null,
+          "factKey": "safety",
+          "cityId": "mersin",
+          "officialStatus": "official candidate",
+          "period": "H1 2025 vs H1 2024",
+          "geographicScope": "Mersin Province",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "Comparative public-order briefing: change in ten major crimes against persons",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Province scope may include areas outside the core municipality."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official governorate publication reporting provincial police/jandarma public-order outcomes."
+        },
+        "longTermRent": {
+          "publisher": "Central Bank of the Republic of Türkiye (CBRT)",
+          "publisherType": "central_bank",
+          "authorityRootUrl": "https://www.tcmb.gov.tr/",
+          "sourceUrl": "https://www.tcmb.gov.tr/wps/wcm/connect/21c8c007-4006-45ee-bbc2-852f396a23f0/RPPI.pdf?CACHEID=ROOTWORKSPACE-21c8c007-4006-45ee-bbc2-852f396a23f0-pNGpxHc&MOD=AJPERES",
+          "finalUrl": null,
+          "factKey": "longTermRent",
+          "cityId": "mersin",
+          "officialStatus": "official candidate",
+          "period": "monthly; January 2026 pinned release",
+          "geographicScope": "Adana-Mersin statistical region proxy",
+          "format": "PDF/EVDS time series",
+          "language": "en",
+          "exactLocator": "Residential Property Price Index and New Tenant Rent Index, Graph 8 region Adana, Mersin",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Statistical-region proxy includes other provinces.",
+            "Index measures new-tenant rent change, not a rent-level quote for a specific dwelling."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official monthly NTRI uses rental valuations in bank appraisal reports; EVDS supplies time series."
+        },
+        "urbanTransit": {
+          "publisher": "Mersin Metropolitan Municipality",
+          "publisherType": "metropolitan_municipality",
+          "authorityRootUrl": "https://www.mersin.bel.tr/",
+          "sourceUrl": "https://mersin.bel.tr/birimler/1-977094947",
+          "finalUrl": "https://mersin.bel.tr/birimler/1-977094947",
+          "factKey": "urban_transit",
+          "cityId": "mersin",
+          "officialStatus": "municipal official portal",
+          "period": null,
+          "geographicScope": "Mersin",
+          "format": "HTML",
+          "language": "tr",
+          "exactLocator": "Toplu Taşıma Şube Müdürlüğü; route 139/154 and timetable adjustment notices",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Department notices establish service but no full network export was extracted."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official city-scope transit department and route notices located."
+        },
+        "fixedBroadband": {
+          "publisher": "Information and Communication Technologies Authority (BTK)",
+          "publisherType": "national_regulator",
+          "authorityRootUrl": "https://www.btk.gov.tr/",
+          "sourceUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "finalUrl": "https://www.btk.gov.tr/uploads/pages/yillik-il-istatistikleri/2024.pdf",
+          "factKey": "fixed_broadband",
+          "cityId": "mersin",
+          "officialStatus": "official regulator statistics bulletin",
+          "period": "2024",
+          "geographicScope": "Mersin province",
+          "format": "PDF",
+          "language": "tr",
+          "exactLocator": "2024 annual provincial statistics bulletin; broadband tables",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Province subscriptions; not address availability."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Official source candidate."
+        }
+      }
+    }
+  ]
+}
