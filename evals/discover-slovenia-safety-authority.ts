@@ -42,7 +42,7 @@ type RuntimeMetadata = Readonly<{
   schemaVersion: "official-source-candidates@1";
 }>;
 
-type StagingRecord = Readonly<{
+export type SloveniaSafetyAuthorityDiscoveryStaging = Readonly<{
   schemaVersion: typeof OUTPUT_SCHEMA;
   stagingOnly: true;
   policyLockWritten: false;
@@ -62,6 +62,11 @@ type StagingRecord = Readonly<{
     host: typeof GOV_HOST;
     hostSha256: string;
   }>[];
+}>;
+
+export type SloveniaSafetyAuthorityPrerequisiteSnapshots = Readonly<{
+  discoverySnapshotSha256: string;
+  failureSnapshotSha256: string;
 }>;
 
 type Discovery = Readonly<{
@@ -122,8 +127,10 @@ export async function runDiscoverSloveniaSafetyAuthority(
     typeof createDiscovery !== "function" || !validStore(store)) invalid();
 
   try {
-    const discoverySnapshotSha256 = validateCurrentDiscoveryInput(await readDiscoveryInput());
-    const failureSnapshotSha256 = validateTransportFailure(await readFailureInput());
+    const prerequisites = snapshotSloveniaSafetyAuthorityPrerequisites(
+      await readDiscoveryInput(),
+      await readFailureInput(),
+    );
 
     await store.prepare();
     await verifyInstallation();
@@ -132,10 +139,7 @@ export async function runDiscoverSloveniaSafetyAuthority(
     const discovery = supplied.discovery ?? createDiscovery();
     const discover = discoveryMethod(discovery);
     const result = await Reflect.apply(discover, discovery, [fixedDiscoveryRequest()]) as unknown;
-    await store.write(stagingRecord(result, {
-      discoverySnapshotSha256,
-      failureSnapshotSha256,
-    }));
+    await store.write(stagingRecord(result, prerequisites));
   } catch (error) {
     await store.cleanup();
     throw error;
@@ -179,6 +183,16 @@ function fixedDiscoveryRequest(): Parameters<OfficialSourceDiscoveryPort["discov
     localeHints: ["sl", "en"],
     round: 2,
     signal: new AbortController().signal,
+  });
+}
+
+export function snapshotSloveniaSafetyAuthorityPrerequisites(
+  discoveryInput: unknown,
+  failureInput: unknown,
+): SloveniaSafetyAuthorityPrerequisiteSnapshots {
+  return Object.freeze({
+    discoverySnapshotSha256: validateCurrentDiscoveryInput(discoveryInput),
+    failureSnapshotSha256: validateTransportFailure(failureInput),
   });
 }
 
@@ -251,7 +265,7 @@ function stagingRecord(
     discoverySnapshotSha256: string;
     failureSnapshotSha256: string;
   }>,
-): StagingRecord {
+): SloveniaSafetyAuthorityDiscoveryStaging {
   const result = exactDataObject(value, ["candidates", "metadata"]);
   const metadata = validateRuntimeMetadata(exactDataObject(result.metadata, [
     "invocationVersion", "protocolVersion", "compatibilityPolicy", "cliVersion", "model",
@@ -340,7 +354,9 @@ function validateStagedCandidate(value: unknown): Readonly<{
   });
 }
 
-function snapshotStagingRecord(value: unknown): StagingRecord {
+export function snapshotSloveniaSafetyAuthorityDiscoveryStaging(
+  value: unknown,
+): SloveniaSafetyAuthorityDiscoveryStaging {
   const root = exactDataObject(value, [
     "schemaVersion", "stagingOnly", "policyLockWritten", "prerequisites", "failedSource",
     "discovery", "candidates",
@@ -410,7 +426,7 @@ export function createDiscoverSloveniaSafetyAuthorityStore(options: Readonly<{
     prepare: remove,
     cleanup: remove,
     async write(value) {
-      const record = snapshotStagingRecord(value);
+      const record = snapshotSloveniaSafetyAuthorityDiscoveryStaging(value);
       const directory = dirname(target);
       await assertSafeArtifactIdentity(root, target, false);
       await mkdir(directory, { recursive: true, mode: 0o700 });
