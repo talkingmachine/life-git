@@ -163,12 +163,11 @@ function extraction(
   typedValue = typedValueFor(fieldId),
 ): Record<string, unknown> {
   return {
-    schemaVersion: "onboarding-extraction-wire@2",
+    schemaVersion: "onboarding-extraction-wire@3",
     proposals: [{
       f: wireAddressFor(fieldId),
       v: typedValue,
-      s: 0,
-      e: 1,
+      t: "evidence",
     }],
     nextQuestion: "Что ещё важно?",
   };
@@ -212,7 +211,7 @@ describe("onboarding Codex schemas and contracts", () => {
     }
     expect(properties(ONBOARDING_EXTRACTION_SCHEMA).schemaVersion).toEqual({
       type: "string",
-      enum: ["onboarding-extraction-wire@2"],
+      enum: ["onboarding-extraction-wire@3"],
     });
     expect(properties(ONBOARDING_REVIEW_SCHEMA).schemaVersion).toEqual({
       type: "string",
@@ -229,7 +228,7 @@ describe("onboarding Codex schemas and contracts", () => {
 
   test("covers every closed field family and derives review reasons from the catalog", () => {
     expect(createHash("sha256").update(canonicalJson(ONBOARDING_EXTRACTION_SCHEMA)).digest("hex"))
-      .toBe("77fa76052dededa561a0ec596678efd067e89eb106aada6e0f68b88a33cf9c94");
+      .toBe("0ba5f143062fbb2ddec0b7fe860151e9439964e62986d02d0fe8d07c295b30b1");
     const branches = proposalBranches();
     expect(branches).toHaveLength(18);
     expect(branches.map((branch) => properties(branch).f)).toEqual(expect.arrayContaining([
@@ -327,8 +326,7 @@ describe("onboarding Codex schemas and contracts", () => {
             descriptor: index === 0 ? "self" : `companion.${index - 1}`,
             relationship: index === 0 ? "self" : "other_family",
           })),
-          s: 0,
-          e: 1,
+          t: "evidence",
         }],
       },
       {
@@ -346,6 +344,22 @@ describe("onboarding Codex schemas and contracts", () => {
       { schemaVersion: "onboarding-review-output@1", issues: [], extra: true },
     ]) {
       expect(accepts(ONBOARDING_REVIEW_SCHEMA, invalid)).toBe(false);
+    }
+  });
+
+  test("requires V9 text evidence and rejects offset, stale, future, missing, and extra wire shapes", () => {
+    const valid = extraction("moving_party");
+    const proposal = (valid.proposals as readonly Record<string, unknown>[])[0]!;
+    for (const invalid of [
+      { ...valid, schemaVersion: "onboarding-extraction-wire@2" },
+      { ...valid, schemaVersion: "onboarding-extraction-wire@999" },
+      { ...valid, proposals: [{ f: proposal.f, v: proposal.v }] },
+      { ...valid, proposals: [{ f: proposal.f, v: proposal.v, s: 0, e: 1 }] },
+      { ...valid, proposals: [{ ...proposal, extra: true }] },
+      { ...valid, proposals: [{ ...proposal, t: "" }] },
+      { ...valid, proposals: [{ ...proposal, t: "x".repeat(8_193) }] },
+    ]) {
+      expect(accepts(ONBOARDING_EXTRACTION_SCHEMA, invalid)).toBe(false);
     }
   });
 

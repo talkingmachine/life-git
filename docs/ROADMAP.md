@@ -194,3 +194,11 @@ explore
   -> canonical-spec update
   -> archive change
 ```
+
+## Deferred provider backlog
+
+- [ ] `DEV-LLM-PROVIDER-SWITCH`: добавить флаг `dev-llm`, при котором локальная разработка использует
+  личную ChatGPT-подписку через Codex CLI; без флага штатный runtime использует внешний API provider.
+  Оба provider должны сохранять одинаковые узкие capability contracts, schemas, events, privacy и
+  failure semantics. Не реализовывать switch или внешний API в локальном beta-этапе
+  [`Local Codex LLM и автоматическое восстановление официальных источников`](superpowers/specs/2026-08-28-local-codex-llm-source-recovery-design.md).

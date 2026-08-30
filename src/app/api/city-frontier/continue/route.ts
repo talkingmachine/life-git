@@ -9,10 +9,11 @@ import type {
 import type {
   CityFrontierEvent,
   CityFrontierReadModel,
+  PublicFactSourceV1,
 } from "../../../../application/city-frontier-contracts";
 
 type ContinueCityFrontier = Pick<CityFrontierApplication,
-  "prepareCityFrontierContinuation" | "continueCityFrontier">;
+  "prepareCityFrontierContinuation" | "continueCityFrontierWithSourceRecovery">;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -120,7 +121,7 @@ const PROGRESS_WITH_REQUIRED_URL = new Set([
 ]);
 
 function ownExactRecord(value: unknown, keys: readonly string[]): PlainRecord | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+  if (value === null || typeof value !== "object" || types.isProxy(value) || Array.isArray(value) ||
     Object.getPrototypeOf(value) !== Object.prototype || Object.getOwnPropertySymbols(value).length !== 0) {
     return undefined;
   }
@@ -184,12 +185,36 @@ function eventBase(
     value.baseRevisionId === prepared.baseRevisionId;
 }
 
+function ownPublicFactSource(value: unknown): PublicFactSourceV1 | undefined {
+  const source = ownExactRecord(value, [
+    "schemaVersion", "factKey", "status", "publisherName", "sourceUrl", "checkedAt",
+  ]);
+  if (source === undefined || source.schemaVersion !== "public-fact-source@1" ||
+    source.factKey !== "si-city-safety" ||
+    (source.status !== "green" && source.status !== "red" && source.status !== "yellow")) return undefined;
+  if (source.status === "yellow") {
+    return source.publisherName === null && source.sourceUrl === null && source.checkedAt === null
+      ? source as PublicFactSourceV1 : undefined;
+  }
+  if (!nonEmptyText(source.publisherName) || !nonEmptyText(source.sourceUrl) ||
+    !nonEmptyText(source.checkedAt)) return undefined;
+  try {
+    const url = new URL(source.sourceUrl);
+    if (url.protocol !== "https:" || url.toString() !== source.sourceUrl ||
+      new Date(source.checkedAt).toISOString() !== source.checkedAt) return undefined;
+  } catch { return undefined; }
+  return source as PublicFactSourceV1;
+}
+
 function ownContinuationEvent(
   value: unknown,
   prepared: CityFrontierPrepared,
 ): CityFrontierEvent | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const type = (value as { type?: unknown }).type;
+  if (value === null || typeof value !== "object" || types.isProxy(value) || Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype || Object.getOwnPropertySymbols(value).length !== 0) return undefined;
+  const typeDescriptor = Object.getOwnPropertyDescriptor(value, "type");
+  if (typeDescriptor === undefined || !("value" in typeDescriptor) || !typeDescriptor.enumerable) return undefined;
+  const type = typeDescriptor.value;
   if (type === "city_activated") {
     const event = ownExactRecord(value, [...EVENT_BASE_KEYS, "cityId", "rank"]);
     if (event === undefined || !eventBase(event, prepared) || !nonEmptyText(event.cityId) ||
@@ -212,6 +237,25 @@ function ownContinuationEvent(
       return !hasSourceUrl || nonEmptyText(event.sourceUrl) ? event as CityFrontierEvent : undefined;
     }
     return undefined;
+  }
+  if (type === "source_recovery_started") {
+    const event = ownExactRecord(value, [...EVENT_BASE_KEYS, "cityId"]);
+    return event !== undefined && eventBase(event, prepared) && nonEmptyText(event.cityId)
+      ? event as CityFrontierEvent : undefined;
+  }
+  if (type === "source_recovery_yellow") {
+    const event = ownExactRecord(value, [...EVENT_BASE_KEYS, "cityId", "reason", "source"]);
+    const source = event === undefined ? undefined : ownPublicFactSource(event.source);
+    if (event === undefined || !eventBase(event, prepared) || !nonEmptyText(event.cityId) ||
+      event.reason !== "official_source_unavailable" || source === undefined || source.status !== "yellow") return undefined;
+    return { ...event, source } as CityFrontierEvent;
+  }
+  if (type === "official_source_replaced") {
+    const event = ownExactRecord(value, [...EVENT_BASE_KEYS, "cityId", "source"]);
+    const source = event === undefined ? undefined : ownPublicFactSource(event.source);
+    if (event === undefined || !eventBase(event, prepared) || !nonEmptyText(event.cityId) ||
+      source === undefined || source.status === "yellow") return undefined;
+    return { ...event, source } as CityFrontierEvent;
   }
   if (type === "city_revision_committed") {
     const event = ownExactRecord(value, [...EVENT_BASE_KEYS, "marker", "revision"]);
@@ -273,40 +317,56 @@ function continuationStream(
       const pump = async (): Promise<void> => {
         let committed = false;
         let completion: CityFrontierReadModel | undefined;
+        let yellow: PublicFactSourceV1 | undefined;
+        let recoveryStarted = false;
+        let replaced = false;
         let emitterFailed = false;
         try {
-          const returned = await frontier.continueCityFrontier(
-            prepared,
-            async (event) => {
+          const emit = async (event: CityFrontierEvent) => {
               if (emitterFailed) throw new Error("invalid_city_frontier_stream");
               if (cancelled || linked.signal.aborted) throw abortError(linked.signal);
               try {
                 const owned = ownContinuationEvent(event, prepared);
-                if (owned === undefined || completion !== undefined) {
+                if (owned === undefined || completion !== undefined || yellow !== undefined) {
                   throw new Error("invalid_city_frontier_stream");
                 }
                 if (owned.type === "city_continuation_completed" && !committed) {
                   throw new Error("completion_before_commit");
                 }
+                if (owned.type === "source_recovery_started") {
+                  if (recoveryStarted || replaced || committed) throw new Error("invalid_recovery_order");
+                  recoveryStarted = true;
+                }
+                if (owned.type === "official_source_replaced") {
+                  if (!recoveryStarted || replaced || committed) throw new Error("invalid_recovery_order");
+                  replaced = true;
+                }
+                if (owned.type === "source_recovery_yellow" &&
+                  (!recoveryStarted || replaced || committed)) throw new Error("invalid_recovery_order");
                 const frame = encoder.encode(`${JSON.stringify(owned)}\n`);
                 if (cancelled || linked.signal.aborted) throw abortError(linked.signal);
                 controller.enqueue(frame);
                 if (owned.type === "city_continuation_completed") {
                   completion = owned.readModel;
                 }
+                if (owned.type === "source_recovery_yellow") yellow = owned.source;
                 if (owned.type === "city_revision_committed") committed = true;
               } catch (error) {
                 if (cancelled || linked.signal.aborted) throw abortError(linked.signal);
                 emitterFailed = true;
                 throw error;
               }
-            },
-            linked.signal,
-          );
+          };
+          const returned = await frontier.continueCityFrontierWithSourceRecovery(prepared, emit, linked.signal);
           if (cancelled) return;
           if (linked.signal.aborted) throw abortError(linked.signal);
           if (emitterFailed) throw new Error("invalid_city_frontier_stream");
-          if (completion === undefined || canonicalValue(returned) !== canonicalValue(completion)) {
+          const advanced = returned.kind === "advanced" && completion !== undefined && yellow === undefined &&
+            canonicalValue(returned.readModel) === canonicalValue(completion);
+          const yellowReturned = returned.kind === "yellow" && completion === undefined && yellow !== undefined &&
+            !committed && !replaced &&
+            canonicalValue(returned.source) === canonicalValue(yellow);
+          if (!advanced && !yellowReturned) {
             throw new Error("invalid_city_frontier_stream");
           }
           controller.close();

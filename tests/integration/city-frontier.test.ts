@@ -6,6 +6,7 @@ import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
 
 import {
   createCityFrontierApplication,
+  type CityFrontierSourceRecoveryCapability,
   type CityFrontierApplication,
   type CityFrontierApplicationAssembly,
   type CityFrontierApplicationPorts,
@@ -74,7 +75,9 @@ import {
   sealCityRankingSnapshot,
 } from "../../src/application/city-frontier-contracts";
 import type {
+  CitySafetyCandidateInspectionInput,
   CitySafetyOfficialDocumentPort,
+  CitySafetyOfficialDiscoveryPort,
   CitySafetySearchPort,
 } from "../../src/application/city-safety-contracts";
 import {
@@ -189,6 +192,11 @@ import {
 import { SqliteCityCatalogStore } from "../../src/infrastructure/sqlite/city-catalog-store";
 import { SqliteCityEvidenceStore } from "../../src/infrastructure/sqlite/city-evidence-store";
 import { SqliteCityKnowledgeStore } from "../../src/infrastructure/sqlite/city-knowledge-store";
+import { SqliteCityFrontierStore } from "../../src/infrastructure/sqlite/city-frontier-store";
+import { SqliteCitySourceRecoveryStore } from "../../src/infrastructure/sqlite/city-source-recovery-store";
+import { SqliteCityContinuationUnitOfWork } from "../../src/infrastructure/sqlite/city-continuation-unit-of-work";
+import { createCitySourceTruthPublicationAuthority } from "../../src/infrastructure/city-source-truth-publication-authority";
+import { replayHistoricalCitySourceBinding } from "../../src/application/replay-city-source-binding";
 import { openEvidenceDatabase } from "../../src/infrastructure/sqlite/db";
 import { SqliteProfileStore } from "../../src/infrastructure/sqlite/profile-store";
 import {
@@ -2551,6 +2559,10 @@ function unavailablePorts(callback: () => never = NEVER): CityFrontierApplicatio
 
 interface SyntheticApplicationHarness {
   readonly assembly: Readonly<CityFrontierApplicationAssembly>;
+  createRecoveryApplication(capability: CityFrontierSourceRecoveryCapability): CityFrontierApplication;
+  createRealFrontierApplication(
+    recovery: (frontier: SqliteCityFrontierStore) => CityFrontierSourceRecoveryCapability,
+  ): CityFrontierApplication;
   readonly fixture: SyntheticAuthorityFixture;
   readonly capabilities: {
     readonly fixedDeadlineScheduler: CityFixedDeadlineScheduler;
@@ -4006,6 +4018,39 @@ async function syntheticApplicationHarness(
   };
   return {
     assembly: createCityFrontierApplication(ports as unknown as CityFrontierApplicationPorts),
+    createRecoveryApplication(capability) {
+      return createCityFrontierApplication(
+        ports as unknown as CityFrontierApplicationPorts,
+        capability,
+      ).application;
+    },
+    createRealFrontierApplication(recovery) {
+      const frontier = new SqliteCityFrontierStore(fixture.database, EVIDENCE_INTEGRITY, {
+        criteria: ports.criteria as CityCriteriaReadPort,
+        branches: ports.branches as CityBranchReadPort,
+        catalogs: ports.historicalCatalogs as CityCatalogStorePort,
+      });
+      const publication = calls.publications.at(-1);
+      if (publication === undefined) throw new Error("missing_synthetic_start_publication");
+      fixture.database.pragma("foreign_keys = OFF");
+      try {
+        frontier.publishStart(publication);
+      } finally {
+        fixture.database.pragma("foreign_keys = ON");
+      }
+      return createCityFrontierApplication({
+        ...ports,
+        rankings: Object.freeze({ loadRankingVerified: frontier.loadRankingVerified.bind(frontier) }),
+        frontierRead: Object.freeze({
+          loadRevisionVerified: frontier.loadRevisionVerified.bind(frontier),
+          loadHeadVerified: frontier.loadHeadVerified.bind(frontier),
+          loadChainVerified: frontier.loadChainVerified.bind(frontier),
+          findCommandVerified: frontier.findCommandVerified.bind(frontier),
+        }),
+        frontierAppend: Object.freeze({ appendRevision: frontier.appendRevision.bind(frontier) }),
+        startWriter: Object.freeze({ publishStart: frontier.publishStart.bind(frontier) }),
+      } as CityFrontierApplicationPorts, recovery(frontier)).application;
+    },
     fixture,
     calls,
     capabilities: { fixedDeadlineScheduler, clock, installedPackageManifests: manifestReadPort },
@@ -4432,6 +4477,82 @@ function researchAndPublicationCounts(
     append: harness.calls.appends.length,
   };
 }
+
+function preferredSafetyInspection(
+  input: CitySafetyCandidateInspectionInput,
+): Awaited<ReturnType<CitySafetyOfficialDocumentPort["inspect"]>> {
+  const bytes = new TextEncoder().encode(`preferred:${input.candidateUrl}`);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const publisher = input.publisherContext;
+  if (publisher === undefined) throw new Error("missing_preferred_publisher");
+  const municipal: LiveCapturedArtifact<"si-city-safety"> = {
+    artifactId: `${input.runId}:preferred-municipal`, runId: input.runId,
+    sourceId: "si-city-safety", role: "municipal_source", origin: "live",
+    capturedAt: input.assessmentAt, responseStatus: 200, responseUrl: input.candidateUrl,
+    request: { method: "GET", url: input.candidateUrl }, url: input.candidateUrl,
+    mediaType: "application/pdf", sha256, bytes,
+  };
+  const populationBytes = new TextEncoder().encode(`population:${input.runId}`);
+  const populationSha = createHash("sha256").update(populationBytes).digest("hex");
+  const population: LiveCapturedArtifact<"si-city-safety"> = {
+    ...municipal, artifactId: `${input.runId}:preferred-population`, role: "surs_denominator",
+    url: "https://pxweb.stat.si/population", responseUrl: "https://pxweb.stat.si/population",
+    request: { method: "GET", url: "https://pxweb.stat.si/population" }, sha256: populationSha,
+    bytes: populationBytes,
+  };
+  return {
+    kind: "usable",
+    detail: {
+      publisherId: publisher.publisherId, dataAuthorityId: "police",
+      publisherNavigationUrl: publisher.publisherNavigationUrl, resolvedEvidenceUrl: input.candidateUrl,
+      officialTrace: { initialUrl: input.candidateUrl, edges: [], lastTrustedUrl: input.candidateUrl, officialHops: 0 },
+      mediaType: "application/pdf", retentionPolicyId: `${publisher.publisherId}-retention@1`,
+      transientRawDeleted: false,
+      artifactRefs: [
+        { role: "municipal_source", documentRole: "terminal_claim", artifactId: municipal.artifactId, artifactSha256: municipal.sha256, sourceSha256: municipal.sha256, locator: municipal.url },
+        { role: "surs_denominator", artifactId: population.artifactId, artifactSha256: population.sha256, sourceSha256: population.sha256, locator: population.url },
+      ],
+      disposition: "usable", referenceYear: 2025, periodDisposition: "preferred",
+      quantity: { offenceCount: "1200", population: "300000", rateBasis: "offences_per_100000_residents" },
+      denominator: { publisherId: "surs", municipalityCode: "061", referenceDate: "2025-01-01", population: "300000", artifactId: population.artifactId, mediaType: "application/pdf", retentionPolicyId: "surs-retention@1", transientRawDeleted: false },
+    }, artifacts: [municipal, population],
+  };
+}
+
+function rejectedSafetyInspection(
+  input: CitySafetyCandidateInspectionInput,
+): Awaited<ReturnType<CitySafetyOfficialDocumentPort["inspect"]>> {
+  const bytes = new TextEncoder().encode(`rejected:${input.candidateUrl}`);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const publisher = input.publisherContext;
+  if (publisher === undefined) throw new Error("missing_rejected_publisher");
+  const artifact: LiveCapturedArtifact<"si-city-safety"> = {
+    artifactId: `${input.runId}:rejected-municipal`, runId: input.runId,
+    sourceId: "si-city-safety", role: "municipal_source", origin: "live",
+    capturedAt: input.assessmentAt, responseStatus: 200, responseUrl: input.candidateUrl,
+    request: { method: "GET", url: input.candidateUrl }, url: input.candidateUrl,
+    mediaType: "application/pdf", sha256, bytes,
+  };
+  return { kind: "rejected", detail: {
+    officialTrace: { initialUrl: input.candidateUrl, edges: [{ kind: "confirmed_document_link",
+      fromUrl: input.candidateUrl, toUrl: `${input.candidateUrl}/missing.pdf` }],
+      lastTrustedUrl: `${input.candidateUrl}/missing.pdf`, officialHops: 1,
+      failure: { captureKind: "http_error", responseStatus: 404, responseUrl: `${input.candidateUrl}/missing.pdf` } },
+    artifactRefs: [{ role: "municipal_source", documentRole: "navigation", artifactId: artifact.artifactId,
+      artifactSha256: sha256, sourceSha256: sha256, locator: artifact.url }],
+    reviewedOfficial: { publisherId: publisher.publisherId, dataAuthorityId: "police",
+      publisherNavigationUrl: publisher.publisherNavigationUrl }, mediaType: "application/pdf",
+    retentionPolicyId: `${publisher.publisherId}-retention@1`, transientRawDeleted: false,
+    disposition: "rejected", reason: "http_not_found",
+  }, artifacts: [artifact] };
+}
+
+const FROZEN_OFFICIAL_DISCOVERY_METADATA = Object.freeze({
+  invocationVersion: "codex-cli-invocation@2" as const, protocolVersion: "codex-cli-protocol@2" as const,
+  compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, cliVersion: "codex-cli 0.149.0-alpha.4",
+  model: "gpt-5.4" as const, reasoningEffort: "medium" as const, toolPolicy: "codex-tools-web-search@2" as const,
+  templateVersion: "official-source-discover@4" as const, schemaVersion: "official-source-candidates@1" as const,
+});
 
 function recoveryAuthorityCounts(
   harness: SyntheticApplicationHarness,
@@ -5189,6 +5310,27 @@ function driftSemanticRankingResult(
 }
 
 describe("City Frontier Application public boundary", () => {
+  test("beta continuation advances the ordinary unconfigured deterministic path", async () => {
+    const harness = await syntheticApplicationHarness();
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id,
+      countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT),
+      commandId: "start:beta-unconfigured",
+    });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId, expectedRevisionId: started.revision.id,
+      commandId: "continue:beta-unconfigured",
+    });
+    const events: CityFrontierEvent[] = [];
+    const outcome = await harness.assembly.application.continueCityFrontierWithSourceRecovery(
+      prepared, (event) => { events.push(structuredClone(event)); }, new AbortController().signal,
+    );
+
+    expect(outcome).toMatchObject({ schemaVersion: "city-source-recovery-outcome@1", kind: "advanced" });
+    expect(events.map(({ type }) => type)).toContain("city_continuation_completed");
+  });
+
   test("compile-pins the exact closed DTO, assembly and least-authority port surfaces", () => {
     // Break caught: accepting client-derived run/package/time authority or exposing selection authority publicly.
     type ExpectedStart = {
@@ -5243,6 +5385,11 @@ describe("City Frontier Application public boundary", () => {
         emit: (event: CityFrontierEvent) => void | Promise<void>,
         signal: AbortSignal,
       ): Promise<CityFrontierReadModel>;
+      continueCityFrontierWithSourceRecovery(
+        prepared: CityFrontierPrepared,
+        emit: (event: CityFrontierEvent) => void | Promise<void>,
+        signal: AbortSignal,
+      ): Promise<import("../../src/application/city-source-recovery").CitySourceRecoveryOutcome>;
       presentCityFrontier(runId: string): Promise<CityFrontierReadModel>;
     };
     type ExpectedSelectionAuthority = {
@@ -5290,7 +5437,7 @@ describe("City Frontier Application public boundary", () => {
     expectTypeOf<CityFrontierApplicationAssembly>().toEqualTypeOf<ExpectedAssembly>();
     expectTypeOf<CityFrontierApplicationPorts>().toEqualTypeOf<ExpectedPorts>();
     expectTypeOf(createCityFrontierApplication)
-      .toEqualTypeOf<(ports: CityFrontierApplicationPorts) => Readonly<CityFrontierApplicationAssembly>>();
+      .toEqualTypeOf<(ports: CityFrontierApplicationPorts, recoveryCapability?: import("../../src/application/city-frontier").CityFrontierSourceRecoveryCapability) => Readonly<CityFrontierApplicationAssembly>>();
   });
 
   test("compile-pins configured and unconfigured composition without leaking infrastructure into Application", () => {
@@ -5319,6 +5466,7 @@ describe("City Frontier Application public boundary", () => {
       readonly resolveAvailability?: typeof getCityResearchPackageAvailability;
       readonly clock?: () => Date;
       readonly fixedTiming?: CityFrontierFixedTiming;
+      readonly sourceRecovery?: CityFrontierCompositionOptions["sourceRecovery"];
     };
     type OptionValue<T, K extends PropertyKey> = K extends keyof T
       ? T[K & keyof T]
@@ -5849,6 +5997,7 @@ describe("City Frontier Application public boundary", () => {
         "startCityFrontier",
         "prepareCityFrontierContinuation",
         "continueCityFrontier",
+        "continueCityFrontierWithSourceRecovery",
         "presentCityFrontier",
         "selectCity",
       ]);
@@ -6464,6 +6613,7 @@ describe("City Frontier Application public boundary", () => {
       "startCityFrontier",
       "prepareCityFrontierContinuation",
       "continueCityFrontier",
+      "continueCityFrontierWithSourceRecovery",
       "presentCityFrontier",
     ]);
     expect(Reflect.ownKeys(harness.assembly.selectionAuthority)).toEqual([
@@ -10489,6 +10639,7 @@ describe("City Frontier Application public boundary", () => {
         cityId: evidenceInput.cityId,
         municipalityCode: safetyEntry.municipalityCode,
         candidateUrl: configuredRoute.navigationUrl,
+        publisherIds: safetyEntry.publisherIds,
         publisherContext: {
           publisherId: configuredRoute.publisherId,
           publisherNavigationUrl: configuredRoute.navigationUrl,
@@ -10636,6 +10787,7 @@ describe("City Frontier Application public boundary", () => {
       cityId: safetyEntry.cityId,
       municipalityCode: safetyEntry.municipalityCode,
       candidateUrl: route.navigationUrl,
+      publisherIds: safetyEntry.publisherIds,
       publisherContext: {
         publisherId: route.publisherId,
         publisherNavigationUrl: route.navigationUrl,
@@ -11696,6 +11848,419 @@ describe("City Frontier Application public boundary", () => {
     }
   });
 
+  test("replays an authentic verified prior and advances without official discovery or binding writes", async () => {
+    const harness = await syntheticApplicationHarness({
+      preserveRuns: true,
+      discriminatingClock: true,
+      safetyDocuments: { inspect: async (input) => preferredSafetyInspection(input) },
+    });
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-prior",
+    });
+    const priorPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: started.runId, expectedRevisionId: started.revision.id, commandId: "continue:source-recovery-prior",
+    });
+    await harness.assembly.application.continueCityFrontier(priorPrepared, vi.fn(), new AbortController().signal);
+    const seal = harness.calls.evidenceSeals[0] as CityEvidenceSealInput;
+    const safety = seal.safetyAttemptLedger;
+    if (safety.result.kind !== "verified") throw new Error("missing_verified_prior");
+    const accepted = safety.candidates[safety.result.acceptedCandidateIndex]! as import("../../src/research/city-safety-evidence").CitySafetyUsableCandidateAttempt;
+    const priorEvidence = withInfrastructurePlanGateRead(() =>
+      harness.fixture.evidenceStore.loadVerified(`${seal.cityCheckRunId}:evidence`));
+    const entry = priorEvidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety")!;
+    const bindingKey = { schemaVersion: "city-source-binding-key@1" as const, countryCode: "SI" as const,
+      cityId: "ljubljana", factKey: "si-city-safety" as const,
+      definitionId: "si-municipal-police-offences-per-100000@1" as const };
+    const attempts: unknown[] = [];
+    const discovery = vi.fn();
+    let tamperPrior = false;
+    const recoveryCapability = {
+      bindings: {
+        loadEffectiveVerified: () => ({ bindingKey, cursor: { schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: "a".repeat(64) }, revision: null,
+          sourceVersion: { schemaVersion: "source-version@1", id: "prior-source", bindingKey,
+            publisherId: accepted.publisherId, navigationUrl: accepted.publisherNavigationUrl,
+            requestedUrl: accepted.canonicalUrl,
+            finalUrl: tamperPrior ? `${accepted.resolvedEvidenceUrl}?drift=1` : accepted.resolvedEvidenceUrl,
+            captureArtifactIds: entry.artifacts.map(({ artifactId }) => artifactId), captureSha256: entry.artifacts.map(({ sha256 }) => sha256),
+            evidenceSnapshotId: `${seal.cityCheckRunId}:evidence`, parserVersion: priorEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"], capturedAt: seal.completedAt } }),
+        appendYellowAttemptInTransaction: (attempt) => { attempts.push(attempt); return attempt; },
+        appendReplacementInTransaction: () => { throw new Error("unexpected_replacement"); },
+      },
+      publication: { uow: { run: (operation) => operation() }, sealInTransaction: () => { throw new Error("unexpected_replacement"); }, evidenceReplayInTransaction: { read: { loadVerified: () => { throw new Error("unexpected_replacement"); }, findVerifiedByCheckRunId: () => undefined }, integrity: { canonical: JSON.stringify, hash: () => DIGEST, hashBytes: () => DIGEST }, package: { loadExactReplayContract: () => { throw new Error("unexpected_replacement"); } } }, publishFromEvidenceInTransaction: () => { throw new Error("unexpected_replacement"); }, appendRevisionInTransaction: () => { throw new Error("unexpected_replacement"); } },
+      officialDiscovery: { discover: async (input) => { discovery(input); throw new Error("unexpected_discovery"); } },
+    } satisfies CityFrontierSourceRecoveryCapability;
+    const recovery = harness.createRecoveryApplication(recoveryCapability);
+    const recovering = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-replay",
+    });
+    expect(recovering.runId).not.toBe(started.runId);
+    expect(recovering.ranking.ordered[0]!.cityId).toBe("ljubljana");
+    expect(recovering.ranking.installedPackageContext).toEqual(started.ranking.installedPackageContext);
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: recovering.runId, expectedRevisionId: recovering.revision.id, commandId: "continue:source-recovery-replay",
+    });
+    const tamperBefore = researchAndPublicationCounts(harness);
+    recoveryCapability.bindings.loadEffectiveVerified = () => {
+      throw new Error("borrowed_recovery_binding_invoked");
+    };
+    tamperPrior = true;
+    await expect(recovery.continueCityFrontierWithSourceRecovery(
+      prepared, vi.fn(), new AbortController().signal,
+    )).rejects.toThrow("integrity_mismatch");
+    expect(discovery).not.toHaveBeenCalled();
+    expect(attempts).toEqual([]);
+    expect(researchAndPublicationCounts(harness)).toEqual(tamperBefore);
+    tamperPrior = false;
+    const before = researchAndPublicationCounts(harness);
+    const outcome = await recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    expect(outcome.kind).toBe("advanced");
+    expect(discovery).not.toHaveBeenCalled();
+    expect(attempts).toEqual([]);
+    expect(researchAndPublicationCounts(harness)).toEqual({ ...before, fixed: before.fixed + 5,
+      generic: before.generic + 1, safetyDocument: before.safetyDocument + 1,
+      evidence: before.evidence + 1, knowledge: before.knowledge + 1, append: before.append + 1,
+      safetySearch: before.safetySearch });
+  });
+
+  test("atomically publishes a discovered replacement through real SQLite continuation participants", async () => {
+    let replacementMode = false;
+    let acceptedRecoveryPath = "recovered";
+    let discoveredUrl = "https://ljubljana.si/recovered";
+    const preferredForRecovery = (input: CitySafetyCandidateInspectionInput) => {
+      const base = preferredSafetyInspection(input);
+      if (!input.candidateUrl.includes("recovered-b") || base.kind !== "usable") return base;
+      const municipal = base.artifacts[0]!, population = base.artifacts[1]!;
+      const municipalId = `${municipal.artifactId}:b`, populationId = `${population.artifactId}:b`;
+      return { ...base, detail: { ...base.detail,
+        artifactRefs: [{ ...base.detail.artifactRefs[0]!, artifactId: municipalId },
+          { ...base.detail.artifactRefs[1]!, artifactId: populationId }],
+        denominator: { ...base.detail.denominator, artifactId: populationId } },
+      artifacts: [{ ...municipal, artifactId: municipalId }, { ...population, artifactId: populationId }] };
+    };
+    const rejectedForRecovery = (input: CitySafetyCandidateInspectionInput) => {
+      const base = rejectedSafetyInspection(input);
+      if (acceptedRecoveryPath !== "recovered-b" || base.kind !== "rejected") return base;
+      const artifact = base.artifacts[0]!; const suffix = createHash("sha256").update(input.candidateUrl).digest("hex").slice(0, 8);
+      const artifactId = `${artifact.artifactId}:b-${suffix}`;
+      return { ...base, detail: { ...base.detail,
+        artifactRefs: [{ ...base.detail.artifactRefs[0]!, artifactId }] },
+      artifacts: [{ ...artifact, artifactId }] };
+    };
+    const harness = await syntheticApplicationHarness({ preserveRuns: true, discriminatingClock: true,
+      safetyDocuments: { inspect: async (input) => replacementMode &&
+        !input.candidateUrl.includes(acceptedRecoveryPath)
+        ? rejectedForRecovery(input)
+        : preferredForRecovery(input.publisherContext === undefined
+          ? { ...input, publisherContext: { publisherId: "municipality-ljubljana",
+            publisherNavigationUrl: "https://ljubljana.si/" } }
+          : input) },
+    });
+    const seed = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:sqlite-recovery-seed",
+    });
+    const seedPrepared = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: seed.runId, expectedRevisionId: seed.revision.id, commandId: "continue:sqlite-recovery-seed",
+    });
+    await harness.assembly.application.continueCityFrontier(seedPrepared, vi.fn(), new AbortController().signal);
+    const seedSeal = harness.calls.evidenceSeals.at(-1) as CityEvidenceSealInput;
+    const seedEvidence = harness.fixture.evidenceStore.loadVerified(`${seedSeal.cityCheckRunId}:evidence`);
+    const accepted = seedEvidence.snapshot.safetyAttemptLedger.result;
+    if (accepted.kind !== "verified") throw new Error("missing_sqlite_recovery_prior");
+    const candidate = seedEvidence.snapshot.safetyAttemptLedger.candidates[accepted.acceptedCandidateIndex]!;
+    const safetyEntry = seedEvidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety");
+    if (candidate.disposition !== "usable" || safetyEntry === undefined) throw new Error("invalid_sqlite_recovery_prior");
+    const bindingKey = Object.freeze({ schemaVersion: "city-source-binding-key@1" as const, countryCode: "SI" as const,
+      cityId: "ljubljana", factKey: "si-city-safety" as const,
+      definitionId: "si-municipal-police-offences-per-100000@1" as const });
+    const installedSource = Object.freeze({ schemaVersion: "source-version@1" as const,
+      id: "sqlite-recovery:installed-source", bindingKey, publisherId: candidate.publisherId,
+      navigationUrl: candidate.publisherNavigationUrl, requestedUrl: candidate.canonicalUrl,
+      finalUrl: candidate.resolvedEvidenceUrl,
+      captureArtifactIds: Object.freeze(safetyEntry.artifacts.map(({ artifactId }) => artifactId)),
+      captureSha256: Object.freeze(safetyEntry.artifacts.map(({ sha256 }) => sha256)),
+      evidenceSnapshotId: seedEvidence.snapshot.id,
+      parserVersion: seedEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"],
+      capturedAt: seedEvidence.snapshot.completedAt });
+    replacementMode = true;
+    const started = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:sqlite-recovery",
+    });
+    const profiles = new SqliteProfileStore(harness.fixture.database);
+    await profiles.appendRelocation(harness.fixture.alternateRelocation);
+    await profiles.appendPreference(harness.fixture.alternatePreference);
+    let recoveryStore!: SqliteCitySourceRecoveryStore;
+    let realFrontier!: SqliteCityFrontierStore;
+    let failAfterFrontier = true;
+    let abortAfterReplacement: (() => void) | undefined;
+    let postAppendCanonicalOffset = -1;
+    const unitOfWork = new SqliteCityContinuationUnitOfWork(harness.fixture.database);
+    const recoveryFactory = (frontier: SqliteCityFrontierStore): CityFrontierSourceRecoveryCapability => {
+      realFrontier = frontier;
+      recoveryStore = new SqliteCitySourceRecoveryStore(harness.fixture.database, EVIDENCE_INTEGRITY,
+        Object.freeze({ loadVerified: () => Object.freeze({ bindingKey, sourceVersion: installedSource }) }),
+        createCitySourceTruthPublicationAuthority(harness.fixture.evidenceStore, harness.fixture.knowledgeStore, frontier));
+      return Object.freeze({
+      bindings: Object.freeze({
+        loadEffectiveVerified: recoveryStore.loadEffectiveVerified.bind(recoveryStore),
+        appendYellowAttemptInTransaction: recoveryStore.appendYellowAttemptInTransaction.bind(recoveryStore),
+        appendReplacementInTransaction: (input, cursor) => {
+          const revision = recoveryStore.appendReplacementInTransaction(input, cursor);
+          abortAfterReplacement?.();
+          return revision;
+        },
+      }),
+      publication: Object.freeze({
+        uow: Object.freeze({ run: unitOfWork.run.bind(unitOfWork) }),
+        sealInTransaction: harness.fixture.evidenceStore.sealInTransaction.bind(harness.fixture.evidenceStore),
+        evidenceReplayInTransaction: Object.freeze({
+          read: Object.freeze({
+            loadVerified: harness.fixture.evidenceStore.loadVerifiedInTransaction.bind(harness.fixture.evidenceStore),
+            findVerifiedByCheckRunId: harness.fixture.evidenceStore.findVerifiedByCheckRunIdInTransaction.bind(harness.fixture.evidenceStore),
+          }), integrity: createCityEvidenceReplayIntegrity(DECISION_INTEGRITY),
+          package: Object.freeze({ loadExactReplayContract: harness.fixture.installedPackages.loadExactReplayContract.bind(harness.fixture.installedPackages) }),
+        }),
+        publishFromEvidenceInTransaction: harness.fixture.knowledgeStore.publishFromEvidenceInTransaction.bind(harness.fixture.knowledgeStore),
+        appendRevisionInTransaction: (input) => {
+          const revision = frontier.appendRevisionInTransaction(input);
+          if (failAfterFrontier) {
+            failAfterFrontier = false;
+            throw new Error("injected_after_frontier");
+          }
+          return revision;
+        },
+      }),
+      officialDiscovery: Object.freeze({ discover: async () => Object.freeze({ kind: "candidates" as const,
+        urls: Object.freeze([discoveredUrl]), metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }) }),
+      } satisfies CityFrontierSourceRecoveryCapability);
+    };
+    const application = harness.createRealFrontierApplication(recoveryFactory);
+    const prepared = await application.prepareCityFrontierContinuation({
+      runId: started.runId, expectedRevisionId: started.revision.id, commandId: "continue:sqlite-recovery",
+    });
+    const count = (table: string) => harness.fixture.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
+    const before = Object.fromEntries(["city_evidence_snapshots", "city_knowledge_revisions", "city_frontier_revisions", "city_source_versions", "city_source_binding_revisions", "city_source_binding_heads", "official_source_recovery_attempts", "official_source_replacement_events"].map((table) => [table, count(table).count]));
+    const failedEvents: CityFrontierEvent[] = [];
+    await expect(application.continueCityFrontierWithSourceRecovery(
+      prepared, (event) => { failedEvents.push(structuredClone(event)); }, new AbortController().signal,
+    )).rejects.toThrow("injected_after_frontier");
+    expect(failedEvents.some(({ type }) => type === "source_recovery_started")).toBe(true);
+    expect(failedEvents.some(({ type }) => type === "official_source_replaced")).toBe(false);
+    expect(failedEvents.some((event) => event.type === "city_progress" &&
+      event.stage === "source_completed:si-city-safety")).toBe(false);
+    expect(JSON.stringify(failedEvents)).not.toContain("recovered");
+    for (const table of Object.keys(before)) expect(count(table).count).toBe(before[table]!);
+    expect(realFrontier.loadHeadVerified(started.runId)).toEqual(started.revision);
+    const rolledBack = recoveryStore.loadEffectiveVerified(bindingKey);
+    expect(rolledBack.cursor.kind).toBe("installed");
+    expect(rolledBack.sourceVersion).toEqual(installedSource);
+    const abortController = new AbortController(); const abortReason = new Error("detached_after_replacement");
+    abortAfterReplacement = () => { postAppendCanonicalOffset = harness.calls.decisionCanonicals.length; abortController.abort(abortReason); };
+    const abortedEvents: CityFrontierEvent[] = [];
+    await expect(application.continueCityFrontierWithSourceRecovery(
+      prepared, (event) => { abortedEvents.push(structuredClone(event)); }, abortController.signal,
+    )).rejects.toBe(abortReason);
+    abortAfterReplacement = undefined;
+    expect(harness.calls.decisionCanonicals.slice(postAppendCanonicalOffset).filter(({ value }) =>
+      value !== null && typeof value === "object" && (value as { schemaVersion?: unknown }).schemaVersion === "source-binding@1")).toEqual([]);
+    expect(abortedEvents.some(({ type }) => type === "official_source_replaced" || type === "city_revision_committed" || type === "city_continuation_completed")).toBe(false);
+    for (const table of Object.keys(before)) expect(count(table).count).toBe(before[table]!);
+    expect(realFrontier.loadHeadVerified(started.runId)).toEqual(started.revision);
+    const successfulEvents: CityFrontierEvent[] = [];
+    const outcome = await application.continueCityFrontierWithSourceRecovery(
+      prepared, (event) => { successfulEvents.push(structuredClone(event)); }, new AbortController().signal,
+    );
+    expect(outcome.kind).toBe("advanced");
+    expect(successfulEvents.map(({ type }) => type)).toEqual([
+      "city_activated", "city_progress", "city_progress", "city_progress", "city_progress",
+      "source_recovery_started", "official_source_replaced", "city_progress", "city_progress",
+      "city_progress", "city_progress", "city_progress", "city_progress",
+      "city_revision_committed", "city_continuation_completed",
+    ]);
+    const replacementEvent = successfulEvents.find(({ type }) => type === "official_source_replaced");
+    expect(replacementEvent).toMatchObject({
+      type: "official_source_replaced",
+      source: {
+        schemaVersion: "public-fact-source@1", factKey: "si-city-safety",
+        status: expect.stringMatching(/^(green|red)$/),
+      },
+    });
+    const replacementIndex = successfulEvents.findIndex(({ type }) => type === "official_source_replaced");
+    expect(JSON.stringify(successfulEvents.slice(0, replacementIndex))).not.toContain("recovered");
+    expect(successfulEvents.slice(replacementIndex + 1).filter((event) => event.type === "city_progress" &&
+      event.stage === "source_completed:si-city-safety")).toHaveLength(1);
+    for (const table of Object.keys(before)) expect(count(table).count).toBe(before[table]! + 1);
+    const effective = recoveryStore.loadEffectiveVerified(bindingKey);
+    const history = recoveryStore.loadHistoryVerified(bindingKey);
+    const audit = recoveryStore.loadOwnerAuditVerified(bindingKey);
+    expect(effective.cursor.kind).toBe("override");
+    expect(history).toHaveLength(1);
+    expect(audit).toHaveLength(1);
+    const revision = history[0]!;
+    const source = effective.sourceVersion!;
+    const recoveredEvidence = harness.fixture.evidenceStore.loadVerified(source.evidenceSnapshotId);
+    const recoveredResult = recoveredEvidence.snapshot.safetyAttemptLedger.result;
+    if (recoveredResult.kind !== "verified") throw new Error("missing_recovered_candidate");
+    const recovered = recoveredEvidence.snapshot.safetyAttemptLedger.candidates[recoveredResult.acceptedCandidateIndex]!;
+    const recoveredEntry = recoveredEvidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety")!;
+    if (recovered.origin.kind !== "search" || recovered.disposition !== "usable") throw new Error("invalid_recovered_candidate");
+    expect(source).toMatchObject({ publisherId: recovered.publisherId, navigationUrl: recovered.publisherNavigationUrl,
+      requestedUrl: recovered.canonicalUrl, finalUrl: recovered.resolvedEvidenceUrl,
+      evidenceSnapshotId: recoveredEvidence.snapshot.id, capturedAt: recoveredEvidence.snapshot.completedAt });
+    expect(source.parserVersion).toBe(recoveredEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"]);
+    expect(source.captureArtifactIds).toEqual(recoveredEntry.artifacts.map(({ artifactId }) => artifactId));
+    expect(source.captureSha256).toEqual(recoveredEntry.artifacts.map(({ sha256 }) => sha256));
+    expect(revision).toMatchObject({ sourceVersionId: source.id, evidenceSnapshotId: source.evidenceSnapshotId,
+      parentRunId: started.runId, policyVersion: "official-source-recovery@1", actor: "local_codex_recovery" });
+    expect(audit[0]!.commandId).toBe(prepared.commandId);
+    acceptedRecoveryPath = "recovered-b"; discoveredUrl = "https://ljubljana.si/recovered-b";
+    const startedB = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:sqlite-recovery-b",
+    });
+    const applicationB = harness.createRealFrontierApplication(recoveryFactory);
+    const preparedB = await applicationB.prepareCityFrontierContinuation({
+      runId: startedB.runId, expectedRevisionId: startedB.revision.id, commandId: "continue:sqlite-recovery-b",
+    });
+    await expect(applicationB.continueCityFrontierWithSourceRecovery(preparedB, vi.fn(), new AbortController().signal))
+      .resolves.toMatchObject({ kind: "advanced" });
+    const currentAfterB = recoveryStore.loadEffectiveVerified(bindingKey);
+    expect(currentAfterB.revision?.revisionOrdinal).toBe(2);
+    expect(currentAfterB.sourceVersion?.evidenceSnapshotId).not.toBe(source.evidenceSnapshotId);
+    const replayIntegrity = createCityEvidenceReplayIntegrity(DECISION_INTEGRITY);
+    const readReceiver = {
+      loadVerified(id: string, expected?: import("../../src/application/city-data-contracts").CityEvidenceExpectations) { expect(this).toBe(readReceiver); return harness.fixture.evidenceStore.loadVerified(id, expected); },
+      findVerifiedByCheckRunId(id: string) { expect(this).toBe(readReceiver); return harness.fixture.evidenceStore.findVerifiedByCheckRunId(id); },
+    };
+    const integrityReceiver = {
+      canonical(value: unknown) { expect(this).toBe(integrityReceiver); return replayIntegrity.canonical(value); },
+      hash(value: string) { expect(this).toBe(integrityReceiver); return replayIntegrity.hash(value); },
+      hashBytes(value: Uint8Array) { expect(this).toBe(integrityReceiver); return replayIntegrity.hashBytes(value); },
+    };
+    const packageReceiver = {
+      loadExactReplayContract(...args: Parameters<CityEvidenceReplayPorts["package"]["loadExactReplayContract"]>) { expect(this).toBe(packageReceiver); return harness.fixture.installedPackages.loadExactReplayContract(...args); },
+    };
+    const bindingsReceiver = {
+      loadRevisionVerified(requested: typeof bindingKey, id: string) {
+        expect(this).toBe(bindingsReceiver);
+        readReceiver.loadVerified = () => { throw new Error("swapped_read_must_not_run"); };
+        integrityReceiver.canonical = () => { throw new Error("swapped_integrity_must_not_run"); };
+        packageReceiver.loadExactReplayContract = () => { throw new Error("swapped_package_must_not_run"); };
+        return recoveryStore.loadRevisionVerified(requested, id);
+      },
+    };
+    const replayedA = await replayHistoricalCitySourceBinding({ bindingKey, revisionId: revision.id,
+      packageId: recoveredEvidence.snapshot.packageId }, {
+      bindings: bindingsReceiver, evidenceReplay: { read: readReceiver, integrity: integrityReceiver, package: packageReceiver },
+    });
+    expect(replayedA.binding.revision).toEqual(revision);
+    expect(replayedA.binding.sourceVersion).toEqual(source);
+    expect(replayedA.evidence.snapshot).toMatchObject({ id: source.evidenceSnapshotId,
+      packageId: recoveredEvidence.snapshot.packageId,
+      packageSchemaVersion: recoveredEvidence.snapshot.packageSchemaVersion,
+      catalogRevisionId: recoveredEvidence.snapshot.catalogRevisionId,
+      evidenceRulesVersion: recoveredEvidence.snapshot.evidenceRulesVersion });
+    expect(replayedA.evidence.genericEvidence.snapshot.parserVersions["si-city-safety"])
+      .toBe(recoveredEvidence.genericEvidence.snapshot.parserVersions["si-city-safety"]);
+    const effectiveAfterReplay = recoveryStore.loadEffectiveVerified(bindingKey);
+    expect(effectiveAfterReplay.revision).toEqual(currentAfterB.revision);
+    expect(effectiveAfterReplay.sourceVersion).toEqual(currentAfterB.sourceVersion);
+    await expect(replayHistoricalCitySourceBinding({ bindingKey, revisionId: revision.id,
+      packageId: recoveredEvidence.snapshot.packageId }, {
+      bindings: { loadRevisionVerified: () => { throw new Error("RAW_SECRET_BINDING_ERROR"); } },
+      evidenceReplay: { read: readReceiver, integrity: integrityReceiver, package: packageReceiver },
+    })).rejects.toThrow("integrity_mismatch");
+  });
+
+  test("returns yellow after an authenticated prior is rejected, without late truth writes", async () => {
+    let rejectPrior = false;
+    const harness = await syntheticApplicationHarness({ preserveRuns: true, discriminatingClock: true,
+      safetyDocuments: { inspect: async (input) => rejectPrior
+        ? rejectedSafetyInspection(input) : preferredSafetyInspection(input) },
+    });
+    const seed = await harness.assembly.application.startCityFrontier({
+      resolvedCountryShortlistRevisionId: harness.fixture.resolved.id, countryCode: "SI",
+      criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-yellow-seed",
+    });
+    const seeded = await harness.assembly.application.prepareCityFrontierContinuation({
+      runId: seed.runId, expectedRevisionId: seed.revision.id, commandId: "continue:source-recovery-yellow-seed",
+    });
+    await harness.assembly.application.continueCityFrontier(seeded, vi.fn(), new AbortController().signal);
+    const seal = harness.calls.evidenceSeals[0] as CityEvidenceSealInput;
+    const ledger = seal.safetyAttemptLedger;
+    if (ledger.result.kind !== "verified") throw new Error("missing_yellow_seed_prior");
+    const accepted = ledger.candidates[ledger.result.acceptedCandidateIndex]! as import("../../src/research/city-safety-evidence").CitySafetyUsableCandidateAttempt;
+    const evidence = withInfrastructurePlanGateRead(() => harness.fixture.evidenceStore.loadVerified(`${seal.cityCheckRunId}:evidence`));
+    const entry = evidence.genericEvidence.entries.find(({ sourceId }) => sourceId === "si-city-safety")!;
+    const bindingKey = { schemaVersion: "city-source-binding-key@1" as const, countryCode: "SI" as const, cityId: "ljubljana", factKey: "si-city-safety" as const, definitionId: "si-municipal-police-offences-per-100000@1" as const };
+    const installedSource = { schemaVersion: "source-version@1" as const, id: "yellow-prior", bindingKey, publisherId: accepted.publisherId, navigationUrl: accepted.publisherNavigationUrl, requestedUrl: accepted.canonicalUrl, finalUrl: accepted.resolvedEvidenceUrl, captureArtifactIds: entry.artifacts.map(({ artifactId }) => artifactId), captureSha256: entry.artifacts.map(({ sha256 }) => sha256), evidenceSnapshotId: evidence.snapshot.id, parserVersion: evidence.genericEvidence.snapshot.parserVersions["si-city-safety"], capturedAt: seal.completedAt };
+    const recoveryStore = new SqliteCitySourceRecoveryStore(harness.fixture.database, EVIDENCE_INTEGRITY,
+      Object.freeze({ loadVerified: () => Object.freeze({ bindingKey, sourceVersion: installedSource }) }),
+      Object.freeze({ requireVerified: () => undefined }));
+    let abortYellowAppend: (() => void) | undefined;
+    const discovery = vi.fn<CitySafetyOfficialDiscoveryPort["discover"]>(async () =>
+      Object.freeze({ kind: "candidates" as const, urls: Object.freeze([]),
+        metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }));
+    const recovery = harness.createRecoveryApplication({ bindings: { loadEffectiveVerified: recoveryStore.loadEffectiveVerified.bind(recoveryStore),
+      appendYellowAttemptInTransaction: (attempt) => { const appended = recoveryStore.appendYellowAttemptInTransaction(attempt); abortYellowAppend?.(); return appended; },
+      appendReplacementInTransaction: () => { throw new Error("unexpected_replacement"); },
+    }, publication: { uow: Object.freeze({ run: new SqliteCityContinuationUnitOfWork(harness.fixture.database).run.bind(new SqliteCityContinuationUnitOfWork(harness.fixture.database)) }), sealInTransaction: () => { throw new Error("unexpected_replacement"); }, evidenceReplayInTransaction: { read: { loadVerified: () => { throw new Error("unexpected_replacement"); }, findVerifiedByCheckRunId: () => undefined }, integrity: { canonical: JSON.stringify, hash: () => DIGEST, hashBytes: () => DIGEST }, package: { loadExactReplayContract: () => { throw new Error("unexpected_replacement"); } } }, publishFromEvidenceInTransaction: () => { throw new Error("unexpected_replacement"); }, appendRevisionInTransaction: () => { throw new Error("unexpected_replacement"); } }, officialDiscovery: { discover: discovery } });
+    rejectPrior = true;
+    const run = await harness.assembly.application.startCityFrontier({ resolvedCountryShortlistRevisionId: harness.fixture.alternateResolved.id, countryCode: "SI", criteriaDraft: structuredClone(DERIVED_V1_DRAFT), commandId: "start:source-recovery-yellow" });
+    const prepared = await harness.assembly.application.prepareCityFrontierContinuation({ runId: run.runId, expectedRevisionId: run.revision.id, commandId: "continue:source-recovery-yellow" });
+    const appendAbortController = new AbortController(); const appendAbortReason = new Error("detached_after_yellow_append");
+    abortYellowAppend = () => appendAbortController.abort(appendAbortReason);
+    const abortedAppendEvents: CityFrontierEvent[] = [];
+    await expect(recovery.continueCityFrontierWithSourceRecovery(prepared, (event) => { abortedAppendEvents.push(structuredClone(event)); }, appendAbortController.signal)).rejects.toBe(appendAbortReason);
+    abortYellowAppend = undefined;
+    expect(harness.fixture.database.prepare("SELECT COUNT(*) AS count FROM official_source_recovery_attempts").get()).toEqual({ count: 0 });
+    expect(abortedAppendEvents.some(({ type }) => type === "source_recovery_yellow" || type === "city_continuation_completed")).toBe(false);
+    const afterAbort = researchAndPublicationCounts(harness);
+    const recoveryEvents: CityFrontierEvent[] = [];
+    const first = recovery.continueCityFrontierWithSourceRecovery(
+      prepared, (event) => { recoveryEvents.push(structuredClone(event)); }, new AbortController().signal,
+    );
+    const second = recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), new AbortController().signal);
+    const [outcome, follower] = await Promise.all([first, second]);
+    const expected = { schemaVersion: "city-source-recovery-outcome@1", kind: "yellow" as const, source: { schemaVersion: "public-fact-source@1" as const, factKey: "si-city-safety", status: "yellow" as const, publisherName: null, sourceUrl: null, checkedAt: null } };
+    expect(outcome).toEqual(expected);
+    expect(follower).toEqual(expected);
+    recursivelyFrozen(outcome);
+    recursivelyFrozen(follower);
+    expect(discovery).toHaveBeenCalledTimes(4);
+    expect(recoveryStore.loadOwnerAuditVerified(bindingKey)).toHaveLength(1);
+    expect(recoveryEvents.some(({ type }) => type === "source_recovery_started")).toBe(true);
+    expect(recoveryEvents.filter(({ type }) => type === "source_recovery_yellow")).toHaveLength(1);
+    expect(recoveryEvents.at(-1)).toMatchObject({
+      type: "source_recovery_yellow", reason: "official_source_unavailable", source: expected.source,
+    });
+    expect(JSON.stringify(recoveryEvents)).not.toContain("candidate");
+    expect(researchAndPublicationCounts(harness)).toEqual({ ...afterAbort, safetyDocument: afterAbort.safetyDocument + 1 });
+
+    const entered = deferred<void>();
+    const delayed = deferred<Awaited<ReturnType<CitySafetyOfficialDiscoveryPort["discover"]>>>();
+    discovery.mockImplementationOnce(async () => {
+      entered.resolve(undefined);
+      return delayed.promise;
+    });
+    const abortController = new AbortController();
+    const abortReason = new Error("source-recovery-aborted");
+    const abortBefore = researchAndPublicationCounts(harness);
+    const aborted = recovery.continueCityFrontierWithSourceRecovery(prepared, vi.fn(), abortController.signal);
+    await entered.promise;
+    abortController.abort(abortReason);
+    delayed.resolve(Object.freeze({ kind: "candidates" as const, urls: Object.freeze([]),
+      metadata: FROZEN_OFFICIAL_DISCOVERY_METADATA }));
+    await expect(aborted).rejects.toBe(abortReason);
+    await nextEventLoopTurn();
+    expect(recoveryStore.loadOwnerAuditVerified(bindingKey)).toHaveLength(1);
+    expect(researchAndPublicationCounts(harness)).toEqual({ ...abortBefore,
+      safetyDocument: abortBefore.safetyDocument + 1 });
+  });
+
   test("authenticates the complete Continue chain before marker callbacks or effects", async () => {
     // Break caught: a valid head hid a missing or authentically re-signed corrupt intermediate.
     for (const mode of ["missing", "resigned-intermediate"] as const) {
@@ -12154,6 +12719,7 @@ describe("City Frontier Application public boundary", () => {
       "startCityFrontier",
       "prepareCityFrontierContinuation",
       "continueCityFrontier",
+      "continueCityFrontierWithSourceRecovery",
       "presentCityFrontier",
     ]);
     expect(Reflect.ownKeys(harness.assembly.application)).not.toContain("selectionAuthority");

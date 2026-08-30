@@ -5,11 +5,13 @@ import {
   type ContinueOnboardingCommand,
   type ExtractOnboardingMessageCommand,
   type OnboardingCompletionPort,
+  type OnboardingExtractionAcceptance,
   type OnboardingModelPort,
 } from "./onboarding-contracts";
 import {
   corroborateModelReview,
   guardExtraction,
+  isOnboardingGuardContractError,
   projectQuestionnaireForModel,
 } from "../decision/onboarding-model-contract";
 import {
@@ -27,6 +29,11 @@ import {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const FOLLOW_UP_QUESTION = "Заполните выделенные поля.";
+const EXTRACTION_ACCEPTED = Object.freeze({ kind: "accepted" as const });
+const EXTRACTION_GUARD_RETRY = Object.freeze({
+  kind: "retryable" as const,
+  reason: "guard_invalid" as const,
+});
 
 export function reconstructExtractOnboardingMessageCommand(
   value: unknown,
@@ -65,19 +72,32 @@ export async function extractMessage(
   const current = reconstructExtractOnboardingMessageCommand(command);
   assertUserMessageAdmissible(current.session, current.message);
   abortIfNeeded(signal);
-  const extraction = await callModel(async () => {
-    const output = await ports.model.extract({
+  let output;
+  try {
+    output = await ports.model.extract({
       message: current.message,
       questionnaire: projectQuestionnaireForModel(current.session),
       signal,
+      acceptExtraction: (candidate) => acceptGuardedExtraction(
+        current.session,
+        current.message,
+        candidate,
+      ),
     });
     abortIfNeeded(signal);
-    return guardExtraction({
-      session: current.session,
-      userMessage: current.message,
-      rawModelOutput: output,
+  } catch (error) {
+    if (!isFallbackModelError(error, signal)) throw error;
+    output = Object.freeze({
+      schemaVersion: "onboarding-model-output@1" as const,
+      proposals: Object.freeze([]),
+      nextQuestion: FOLLOW_UP_QUESTION,
     });
-  }, signal);
+  }
+  const extraction = guardExtraction({
+    session: current.session,
+    userMessage: current.message,
+    rawModelOutput: output,
+  });
   abortIfNeeded(signal);
   return applyGuardedExtraction({
     session: current.session,
@@ -87,6 +107,20 @@ export async function extractMessage(
     nextAssistantMessageId: ports.nextAssistantMessageId,
     nextCompletionCommandId: ports.nextCompletionCommandId,
   });
+}
+
+function acceptGuardedExtraction(
+  session: OnboardingSessionState,
+  message: SessionMessage,
+  output: unknown,
+): OnboardingExtractionAcceptance {
+  try {
+    guardExtraction({ session, userMessage: message, rawModelOutput: output });
+    return EXTRACTION_ACCEPTED;
+  } catch (error) {
+    if (!isOnboardingGuardContractError(error)) throw error;
+    return EXTRACTION_GUARD_RETRY;
+  }
 }
 
 export async function completeOnboarding(
@@ -118,14 +152,18 @@ export async function completeOnboarding(
       return freeze({ kind: "launched" as const, receipt: replayed, prepared });
     }
   }
-  const corroborated = await callModel(async () => {
+  let corroborated: readonly QuestionnaireIssue[];
+  try {
     const output = await ports.model.review({
       questionnaire: projectQuestionnaireForModel(current.session),
       signal,
     });
     abortIfNeeded(signal);
-    return corroborateModelReview({ session: current.session, rawModelOutput: output });
-  }, signal);
+    corroborated = corroborateModelReview({ session: current.session, rawModelOutput: output });
+  } catch (error) {
+    if (!isFallbackModelError(error, signal)) throw error;
+    corroborated = Object.freeze([]);
+  }
   abortIfNeeded(signal);
   const issues = canonicalIssueUnion(deterministicIssues, corroborated);
   if (issues.length > 0) {
@@ -150,16 +188,23 @@ export async function completeOnboarding(
   return freeze({ kind: "launched" as const, receipt, prepared });
 }
 
-async function callModel<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
-  try {
-    const result = await operation();
-    abortIfNeeded(signal);
-    return result;
-  } catch (error) {
-    if (signal.aborted) abortIfNeeded(signal);
-    if (error instanceof OnboardingModelError) throw error;
-    throw new OnboardingModelError("onboarding_model_invalid");
-  }
+function isFallbackModelError(error: unknown, signal: AbortSignal): boolean {
+  if (signal.aborted) return false;
+  if (!(error instanceof OnboardingModelError) || error.code === "onboarding_model_aborted") return false;
+  if (error.code === "onboarding_model_integrity_failed") return false;
+  if (error.code === "onboarding_model_invalid") return true;
+  return error.code === "onboarding_model_runtime_failed" && (
+    error.runtimeCode === "codex_missing" ||
+    error.runtimeCode === "codex_version_mismatch" ||
+    error.runtimeCode === "codex_not_authenticated" ||
+    error.runtimeCode === "codex_output_too_large" ||
+    error.runtimeCode === "codex_event_limit" ||
+    error.runtimeCode === "codex_timeout" ||
+    error.runtimeCode === "codex_process_failed" ||
+    error.runtimeCode === "codex_json_invalid" ||
+    error.runtimeCode === "codex_rate_limited" ||
+    error.runtimeCode === "codex_provider_transient"
+  );
 }
 
 function reconstructUserMessage(value: unknown): SessionMessage {

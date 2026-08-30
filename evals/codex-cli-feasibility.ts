@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import { types } from "node:util";
 
 import {
-  CODEX_CLI_VERSION,
   CodexRuntimeError,
   createCodexJsonInvocation,
   MAX_CODEX_EVENTS,
@@ -17,15 +16,11 @@ import {
   type CodexRuntimeErrorCode,
 } from "../src/infrastructure/codex-cli/contracts";
 import {
-  CODEX_EXEC_ARGS,
   CODEX_MESSAGE_INPUT_INSPECTION_ARGS,
   inspectModelVisibleInputs,
   runCodexJsonProbe,
 } from "../src/infrastructure/codex-cli/feasibility-probe";
-import {
-  CODEX_STARTUP_NOTICES,
-  type CodexStartupNotices,
-} from "../src/infrastructure/codex-cli/event-stream";
+import { buildCodexExecArgs } from "../src/infrastructure/codex-cli/policy";
 import type { JsonObject } from "../src/infrastructure/codex-cli/owned-json";
 import {
   CODEX_DISABLED_FEATURES,
@@ -121,7 +116,7 @@ type CodexCliDiagnosticFailureKind =
 
 export interface CodexCliFeasibilityArtifact {
   readonly schemaVersion: typeof ARTIFACT_SCHEMA_VERSION;
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly authenticatedWith: "ChatGPT";
   readonly disabledFeatures: Readonly<Record<(typeof CODEX_DISABLED_FEATURES)[number], false>>;
   readonly strictExecConfig: true;
@@ -134,7 +129,6 @@ export interface CodexCliFeasibilityArtifact {
   readonly callableSkillFeaturesDisabled: true;
   readonly codexExecProcessCount: 1;
   readonly eventTypes: readonly string[];
-  readonly startupNotices: CodexStartupNotices;
   readonly toolEventTypes: readonly [];
   readonly resultSchemaVersion: typeof RESULT_SCHEMA_VERSION;
   readonly resultDigest: string;
@@ -257,7 +251,6 @@ interface ModelProof {
   readonly closedChildEnvironment: true;
   readonly codexExecProcessCount: 1;
   readonly eventTypes: readonly string[];
-  readonly startupNotices: CodexStartupNotices;
   readonly toolEventTypes: readonly [];
   readonly finalMessage: string;
   readonly stdoutBytes: number;
@@ -360,7 +353,9 @@ async function runCodexCliFeasibilityWithRuntime(
       const provenTempRoot = requireInitialized(tempRoot);
       const observer = requireInitialized(observedSpawner);
       const invocation = createCodexJsonInvocation({
-        capability: "onboarding_extract",
+        capability: "onboarding.extract",
+        reasoningEffort: "low",
+        toolPolicy: "codex-tools-none@2",
         templateVersion: "codex-runtime-feasibility@1",
         schemaVersion: RESULT_SCHEMA_VERSION,
         prompt: fixture.prompt,
@@ -387,7 +382,6 @@ async function runCodexCliFeasibilityWithRuntime(
         closedChildEnvironment: observer.modelClosedEnvironment,
         codexExecProcessCount: observer.codexExecProcessCount,
         eventTypes: result.eventTypes,
-        startupNotices: result.startupNotices,
         toolEventTypes: [],
         finalMessage: result.finalMessage,
         stdoutBytes: observer.modelStdoutBytes,
@@ -450,7 +444,6 @@ export async function runCodexCliFeasibilityForTest(input: {
       callableSkillFeaturesDisabled: true,
       codexExecProcessCount: 1,
       eventTypes: model.eventTypes,
-      startupNotices: model.startupNotices,
       toolEventTypes: EMPTY_TUPLE,
       resultSchemaVersion: RESULT_SCHEMA_VERSION,
       resultDigest,
@@ -742,12 +735,12 @@ function requireExactOutputSchema(value: unknown): void {
 }
 
 function readPreflightProof(value: unknown): {
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly authenticatedWith: "ChatGPT";
 } {
   const proof = readExactObject(value, ["cliVersion", "authenticatedWith"]);
-  if (proof.cliVersion !== CODEX_CLI_VERSION || proof.authenticatedWith !== "ChatGPT") throw isolationUnproven();
-  return { cliVersion: CODEX_CLI_VERSION, authenticatedWith: "ChatGPT" };
+  if (typeof proof.cliVersion !== "string" || proof.authenticatedWith !== "ChatGPT") throw isolationUnproven();
+  return { cliVersion: proof.cliVersion, authenticatedWith: "ChatGPT" };
 }
 
 function readDisabledFeatures(
@@ -799,7 +792,6 @@ function readModelProof(value: unknown, fixture: SyntheticFixture): ModelProof {
     "closedChildEnvironment",
     "codexExecProcessCount",
     "eventTypes",
-    "startupNotices",
     "toolEventTypes",
     "finalMessage",
     "stdoutBytes",
@@ -809,7 +801,6 @@ function readModelProof(value: unknown, fixture: SyntheticFixture): ModelProof {
     "residualTempDirectories",
   ]);
   const eventTypes = readStringArray(proof.eventTypes);
-  const startupNotices = readStartupNotices(proof.startupNotices);
   const finalMessage = proof.finalMessage;
   if (proof.strictExecConfig !== true || proof.closedChildEnvironment !== true ||
     proof.codexExecProcessCount !== 1 || !isEmptyArray(proof.toolEventTypes) ||
@@ -826,7 +817,6 @@ function readModelProof(value: unknown, fixture: SyntheticFixture): ModelProof {
     closedChildEnvironment: true,
     codexExecProcessCount: 1,
     eventTypes: Object.freeze([...eventTypes]),
-    startupNotices,
     toolEventTypes: EMPTY_TUPLE,
     finalMessage,
     stdoutBytes: proof.stdoutBytes,
@@ -846,14 +836,6 @@ function requireExactResult(finalMessage: string): void {
   }
   const result = readExactObject(parsed, ["schemaVersion", "status"]);
   if (result.schemaVersion !== RESULT_SCHEMA_VERSION || result.status !== RESULT_STATUS) throw isolationUnproven();
-}
-
-function readStartupNotices(value: unknown): CodexStartupNotices {
-  if (!Array.isArray(value) || value.length !== CODEX_STARTUP_NOTICES.length ||
-    value[0] !== CODEX_STARTUP_NOTICES[0] || value[1] !== CODEX_STARTUP_NOTICES[1]) {
-    throw isolationUnproven();
-  }
-  return Object.freeze([CODEX_STARTUP_NOTICES[0], CODEX_STARTUP_NOTICES[1]] as const);
 }
 
 function isValidEventSequence(eventTypes: readonly string[]): boolean {
@@ -1207,11 +1189,11 @@ function isFreshDirectChild(path: string, tempRoot: ValidatedCodexTempRoot): boo
 }
 
 function hasExactExecArguments(args: readonly string[], cwd: string): boolean {
-  if (!sameStrings(args.slice(0, CODEX_EXEC_ARGS.length), CODEX_EXEC_ARGS)) return false;
-  const suffix = args.slice(CODEX_EXEC_ARGS.length);
-  return suffix.length === 6 && suffix[0] === "--cd" && suffix[1] === cwd && suffix[2] === "--output-schema" &&
-    typeof suffix[3] === "string" && dirname(suffix[3]) === cwd && basename(suffix[3]) === "schema.json" &&
-    suffix[4] === "--json" && suffix[5] === "-";
+  return sameStrings(args, buildCodexExecArgs({
+    capability: "onboarding.extract",
+    reasoningEffort: "low",
+    toolPolicy: "codex-tools-none@2",
+  }, cwd, join(cwd, "schema.json")));
 }
 
 function sameEnvironment(

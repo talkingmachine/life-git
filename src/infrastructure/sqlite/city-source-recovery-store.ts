@@ -1,0 +1,98 @@
+import type Database from "better-sqlite3";
+
+import type { CitySourceInstalledAuthority, CitySourceInstalledAuthorityPort, CitySourceRecoveryStorePort, CitySourceReplacementInput, CitySourceTruthPublicationAuthorityPort, EffectiveCitySourceBinding, HistoricalCitySourceBinding } from "../../application/city-source-recovery";
+import { reconstructCitySourceBindingCursorV1, reconstructCitySourceBindingKeyV1, reconstructCitySourceBindingRevisionV1, reconstructCitySourceReplacementInputV1, reconstructCitySourceVersionV1, reconstructOfficialSourceRecoveryAttemptV1, reconstructOfficialSourceReplacedEventV1, type CitySourceBindingCursorV1, type CitySourceBindingKeyV1, type CitySourceBindingRevisionV1, type CitySourceVersionV1, type OfficialSourceRecoveryAttemptV1 } from "../../application/city-source-recovery-contracts";
+import type { EvidenceIntegrity } from "../../research/run";
+import { secureHexEqual } from "../integrity";
+
+type Key = Pick<CitySourceBindingKeyV1, "countryCode" | "cityId" | "factKey" | "definitionId">;
+interface CanonicalRow { readonly payload_json: string; readonly payload_hash: string; readonly hmac: string; }
+interface SourceVersionRow extends CanonicalRow { readonly id: string; readonly country_code: string; readonly city_id: string; readonly fact_key: string; readonly definition_id: string; readonly evidence_snapshot_id: string; readonly schema_version: string; readonly created_at: string; }
+interface BindingRevisionRow extends SourceVersionRow { readonly revision_ordinal: number; readonly predecessor_revision_id: string | null; readonly source_version_id: string; readonly knowledge_revision_id: string; readonly frontier_revision_id: string; }
+interface RecoveryAttemptRow extends CanonicalRow { readonly id: string; readonly command_id: string; readonly country_code: string; readonly city_id: string; readonly fact_key: string; readonly definition_id: string; readonly schema_version: string; readonly created_at: string; }
+interface ReplacementEventRow extends CanonicalRow { readonly id: string; readonly command_id: string; readonly revision_id: string; readonly schema_version: string; readonly created_at: string; }
+const sourceVersionColumns = "id,country_code,city_id,fact_key,definition_id,evidence_snapshot_id,schema_version,payload_json,payload_hash,hmac,created_at";
+const bindingRevisionColumns = "id,country_code,city_id,fact_key,definition_id,revision_ordinal,predecessor_revision_id,source_version_id,evidence_snapshot_id,knowledge_revision_id,frontier_revision_id,schema_version,payload_json,payload_hash,hmac,created_at";
+const recoveryAttemptColumns = "id,command_id,country_code,city_id,fact_key,definition_id,schema_version,payload_json,payload_hash,hmac,created_at";
+function mismatch(): never { throw new Error("integrity_mismatch"); }
+function casLost(): never { throw new Error("source_binding_cas_lost"); }
+function sameKey(left: CitySourceBindingKeyV1, right: CitySourceBindingKeyV1): boolean { return left.countryCode === right.countryCode && left.cityId === right.cityId && left.factKey === right.factKey && left.definitionId === right.definitionId; }
+function args(key: Key): readonly string[] { return [key.countryCode, key.cityId, key.factKey, key.definitionId]; }
+
+export class SqliteCitySourceRecoveryStore implements CitySourceRecoveryStorePort {
+  constructor(private readonly database: Database.Database, private readonly integrity: EvidenceIntegrity, private readonly authorities: CitySourceInstalledAuthorityPort, private readonly truth: CitySourceTruthPublicationAuthorityPort) {}
+  loadEffectiveVerified(bindingKey: CitySourceBindingKeyV1): EffectiveCitySourceBinding {
+    const installed = this.authority(bindingKey); const head = this.database.prepare("SELECT installed_binding_digest, active_revision_id FROM city_source_binding_heads WHERE country_code=? AND city_id=? AND fact_key=? AND definition_id=?").get(...args(installed.bindingKey)) as { installed_binding_digest: string; active_revision_id: string | null } | undefined;
+    if (head === undefined) return Object.freeze({ bindingKey: installed.bindingKey, cursor: reconstructCitySourceBindingCursorV1({ schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: installed.installedBindingDigest }), sourceVersion: installed.sourceVersion, revision: null });
+    if (!secureHexEqual(head.installed_binding_digest, installed.installedBindingDigest)) mismatch();
+    if (head.active_revision_id === null) return Object.freeze({ bindingKey: installed.bindingKey, cursor: reconstructCitySourceBindingCursorV1({ schemaVersion: "city-source-binding-cursor@1", kind: "installed", installedBindingDigest: installed.installedBindingDigest }), sourceVersion: installed.sourceVersion, revision: null });
+    const revision = this.revision(head.active_revision_id); const sourceVersion = this.version(revision.sourceVersionId);
+    if (!sameKey(revision.bindingKey, installed.bindingKey) || !sameKey(sourceVersion.bindingKey, installed.bindingKey) || sourceVersion.evidenceSnapshotId !== revision.evidenceSnapshotId) mismatch();
+    const history = this.loadHistoryVerified(installed.bindingKey); if (history.at(-1)?.id !== revision.id) mismatch();
+    return Object.freeze({ bindingKey: installed.bindingKey, cursor: reconstructCitySourceBindingCursorV1({ schemaVersion: "city-source-binding-cursor@1", kind: "override", revisionId: revision.id, revisionOrdinal: revision.revisionOrdinal }), sourceVersion, revision });
+  }
+  appendYellowAttempt(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1 { return this.database.transaction(() => this.appendYellowAttemptInTransaction(attempt))(); }
+  /** Caller owns the surrounding SQLite immediate transaction. */
+  appendYellowAttemptInTransaction(attempt: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1 { const owned = reconstructOfficialSourceRecoveryAttemptV1(attempt); this.authority(owned.bindingKey); return this.insertAttempt(owned); }
+  appendReplacement(input: CitySourceReplacementInput, expectedCursor: CitySourceBindingCursorV1): CitySourceBindingRevisionV1 {
+    return this.database.transaction(() => this.appendReplacementInTransaction(input, expectedCursor)).immediate();
+  }
+
+  /** Caller owns the surrounding SQLite immediate transaction. */
+  appendReplacementInTransaction(input: CitySourceReplacementInput, expectedCursor: CitySourceBindingCursorV1): CitySourceBindingRevisionV1 {
+    const owned = reconstructCitySourceReplacementInputV1(input), source = owned.sourceVersion, revision = owned.revision, attempt = owned.attempt, commandId = attempt.commandId, expected = reconstructCitySourceBindingCursorV1(expectedCursor);
+    const installed = this.authority(source.bindingKey);
+    if (owned.commandId !== commandId || !sameKey(source.bindingKey, revision.bindingKey) || !sameKey(source.bindingKey, attempt.bindingKey) || source.id !== revision.sourceVersionId || attempt.outcome !== "replaced" || this.integrity.canonical(attempt.cursor) !== this.integrity.canonical(expected)) mismatch();
+    try { this.truth.requireVerified(Object.freeze({ bindingKey: source.bindingKey, sourceVersion: source, revision })); } catch { mismatch(); }
+    {
+      const prior = this.database.prepare("SELECT id,command_id,revision_id,schema_version,payload_json,payload_hash,hmac,created_at FROM official_source_replacement_events WHERE command_id=?").get(commandId) as ReplacementEventRow | undefined;
+      if (prior !== undefined) {
+        const event = this.eventVerified(prior); const existing = this.revision(event.revisionId); const persistedSource = this.version(existing.sourceVersionId);
+        const attemptRow = this.database.prepare(`SELECT ${recoveryAttemptColumns} FROM official_source_recovery_attempts WHERE command_id=?`).get(commandId) as RecoveryAttemptRow | undefined;
+        if (attemptRow === undefined || this.integrity.canonical(event) !== this.integrity.canonical(this.event(commandId, revision)) || this.integrity.canonical(existing) !== this.integrity.canonical(revision) || this.integrity.canonical(persistedSource) !== this.integrity.canonical(source) || this.integrity.canonical(this.decodeAttempt(attemptRow)) !== this.integrity.canonical(attempt)) mismatch();
+        return existing;
+      }
+      this.database.prepare("INSERT INTO city_source_binding_heads(country_code,city_id,fact_key,definition_id,installed_binding_digest,active_revision_id) VALUES(?,?,?,?,?,NULL) ON CONFLICT(country_code,city_id,fact_key,definition_id) DO NOTHING").run(...args(source.bindingKey), installed.installedBindingDigest);
+      const head = this.database.prepare("SELECT installed_binding_digest,active_revision_id FROM city_source_binding_heads WHERE country_code=? AND city_id=? AND fact_key=? AND definition_id=?").get(...args(source.bindingKey)) as { installed_binding_digest: string; active_revision_id: string | null };
+      if (expected.kind === "installed") { if (head.active_revision_id !== null || !secureHexEqual(head.installed_binding_digest, installed.installedBindingDigest) || !secureHexEqual(expected.installedBindingDigest, installed.installedBindingDigest) || revision.predecessorRevisionId !== null || revision.revisionOrdinal !== 1) casLost(); }
+      else if (head.active_revision_id !== expected.revisionId || revision.predecessorRevisionId !== expected.revisionId || revision.revisionOrdinal !== expected.revisionOrdinal + 1) casLost();
+      this.insertVersion(source); this.insertRevision(revision); const changed = this.database.prepare("UPDATE city_source_binding_heads SET active_revision_id=? WHERE country_code=? AND city_id=? AND fact_key=? AND definition_id=? AND active_revision_id IS ?").run(revision.id, ...args(source.bindingKey), head.active_revision_id).changes; if (changed !== 1) casLost();
+      this.insertAttempt(attempt); this.insertEvent(commandId, revision); return revision;
+    }
+  }
+  loadHistoryVerified(bindingKey: CitySourceBindingKeyV1): readonly CitySourceBindingRevisionV1[] {
+    const installed = this.authority(bindingKey); const key = reconstructCitySourceBindingKeyV1(bindingKey); if (!sameKey(key, installed.bindingKey)) mismatch();
+    return this.historyVerified(key);
+  }
+  /** Historical replay deliberately does not inspect the mutable head or installed authority. */
+  loadRevisionVerified(bindingKey: CitySourceBindingKeyV1, revisionId: string): HistoricalCitySourceBinding {
+    const key = reconstructCitySourceBindingKeyV1(bindingKey);
+    const id = typeof revisionId === "string" ? revisionId : mismatch();
+    const history = this.historyVerified(key);
+    const revision = history.find((candidate) => candidate.id === id);
+    if (revision === undefined) mismatch();
+    const sourceVersion = this.version(revision.sourceVersionId);
+    if (!sameKey(sourceVersion.bindingKey, key) || sourceVersion.evidenceSnapshotId !== revision.evidenceSnapshotId) mismatch();
+    return Object.freeze({ bindingKey: key, revision, sourceVersion });
+  }
+  private historyVerified(key: CitySourceBindingKeyV1): readonly CitySourceBindingRevisionV1[] {
+    const history = (this.database.prepare("SELECT id FROM city_source_binding_revisions WHERE country_code=? AND city_id=? AND fact_key=? AND definition_id=? ORDER BY revision_ordinal").all(...args(key)) as { id: string }[]).map(({ id }) => this.revision(id));
+    for (let index = 0; index < history.length; index += 1) {
+      const revision = history[index]!; if (revision.revisionOrdinal !== index + 1 || revision.predecessorRevisionId !== (index === 0 ? null : history[index - 1]!.id)) mismatch();
+      const source = this.version(revision.sourceVersionId); if (!sameKey(source.bindingKey, key) || source.evidenceSnapshotId !== revision.evidenceSnapshotId) mismatch();
+    }
+    return Object.freeze(history);
+  }
+  loadOwnerAuditVerified(bindingKey: CitySourceBindingKeyV1): readonly OfficialSourceRecoveryAttemptV1[] { const installed = this.authority(bindingKey); const key = reconstructCitySourceBindingKeyV1(bindingKey); if (!sameKey(key, installed.bindingKey)) mismatch(); return Object.freeze((this.database.prepare(`SELECT ${recoveryAttemptColumns} FROM official_source_recovery_attempts WHERE country_code=? AND city_id=? AND fact_key=? AND definition_id=? ORDER BY created_at,id`).all(...args(key)) as RecoveryAttemptRow[]).map((row) => this.decodeAttempt(row))); }
+  private authority(requested: CitySourceBindingKeyV1): CitySourceInstalledAuthority & { readonly installedBindingDigest: string } { const bindingKey = reconstructCitySourceBindingKeyV1(requested); let value: CitySourceInstalledAuthority | undefined; try { value = this.authorities.loadVerified(bindingKey); } catch { mismatch(); } if (value === undefined) mismatch(); const ownedKey = reconstructCitySourceBindingKeyV1(value.bindingKey), sourceVersion = reconstructCitySourceVersionV1(value.sourceVersion); if (!sameKey(bindingKey, ownedKey) || !sameKey(ownedKey, sourceVersion.bindingKey)) mismatch(); return Object.freeze({ bindingKey: ownedKey, sourceVersion, installedBindingDigest: this.integrity.hash(this.integrity.canonical({ bindingKey: ownedKey, sourceVersion })) }); }
+  private verified(row: CanonicalRow): unknown { if (!secureHexEqual(this.integrity.hash(row.payload_json), row.payload_hash) || !secureHexEqual(this.integrity.sign(row.payload_json), row.hmac)) mismatch(); let value: unknown; try { value = JSON.parse(row.payload_json); } catch { mismatch(); } if (this.integrity.canonical(value) !== row.payload_json) mismatch(); return value; }
+  private version(id: string): CitySourceVersionV1 { const row = this.database.prepare(`SELECT ${sourceVersionColumns} FROM city_source_versions WHERE id=?`).get(id) as SourceVersionRow | undefined; if (row === undefined) mismatch(); const result = reconstructCitySourceVersionV1(this.verified(row)); if (row.id !== result.id || row.country_code !== result.bindingKey.countryCode || row.city_id !== result.bindingKey.cityId || row.fact_key !== result.bindingKey.factKey || row.definition_id !== result.bindingKey.definitionId || row.evidence_snapshot_id !== result.evidenceSnapshotId || row.schema_version !== result.schemaVersion || row.created_at !== result.capturedAt) mismatch(); return result; }
+  private revision(id: string): CitySourceBindingRevisionV1 { const row = this.database.prepare(`SELECT ${bindingRevisionColumns} FROM city_source_binding_revisions WHERE id=?`).get(id) as BindingRevisionRow | undefined; if (row === undefined) mismatch(); const result = reconstructCitySourceBindingRevisionV1(this.verified(row)); if (row.id !== result.id || row.country_code !== result.bindingKey.countryCode || row.city_id !== result.bindingKey.cityId || row.fact_key !== result.bindingKey.factKey || row.definition_id !== result.bindingKey.definitionId || row.revision_ordinal !== result.revisionOrdinal || row.predecessor_revision_id !== result.predecessorRevisionId || row.source_version_id !== result.sourceVersionId || row.evidence_snapshot_id !== result.evidenceSnapshotId || row.knowledge_revision_id !== result.knowledgeRevisionId || row.frontier_revision_id !== result.frontierRevisionId || row.schema_version !== result.schemaVersion || row.created_at !== result.createdAt) mismatch(); return result; }
+  private decodeAttempt(row: RecoveryAttemptRow): OfficialSourceRecoveryAttemptV1 { const result = reconstructOfficialSourceRecoveryAttemptV1(this.verified(row)); if (row.id !== result.id || row.command_id !== result.commandId || row.country_code !== result.bindingKey.countryCode || row.city_id !== result.bindingKey.cityId || row.fact_key !== result.bindingKey.factKey || row.definition_id !== result.bindingKey.definitionId || row.schema_version !== result.schemaVersion || row.created_at !== result.createdAt) mismatch(); return result; }
+  private eventVerified(row: ReplacementEventRow) { const value = reconstructOfficialSourceReplacedEventV1(this.verified(row)); if (row.id !== value.id || row.command_id !== value.commandId || row.revision_id !== value.revisionId || row.schema_version !== value.schemaVersion || row.created_at !== value.createdAt) mismatch(); return value; }
+  private insertVersion(value: CitySourceVersionV1): void { const payload = this.integrity.canonical(value); this.database.prepare("INSERT INTO city_source_versions(id,country_code,city_id,fact_key,definition_id,evidence_snapshot_id,schema_version,payload_json,payload_hash,hmac,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING").run(value.id,...args(value.bindingKey),value.evidenceSnapshotId,value.schemaVersion,payload,this.integrity.hash(payload),this.integrity.sign(payload),value.capturedAt); if (this.integrity.canonical(this.version(value.id)) !== payload) mismatch(); }
+  private insertRevision(value: CitySourceBindingRevisionV1): void { const payload = this.integrity.canonical(value); this.database.prepare("INSERT INTO city_source_binding_revisions(id,country_code,city_id,fact_key,definition_id,revision_ordinal,predecessor_revision_id,source_version_id,evidence_snapshot_id,knowledge_revision_id,frontier_revision_id,schema_version,payload_json,payload_hash,hmac,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(value.id,...args(value.bindingKey),value.revisionOrdinal,value.predecessorRevisionId,value.sourceVersionId,value.evidenceSnapshotId,value.knowledgeRevisionId,value.frontierRevisionId,value.schemaVersion,payload,this.integrity.hash(payload),this.integrity.sign(payload),value.createdAt); }
+  private insertAttempt(value: OfficialSourceRecoveryAttemptV1): OfficialSourceRecoveryAttemptV1 { const payload = this.integrity.canonical(value); this.database.prepare("INSERT INTO official_source_recovery_attempts(id,command_id,country_code,city_id,fact_key,definition_id,schema_version,payload_json,payload_hash,hmac,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(command_id) DO NOTHING").run(value.id,value.commandId,...args(value.bindingKey),value.schemaVersion,payload,this.integrity.hash(payload),this.integrity.sign(payload),value.createdAt); const row = this.database.prepare(`SELECT ${recoveryAttemptColumns} FROM official_source_recovery_attempts WHERE command_id=?`).get(value.commandId) as RecoveryAttemptRow; const result = this.decodeAttempt(row); if (this.integrity.canonical(result) !== payload) mismatch(); return result; }
+  private event(commandId: string, revision: CitySourceBindingRevisionV1) { return { schemaVersion: "official-source-replaced@1" as const, id: `official-source-replaced:${revision.id}`, commandId, bindingKey: revision.bindingKey, revisionId: revision.id, createdAt: revision.createdAt }; }
+  private insertEvent(commandId: string, revision: CitySourceBindingRevisionV1): void { const value = this.event(commandId, revision); const payload = this.integrity.canonical(value); this.database.prepare("INSERT INTO official_source_replacement_events(id,command_id,revision_id,schema_version,payload_json,payload_hash,hmac,created_at) VALUES(?,?,?,?,?,?,?,?)").run(value.id,commandId,revision.id,value.schemaVersion,payload,this.integrity.hash(payload),this.integrity.sign(payload),value.createdAt); }
+}

@@ -130,7 +130,7 @@ export interface NetworkObservedSpawner {
 
 export interface CodexCliNetworkPrivacyAuditArtifact extends NetworkObserverProof {
   readonly schemaVersion: typeof ARTIFACT_SCHEMA_VERSION;
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly executableKind: "chatgpt_app_bundled";
   readonly allowlistVersion: typeof ALLOWLIST_SCHEMA_VERSION;
   readonly allowlistDigest: string;
@@ -186,7 +186,7 @@ interface SyntheticFixture {
 }
 
 export interface ArtifactProofInput {
-  readonly cliVersion: typeof CODEX_CLI_VERSION;
+  readonly cliVersion: string;
   readonly executableKind: "chatgpt_app_bundled";
   readonly allowlist: CodexCliNetworkAllowlist;
   readonly dnsSnapshot: ApprovedDnsSnapshot;
@@ -342,7 +342,7 @@ export function createNetworkObservedSpawner(input: {
         proof = value;
       }).catch((error: unknown) => {
         try {
-          child.kill("SIGKILL");
+          child.terminateGroup("SIGKILL");
         } catch {
           // The observer failure remains authoritative if the child exits concurrently.
         }
@@ -358,7 +358,7 @@ export function createNetworkObservedSpawner(input: {
         stdout: child.stdout,
         stderr: child.stderr,
         exit: wrappedExit,
-        kill: child.kill.bind(child),
+        terminateGroup: child.terminateGroup.bind(child),
       });
     },
   });
@@ -429,7 +429,9 @@ export async function runCodexCliNetworkPrivacy(input: {
     });
     observed.armDnsSnapshot(dnsSnapshot);
     const invocation = createCodexJsonInvocation({
-      capability: "onboarding_extract",
+      capability: "onboarding.extract",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       templateVersion: "codex-network-privacy@1",
       schemaVersion: fixture.expectedResult.schemaVersion,
       prompt: fixture.prompt,

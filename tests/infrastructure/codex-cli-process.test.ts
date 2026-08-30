@@ -41,7 +41,7 @@ function processWith(overrides: Partial<SpawnedCodexProcess> = {}): SpawnedCodex
     stdout: stream(),
     stderr: stream(),
     exit: Promise.resolve({ code: 0, signal: null }),
-    kill: vi.fn(),
+    terminateGroup: vi.fn(),
     ...overrides,
   };
 }
@@ -88,12 +88,14 @@ function controlledNodeChild(input: {
   });
 }
 
-async function loadNodeProcessModule(child: EventEmitter): Promise<typeof import(
-  "../../src/infrastructure/codex-cli/process"
-)> {
+async function loadNodeProcessModule(child: EventEmitter): Promise<{
+  readonly processModule: typeof import("../../src/infrastructure/codex-cli/process");
+  readonly spawn: ReturnType<typeof vi.fn>;
+}> {
   vi.resetModules();
-  vi.doMock("node:child_process", () => ({ spawn: vi.fn(() => child) }));
-  return import("../../src/infrastructure/codex-cli/process");
+  const spawn = vi.fn(() => child);
+  vi.doMock("node:child_process", () => ({ spawn }));
+  return { processModule: await import("../../src/infrastructure/codex-cli/process"), spawn };
 }
 
 function unloadNodeProcessModule(): void {
@@ -164,8 +166,8 @@ describe("runBoundedProcess", () => {
       });
       const reason = new DOMException("genuine cancellation", "AbortError");
       const exit = deferred<{ code: number | null; signal: string | null }>();
-      const kill = vi.fn();
-      const spawner = fakeSpawner(processWith({ exit: exit.promise, kill }));
+      const terminateGroup = vi.fn();
+      const spawner = fakeSpawner(processWith({ exit: exit.promise, terminateGroup }));
       const running = runBoundedProcess(
         validBoundedRequest({ signal: controller.signal, timeoutMs: 10_000 }),
         spawner,
@@ -181,11 +183,11 @@ describe("runBoundedProcess", () => {
         controller.abort(reason);
         await Promise.resolve();
         await Promise.resolve();
-        expect(kill.mock.calls).toEqual([["SIGTERM"]]);
+        expect(terminateGroup.mock.calls).toEqual([["SIGTERM"]]);
         expect(settled).toBe(false);
 
         await vi.advanceTimersByTimeAsync(250);
-        expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+        expect(terminateGroup.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
         expect(settled).toBe(false);
 
         exit.resolve({ code: null, signal: "SIGKILL" });
@@ -207,10 +209,10 @@ describe("runBoundedProcess", () => {
     const controller = new AbortController();
     const exit = deferred<{ code: number | null; signal: string | null }>();
     const reason = new DOMException("real cancellation", "AbortError");
-    const kill = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
+    const terminateGroup = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
       if (signal === "SIGTERM") exit.resolve({ code: null, signal });
     });
-    const spawner = fakeSpawner(processWith({ exit: exit.promise, kill }));
+    const spawner = fakeSpawner(processWith({ exit: exit.promise, terminateGroup }));
     const running = runBoundedProcess(validBoundedRequest({ signal: controller.signal }), spawner);
     const observed = running.then(() => undefined, () => undefined);
 
@@ -218,12 +220,12 @@ describe("runBoundedProcess", () => {
       controller.signal.dispatchEvent(new Event("abort"));
       await Promise.resolve();
       await Promise.resolve();
-      expect(kill).not.toHaveBeenCalled();
+      expect(terminateGroup).not.toHaveBeenCalled();
       controller.abort(reason);
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(kill).toHaveBeenCalledWith("SIGTERM");
+      expect(terminateGroup).toHaveBeenCalledWith("SIGTERM");
       await expect(running).rejects.toBe(reason);
     } finally {
       exit.resolve({ code: null, signal: "SIGTERM" });
@@ -249,6 +251,15 @@ describe("runBoundedProcess", () => {
       stdin: encoder.encode("prompt"),
     });
     expect(result).toEqual({ pid: 19, stdout: [encoder.encode("jsonl\n")], stderrByteCount: 0 });
+  });
+
+  test("rejects an impossible zero-code exit that also reports a terminating signal", async () => {
+    const spawner = fakeSpawner(processWith({
+      exit: Promise.resolve({ code: 0, signal: "SIGTERM" }),
+    }));
+
+    await expect(runBoundedProcess(validBoundedRequest(), spawner))
+      .rejects.toMatchObject({ code: "codex_process_failed" });
   });
 
   test("retains owned bounded stderr only when explicitly requested", async () => {
@@ -294,8 +305,8 @@ describe("runBoundedProcess", () => {
     // Break caught: stream setup outside the teardown try can reject while leaving the child alive.
     vi.useFakeTimers();
     const exit = deferred<{ code: number | null; signal: string | null }>();
-    const kill = vi.fn();
-    const process = processWith({ exit: exit.promise, kill });
+    const terminateGroup = vi.fn();
+    const process = processWith({ exit: exit.promise, terminateGroup });
     Object.defineProperty(process, "stdout", {
       configurable: true,
       get(): AsyncIterable<Uint8Array> {
@@ -317,11 +328,11 @@ describe("runBoundedProcess", () => {
     try {
       await Promise.resolve();
       await Promise.resolve();
-      expect(kill.mock.calls).toEqual([["SIGTERM"]]);
+      expect(terminateGroup.mock.calls).toEqual([["SIGTERM"]]);
       expect(settled).toBe(false);
 
       await vi.advanceTimersByTimeAsync(250);
-      expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+      expect(terminateGroup.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
       expect(settled).toBe(false);
 
       exit.resolve({ code: null, signal: "SIGKILL" });
@@ -355,30 +366,30 @@ describe("runBoundedProcess", () => {
 
   test("terminates when stdout exceeds its byte bound", async () => {
     const exit = deferred<{ code: number | null; signal: string | null }>();
-    const kill = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
+    const terminateGroup = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
       if (signal === "SIGTERM") exit.resolve({ code: null, signal });
     });
     const spawner = fakeSpawner(processWith({
       stdout: stream(encoder.encode("123"), encoder.encode("456")),
       exit: exit.promise,
-      kill,
+      terminateGroup,
     }));
 
     await expect(runBoundedProcess(validBoundedRequest({ maxStdoutBytes: 5 }), spawner))
       .rejects.toMatchObject({ code: "codex_output_too_large" });
-    expect(kill).toHaveBeenCalledWith("SIGTERM");
-    expect(kill).not.toHaveBeenCalledWith("SIGKILL");
+    expect(terminateGroup).toHaveBeenCalledWith("SIGTERM");
+    expect(terminateGroup).not.toHaveBeenCalledWith("SIGKILL");
   });
 
   test("terminates when stderr exceeds its byte bound without retaining stderr", async () => {
     const exit = deferred<{ code: number | null; signal: string | null }>();
-    const kill = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
+    const terminateGroup = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
       if (signal === "SIGTERM") exit.resolve({ code: null, signal });
     });
     const spawner = fakeSpawner(processWith({
       stderr: stream(encoder.encode("private")),
       exit: exit.promise,
-      kill,
+      terminateGroup,
     }));
 
     let thrown: unknown;
@@ -390,26 +401,26 @@ describe("runBoundedProcess", () => {
 
     expect(thrown).toMatchObject({ code: "codex_process_failed", message: "codex_process_failed" });
     expect(String(thrown)).not.toContain("private");
-    expect(kill).toHaveBeenCalledWith("SIGTERM");
+    expect(terminateGroup).toHaveBeenCalledWith("SIGTERM");
   });
 
   test("sends SIGKILL 250 ms after a timed-out process ignores SIGTERM", async () => {
     vi.useFakeTimers();
     const exit = deferred<{ code: number | null; signal: string | null }>();
-    const kill = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
+    const terminateGroup = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
       if (signal === "SIGKILL") exit.resolve({ code: null, signal });
     });
-    const spawner = fakeSpawner(processWith({ exit: exit.promise, kill }));
+    const spawner = fakeSpawner(processWith({ exit: exit.promise, terminateGroup }));
     const running = runBoundedProcess(validBoundedRequest({ timeoutMs: 100 }), spawner);
     const rejection = expect(running).rejects.toMatchObject({ code: "codex_timeout" });
 
     await vi.advanceTimersByTimeAsync(100);
-    expect(kill).toHaveBeenCalledWith("SIGTERM");
-    expect(kill).not.toHaveBeenCalledWith("SIGKILL");
+    expect(terminateGroup).toHaveBeenCalledWith("SIGTERM");
+    expect(terminateGroup).not.toHaveBeenCalledWith("SIGKILL");
     await vi.advanceTimersByTimeAsync(250);
 
     await rejection;
-    expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+    expect(terminateGroup.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
     vi.useRealTimers();
   });
 
@@ -418,8 +429,8 @@ describe("runBoundedProcess", () => {
     vi.useFakeTimers();
     try {
       const exit = deferred<{ code: number | null; signal: string | null }>();
-      const kill = vi.fn();
-      const spawner = fakeSpawner(processWith({ exit: exit.promise, kill }));
+      const terminateGroup = vi.fn();
+      const spawner = fakeSpawner(processWith({ exit: exit.promise, terminateGroup }));
       const running = runBoundedProcess(validBoundedRequest({ timeoutMs: 100 }), spawner);
       let settled = false;
       const observed = running.then(
@@ -430,7 +441,7 @@ describe("runBoundedProcess", () => {
       await vi.advanceTimersByTimeAsync(100);
       await vi.advanceTimersByTimeAsync(250);
 
-      expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+      expect(terminateGroup.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
       expect(settled).toBe(false);
       exit.resolve({ code: null, signal: "SIGKILL" });
 
@@ -447,17 +458,13 @@ describe("runBoundedProcess", () => {
     async (termFailure) => {
       // Break caught: a failed kill emits `error`, which must not stand in for reaping the owned child.
       vi.useFakeTimers();
-      const child = controlledNodeChild({
-        pid: 811,
-        kill: (signal) => {
-          if (signal === "SIGTERM") {
-            if (termFailure === "throws") throw new Error("synthetic kill failure");
-            return false;
-          }
-          return true;
-        },
+      const killProcessGroup = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+        if (signal === "SIGTERM" && termFailure === "throws") throw new Error("synthetic kill failure");
+        void pid;
+        return true;
       });
-      const processModule = await loadNodeProcessModule(child);
+      const child = controlledNodeChild({ pid: 811 });
+      const { processModule } = await loadNodeProcessModule(child);
       const running = processModule.runBoundedProcess(
         validBoundedRequest({ timeoutMs: 100 }),
         processModule.nodeCodexProcessSpawner,
@@ -472,7 +479,7 @@ describe("runBoundedProcess", () => {
       try {
         child.emit("spawn");
         await vi.advanceTimersByTimeAsync(100);
-        expect(child.kill.mock.calls).toEqual([["SIGTERM"]]);
+        expect(killProcessGroup.mock.calls).toEqual([[-811, "SIGTERM"]]);
 
         child.emit("error", new Error("post-spawn kill error"));
         await Promise.resolve();
@@ -480,7 +487,7 @@ describe("runBoundedProcess", () => {
         expect(settled).toBe(false);
 
         await vi.advanceTimersByTimeAsync(250);
-        expect(child.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+        expect(killProcessGroup.mock.calls).toEqual([[-811, "SIGTERM"], [-811, "SIGKILL"]]);
         expect(settled).toBe(false);
 
         child.emit("exit", null, "SIGKILL");
@@ -492,15 +499,39 @@ describe("runBoundedProcess", () => {
         if (!emittedExit) child.emit("exit", null, "SIGKILL");
         await observed;
         unloadNodeProcessModule();
+        killProcessGroup.mockRestore();
         vi.useRealTimers();
       }
     },
   );
 
+  test("spawns a detached process group without a shell", async () => {
+    // Break caught: a shell or shared process group leaves descendants outside abort ownership.
+    const child = controlledNodeChild({ pid: 812 });
+    const { processModule, spawn } = await loadNodeProcessModule(child);
+
+    try {
+      const running = processModule.runBoundedProcess(
+        validBoundedRequest(),
+        processModule.nodeCodexProcessSpawner,
+      );
+      expect(spawn).toHaveBeenCalledWith("/opt/codex", ["exec", "--json", "-"], expect.objectContaining({
+        detached: true,
+        shell: false,
+        stdio: ["pipe", "pipe", "pipe"],
+      }));
+
+      child.emit("exit", 0, null);
+      await expect(running).resolves.toMatchObject({ pid: 812 });
+    } finally {
+      unloadNodeProcessModule();
+    }
+  });
+
   test("normalizes an error from a child that never spawned without sending signals", async () => {
     // Break caught: ignoring the mutually exclusive pre-spawn `error` would wait until timeout.
     const child = controlledNodeChild();
-    const processModule = await loadNodeProcessModule(child);
+    const { processModule } = await loadNodeProcessModule(child);
     const running = processModule.runBoundedProcess(
       validBoundedRequest(),
       processModule.nodeCodexProcessSpawner,
@@ -536,7 +567,7 @@ describe("runBoundedProcess", () => {
     const controller = new AbortController();
     const exit = deferred<{ code: number | null; signal: string | null }>();
     const reason = new DOMException("cancelled during teardown", "AbortError");
-    const kill = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
+    const terminateGroup = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
       if (signal === "SIGTERM") {
         controller.abort(reason);
         exit.resolve({ code: null, signal });
@@ -546,12 +577,12 @@ describe("runBoundedProcess", () => {
       stdout: failingStream(new Error("stream failed first")),
       stderr: failingStream(new Error("late stderr rejection")),
       exit: exit.promise,
-      kill,
+      terminateGroup,
     }));
 
     await expect(runBoundedProcess(validBoundedRequest({ signal: controller.signal }), spawner))
       .rejects.toBe(reason);
-    expect(kill).toHaveBeenCalledWith("SIGTERM");
+    expect(terminateGroup).toHaveBeenCalledWith("SIGTERM");
   });
 
   test("observes stream and exit rejections that arrive after termination", async () => {

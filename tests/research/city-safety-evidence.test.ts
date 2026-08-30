@@ -48,6 +48,14 @@ interface FixtureContext {
   readonly reconstruction: CitySafetyLedgerReconstructionContext;
 }
 
+interface FixtureOptions {
+  readonly municipalityDelegatedDocumentHost?: string;
+  readonly municipalityOverlappingTargetPublisher?: boolean;
+  readonly configuredResolvedEvidenceUrl?: string;
+}
+
+const DELEGATED_DOCUMENT_URL = "https://documents.ljubljana.si/report.pdf";
+
 type Mutable<T> = T extends readonly (infer Item)[]
   ? Mutable<Item>[]
   : T extends object
@@ -58,6 +66,7 @@ function buildContext(
   retentionMode: "seal_raw_artifact" | "seal_hash_locator_then_delete_transient" =
   "seal_raw_artifact",
   sursAllowedMediaTypes: readonly string[] = ["application/pdf"],
+  options: FixtureOptions = {},
 ): FixtureContext {
   const registry = buildCityRegistryRevision({
     packageId: "si-cities",
@@ -96,12 +105,13 @@ function buildContext(
     authorityKind: "police" | "government" | "open_data" | "statistics" | "municipality",
     navigationUrl: string,
     allowedMediaTypes: readonly string[] = ["application/pdf"],
+    delegatedDocumentHosts: readonly string[] = [],
   ) => ({
     publisherId,
     authorityKind,
     navigationUrl,
     allowedHosts: [new URL(navigationUrl).hostname],
-    delegatedDocumentHosts: [],
+    delegatedDocumentHosts,
     allowedMediaTypes,
     maxBytes: 1_000_000,
     redirectPolicyVersion: "official-chain@1" as const,
@@ -115,8 +125,21 @@ function buildContext(
     catalogRevisionId: catalog.id,
     requiredPublisherIds: { police: "police", gov: "gov", opsi: "opsi", surs: "surs" },
     publishers: [
-      policy("municipality-ljubljana", "municipality", "https://ljubljana.si/"),
-      policy("police", "police", "https://policija.si/"),
+      policy(
+        "municipality-ljubljana",
+        "municipality",
+        "https://ljubljana.si/",
+        ["application/pdf"],
+        options.municipalityDelegatedDocumentHost === undefined
+          ? []
+          : [options.municipalityDelegatedDocumentHost],
+      ),
+      options.municipalityOverlappingTargetPublisher === true
+        ? {
+            ...policy("police", "police", "https://policija.si/"),
+            allowedHosts: ["ljubljana.si", "policija.si"],
+          }
+        : policy("police", "police", "https://policija.si/"),
       policy("gov", "government", "https://gov.si/"),
       policy("opsi", "open_data", "https://podatki.gov.si/"),
       policy("surs", "statistics", "https://pxweb.stat.si/", sursAllowedMediaTypes),
@@ -145,6 +168,9 @@ function buildContext(
       configuredRoutes: [{
         publisherId: "municipality-ljubljana",
         navigationUrl: "https://ljubljana.si/safety",
+        ...(options.configuredResolvedEvidenceUrl === undefined
+          ? {}
+          : { resolvedEvidenceUrl: options.configuredResolvedEvidenceUrl }),
       }],
     }],
   }, INTEGRITY);
@@ -1207,6 +1233,94 @@ describe("city-safety real S2 producer compatibility", () => {
     });
     expect(reconstructCitySafetyAttemptLedger(untrustedProduced.ledger, untrusted.reconstruction))
       .toEqual(untrustedProduced.ledger);
+  });
+
+  test("reconstructs the adapter's direct delegated-host authority denial", async () => {
+    // Break caught: replay must preserve the adapter's target-scoped direct-host admission decision.
+    const fixture = buildContext("seal_raw_artifact", ["application/pdf"], {
+      municipalityDelegatedDocumentHost: "documents.ljubljana.si",
+      configuredResolvedEvidenceUrl: DELEGATED_DOCUMENT_URL,
+    });
+    let captureCalls = 0;
+    const produced = await runCitySafetyDiscovery(discoveryInput(fixture), {
+      officialDocuments: createSloveniaCitySafetyAdapter({
+        capture: async () => {
+          captureCalls += 1;
+          throw new Error("direct delegated URL must not be captured");
+        },
+        analyze: async () => { throw new Error("direct delegated URL must not be analyzed"); },
+        loadPopulation: async () => { throw new Error("direct delegated URL must not load population"); },
+      }),
+      search: { search: async () => ({ kind: "completed", providerId: "provider-a", urls: [] }) },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(captureCalls).toBe(0);
+    expect(produced.ledger.candidates[0]).toMatchObject({
+      disposition: "rejected",
+      reason: "authority_untrusted",
+      officialTrace: {
+        initialUrl: DELEGATED_DOCUMENT_URL,
+        edges: [],
+        officialHops: 0,
+        failure: { captureKind: "navigation_mismatch" },
+      },
+    });
+    expect(reconstructCitySafetyAttemptLedger(produced.ledger, fixture.reconstruction))
+      .toEqual(produced.ledger);
+  });
+
+  test("rejects a named direct result when two target publishers admit its host", () => {
+    // Break caught: replay accepts a forged named publisher where production adapter denies ambiguity.
+    const fixture = buildContext("seal_raw_artifact", ["application/pdf"], {
+      municipalityOverlappingTargetPublisher: true,
+    });
+
+    expect(() => reconstructCitySafetyAttemptLedger(preferredLedger(fixture), fixture.reconstruction))
+      .toThrow("integrity_mismatch");
+  });
+
+  test("reconstructs an adapter-produced trusted navigation to its delegated document", async () => {
+    // Break caught: a delegated document remains admissible only after a direct first-party start.
+    const fixture = buildContext("seal_raw_artifact", ["application/pdf"], {
+      municipalityDelegatedDocumentHost: "documents.ljubljana.si",
+    });
+    const capturedUrls: string[] = [];
+    const produced = await runCitySafetyDiscovery(discoveryInput(fixture), {
+      officialDocuments: createSloveniaCitySafetyAdapter({
+        capture: async (request) => {
+          capturedUrls.push(request.url);
+          return {
+            artifact: capturedArtifact(`municipal-delegated-${capturedUrls.length}`, request.url),
+            redirectChain: [request.url],
+          };
+        },
+        analyze: async ({ artifact }) => artifact.url === "https://ljubljana.si/safety"
+          ? { kind: "navigate", confirmedDocumentUrl: DELEGATED_DOCUMENT_URL }
+          : {
+              kind: "terminal",
+              dataAuthorityId: "police",
+              municipalityCodes: ["061"],
+              definitionId: "si-municipal-police-offences-per-100000@1",
+              referenceYear: 2025,
+              offenceCounts: ["1200"],
+            },
+        loadPopulation: async ({ runId }) => ({
+          kind: "captured",
+          publisherId: "surs",
+          municipalityCode: "061",
+          referenceDate: "2025-01-01",
+          population: "300000",
+          artifact: { ...capturedArtifact("surs-delegated", "https://pxweb.stat.si/population"), runId },
+        }),
+      }),
+      search: { search: async () => { throw new Error("preferred must suppress search"); } },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(capturedUrls).toEqual(["https://ljubljana.si/safety", DELEGATED_DOCUMENT_URL]);
+    expect(reconstructCitySafetyAttemptLedger(produced.ledger, fixture.reconstruction))
+      .toEqual(produced.ledger);
   });
 
   test("reconstructs a non-identifier reviewed authority emitted by S2", async () => {

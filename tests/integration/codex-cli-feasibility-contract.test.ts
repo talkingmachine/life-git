@@ -35,11 +35,6 @@ const FEATURE_NAMES = [
   "workspace_dependencies",
 ] as const;
 
-const STARTUP_NOTICES = [
-  "approval_policy_never_to_unless_trusted",
-  "code_mode_host_disabled",
-] as const;
-
 const ARTIFACT_KEYS = [
   "schemaVersion",
   "cliVersion",
@@ -55,7 +50,6 @@ const ARTIFACT_KEYS = [
   "callableSkillFeaturesDisabled",
   "codexExecProcessCount",
   "eventTypes",
-  "startupNotices",
   "toolEventTypes",
   "resultSchemaVersion",
   "resultDigest",
@@ -96,6 +90,12 @@ afterEach(async () => {
 });
 
 describe("Task 3 files", () => {
+  test("keeps ordinary Node startup at static preflight while the live gate stays explicitly armed", async () => {
+    const instrumentation = await readFile(resolve("src/instrumentation-node.ts"), "utf8");
+    expect(instrumentation).toContain("initializeStaticCodexCliPreflight");
+    expect(instrumentation).not.toContain("verifyCodexCliCapabilities");
+  });
+
   test("exposes the exact package entry point", async () => {
     const packageJson = JSON.parse(await readFile(resolve("package.json"), "utf8")) as {
       scripts?: Record<string, unknown>;
@@ -770,7 +770,7 @@ describe("runCodexCliFeasibilityForTest", () => {
     expect(Object.values(artifact.disabledFeatures)).toEqual(Array.from({ length: 23 }, () => false));
     expect(artifact).toEqual({
       schemaVersion: "codex-cli-feasibility@1",
-      cliVersion: "codex-cli 0.148.0-alpha.15",
+      cliVersion: "codex-cli 0.149.0-alpha.4",
       authenticatedWith: "ChatGPT",
       disabledFeatures: exactDisabledFeatures(),
       strictExecConfig: true,
@@ -790,7 +790,6 @@ describe("runCodexCliFeasibilityForTest", () => {
         "item.completed",
         "turn.completed",
       ],
-      startupNotices: STARTUP_NOTICES,
       toolEventTypes: [],
       resultSchemaVersion: "codex-runtime-smoke@1",
       resultDigest: EXACT_RESULT_DIGEST,
@@ -810,7 +809,7 @@ describe("runCodexCliFeasibilityForTest", () => {
     expect(serializedArtifact).not.toContain("tool_free");
   });
 
-  test("accepts the exact production-proved startup notice pair", async () => {
+  test("records the reviewed pre-turn event sequence without exposing notices", async () => {
     const artifactPath = await freshArtifactPath();
     const module = await loadFeasibilityModule();
 
@@ -821,7 +820,6 @@ describe("runCodexCliFeasibilityForTest", () => {
       ...validDependencies([]),
     });
 
-    expect(artifact.startupNotices).toEqual(STARTUP_NOTICES);
     expect(artifact.eventTypes).toEqual([
       "thread.started",
       "item.completed",
@@ -1041,15 +1039,6 @@ describe("runCodexCliFeasibilityForTest", () => {
     ["two exec processes", { codexExecProcessCount: 2 }],
     ["a tool event", { toolEventTypes: ["command_execution"] }],
     ["protocol drift", { eventTypes: ["thread.started", "turn.started", "future.event", "turn.completed"] }],
-    ["a missing startup notice", {
-      startupNotices: ["approval_policy_never_to_unless_trusted"],
-    }],
-    ["reversed startup notices", {
-      startupNotices: ["code_mode_host_disabled", "approval_policy_never_to_unless_trusted"],
-    }],
-    ["an extra startup notice", {
-      startupNotices: [...STARTUP_NOTICES, "future_notice"],
-    }],
     ["a notice-prefix mismatch", {
       eventTypes: ["thread.started", "item.completed", "turn.started", "item.completed", "turn.completed"],
       eventCount: 5,
@@ -1113,7 +1102,7 @@ function validDependencies(
     runPreflight: vi.fn(async () => {
       calls.push("preflight");
       return {
-        cliVersion: "codex-cli 0.148.0-alpha.15",
+        cliVersion: "codex-cli 0.149.0-alpha.4",
         authenticatedWith: "ChatGPT",
       };
     }),
@@ -1192,7 +1181,6 @@ function validModelProof(): Record<string, unknown> {
       "item.completed",
       "turn.completed",
     ],
-    startupNotices: [...STARTUP_NOTICES],
     toolEventTypes: [],
     finalMessage: EXACT_RESULT,
     stdoutBytes: 317,

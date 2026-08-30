@@ -24,7 +24,9 @@ function validInvocation(
   overrides: Record<string, unknown> = {},
 ): Parameters<typeof createCodexJsonInvocation>[0] {
   return {
-    capability: "onboarding_extract",
+    capability: "onboarding.extract",
+    reasoningEffort: "low",
+    toolPolicy: "codex-tools-none@2",
     templateVersion: "extract@1",
     schemaVersion: "onboarding-extraction@1",
     prompt: "synthetic",
@@ -97,13 +99,37 @@ describe("snapshotOwnedJson", () => {
 });
 
 describe("createCodexJsonInvocation", () => {
+  test("rejects the superseded web-search policy revision", () => {
+    expect(() => createCodexJsonInvocation({
+      ...validInvocation(), capability: "source.discover", reasoningEffort: "medium",
+      toolPolicy: "codex-tools-web-search@1" as never,
+    })).toThrowError("codex_protocol_invalid");
+  });
+  test("allows web search only for medium source discovery", () => {
+    const invocation = createCodexJsonInvocation({
+      capability: "source.discover",
+      reasoningEffort: "medium",
+      toolPolicy: "codex-tools-web-search@2",
+      templateVersion: "official-source-discover@2",
+      schemaVersion: "official-source-candidates@1",
+      prompt: "synthetic public input",
+      outputSchema: { type: "object", additionalProperties: false, properties: {} },
+      limits: { timeoutMs: 30_000, maxStdoutBytes: 131_072, maxStderrBytes: 16_384, maxEvents: 128 },
+      signal: new AbortController().signal,
+    });
+    expect(invocation).toMatchObject({
+      capability: "source.discover", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+    });
+    expect(() => createCodexJsonInvocation({ ...invocation, capability: "onboarding.extract" } as never))
+      .toThrowError("codex_protocol_invalid");
+  });
   test("returns a detached schema and preserves the supplied runtime limits", () => {
     const schema = { type: "object", properties: { answer: { type: "string" } } };
     const invocation = createCodexJsonInvocation(validInvocation({ outputSchema: schema }));
     schema.properties.answer.type = "number";
 
     expect(invocation).toMatchObject({
-      capability: "onboarding_extract",
+      capability: "onboarding.extract",
       templateVersion: "extract@1",
       schemaVersion: "onboarding-extraction@1",
       prompt: "synthetic",
@@ -135,6 +161,12 @@ describe("createCodexJsonInvocation", () => {
       .toThrowError("codex_protocol_invalid");
   });
 
+  test("rejects a transparent Proxy around an otherwise valid invocation", () => {
+    const input = new Proxy(validInvocation(), {});
+
+    expect(() => createCodexJsonInvocation(input)).toThrowError("codex_protocol_invalid");
+  });
+
   test("rejects a limits accessor without executing it", () => {
     const getter = vi.fn(() => 15_000);
     const input = validInvocation();
@@ -149,6 +181,12 @@ describe("createCodexJsonInvocation", () => {
       ...validInvocation().limits,
       unexpected: true,
     } }))).toThrowError("codex_protocol_invalid");
+  });
+
+  test("rejects a transparent Proxy around otherwise valid limits", () => {
+    const input = validInvocation({ limits: new Proxy(validInvocation().limits, {}) });
+
+    expect(() => createCodexJsonInvocation(input)).toThrowError("codex_protocol_invalid");
   });
 
   test("validates a genuine decorated AbortSignal without invoking caller accessors", () => {

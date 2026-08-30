@@ -615,7 +615,11 @@ function validateChronology(
   }
   const acquired = new Set<string>();
   for (const candidate of safetyLedger.candidates) {
-    const originAt = candidate.origin.kind === "search"
+    const recoveryOrigin = candidate.origin.kind === "search" && (
+      candidate.origin.queryId === `official-source-recovery:${context.cityCheckRunId}:1` ||
+      candidate.origin.queryId === `official-source-recovery:${context.cityCheckRunId}:2`
+    );
+    const originAt = candidate.origin.kind === "search" && !recoveryOrigin
       ? searchTimes.get(candidate.origin.queryId)
       : context.assessmentAt;
     if (originAt === undefined) mismatch();
@@ -1034,6 +1038,11 @@ export class SqliteCityEvidenceStore {
   ) {}
 
   seal(borrowedInput: CityEvidenceSealInput): CityEvidenceSnapshot {
+    return this.database.transaction(() => this.sealInTransaction(borrowedInput)).immediate();
+  }
+
+  /** Caller owns the surrounding SQLite immediate transaction. */
+  sealInTransaction(borrowedInput: CityEvidenceSealInput): CityEvidenceSnapshot {
     const input = ownSnapshot(borrowedInput);
     if (!plainRecord(input) || !exactKeys(input, SEAL_INPUT_KEYS)) mismatch();
     const context = contextFrom(input);
@@ -1084,8 +1093,7 @@ export class SqliteCityEvidenceStore {
     };
     const persistenceIntegrity = createCityDecisionIntegrityView(this.integrity);
 
-    this.database.exec("BEGIN IMMEDIATE");
-    try {
+    {
       for (const artifact of input.artifacts) {
         insertLiveArtifact(this.database, artifact, persistenceIntegrity);
       }
@@ -1132,15 +1140,20 @@ export class SqliteCityEvidenceStore {
         );
         if (storedOverlay === undefined) mismatch();
       }
-      this.database.exec("COMMIT");
       return storedOverlay;
-    } catch (error) {
-      if (this.database.inTransaction) this.database.exec("ROLLBACK");
-      throw error;
     }
   }
 
   loadVerified(
+    borrowedId: string,
+    borrowedExpected?: CityEvidenceExpectations,
+  ): VerifiedCityEvidence {
+    return this.database.transaction(() =>
+      this.loadVerifiedInTransaction(borrowedId, borrowedExpected))();
+  }
+
+  /** Caller owns the surrounding SQLite transaction. */
+  loadVerifiedInTransaction(
     borrowedId: string,
     borrowedExpected?: CityEvidenceExpectations,
   ): VerifiedCityEvidence {
@@ -1151,7 +1164,6 @@ export class SqliteCityEvidenceStore {
       if (!plainRecord(expected) || !exactKeys(expected, CONTEXT_KEYS)) mismatch();
       cityEvidenceContextHash(expected, this.integrity);
     }
-    const read = this.database.transaction(() => {
       const row = rowById(this.database, owned.id);
       if (row === undefined) throw new Error("city_evidence_not_found");
       const parsed = parseRow(row, this.integrity);
@@ -1171,15 +1183,18 @@ export class SqliteCityEvidenceStore {
         this.integrity,
         previousAccepted,
       );
-      return verified.verified;
-    });
-    return frozenSnapshot(read());
+    return frozenSnapshot(verified.verified);
   }
 
   findVerifiedByCheckRunId(borrowedRunId: string): VerifiedCityEvidence | undefined {
+    return this.database.transaction(() => this.findVerifiedByCheckRunIdInTransaction(borrowedRunId))();
+  }
+
+  /** Caller owns the surrounding SQLite transaction. */
+  findVerifiedByCheckRunIdInTransaction(borrowedRunId: string): VerifiedCityEvidence | undefined {
     const runId = ownSnapshot(borrowedRunId);
     if (!identifier(runId)) mismatch();
     const row = rowByCheckRunId(this.database, runId);
-    return row === undefined ? undefined : this.loadVerified(row.id);
+    return row === undefined ? undefined : this.loadVerifiedInTransaction(row.id);
   }
 }

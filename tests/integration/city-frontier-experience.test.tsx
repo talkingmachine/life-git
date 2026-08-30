@@ -823,4 +823,32 @@ describe("city-frontier first experience vertical REDs", () => {
     fireEvent.click(screen.getByRole("button", { name: "Перезагрузить" }));
     expect(reload).toHaveBeenCalledOnce();
   });
+
+  test("renders only the verified replacement source, and keeps yellow recovery honest and retryable", async () => {
+    const { CityFrontierPanel } = await import("../../src/experience/components/CityFrontierPanel");
+    const readModel = cityReadModel({ revisionId: BASE_REVISION_ID });
+    const source = { schemaVersion: "public-fact-source@1" as const, factKey: "si-city-safety",
+      status: "green" as const, publisherName: "Slovenian Police",
+      sourceUrl: "https://www.policija.si/statistics", checkedAt: INSTANT };
+    const onContinue = vi.fn();
+    const baseProps = { canRetry: false, continuing: false, onContinue, onReload: vi.fn(), readModel };
+    render(<CityFrontierPanel {...baseProps} view={{ candidates: [], progress: [], cards: [], canContinue: true,
+      source, sourceReplaced: true }} />);
+
+    expect(screen.getByText(/Официальный источник автоматически заменён/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Slovenian Police" }).getAttribute("href"))
+      .toBe("https://www.policija.si/statistics");
+    expect(screen.queryAllByText((_content, element) => element?.textContent?.includes(INSTANT) ?? false).length)
+      .toBeGreaterThan(0);
+    expect(screen.queryByText(/audit|candidate|history/i)).toBeNull();
+    cleanup();
+
+    render(<CityFrontierPanel {...baseProps} canRetry view={{ candidates: [], progress: [], cards: [],
+      canContinue: false, source: { schemaVersion: "public-fact-source@1", factKey: "si-city-safety",
+        status: "yellow", publisherName: null, sourceUrl: null, checkedAt: null }, sourceUnavailable: true }} />);
+    expect(screen.getByRole("status").textContent).toContain("не подтверждён");
+    expect(screen.queryByRole("link")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Повторить проверку" }));
+    expect(onContinue).toHaveBeenCalledOnce();
+  });
 });

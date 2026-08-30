@@ -32,7 +32,7 @@ import type { OnboardingModelPort } from "../../src/application/onboarding-contr
 import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
-  ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V11 as ONBOARDING_MODEL_VERSIONS_V3,
 } from "../../src/application/onboarding-model-versions";
 import type {
   GuardedExtractionProposal,
@@ -69,14 +69,18 @@ const ARTIFACT_KEYS = Object.freeze([
   "fixtureDigest",
   "fixtureVersion",
   "invocationVersion",
+  "model",
+  "protocolVersion",
   "rawOutputStored",
   "rawPromptStored",
+  "reasoningEffort",
   "reviewLimits",
   "reviewPromptDigest",
   "reviewPromptVersion",
   "reviewSchemaDigest",
   "reviewSchemaVersion",
   "schemaVersion",
+  "toolPolicy",
   "transcriptStored",
 ]);
 const temporaryDirectories: string[] = [];
@@ -159,19 +163,23 @@ describe("onboarding feasibility contract", () => {
     expect(calls).toEqual(["extract", "extract", "extract", "extract", "extract", "extract", "review"]);
     expect(Object.keys(artifact).sort()).toEqual(ARTIFACT_KEYS);
     expect(artifact).toMatchObject({
-      schemaVersion: "onboarding-model-feasibility@3",
+      schemaVersion: "onboarding-model-feasibility@4",
       invocationVersion: ONBOARDING_MODEL_VERSIONS_V3.invocation,
+      protocolVersion: "codex-cli-protocol@2",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       cliVersion: ONBOARDING_MODEL_VERSIONS_V3.cliVersion,
-      extractionPromptVersion: "onboarding-extract@3",
+      extractionPromptVersion: "onboarding-extract@10",
       reviewPromptVersion: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt,
-      extractionSchemaVersion: "onboarding-extraction-wire@2",
+      extractionSchemaVersion: "onboarding-extraction-wire@3",
       reviewSchemaVersion: ONBOARDING_MODEL_VERSIONS_V3.reviewSchema,
     });
     expect(artifact).not.toHaveProperty("modelVersions");
     expect(artifact.caseResults).toHaveLength(7);
     expect(artifact.caseResults.every(({ status, elapsedMs }) => status === "passed" && elapsedMs === 7)).toBe(true);
     expect(artifact.extractionLimits).toEqual({
-      timeoutMs: 30_000,
+      timeoutMs: 60_000,
       maxStdoutBytes: 131_072,
       maxStderrBytes: 16_384,
       maxEvents: 64,
@@ -188,7 +196,7 @@ describe("onboarding feasibility contract", () => {
     expect(artifact.extractionPromptDigest).toBe(digestText(ONBOARDING_EXTRACTION_PROMPT_TEMPLATE));
     expect(artifact.reviewPromptDigest).toBe(digestText(ONBOARDING_REVIEW_PROMPT_TEMPLATE));
     expect(artifact.extractionSchemaDigest).toBe(
-      "77fa76052dededa561a0ec596678efd067e89eb106aada6e0f68b88a33cf9c94",
+      "0ba5f143062fbb2ddec0b7fe860151e9439964e62986d02d0fe8d07c295b30b1",
     );
     expect(artifact.reviewSchemaDigest).toBe(digestJson(ONBOARDING_REVIEW_SCHEMA));
     const { artifactDigest, ...withoutDigest } = artifact;
@@ -254,10 +262,10 @@ describe("onboarding feasibility contract", () => {
       clock: clockBy(1),
     });
 
-    expect(artifact.schemaVersion).toBe("onboarding-model-feasibility@3");
+    expect(artifact.schemaVersion).toBe("onboarding-model-feasibility@4");
     const written = JSON.parse(await readFile(artifactPath, "utf8")) as Record<string, unknown>;
-    expect(written.schemaVersion).toBe("onboarding-model-feasibility@3");
-    expect(JSON.stringify(written)).not.toContain("onboarding-model-feasibility@2");
+    expect(written.schemaVersion).toBe("onboarding-model-feasibility@4");
+    expect(JSON.stringify(written)).not.toContain("onboarding-model-feasibility@3");
   });
 
   test("removes both stale outputs before descriptor-safely reading the model tuple", async () => {

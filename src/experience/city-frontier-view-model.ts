@@ -2,6 +2,7 @@ import type {
   CityFrontierEvent,
   CityFrontierReadModel,
   CityFrontierRevision,
+  PublicFactSourceV1,
 } from "../application/city-frontier-contracts";
 import {
   initialCityFrontierEventState,
@@ -25,7 +26,9 @@ export interface CityFrontierCandidateView {
     | "Проверяется"
     | "Доступен для выбора"
     | "Доступен с неполными данными"
+    | "Источник недоступен"
     | "Исключён";
+  readonly sourceUnavailable?: true;
   readonly facts?: CityFrontierRevision["markers"][number]["facts"];
   readonly verificationCoverage?: string;
   readonly lastCheckedAt?: string;
@@ -48,10 +51,14 @@ export interface CityFrontierView {
   readonly canContinue: boolean;
   readonly requiresVerifiedReload?: boolean;
   readonly transportError?: string;
+  readonly source?: PublicFactSourceV1;
+  readonly sourceReplaced?: boolean;
+  readonly sourceUnavailable?: boolean;
 }
 
 export type CityFrontierScreenState =
-  | { readonly kind: "stable"; readonly readModel: CityFrontierReadModel }
+  | { readonly kind: "stable"; readonly readModel: CityFrontierReadModel;
+      readonly source?: PublicFactSourceV1; readonly sourceReplaced?: boolean }
   | {
       readonly kind: "continuing";
       readonly readModel: CityFrontierReadModel;
@@ -157,12 +164,24 @@ function pendingCandidate(
   });
 }
 
+function unavailableCandidate(
+  readModel: CityFrontierReadModel,
+  active: NonNullable<CityFrontierEventState["active"]>,
+): CityFrontierCandidateView {
+  const candidate = pendingCandidate(readModel, active);
+  return freezeCopy({ ...candidate, status: "yellow" as const,
+    statusLabel: "Источник недоступен" as const, sourceUnavailable: true as const });
+}
+
 export function presentCityFrontierReadModel(
   readModel: CityFrontierReadModel,
+  recovery?: Pick<CityFrontierEventState, "currentSource" | "sourceReplaced">,
 ): CityFrontierScreenState {
   return freezeCopy({
     kind: "stable" as const,
     readModel: normalizeCityFrontierReadModel(readModel),
+    ...(recovery?.currentSource === undefined ? {} : { source: recovery.currentSource }),
+    ...(recovery?.sourceReplaced === undefined ? {} : { sourceReplaced: recovery.sourceReplaced }),
   });
 }
 
@@ -188,7 +207,7 @@ export function reduceCityFrontierContinuationEvent(
   if (state.kind !== "continuing") throw new Error("city_frontier_not_continuing");
   const stream = reduceCityFrontierEvent(state.stream, event, state.readModel);
   if (event.type === "city_continuation_completed") {
-    return presentCityFrontierReadModel(stream.terminal!);
+    return presentCityFrontierReadModel(stream.terminal!, stream);
   }
   const readModel = event.type === "city_revision_committed"
     ? normalizeCityFrontierReadModel({ ...state.readModel, revision: event.revision })
@@ -217,7 +236,9 @@ export function projectCityFrontierView(
   if (state.kind !== "stable" && state.stream.active !== undefined &&
     !state.readModel.revision.markers.some(({ cityId }) =>
       cityId === state.stream.active?.cityId)) {
-    candidates.push(pendingCandidate(state.readModel, state.stream.active));
+    candidates.push(state.stream.yellowSource === undefined
+      ? pendingCandidate(state.readModel, state.stream.active)
+      : unavailableCandidate(state.readModel, state.stream.active));
   }
   const isStableTerminal = state.kind === "stable" &&
     state.readModel.revision.kind === "terminal";
@@ -232,8 +253,16 @@ export function projectCityFrontierView(
     canContinue: state.kind === "stable" && state.readModel.revision.kind === "working" &&
       state.readModel.catalog.rulesVersion === "city-catalog@2",
     ...(state.kind === "transportError" ? {
-      requiresVerifiedReload: state.stream.committedRevisionId === state.readModel.revision.id,
+      requiresVerifiedReload: state.stream.sourceReplaced === true ||
+        state.stream.committedRevisionId === state.readModel.revision.id,
       transportError: state.message,
     } : {}),
+    ...(state.kind === "stable" ? (state.source === undefined ? {} : {
+      source: state.source, ...(state.sourceReplaced === undefined ? {} : { sourceReplaced: state.sourceReplaced }),
+    }) : state.stream.currentSource === undefined ? {} : {
+      source: state.stream.currentSource,
+      ...(state.stream.sourceReplaced === undefined ? {} : { sourceReplaced: state.stream.sourceReplaced }),
+      ...(state.stream.yellowSource === undefined ? {} : { sourceUnavailable: true }),
+    }),
   });
 }

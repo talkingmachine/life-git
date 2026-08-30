@@ -28,6 +28,7 @@ import {
   withCodexTempDirectory,
   type ValidatedCodexTempRoot,
 } from "../../src/infrastructure/codex-cli/temp-directory";
+import { CODEX_FIXED_EXEC_CONFIGS } from "../../src/infrastructure/codex-cli/policy";
 
 const temporaryPaths: string[] = [];
 const encoder = new TextEncoder();
@@ -36,10 +37,13 @@ const CODE_MODE_HOST_DISABLED_MESSAGE =
 
 const EXPECTED_EXEC_ARGS = [
   "exec",
+  ...CODEX_FIXED_EXEC_CONFIGS.flatMap((config) => ["-c", config]),
   "--strict-config",
   "--ephemeral",
   "--ignore-user-config",
   "--ignore-rules",
+  "--model", "gpt-5.6-terra",
+  "-c", "model_reasoning_effort=\"low\"",
   "--disable", "apps",
   "--disable", "auth_elicitation",
   "--disable", "browser_use",
@@ -373,7 +377,7 @@ function fakeSpawner(stdout: string): CodexProcessSpawner & { spawn: ReturnType<
       stdout: output(stdout),
       stderr: output(""),
       exit: Promise.resolve({ code: 0, signal: null }),
-      kill: vi.fn(),
+      terminateGroup: vi.fn(),
     })),
   };
 }
@@ -399,7 +403,9 @@ describe("runCodexJsonProbe", () => {
     ].map((event) => `${JSON.stringify(event)}\n`).join("");
     const spawner = fakeSpawner(stdout);
     const invocation = createCodexJsonInvocation({
-      capability: "onboarding_extract",
+      capability: "onboarding.extract",
+      reasoningEffort: "low",
+      toolPolicy: "codex-tools-none@2",
       templateVersion: "extract@1",
       schemaVersion: "schema@1",
       prompt: "private prompt",
@@ -460,7 +466,7 @@ describe("inspectModelVisibleInputs", () => {
         })(),
         stderr: output(""),
         exit: checked.then(() => ({ code: 0, signal: null })),
-        kill: vi.fn(),
+        terminateGroup: vi.fn(),
       };
     });
 
@@ -610,7 +616,7 @@ describe("inspectModelVisibleInputs", () => {
       stdout: output(""),
       stderr: output(""),
       exit,
-      kill: vi.fn((signal) => { resolveExit({ code: null, signal }); }),
+      terminateGroup: vi.fn((signal) => { resolveExit({ code: null, signal }); }),
     }));
     const running = inspectModelVisibleInputs({
       preflight,

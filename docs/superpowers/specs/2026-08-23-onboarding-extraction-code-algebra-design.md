@@ -11,6 +11,13 @@ conditional timing protocol moves to project end. Prior diagnostic-call authoriz
 and does not carry forward; fresh explicit user authorization is required immediately before the
 final-project gate.
 
+**Local-beta live amendment (2026-08-28):**
+[`2026-08-28-local-codex-llm-source-recovery-design.md`](2026-08-28-local-codex-llm-source-recovery-design.md)
+supersedes the remaining final-project-only execution timing, no-retry/fallback and acceptance
+clauses for current local-beta probes. The user supplied fresh authorization on 2026-08-28. V3
+prompt algebra, wire, typed values, Decision guards, lineage, HMAC and historical artifact bytes
+remain unchanged; a new runtime probe is not allowed to reinterpret an old artifact as current.
+
 ## Decision
 
 Keep the existing `onboarding-extraction-wire@2`, its 172 valid field addresses, the exact typed

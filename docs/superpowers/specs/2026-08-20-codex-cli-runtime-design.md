@@ -10,6 +10,16 @@
 | Supersedes | local Qwen/GGUF runtime; blanket zero-external-model clauses для двух approved capabilities |
 | Approval | пользователь проекта / 2026-08-20 / Codex CLI вместо локальной модели / approved; exact-build tool-isolation closure / 2026-08-21 |
 
+> **Partial supersession, 2026-08-28.** Exact-build pin, использование account-default model без
+> `--model`, global single-flight, zero-retry и запрет model-assisted official-source discovery
+> superseded в затронутой части документом
+> [`2026-08-28-local-codex-llm-source-recovery-design.md`](2026-08-28-local-codex-llm-source-recovery-design.md).
+> Его original metadata перечисляет две первоначальные capabilities; combined local-beta scope
+> теперь также включает отдельные `source.extract` и `source.discover` ports. Узкий allowlist
+> публичных ephemeral source excerpts новой спецификации supersedes только прежний blanket запрет
+> raw source bytes. Остальные trust, privacy, Evidence и replay boundaries этого документа
+> сохраняются.
+
 ## 1. Решение
 
 Конкурсная версия остаётся локальным Next.js-приложением на Mac пользователя: UI, Application,

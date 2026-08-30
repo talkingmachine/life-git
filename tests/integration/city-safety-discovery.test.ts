@@ -15,6 +15,8 @@ import type { CityDecisionIntegrity } from "../../src/decision/city-integrity";
 import {
   runCitySafetyDiscovery,
 } from "../../src/application/run-city-safety-discovery";
+import { createCitySafetyOfficialDiscoveryAdapter } from "../../src/application/city-safety-official-discovery";
+import { OfficialSourceDiscoveryError, type OfficialSourceDiscoveryPort } from "../../src/application/official-source-discovery";
 import type {
   CitySafetyCandidateInspection,
   CitySafetyCandidateInspectionInput,
@@ -143,6 +145,143 @@ function buildContext(
     }],
   }, INTEGRITY);
   return { catalog, directory, plan };
+}
+
+function buildAdmissionContext(options: {
+  readonly delegatedDocumentHost?: string;
+  readonly includeMariborPublisher?: boolean;
+  readonly includeOverlappingTargetPublisher?: boolean;
+  readonly retentionMode?: "seal_raw_artifact" | "seal_hash_locator_then_delete_transient";
+} = {}): {
+  readonly catalog: CityCatalogRevision;
+  readonly directory: OfficialAuthorityDirectory;
+  readonly plan: CitySafetySourcePlan;
+} {
+  const base = buildContext(options.retentionMode ?? "seal_hash_locator_then_delete_transient");
+  if (options.includeMariborPublisher !== true) {
+    const publishers = base.directory.publishers.map((publisher) =>
+      publisher.publisherId === "municipality-ljubljana" && options.delegatedDocumentHost !== undefined
+        ? { ...publisher, delegatedDocumentHosts: [options.delegatedDocumentHost] }
+        : publisher.publisherId === "police" && options.includeOverlappingTargetPublisher === true
+          ? { ...publisher, allowedHosts: ["ljubljana.si", "policija.si"] }
+        : publisher,
+    );
+    const directory = buildOfficialAuthorityDirectory({
+      schemaVersion: "official-authority-directory@1",
+      countryCode: "SI",
+      catalogRevisionId: base.catalog.id,
+      requiredPublisherIds: base.directory.requiredPublisherIds,
+      publishers,
+      municipalities: base.directory.municipalities,
+      rulesVersion: "slovenia-official-authorities@1",
+    }, INTEGRITY);
+    return {
+      catalog: base.catalog,
+      directory,
+      plan: buildCitySafetySourcePlan({
+        catalog: base.catalog,
+        directory,
+        entries: base.plan.entries,
+      }, INTEGRITY),
+    };
+  }
+  const registry = buildCityRegistryRevision({
+    packageId: "si-cities",
+    packageSchemaVersion: "si-cities@1",
+    countryCode: "SI",
+    evidenceSnapshotId: "catalog-evidence:admission",
+    entries: [
+      {
+        cityId: "ljubljana", countryCode: "SI", officialName: "Ljubljana",
+        coordinate: { lat: 46.05, lng: 14.51 }, administrativeType: "central_urban_settlement",
+        administrativeTerritory: "Mestna občina Ljubljana", capitalRoles: ["national"],
+        evidenceReferenceIds: ["catalog-evidence:admission"],
+      },
+      {
+        cityId: "maribor", countryCode: "SI", officialName: "Maribor",
+        coordinate: { lat: 46.55, lng: 15.65 }, administrativeType: "settlement",
+        administrativeTerritory: "Mestna občina Maribor", capitalRoles: ["regional"],
+        evidenceReferenceIds: ["catalog-evidence:admission"],
+      },
+    ],
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }, INTEGRITY);
+  const catalog = buildCityCatalogRevision({
+    registry,
+    evidenceSnapshotId: "catalog-evidence:admission",
+    populationDefinition: {
+      definitionId: "surs-settlement-population@1",
+      geoScope: "settlement",
+      unit: "people",
+    },
+    candidateBasis: [
+      { cityId: "ljubljana", comparablePopulation: { kind: "verified", value: "300000", referencePeriod: "2026-01-01" } },
+      { cityId: "maribor", comparablePopulation: { kind: "verified", value: "110000", referencePeriod: "2026-01-01" } },
+    ],
+    coverage: { status: "complete" },
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }, INTEGRITY);
+  const publishers = base.directory.publishers.map((publisher) =>
+    publisher.publisherId === "municipality-ljubljana" && options.delegatedDocumentHost !== undefined
+      ? { ...publisher, delegatedDocumentHosts: [options.delegatedDocumentHost] }
+      : publisher,
+  );
+  publishers.push({
+    publisherId: "municipality-maribor",
+    authorityKind: "municipality",
+    navigationUrl: "https://maribor.si/",
+    allowedHosts: ["maribor.si"],
+    delegatedDocumentHosts: [],
+    allowedMediaTypes: ["application/pdf"],
+    maxBytes: 1_000_000,
+    redirectPolicyVersion: "official-chain@1",
+    documentLocatorPolicyId: "municipality-maribor-locator@1",
+    retentionPolicyId: "municipality-maribor-retention@1",
+    retentionMode: "seal_hash_locator_then_delete_transient",
+  });
+  const directory = buildOfficialAuthorityDirectory({
+    schemaVersion: "official-authority-directory@1",
+    countryCode: "SI",
+    catalogRevisionId: catalog.id,
+    requiredPublisherIds: base.directory.requiredPublisherIds,
+    publishers,
+    municipalities: [
+      ...base.directory.municipalities,
+      {
+        cityId: "maribor",
+        settlementCode: "070001",
+        municipalityCode: "070",
+        officialCityNames: ["Maribor"],
+        officialMunicipalityNames: ["Mestna občina Maribor"],
+        publisherId: "municipality-maribor",
+        officialHost: "maribor.si",
+      },
+    ],
+    rulesVersion: "slovenia-official-authorities@1",
+  }, INTEGRITY);
+  return {
+    catalog,
+    directory,
+    plan: buildCitySafetySourcePlan({
+      catalog,
+      directory,
+      entries: [
+        ...base.plan.entries,
+        {
+          cityId: "maribor",
+          settlementCode: "070001",
+          municipalityCode: "070",
+          officialCityNames: ["Maribor"],
+          officialMunicipalityNames: ["Mestna občina Maribor"],
+          publisherIds: ["municipality-maribor", "police", "surs"],
+          configuredRoutes: [{
+            publisherId: "municipality-maribor",
+            navigationUrl: "https://maribor.si/safety",
+          }],
+        },
+      ],
+    }, INTEGRITY),
+  };
 }
 
 function artifact(id: string, url: string): LiveCapturedArtifact<"si-city-safety"> {
@@ -291,6 +430,192 @@ describe("runCitySafetyDiscovery", () => {
       referenceYear: 2025,
       acceptedCandidateIndex: 0,
     }));
+  });
+
+  test("forwards an owned frozen target publisher set to every inspection", async () => {
+    // Break caught: a global authority-directory publisher can silently become a target-city candidate.
+    const context = buildContext();
+    const inspect = vi.fn(async (candidate: CitySafetyCandidateInspectionInput) => missingAt(candidate));
+
+    await runCitySafetyDiscovery(input(context), {
+      search: { search: async () => ({ kind: "completed" as const, providerId: "provider-a", urls: [] }) },
+      officialDocuments: { inspect },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    const request = inspect.mock.calls[0]?.[0];
+    expect(request?.publisherIds).toEqual(["municipality-ljubljana", "police", "surs"]);
+    expect(Object.isFrozen(request?.publisherIds)).toBe(true);
+    expect(request?.publisherIds).not.toBe(context.plan.entries[0]?.publisherIds);
+    expect(Object.isFrozen(request)).toBe(true);
+    expect(Object.isFrozen(request?.publisherContext)).toBe(true);
+  });
+
+  test("rejects a forged inspection that claims a global publisher outside the target source-plan entry", async () => {
+    // Break caught: validation trusts a port's global publisher claim after adapter admission was bypassed.
+    const context = buildAdmissionContext({ includeMariborPublisher: true });
+    const officialDocuments: CitySafetyOfficialDocumentPort = {
+      inspect: async (candidate) => {
+        if (candidate.candidateUrl !== "https://maribor.si/report.pdf") return missingAt(candidate);
+        const accepted = usable(candidate, 2025, {
+          offenceCount: "1200",
+          population: "300000",
+          rateBasis: "offences_per_100000_residents",
+        });
+        if (accepted.kind !== "usable") throw new Error("expected_usable_fixture");
+        return {
+          ...accepted,
+          detail: {
+            ...accepted.detail,
+            publisherId: "municipality-maribor",
+            publisherNavigationUrl: "https://maribor.si/",
+            retentionPolicyId: "municipality-maribor-retention@1",
+          },
+        };
+      },
+    };
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: {
+        search: async () => ({
+          kind: "completed" as const,
+          providerId: "provider-a",
+          urls: ["https://maribor.si/report.pdf"],
+        }),
+      },
+      officialDocuments,
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("rejects a port attempt to replace the target publisher scope during inspection", async () => {
+    // Break caught: a port mutates the request after admission, then validates against its replacement scope.
+    const context = buildAdmissionContext({
+      includeMariborPublisher: true,
+      retentionMode: "seal_raw_artifact",
+    });
+    let query = 0;
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: {
+        search: async () => ({
+          kind: "completed" as const,
+          providerId: "provider-a",
+          urls: query++ === 0 ? ["https://maribor.si/report.pdf"] : [],
+        }),
+      },
+      officialDocuments: {
+        inspect: async (candidate) => {
+          if (candidate.candidateUrl !== "https://maribor.si/report.pdf") return missingAt(candidate);
+          const replacement = {
+            publisherId: "municipality-maribor",
+            publisherNavigationUrl: "https://maribor.si/",
+          } as const;
+          const changed = Reflect.set(candidate, "publisherIds", ["municipality-maribor", "police", "surs"]) &&
+            Reflect.set(candidate, "publisherContext", replacement);
+          const inspected = changed ? candidate : { ...candidate, publisherContext: replacement };
+          return {
+            kind: "rejected" as const,
+            detail: {
+              officialTrace: {
+                initialUrl: inspected.candidateUrl,
+                edges: [],
+                lastTrustedUrl: inspected.candidateUrl,
+                officialHops: 0,
+                failure: { captureKind: "navigation_mismatch" as const },
+              },
+              reviewedOfficial: {
+                publisherId: replacement.publisherId,
+                dataAuthorityId: "external-authority",
+                publisherNavigationUrl: replacement.publisherNavigationUrl,
+                resolvedEvidenceUrl: inspected.candidateUrl,
+                referenceYear: 2025,
+              },
+              artifactRefs: [],
+              disposition: "rejected" as const,
+              reason: "authority_untrusted" as const,
+            },
+            artifacts: [],
+          };
+        },
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("rejects a forged named usable result when target publishers overlap on its direct host", async () => {
+    // Break caught: a port claims one target publisher where the adapter would deny ambiguous direct admission.
+    const context = buildAdmissionContext({
+      includeOverlappingTargetPublisher: true,
+      retentionMode: "seal_raw_artifact",
+    });
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: { search: async () => { throw new Error("ambiguous admission must fail before search"); } },
+      officialDocuments: {
+        inspect: async (candidate) => usable(candidate, 2025, {
+          offenceCount: "1200",
+          population: "300000",
+          rateBasis: "offences_per_100000_residents",
+        }),
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
+  });
+
+  test("records the adapter's ambiguous target-host admission denial without capture", async () => {
+    // Break caught: runner rebinds an adapter authority denial to one ambiguous publisher context.
+    const context = buildAdmissionContext({ includeOverlappingTargetPublisher: true });
+    const capture = vi.fn(async (request: { readonly url: string }) => ({
+      artifact: artifact("ambiguous-target-host", request.url),
+      redirectChain: [request.url],
+    }));
+    const produced = await runCitySafetyDiscovery(input(context), {
+      search: { search: async () => ({ kind: "completed" as const, providerId: "provider-a", urls: [] }) },
+      officialDocuments: createSloveniaCitySafetyAdapter({
+        capture,
+        analyze: async () => { throw new Error("ambiguous direct URL must not be analyzed"); },
+        loadPopulation: async () => { throw new Error("ambiguous direct URL must not load population"); },
+      }),
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+
+    expect(produced.ledger.candidates[0]).toMatchObject({
+      disposition: "rejected",
+      reason: "authority_untrusted",
+    });
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  test("rejects a delegated municipal artifact request without a trusted trace edge", async () => {
+    // Break caught: an allowed delegated host is retained as a direct capture without first-party lineage.
+    const context = buildAdmissionContext({
+      delegatedDocumentHost: "documents.ljubljana.si",
+      retentionMode: "seal_raw_artifact",
+    });
+
+    await expect(runCitySafetyDiscovery(input(context), {
+      search: { search: async () => { throw new Error("preferred must suppress search"); } },
+      officialDocuments: {
+        inspect: async (candidate) => {
+          const inspected = usable(candidate, 2025, {
+            offenceCount: "1200",
+            population: "300000",
+            rateBasis: "offences_per_100000_residents",
+          });
+          return {
+            ...inspected,
+            artifacts: inspected.artifacts.map((item) => item.role === "municipal_source"
+              ? {
+                  ...item,
+                  request: { method: "GET", url: "https://documents.ljubljana.si/report.pdf" },
+                }
+              : item),
+          } as CitySafetyCandidateInspection;
+        },
+      },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_inspection");
   });
 
   test("holds previous Y-2, records all repeated provider URLs, and inspects each canonical URL once", async () => {
@@ -1233,6 +1558,302 @@ describe("runCitySafetyDiscovery", () => {
     expect(search).not.toHaveBeenCalled();
     expect(result.ledger.result).toEqual(expect.objectContaining({ kind: "verified", acceptedCandidateIndex: 0 }));
   });
+
+  test("owns each official discovery round and rejects malformed model output", async () => {
+    const context = buildContext();
+    const metadata = {
+      invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
+      compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4",
+      model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+      templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
+    } as const;
+    const port: OfficialSourceDiscoveryPort = { discover: vi.fn()
+      .mockResolvedValueOnce({ candidates: [{
+        url: "https://policija.si/recovered.pdf", claimedPublisher: "ignored",
+        expectedCoverage: "ignored", rationale: "ignored",
+      }], metadata }) };
+    const adapter = createCitySafetyOfficialDiscoveryAdapter(port);
+    const result = await adapter.discover({
+      runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
+      authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
+      reason: "stale", round: 1, signal: new AbortController().signal,
+    });
+    expect(port.discover).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(expect.objectContaining({ kind: "candidates", urls: ["https://policija.si/recovered.pdf"] }));
+    expect(Object.isFrozen(result)).toBe(true);
+
+    const malformed: OfficialSourceDiscoveryPort = { discover: async () => ({
+      candidates: [{ url: "https://policija.si/recovered.pdf", claimedPublisher: "x", expectedCoverage: "x", rationale: "x", extra: true }], metadata,
+    } as never) };
+    await expect(createCitySafetyOfficialDiscoveryAdapter(malformed).discover({
+      runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
+      authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
+      reason: "stale", round: 1, signal: new AbortController().signal,
+    })).rejects.toThrow("official_source_discovery_integrity_failed");
+
+    await expect(createCitySafetyOfficialDiscoveryAdapter({ discover: async () => ({
+      candidates: [{ url: "https://policija.si/recovered.pdf", claimedPublisher: "x", expectedCoverage: "x", rationale: "x" }],
+      metadata: { ...metadata, cliVersion: "codex-cli 0.149.0-alpha.3" },
+    }) }).discover({
+      runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
+      authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
+      reason: "stale", round: 1, signal: new AbortController().signal,
+    })).rejects.toThrow("official_source_discovery_integrity_failed");
+  });
+
+  test("maps only genuine bounded discovery runtime errors to yellow", async () => {
+    const context = buildContext();
+    const metadata = {
+      invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
+      compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4",
+      model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+      templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
+    } as const;
+    const empty = createCitySafetyOfficialDiscoveryAdapter({ discover: vi.fn(async () => ({ candidates: [], metadata })) });
+    await expect(empty.discover({
+      runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
+      authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
+      reason: "stale", round: 1, signal: new AbortController().signal,
+    })).resolves.toEqual(expect.objectContaining({ kind: "candidates", urls: [] }));
+    const adapter = createCitySafetyOfficialDiscoveryAdapter({ discover: async () => {
+      throw new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout");
+    } });
+    await expect(adapter.discover({
+      runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
+      authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
+      reason: "stale", round: 1, signal: new AbortController().signal,
+    })).resolves.toEqual({ kind: "yellow", reason: "codex_timeout" });
+    const spoof = Object.create(OfficialSourceDiscoveryError.prototype);
+    Object.defineProperties(spoof, {
+      code: { enumerable: true, value: "official_source_discovery_runtime_failed" },
+      runtimeCode: { enumerable: true, value: "codex_timeout" },
+    });
+    await expect(createCitySafetyOfficialDiscoveryAdapter({ discover: async () => { throw spoof; } }).discover({
+      runId: "run-1", catalog: context.catalog, integrity: INTEGRITY, sourcePlan: context.plan,
+      authorityDirectory: context.directory, cityId: "ljubljana", failedUrl: "https://policija.si/old.pdf",
+      reason: "stale", round: 1, signal: new AbortController().signal,
+    })).rejects.toBe(spoof);
+  });
+
+  test("rejects hostile official-discovery results before inspecting their candidates", async () => {
+    const context = buildContext();
+    const inspected: string[] = [];
+    const discovery = vi.fn(async () => {
+      const result = Object.create(null) as Record<string, unknown>;
+      Object.defineProperties(result, {
+        kind: { enumerable: true, get: () => "yellow" },
+        reason: { enumerable: true, value: "codex_timeout" },
+      });
+      return result;
+    });
+    await expect(runCitySafetyDiscovery({
+      ...input(context),
+      previousAccepted: {
+        cityId: "ljubljana", municipalityCode: "061", sourcePlanId: "prior-plan",
+        definitionId: "si-municipal-police-offences-per-100000@1", publisherId: "police",
+        navigationUrl: "https://policija.si/", resolvedEvidenceUrl: "https://policija.si/prior.pdf",
+        referenceYear: 2024, evidenceSnapshotId: "prior-evidence",
+      },
+    }, {
+      search: { search: vi.fn() }, officialDiscovery: { discover: discovery as never },
+      officialDocuments: { inspect: async (candidate) => {
+        inspected.push(candidate.candidateUrl);
+        return missingAt(candidate);
+      } },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_official_discovery");
+    expect(inspected).not.toContain("https://policija.si/recovered.pdf");
+
+    const proxyDiscovery = vi.fn(async () => new Proxy({
+      kind: "yellow" as const, reason: "codex_timeout" as const,
+    }, {}));
+    await expect(runCitySafetyDiscovery({
+      ...input(context),
+      previousAccepted: {
+        cityId: "ljubljana", municipalityCode: "061", sourcePlanId: "prior-plan",
+        definitionId: "si-municipal-police-offences-per-100000@1", publisherId: "police",
+        navigationUrl: "https://policija.si/", resolvedEvidenceUrl: "https://policija.si/prior.pdf",
+        referenceYear: 2024, evidenceSnapshotId: "prior-evidence",
+      },
+    }, {
+      search: { search: vi.fn() }, officialDiscovery: { discover: proxyDiscovery },
+      officialDocuments: { inspect: async (candidate) => missingAt(candidate) },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_official_discovery");
+  });
+
+  test("rejects an unsupported recovery CLI version before inspecting proposed candidates", async () => {
+    const context = buildContext();
+    const inspected: string[] = [];
+    await expect(runCitySafetyDiscovery({
+      ...input(context),
+      previousAccepted: {
+        cityId: "ljubljana", municipalityCode: "061", sourcePlanId: "prior-plan",
+        definitionId: "si-municipal-police-offences-per-100000@1", publisherId: "police",
+        navigationUrl: "https://policija.si/", resolvedEvidenceUrl: "https://policija.si/prior.pdf",
+        referenceYear: 2024, evidenceSnapshotId: "prior-evidence",
+      },
+    }, {
+      search: { search: vi.fn() },
+      officialDiscovery: { discover: async () => ({
+        kind: "candidates" as const, urls: ["https://policija.si/recovered.pdf"], metadata: {
+          invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
+          compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.3",
+          model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+          templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
+        },
+      }) },
+      officialDocuments: { inspect: async (candidate) => {
+        inspected.push(candidate.candidateUrl);
+        return missingAt(candidate);
+      } },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    })).rejects.toThrow("invalid_city_safety_official_discovery");
+    expect(inspected).not.toContain("https://policija.si/recovered.pdf");
+  });
+
+  test("narrows recovery authority roots to the current city in a valid ten-city directory", async () => {
+    const cityIds = Array.from({ length: 10 }, (_, index) => `city-${index + 1}`);
+    const registry = buildCityRegistryRevision({
+      packageId: "si-cities", packageSchemaVersion: "si-cities@1", countryCode: "SI",
+      evidenceSnapshotId: "catalog-evidence:ten", createdAt: "2026-01-01T00:00:00.000Z",
+      entries: cityIds.map((cityId, index) => ({
+        cityId, countryCode: "SI", officialName: `City ${index + 1}`,
+        coordinate: { lat: 45 + index / 100, lng: 14 + index / 100 },
+        administrativeType: "settlement", administrativeTerritory: `Municipality ${index + 1}`,
+        capitalRoles: index === 0 ? ["national" as const] : [], evidenceReferenceIds: ["catalog-evidence:ten"],
+      })),
+    }, INTEGRITY);
+    const catalog = buildCityCatalogRevision({
+      registry, evidenceSnapshotId: "catalog-evidence:ten",
+      populationDefinition: { definitionId: "surs-settlement-population@1", geoScope: "settlement", unit: "people" },
+      candidateBasis: cityIds.map((cityId) => ({ cityId, comparablePopulation: {
+        kind: "verified" as const, value: "300000", referencePeriod: "2026-01-01",
+      } })), coverage: { status: "complete" }, createdAt: "2026-01-01T00:00:00.000Z",
+    }, INTEGRITY);
+    const cityPublisher = (cityId: string) => ({
+      publisherId: `${cityId}-municipality`, authorityKind: "municipality" as const,
+      navigationUrl: `https://${cityId}.example.si/`, allowedHosts: [`${cityId}.example.si`],
+      delegatedDocumentHosts: [], allowedMediaTypes: ["application/pdf"], maxBytes: 1_000_000,
+      redirectPolicyVersion: "official-chain@1" as const, documentLocatorPolicyId: `${cityId}-locator@1`,
+      retentionPolicyId: `${cityId}-retention@1`, retentionMode: "seal_raw_artifact" as const,
+    });
+    const sharedPublisher = (publisherId: "police" | "gov" | "opsi" | "surs", authorityKind: "police" | "government" | "open_data" | "statistics", host: string) => ({
+      publisherId, authorityKind, navigationUrl: `https://${host}/`, allowedHosts: [host], delegatedDocumentHosts: [],
+      allowedMediaTypes: ["application/pdf"], maxBytes: 1_000_000, redirectPolicyVersion: "official-chain@1" as const,
+      documentLocatorPolicyId: `${publisherId}-locator@1`, retentionPolicyId: `${publisherId}-retention@1`, retentionMode: "seal_raw_artifact" as const,
+    });
+    const directory = buildOfficialAuthorityDirectory({
+      schemaVersion: "official-authority-directory@1", countryCode: "SI", catalogRevisionId: catalog.id,
+      requiredPublisherIds: { police: "police", gov: "gov", opsi: "opsi", surs: "surs" },
+      publishers: [
+        ...cityIds.map(cityPublisher), sharedPublisher("police", "police", "policija.si"),
+        sharedPublisher("gov", "government", "gov.si"), sharedPublisher("opsi", "open_data", "opsi.si"),
+        sharedPublisher("surs", "statistics", "surs.si"),
+      ],
+      municipalities: cityIds.map((cityId, index) => ({
+        cityId, settlementCode: `${String(index + 1).padStart(3, "0")}001`, municipalityCode: String(index + 1).padStart(3, "0"),
+        officialCityNames: [`City ${index + 1}`], officialMunicipalityNames: [`Municipality ${index + 1}`],
+        publisherId: `${cityId}-municipality`, officialHost: `${cityId}.example.si`,
+      })), rulesVersion: "slovenia-official-authorities@1",
+    }, INTEGRITY);
+    const plan = buildCitySafetySourcePlan({
+      catalog, directory, entries: cityIds.map((cityId, index) => ({
+        cityId, settlementCode: `${String(index + 1).padStart(3, "0")}001`, municipalityCode: String(index + 1).padStart(3, "0"),
+        officialCityNames: [`City ${index + 1}`], officialMunicipalityNames: [`Municipality ${index + 1}`],
+        publisherIds: [`${cityId}-municipality`, "police", "surs"], configuredRoutes: [{
+          publisherId: `${cityId}-municipality`, navigationUrl: `https://${cityId}.example.si/safety`,
+        }],
+      })),
+    }, INTEGRITY);
+    let capturedRequest: unknown;
+    const discover: OfficialSourceDiscoveryPort["discover"] = async (request) => {
+      capturedRequest = request;
+      return { candidates: [], metadata: {
+      invocationVersion: "codex-cli-invocation@2" as const, protocolVersion: "codex-cli-protocol@2" as const,
+      compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, cliVersion: "codex-cli 0.149.0-alpha.4",
+      model: "gpt-5.4" as const, reasoningEffort: "medium" as const, toolPolicy: "codex-tools-web-search@2" as const,
+      templateVersion: "official-source-discover@4" as const, schemaVersion: "official-source-candidates@1" as const,
+      } };
+    };
+    await createCitySafetyOfficialDiscoveryAdapter({ discover }).discover({
+      runId: "run-1", catalog, integrity: INTEGRITY, sourcePlan: plan, authorityDirectory: directory,
+      cityId: "city-1", failedUrl: "https://policija.si/old.pdf", reason: "stale", round: 1,
+      signal: new AbortController().signal,
+    });
+    expect((capturedRequest as { readonly authorityRoots: unknown }).authorityRoots).toEqual([
+      { publisherName: "city-1-municipality", url: "https://city-1.example.si/" },
+      { publisherName: "police", url: "https://policija.si/" },
+      { publisherName: "surs", url: "https://surs.si/" },
+    ]);
+  });
+
+  test("never invokes official recovery for an accepted preferred prior", async () => {
+    const context = buildContext();
+    const discovery = { discover: vi.fn() };
+    const search = { search: vi.fn() };
+    await runCitySafetyDiscovery({
+      ...input(context),
+      previousAccepted: {
+        cityId: "ljubljana", municipalityCode: "061", sourcePlanId: "prior-plan",
+        definitionId: "si-municipal-police-offences-per-100000@1", publisherId: "police",
+        navigationUrl: "https://policija.si/", resolvedEvidenceUrl: "https://policija.si/prior.pdf",
+        referenceYear: 2025, evidenceSnapshotId: "prior-evidence",
+      },
+    }, {
+      search,
+      officialDiscovery: discovery,
+      officialDocuments: { inspect: async (candidate) => usable(candidate, 2025, {
+        offenceCount: "1200", population: "300000", rateBasis: "offences_per_100000_residents",
+      }) },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+    expect(discovery.discover).not.toHaveBeenCalled();
+    expect(search.search).not.toHaveBeenCalled();
+  });
+
+  test("inspects rejected round-one recovery URLs before requesting round two", async () => {
+    const context = buildContext();
+    const metadata = {
+      invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2",
+      compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4",
+      model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2",
+      templateVersion: "official-source-discover@4", schemaVersion: "official-source-candidates@1",
+    } as const;
+    const officialDiscovery = { discover: vi.fn(async (request: { readonly round: 1 | 2 }) => ({
+      kind: "candidates" as const,
+      urls: [request.round === 1 ? "https://policija.si/round-1.pdf" : "https://policija.si/round-2.pdf"],
+      metadata,
+    })) };
+    const inspected: string[] = [];
+    await runCitySafetyDiscovery({
+      ...input(context),
+      previousAccepted: {
+        cityId: "ljubljana", municipalityCode: "061", sourcePlanId: "prior-plan",
+        definitionId: "si-municipal-police-offences-per-100000@1", publisherId: "police",
+        navigationUrl: "https://policija.si/", resolvedEvidenceUrl: "https://policija.si/prior.pdf",
+        referenceYear: 2024, evidenceSnapshotId: "prior-evidence",
+      },
+    }, {
+      search: { search: vi.fn() }, officialDiscovery,
+      officialDocuments: { inspect: async (candidate) => {
+        inspected.push(candidate.candidateUrl);
+        if (candidate.candidateUrl.endsWith("round-2.pdf")) return usable(candidate, 2025, {
+          offenceCount: "1200", population: "300000", rateBasis: "offences_per_100000_residents",
+        });
+        return {
+          kind: "rejected" as const,
+          detail: { officialTrace: { initialUrl: candidate.candidateUrl, edges: [], lastTrustedUrl: candidate.candidateUrl, officialHops: 0, failure: { captureKind: "http_error", responseStatus: 404, responseUrl: candidate.candidateUrl } }, artifactRefs: [], disposition: "rejected" as const, reason: "http_not_found" as const },
+          artifacts: [],
+        };
+      } },
+      clock: () => new Date("2026-03-01T12:00:00.000Z"),
+    });
+    expect(officialDiscovery.discover.mock.calls.map(([request]) => request.round)).toEqual([1, 2]);
+    expect(inspected).toEqual(expect.arrayContaining([
+      "https://policija.si/round-1.pdf", "https://policija.si/round-2.pdf",
+    ]));
+  });
 });
 
 describe("Slovenia city-safety official adapter", () => {
@@ -1244,6 +1865,7 @@ describe("Slovenia city-safety official adapter", () => {
       cityId: "ljubljana",
       municipalityCode: "061",
       candidateUrl: "https://ljubljana.si/safety",
+      publisherIds: context.plan.entries.find(({ cityId }) => cityId === "ljubljana")!.publisherIds,
       publisherContext: {
         publisherId: "municipality-ljubljana",
         publisherNavigationUrl: "https://ljubljana.si/safety",
@@ -1274,6 +1896,123 @@ describe("Slovenia city-safety official adapter", () => {
       artifact: { ...artifact(`surs-source-${referenceYear}`, "https://pxweb.stat.si/population"), runId },
     }));
   }
+
+  test("rejects a globally known municipality outside Ljubljana's installed publisher set before capture", async () => {
+    // Break caught: global directory membership admits another city's municipal source for Ljubljana.
+    const context = buildAdmissionContext({ includeMariborPublisher: true });
+    const capture = vi.fn(async (request: { readonly url: string }) => ({
+      artifact: artifact("maribor-outside-target", request.url),
+      redirectChain: [request.url],
+    }));
+    const analyze = vi.fn(async () => terminalAnalysis);
+    const loadPopulation = populationLoader();
+    const adapter = createSloveniaCitySafetyAdapter({ capture, analyze, loadPopulation });
+
+    const result = await adapter.inspect({
+      ...inspectionInput(context),
+      candidateUrl: "https://maribor.si/report.pdf",
+      publisherContext: undefined,
+      publisherIds: context.plan.entries[0]!.publisherIds,
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: "rejected",
+      detail: expect.objectContaining({ reason: "authority_untrusted" }),
+    }));
+    expect(capture).not.toHaveBeenCalled();
+    expect(analyze).not.toHaveBeenCalled();
+    expect(loadPopulation).not.toHaveBeenCalled();
+  });
+
+  test("rejects a direct delegated document host before capture", async () => {
+    // Break caught: a delegated host is treated as independent discovery authority.
+    const context = buildAdmissionContext({ delegatedDocumentHost: "documents.ljubljana.si" });
+    const capture = vi.fn(async (request: { readonly url: string }) => ({
+      artifact: artifact("direct-delegated", request.url),
+      redirectChain: [request.url],
+    }));
+    const analyze = vi.fn(async () => terminalAnalysis);
+    const loadPopulation = populationLoader();
+    const adapter = createSloveniaCitySafetyAdapter({ capture, analyze, loadPopulation });
+
+    const result = await adapter.inspect({
+      ...inspectionInput(context),
+      candidateUrl: "https://documents.ljubljana.si/report.pdf",
+      publisherContext: undefined,
+      publisherIds: context.plan.entries[0]!.publisherIds,
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: "rejected",
+      detail: expect.objectContaining({ reason: "authority_untrusted" }),
+    }));
+    expect(capture).not.toHaveBeenCalled();
+    expect(analyze).not.toHaveBeenCalled();
+    expect(loadPopulation).not.toHaveBeenCalled();
+  });
+
+  test("follows a delegated document only after a trusted allowed-host navigation document links it", async () => {
+    const context = buildAdmissionContext({ delegatedDocumentHost: "documents.ljubljana.si" });
+    const capture = vi.fn(async (request: { readonly url: string }) => ({
+      artifact: artifact(request.url.endsWith("safety") ? "delegated-navigation" : "delegated-terminal", request.url),
+      redirectChain: [request.url],
+    }));
+    const analyze: CitySafetyMunicipalDocumentAnalyzer = vi.fn(async ({ artifact: captured }) =>
+      captured.url.endsWith("safety")
+        ? { kind: "navigate" as const, confirmedDocumentUrl: "https://documents.ljubljana.si/report.pdf" }
+        : terminalAnalysis);
+    const adapter = createSloveniaCitySafetyAdapter({ capture, analyze, loadPopulation: populationLoader() });
+
+    const result = await adapter.inspect({
+      ...inspectionInput(context),
+      publisherIds: context.plan.entries[0]!.publisherIds,
+    });
+
+    expect(result.kind).toBe("usable");
+    expect(capture.mock.calls.map(([request]) => request.url)).toEqual([
+      "https://ljubljana.si/safety",
+      "https://documents.ljubljana.si/report.pdf",
+    ]);
+  });
+
+  test.each([
+    {
+      name: "target municipality",
+      candidateUrl: "https://ljubljana.si/report.pdf",
+      publisherId: "municipality-ljubljana",
+      publisherNavigationUrl: "https://ljubljana.si/safety",
+    },
+    {
+      name: "Police",
+      candidateUrl: "https://policija.si/report.pdf",
+      publisherId: "police",
+      publisherNavigationUrl: "https://policija.si/",
+    },
+  ] as const)("retains direct allowed-host admission for $name", async (scenario) => {
+    const context = buildAdmissionContext({ delegatedDocumentHost: "documents.ljubljana.si" });
+    const capture = vi.fn(async (request: { readonly url: string }) => ({
+      artifact: artifact(`direct-${scenario.publisherId}`, request.url),
+      redirectChain: [request.url],
+    }));
+    const adapter = createSloveniaCitySafetyAdapter({
+      capture,
+      analyze: async () => terminalAnalysis,
+      loadPopulation: populationLoader(),
+    });
+
+    const result = await adapter.inspect({
+      ...inspectionInput(context),
+      candidateUrl: scenario.candidateUrl,
+      publisherContext: {
+        publisherId: scenario.publisherId,
+        publisherNavigationUrl: scenario.publisherNavigationUrl,
+      },
+      publisherIds: context.plan.entries[0]!.publisherIds,
+    });
+
+    expect(result.kind).toBe("usable");
+    expect(capture).toHaveBeenCalledTimes(1);
+  });
 
   test("retains ordered navigation/terminal/SURS projections and reuses the same-year denominator", async () => {
     // Break caught: a successful cache entry retains and rereads the raw SURS artifact.

@@ -11,6 +11,14 @@ import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
   ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V4,
+  ONBOARDING_MODEL_VERSIONS_V5,
+  ONBOARDING_MODEL_VERSIONS_V6,
+  ONBOARDING_MODEL_VERSIONS_V7,
+  ONBOARDING_MODEL_VERSIONS_V8,
+  ONBOARDING_MODEL_VERSIONS_V9,
+  ONBOARDING_MODEL_VERSIONS_V10,
+  ONBOARDING_MODEL_VERSIONS_V11,
 } from "../../src/application/onboarding-model-versions";
 import { CITY_PREFERENCE_IDS, COUNTRY_PREFERENCE_IDS } from
   "../../src/decision/onboarding-catalog";
@@ -46,12 +54,44 @@ const V3_VERSIONS_JSON =
   '{"cliVersion":"codex-cli 0.148.0-alpha.15","extractionPrompt":"onboarding-extract@3",' +
   '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@1",' +
   '"reviewPrompt":"onboarding-review@1","reviewSchema":"onboarding-review-output@1"}';
+const V4_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@4",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2",' +
+  '"reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V5_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@5",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2",' +
+  '"reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V6_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@6",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2",' +
+  '"reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V7_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@7",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2",' +
+  '"reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V8_VERSIONS_JSON =
+  '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@8",' +
+  '"extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2",' +
+  '"reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V10_VERSIONS_JSON = '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@2","extractionPrompt":"onboarding-extract@9","extractionSchema":"onboarding-extraction-wire@3","invocation":"codex-cli-invocation@2","reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
+const V11_VERSIONS_JSON = '{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@2","extractionPrompt":"onboarding-extract@10","extractionSchema":"onboarding-extraction-wire@3","invocation":"codex-cli-invocation@2","reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}';
 const V1_CONFIRMATION_DIGEST =
   "f1714bd3354b4a05f2f6ebee7ad6d28d2fd1d6f1702aa21d7856fa3e15e5ff32";
 const V2_CONFIRMATION_DIGEST =
   "55e1bcc2b73c1f7b09dcf46f7be2065b957eb494eebd5a3b1dae61a2887485df";
 const V3_CONFIRMATION_DIGEST =
   "b7bccce0fbec4090df4296afb3ef2d4fcefe1df6e8e1012efe0870873063e525";
+const V4_CONFIRMATION_DIGEST =
+  "ae493ed941ffcf8ff40d24faee1257d976cc4a3bcdfd7e6ffa5f471cf618a300";
+const V5_CONFIRMATION_DIGEST =
+  "38f273ef80ef283c828824c1dbca79e7c5f716eeb897f4ebe593f580fc1c2681";
+const V6_CONFIRMATION_DIGEST =
+  "f4e60f72adc5c0203fd1c7160c77bce72aa7ac332d2215fcef5a83266751f7e9";
+const V7_CONFIRMATION_DIGEST =
+  "dae6731006d6e061be29508ed70f571f57bf7f28d529ef555470ad85f0b9b7d0";
+const V8_CONFIRMATION_DIGEST =
+  "f0c273189c654e66fc4fd3e8df1bc3351ace81312cd196d0aaf9011f565f2859";
 
 const databases: Database.Database[] = [];
 const temporaryDirectories: string[] = [];
@@ -222,8 +262,12 @@ describe("SQLite onboarding confirmation persistence", () => {
 
   test.each([
     ["historical V1", ONBOARDING_MODEL_VERSIONS_V1, V1_VERSIONS_JSON, V1_CONFIRMATION_DIGEST],
-    ["current V2", ONBOARDING_MODEL_VERSIONS_V2, V2_VERSIONS_JSON, V2_CONFIRMATION_DIGEST],
-    ["current V3", ONBOARDING_MODEL_VERSIONS_V3, V3_VERSIONS_JSON, V3_CONFIRMATION_DIGEST],
+    ["historical V2", ONBOARDING_MODEL_VERSIONS_V2, V2_VERSIONS_JSON, V2_CONFIRMATION_DIGEST],
+    ["historical V3", ONBOARDING_MODEL_VERSIONS_V3, V3_VERSIONS_JSON, V3_CONFIRMATION_DIGEST],
+    ["historical V4", ONBOARDING_MODEL_VERSIONS_V4, V4_VERSIONS_JSON, V4_CONFIRMATION_DIGEST],
+    ["historical V5", ONBOARDING_MODEL_VERSIONS_V5, V5_VERSIONS_JSON, V5_CONFIRMATION_DIGEST],
+    ["historical V6", ONBOARDING_MODEL_VERSIONS_V6, V6_VERSIONS_JSON, V6_CONFIRMATION_DIGEST],
+    ["historical V7", ONBOARDING_MODEL_VERSIONS_V7, V7_VERSIONS_JSON, V7_CONFIRMATION_DIGEST],
   ] as const)("persists and reopens the exact %s tuple without rewriting its row", async (
     _lineage,
     versions,
@@ -258,6 +302,55 @@ describe("SQLite onboarding confirmation persistence", () => {
     expect(reopened.prepare(`
       SELECT * FROM onboarding_confirmations WHERE receipt_id = ?
     `).get(receipt.receiptId)).toEqual(rowBefore);
+    expect(reopened.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
+  });
+
+  test("round-trips the current V8 tuple while retaining the six-key persistence shape", async () => {
+    const database = track(openEvidenceDatabase(temporaryDatabasePath("onboarding-v8-lineage-")));
+    const store = createStore(database);
+    const receipt = await commit(store, COMMAND_1, confirmedValues(), ONBOARDING_MODEL_VERSIONS_V8);
+    const row = database.prepare("SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId) as { versions_json: string };
+
+    expect(JSON.parse(row.versions_json)).toEqual(ONBOARDING_MODEL_VERSIONS_V8);
+    expect(row.versions_json).toBe(V8_VERSIONS_JSON);
+    expect(receipt.confirmationDigest).toBe(V8_CONFIRMATION_DIGEST);
+    expect((await store.loadBySnapshotBindingsVerified({
+      profileId: receipt.profileId,
+      preferenceProfileId: receipt.preferenceProfileId,
+    })).versions).toBe(ONBOARDING_MODEL_VERSIONS_V8);
+    expect(Object.keys(JSON.parse(row.versions_json))).toEqual([
+      "cliVersion", "extractionPrompt", "extractionSchema", "invocation", "reviewPrompt", "reviewSchema",
+    ]);
+  });
+
+  test("round-trips the current V9 tuple while retaining historical V1-V8 bytes", async () => {
+    const database = track(openEvidenceDatabase(temporaryDatabasePath("onboarding-v9-lineage-")));
+    const store = createStore(database);
+    const receipt = await commit(store, COMMAND_1, confirmedValues(), ONBOARDING_MODEL_VERSIONS_V9);
+    const row = database.prepare("SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId) as { versions_json: string };
+
+    expect(JSON.parse(row.versions_json)).toEqual(ONBOARDING_MODEL_VERSIONS_V9);
+    expect((await store.loadBySnapshotBindingsVerified({
+      profileId: receipt.profileId,
+      preferenceProfileId: receipt.preferenceProfileId,
+    })).versions).toBe(ONBOARDING_MODEL_VERSIONS_V9);
+    expect(V8_VERSIONS_JSON).toBe('{"cliVersion":"codex-cli-0.149.0-alpha.4-plus@1","extractionPrompt":"onboarding-extract@8","extractionSchema":"onboarding-extraction-wire@2","invocation":"codex-cli-invocation@2","reviewPrompt":"onboarding-review@2","reviewSchema":"onboarding-review-output@1"}');
+  });
+
+  test.each([["historical V10", ONBOARDING_MODEL_VERSIONS_V10, V10_VERSIONS_JSON], ["current V11", ONBOARDING_MODEL_VERSIONS_V11, V11_VERSIONS_JSON]] as const)("persists and reopens %s as the canonical singleton", async (_lineage, versions, expectedJson) => {
+    const path = temporaryDatabasePath("onboarding-v10-v11-lineage-");
+    const database = track(openEvidenceDatabase(path));
+    const store = createStore(database);
+    const receipt = await commit(store, COMMAND_1, confirmedValues(), versions);
+    const row = database.prepare("SELECT versions_json FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId) as { versions_json: string };
+    expect(row.versions_json).toBe(expectedJson);
+    expect(Object.keys(JSON.parse(row.versions_json))).toEqual(["cliVersion", "extractionPrompt", "extractionSchema", "invocation", "reviewPrompt", "reviewSchema"]);
+    const rowBefore = database.prepare("SELECT * FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId);
+    database.close();
+    const reopened = track(openEvidenceDatabase(path));
+    const changesBefore = reopened.prepare("SELECT total_changes() AS count").get();
+    expect((await createStore(reopened).loadBySnapshotBindingsVerified({ profileId: receipt.profileId, preferenceProfileId: receipt.preferenceProfileId })).versions).toBe(versions);
+    expect(reopened.prepare("SELECT * FROM onboarding_confirmations WHERE receipt_id = ?").get(receipt.receiptId)).toEqual(rowBefore);
     expect(reopened.prepare("SELECT total_changes() AS count").get()).toEqual(changesBefore);
   });
 
@@ -456,6 +549,7 @@ describe("SQLite onboarding confirmation persistence", () => {
     ["V2 then V3", ONBOARDING_MODEL_VERSIONS_V2, ONBOARDING_MODEL_VERSIONS_V3],
     ["V3 then V1", ONBOARDING_MODEL_VERSIONS_V3, ONBOARDING_MODEL_VERSIONS_V1],
     ["V3 then V2", ONBOARDING_MODEL_VERSIONS_V3, ONBOARDING_MODEL_VERSIONS_V2],
+    ["V4 then V1", ONBOARDING_MODEL_VERSIONS_V4, ONBOARDING_MODEL_VERSIONS_V1],
   ] as const)("classifies a same-command %s replay as conflict before issuance or writes", async (
     _direction,
     committedVersions,

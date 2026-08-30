@@ -486,9 +486,18 @@ export class SqliteCityKnowledgeStore implements CityKnowledgeStorePort {
 
   publishFromEvidence(evidenceSnapshotId: string, createdAt: string): CityKnowledgeRevision {
     try {
+      return this.database.transaction(() =>
+        this.publishFromEvidenceInTransaction(evidenceSnapshotId, createdAt)).immediate();
+    } catch (error) {
+      normalize(error);
+    }
+  }
+
+  /** Caller owns the surrounding SQLite immediate transaction. */
+  publishFromEvidenceInTransaction(evidenceSnapshotId: string, createdAt: string): CityKnowledgeRevision {
+    try {
       const ownedEvidenceId = identifier(evidenceSnapshotId);
       const ownedCreatedAt = instant(createdAt);
-      const publish = this.database.transaction(() => {
         const { evidence, replay } = this.loadEvidenceAndReplay(ownedEvidenceId);
         if (replay.catalog.catalog.rulesVersion !== CITY_CATALOG_RULES_VERSION) {
           throw new Error("city_catalog_upgrade_required");
@@ -542,8 +551,6 @@ export class SqliteCityKnowledgeStore implements CityKnowledgeStorePort {
           return existing;
         }
         return this.verifyRequested(revision.id, false);
-      });
-      return publish.immediate();
     } catch (error) {
       normalize(error);
     }
@@ -620,7 +627,7 @@ export class SqliteCityKnowledgeStore implements CityKnowledgeStorePort {
       this.database,
       this.integrity,
       recordingReplay,
-    ).loadVerified(evidenceSnapshotId);
+    ).loadVerifiedInTransaction(evidenceSnapshotId);
     if (captured.length === 0) mismatch();
 
     const key = frozenSnapshot(exactKey(evidence.snapshot));

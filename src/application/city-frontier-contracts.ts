@@ -153,6 +153,16 @@ export interface CityFrontierReadModel {
   readonly selections: readonly CitySelectionWithBranch[];
 }
 
+/** The intentionally small, browser-safe description of one verified fact source. */
+export type PublicFactSourceV1 = Readonly<{
+  schemaVersion: "public-fact-source@1";
+  factKey: string;
+  status: "green" | "red" | "yellow";
+  publisherName: string | null;
+  sourceUrl: string | null;
+  checkedAt: string | null;
+}>;
+
 export type CityFrontierProgressStage =
   | "source_started:si-city-safety"
   | "source_started:si-city-long-term-rent"
@@ -208,6 +218,33 @@ export type CityFrontierEvent =
       readonly rank: number;
     }
   | CityFrontierProgressEvent
+  | {
+      readonly type: "source_recovery_started";
+      readonly runId: string;
+      readonly baseRevisionId: string;
+      readonly sequence: number;
+      readonly occurredAt: string;
+      readonly cityId: string;
+    }
+  | {
+      readonly type: "source_recovery_yellow";
+      readonly runId: string;
+      readonly baseRevisionId: string;
+      readonly sequence: number;
+      readonly occurredAt: string;
+      readonly cityId: string;
+      readonly reason: "official_source_unavailable";
+      readonly source: PublicFactSourceV1;
+    }
+  | {
+      readonly type: "official_source_replaced";
+      readonly runId: string;
+      readonly baseRevisionId: string;
+      readonly sequence: number;
+      readonly occurredAt: string;
+      readonly cityId: string;
+      readonly source: PublicFactSourceV1;
+    }
   | {
       readonly type: "city_revision_committed";
       readonly runId: string;

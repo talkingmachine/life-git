@@ -97,6 +97,7 @@ const PLACEHOLDERS = new Set(["-", "не знаю", "неизвестно", "unk
 const EXPLICIT_EVIDENCE = /[\p{L}\p{N}]/u;
 const MAX_PARTICIPANTS = 20;
 const MAX_NEXT_QUESTION_UTF8_BYTES = 2_048;
+const INVALID_MODEL_CONTRACT_MESSAGE = "Invalid onboarding model contract";
 
 export function guardExtraction(input: {
   readonly session: OnboardingSessionState;
@@ -174,6 +175,19 @@ export function guardExtraction(input: {
     });
 
   return deepFreeze({ proposals, nextQuestion: parsed.nextQuestion });
+}
+
+export function isOnboardingGuardContractError(error: unknown): error is TypeError {
+  try {
+    if (error === null || typeof error !== "object" ||
+      Object.getPrototypeOf(error) !== TypeError.prototype ||
+      Object.getOwnPropertySymbols(error).length !== 0) return false;
+    const message = Object.getOwnPropertyDescriptor(error, "message");
+    return message !== undefined && "value" in message &&
+      message.value === INVALID_MODEL_CONTRACT_MESSAGE;
+  } catch {
+    return false;
+  }
 }
 
 export function projectQuestionnaireForModel(
@@ -609,5 +623,5 @@ function utf8Bytes(value: string): number {
 }
 
 function invalidContract(): TypeError {
-  return new TypeError("Invalid onboarding model contract");
+  return new TypeError(INVALID_MODEL_CONTRACT_MESSAGE);
 }

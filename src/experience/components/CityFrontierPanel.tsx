@@ -49,6 +49,16 @@ export function CityFrontierPanel({
     <section className="country-resolution-panel country-resolution-panel--continuation">
       {view.transportError === undefined ? null : <p role="alert">{view.transportError}</p>}
       {requestError === undefined ? null : <p role="alert">{requestError}</p>}
+      {view.sourceUnavailable ? (
+        <p role="status">Официальный источник недоступен, факт не подтверждён.</p>
+      ) : null}
+      {view.source !== undefined && view.source.status !== "yellow" ? (
+        <p>
+          {view.sourceReplaced ? "Официальный источник автоматически заменён. " : null}
+          Источник: <a href={view.source.sourceUrl!}>{view.source.publisherName}</a>
+          {" · "}{view.source.checkedAt}
+        </p>
+      ) : null}
       {canRetry ? (
         <button disabled={continuing} onClick={onContinue} type="button">
           Повторить проверку

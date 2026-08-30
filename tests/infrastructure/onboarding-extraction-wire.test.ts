@@ -6,6 +6,14 @@ import {
   ONBOARDING_MODEL_VERSIONS_V1,
   ONBOARDING_MODEL_VERSIONS_V2,
   ONBOARDING_MODEL_VERSIONS_V3,
+  ONBOARDING_MODEL_VERSIONS_V4,
+  ONBOARDING_MODEL_VERSIONS_V5,
+  ONBOARDING_MODEL_VERSIONS_V6,
+  ONBOARDING_MODEL_VERSIONS_V7,
+  ONBOARDING_MODEL_VERSIONS_V8,
+  ONBOARDING_MODEL_VERSIONS_V9,
+  ONBOARDING_MODEL_VERSIONS_V10,
+  ONBOARDING_MODEL_VERSIONS_V11,
   reconstructOnboardingModelVersions,
 } from "../../src/application/onboarding-model-versions";
 import {
@@ -83,29 +91,29 @@ const EXPECTED_CODEBOOK = Object.freeze([
 
 function wire(proposals: readonly unknown[]): Record<string, unknown> {
   return {
-    schemaVersion: "onboarding-extraction-wire@2",
+    schemaVersion: "onboarding-extraction-wire@3",
     proposals,
     nextQuestion: "Что ещё важно?",
   };
 }
 
-function proposal(f: string, v: unknown, s = 0, e = 1): Record<string, unknown> {
-  return { f, v, s, e };
+function proposal(f: string, v: unknown, t = "evidence"): Record<string, unknown> {
+  return { f, v, t };
 }
 
-function decode(value: unknown, messageId = MESSAGE_ID) {
-  return decodeOnboardingExtractionWire({ value, messageId });
+function decode(value: unknown, messageId = MESSAGE_ID, messageText = "evidence") {
+  return decodeOnboardingExtractionWire({ value, messageId, messageText });
 }
 
-function expectInvalid(value: unknown, messageId = MESSAGE_ID): void {
-  expect(() => decode(value, messageId)).toThrow();
+function expectInvalid(value: unknown, messageId = MESSAGE_ID, messageText = "evidence"): void {
+  expect(() => decode(value, messageId, messageText)).toThrow();
 }
 
 function allTypedFamilies(): readonly Record<string, unknown>[] {
   return [
-    proposal("b0", { countryCode: "RS", city: "Белград" }, 0, 8),
-    proposal("b1", "within_3_months", 9, 12),
-    proposal("b2", "with_companions", 13, 20),
+    proposal("b0", { countryCode: "RS", city: "Белград" }, "[e0]"),
+    proposal("b1", "within_3_months", "[e1]"),
+    proposal("b2", "with_companions", "[e2]"),
     proposal("b3", [
       { descriptor: "self", relationship: "self" },
       { descriptor: "companion.0", relationship: "spouse" },
@@ -113,21 +121,21 @@ function allTypedFamilies(): readonly Record<string, unknown>[] {
         descriptor: `companion.${index + 1}`,
         relationship: "other_family",
       })),
-    ], 21, 30),
-    proposal("b4", { min: "1000", max: "2000.50", currency: "USD" }, 31, 40),
-    proposal("p0.0", ["RU", "RS"], 41, 42),
-    proposal("p0.1", { validUntil: "2030-01-31" }, 43, 44),
-    proposal("p0.2", { status: "employment", occupation: "Инженер" }, 45, 46),
-    proposal("p0.3", "yes", 47, 48),
-    proposal("p0.4", { amount: "3000", currency: "USD", basis: "net" }, 49, 50),
-    proposal("p0.5", { level: "higher", field: "Physics" }, 51, 52),
-    proposal("p0.6", 7, 53, 54),
-    proposal("k0.0", "required", 55, 56),
-    proposal("k0.1", 5, 57, 58),
-    proposal("k0.2", "required_true", 59, 60),
-    proposal("c0.0", "weighted", 61, 62),
-    proposal("c0.1", 4, 63, 64),
-    proposal("c0.2", "тихий район", 65, 66),
+    ], "[e3]"),
+    proposal("b4", { min: "1000", max: "2000.50", currency: "USD" }, "[e4]"),
+    proposal("p0.0", ["RU", "RS"], "[e5]"),
+    proposal("p0.1", { validUntil: "2030-01-31" }, "[e6]"),
+    proposal("p0.2", { status: "employment", occupation: "Инженер" }, "[e7]"),
+    proposal("p0.3", "yes", "[e8]"),
+    proposal("p0.4", { amount: "3000", currency: "USD", basis: "net" }, "[e9]"),
+    proposal("p0.5", { level: "higher", field: "Physics" }, "[e10]"),
+    proposal("p0.6", 7, "[e11]"),
+    proposal("k0.0", "required", "[e12]"),
+    proposal("k0.1", 5, "[e13]"),
+    proposal("k0.2", "required_true", "[e14]"),
+    proposal("c0.0", "weighted", "[e15]"),
+    proposal("c0.1", 4, "[e16]"),
+    proposal("c0.2", "тихий район", "[e17]"),
   ];
 }
 
@@ -222,9 +230,67 @@ describe("onboarding model version lineage", () => {
       extractionSchema: "onboarding-extraction-wire@2",
       reviewSchema: "onboarding-review-output@1",
     });
+    expect(ONBOARDING_MODEL_VERSIONS_V4).toEqual({
+      invocation: "codex-cli-invocation@2",
+      cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
+      extractionPrompt: "onboarding-extract@4",
+      reviewPrompt: "onboarding-review@2",
+      extractionSchema: "onboarding-extraction-wire@2",
+      reviewSchema: "onboarding-review-output@1",
+    });
+    expect(ONBOARDING_MODEL_VERSIONS_V5).toEqual({
+      invocation: "codex-cli-invocation@2",
+      cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
+      extractionPrompt: "onboarding-extract@5",
+      reviewPrompt: "onboarding-review@2",
+      extractionSchema: "onboarding-extraction-wire@2",
+      reviewSchema: "onboarding-review-output@1",
+    });
+    expect(ONBOARDING_MODEL_VERSIONS_V6).toEqual({
+      invocation: "codex-cli-invocation@2",
+      cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
+      extractionPrompt: "onboarding-extract@6",
+      reviewPrompt: "onboarding-review@2",
+      extractionSchema: "onboarding-extraction-wire@2",
+      reviewSchema: "onboarding-review-output@1",
+    });
+    expect(ONBOARDING_MODEL_VERSIONS_V7).toEqual({
+      invocation: "codex-cli-invocation@2",
+      cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
+      extractionPrompt: "onboarding-extract@7",
+      reviewPrompt: "onboarding-review@2",
+      extractionSchema: "onboarding-extraction-wire@2",
+      reviewSchema: "onboarding-review-output@1",
+    });
+    expect(ONBOARDING_MODEL_VERSIONS_V8).toEqual({
+      invocation: "codex-cli-invocation@2",
+      cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
+      extractionPrompt: "onboarding-extract@8",
+      reviewPrompt: "onboarding-review@2",
+      extractionSchema: "onboarding-extraction-wire@2",
+      reviewSchema: "onboarding-review-output@1",
+    });
+    expect(ONBOARDING_MODEL_VERSIONS_V9).toEqual({
+      invocation: "codex-cli-invocation@2",
+      cliVersion: "codex-cli-0.149.0-alpha.4-plus@1",
+      extractionPrompt: "onboarding-extract@9",
+      reviewPrompt: "onboarding-review@2",
+      extractionSchema: "onboarding-extraction-wire@3",
+      reviewSchema: "onboarding-review-output@1",
+    });
+    expect(ONBOARDING_MODEL_VERSIONS_V10).toEqual({ invocation: "codex-cli-invocation@2", cliVersion: "codex-cli-0.149.0-alpha.4-plus@2", extractionPrompt: "onboarding-extract@9", reviewPrompt: "onboarding-review@2", extractionSchema: "onboarding-extraction-wire@3", reviewSchema: "onboarding-review-output@1" });
+    expect(ONBOARDING_MODEL_VERSIONS_V11).toEqual({ invocation: "codex-cli-invocation@2", cliVersion: "codex-cli-0.149.0-alpha.4-plus@2", extractionPrompt: "onboarding-extract@10", reviewPrompt: "onboarding-review@2", extractionSchema: "onboarding-extraction-wire@3", reviewSchema: "onboarding-review-output@1" });
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V1)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V2)).toBe(true);
     expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V3)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V4)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V5)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V6)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V7)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V8)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V9)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V10)).toBe(true);
+    expect(Object.isFrozen(ONBOARDING_MODEL_VERSIONS_V11)).toBe(true);
     expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V1 }))
       .toBe(ONBOARDING_MODEL_VERSIONS_V1);
     expect(reconstructOnboardingModelVersions(Object.assign(
@@ -233,6 +299,20 @@ describe("onboarding model version lineage", () => {
     ))).toBe(ONBOARDING_MODEL_VERSIONS_V2);
     expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V3 }))
       .toBe(ONBOARDING_MODEL_VERSIONS_V3);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V4 }))
+      .toBe(ONBOARDING_MODEL_VERSIONS_V4);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V5 }))
+      .toBe(ONBOARDING_MODEL_VERSIONS_V5);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V6 }))
+      .toBe(ONBOARDING_MODEL_VERSIONS_V6);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V7 }))
+      .toBe(ONBOARDING_MODEL_VERSIONS_V7);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V8 }))
+      .toBe(ONBOARDING_MODEL_VERSIONS_V8);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V9 }))
+      .toBe(ONBOARDING_MODEL_VERSIONS_V9);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V10 })).toBe(ONBOARDING_MODEL_VERSIONS_V10);
+    expect(reconstructOnboardingModelVersions({ ...ONBOARDING_MODEL_VERSIONS_V11 })).toBe(ONBOARDING_MODEL_VERSIONS_V11);
   });
 
   test("accepts exact whole tuples and rejects every meaningful prompt/schema mismatch", () => {
@@ -240,6 +320,14 @@ describe("onboarding model version lineage", () => {
       ONBOARDING_MODEL_VERSIONS_V1,
       ONBOARDING_MODEL_VERSIONS_V2,
       ONBOARDING_MODEL_VERSIONS_V3,
+      ONBOARDING_MODEL_VERSIONS_V4,
+      ONBOARDING_MODEL_VERSIONS_V5,
+      ONBOARDING_MODEL_VERSIONS_V6,
+      ONBOARDING_MODEL_VERSIONS_V7,
+      ONBOARDING_MODEL_VERSIONS_V8,
+      ONBOARDING_MODEL_VERSIONS_V9,
+      ONBOARDING_MODEL_VERSIONS_V10,
+      ONBOARDING_MODEL_VERSIONS_V11,
     ] as const;
 
     for (const tuple of exactTuples) {
@@ -250,6 +338,14 @@ describe("onboarding model version lineage", () => {
       { ...ONBOARDING_MODEL_VERSIONS_V1, extractionSchema: "onboarding-extraction-wire@2" },
       { ...ONBOARDING_MODEL_VERSIONS_V2, extractionSchema: "onboarding-model-output@1" },
       { ...ONBOARDING_MODEL_VERSIONS_V3, extractionSchema: "onboarding-model-output@1" },
+      { ...ONBOARDING_MODEL_VERSIONS_V4, invocation: ONBOARDING_MODEL_VERSIONS_V3.invocation },
+      { ...ONBOARDING_MODEL_VERSIONS_V5, reviewPrompt: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt },
+      { ...ONBOARDING_MODEL_VERSIONS_V6, reviewPrompt: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt },
+      { ...ONBOARDING_MODEL_VERSIONS_V7, reviewPrompt: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt },
+      { ...ONBOARDING_MODEL_VERSIONS_V8, reviewPrompt: ONBOARDING_MODEL_VERSIONS_V3.reviewPrompt },
+      { ...ONBOARDING_MODEL_VERSIONS_V9, extractionSchema: "onboarding-extraction-wire@2" },
+      { ...ONBOARDING_MODEL_VERSIONS_V10, extractionPrompt: "onboarding-extract@9@10" },
+      { ...ONBOARDING_MODEL_VERSIONS_V11, extractionPrompt: "onboarding-extract@10@9" },
     ]) {
       expect(() => reconstructOnboardingModelVersions(hybrid)).toThrow(TypeError);
     }
@@ -304,7 +400,7 @@ describe("onboarding model version lineage", () => {
 
 describe("onboarding extraction wire decoder", () => {
   test("decodes every typed family in order, preserves the full roster, stamps the UUID and deeply freezes", () => {
-    const result = decode(wire(allTypedFamilies()));
+    const result = decode(wire(allTypedFamilies()), MESSAGE_ID, Array.from({ length: 18 }, (_, index) => `[e${index}]`).join(" "));
 
     expect(result.schemaVersion).toBe("onboarding-model-output@1");
     expect(result.proposals.map(({ fieldId }) => fieldId)).toEqual([
@@ -333,7 +429,7 @@ describe("onboarding extraction wire decoder", () => {
       fieldId: "current_location",
       typedValue: { countryCode: "RS", city: "Белград" },
       messageId: MESSAGE_ID,
-      sourceSpan: { start: 0, end: 8 },
+      sourceSpan: { start: 0, end: 4 },
     });
     assertDeepFrozen(result);
   });
@@ -359,20 +455,20 @@ describe("onboarding extraction wire decoder", () => {
 
   test("rejects duplicate decoded fields without sorting or taking a last value", () => {
     expectInvalid(wire([
-      proposal("b2", "alone", 0, 1),
-      proposal("b2", "with_companions", 2, 3),
-    ]));
+      proposal("b2", "alone", "first"),
+      proposal("b2", "with_companions", "second"),
+    ]), MESSAGE_ID, "first second");
   });
 
   test.each([
     ["wrong schema", { ...wire([]), schemaVersion: "onboarding-model-output@1" }],
     ["extra root key", { ...wire([]), extra: true }],
-    ["missing root key", { schemaVersion: "onboarding-extraction-wire@2", proposals: [] }],
+    ["missing root key", { schemaVersion: "onboarding-extraction-wire@3", proposals: [] }],
     ["extra proposal key", wire([{ ...proposal("b2", "alone"), extra: true }])],
-    ["missing proposal key", wire([{ f: "b2", v: "alone", s: 0 }])],
-    ["negative offset", wire([proposal("b2", "alone", -1, 1)])],
-    ["fractional offset", wire([proposal("b2", "alone", 0.5, 1)])],
-    ["reversed offset", wire([proposal("b2", "alone", 2, 1)])],
+    ["missing proposal key", wire([{ f: "b2", v: "alone" }])],
+    ["old offset wire", wire([{ f: "b2", v: "alone", s: 0, e: 1 }])],
+    ["empty evidence", wire([proposal("b2", "alone", "")])],
+    ["absent evidence", wire([proposal("b2", "alone", "missing")])],
     ["mismatched typed family", wire([proposal("b0", "alone")])],
     ["invalid roster descriptor order", wire([proposal("b3", [
       { descriptor: "self", relationship: "self" },
@@ -380,7 +476,7 @@ describe("onboarding extraction wire decoder", () => {
     ])])],
     ["placeholder question", { ...wire([]), nextQuestion: "unknown" }],
     ["more than 100 proposals", wire(Array.from({ length: 101 }, (_, index) =>
-      proposal(`p${Math.floor(index / 7)}.${index % 7}`, ["RU"])))],
+      proposal(`p${Math.floor(index / 7)}.${index % 7}`, ["RU"], `e${index}`)))],
   ])("rejects %s", (_name, value) => {
     expectInvalid(value);
   });
@@ -395,7 +491,7 @@ describe("onboarding extraction wire decoder", () => {
   });
 
   test("rejects hostile roots, proposals and typed values without invoking accessors or Proxy traps", () => {
-    const getter = vi.fn(() => "onboarding-extraction-wire@2");
+    const getter = vi.fn(() => "onboarding-extraction-wire@3");
     const accessorRoot = Object.defineProperty(wire([]), "schemaVersion", {
       enumerable: true,
       get: getter,
@@ -427,5 +523,54 @@ describe("onboarding extraction wire decoder", () => {
       expectInvalid(hostile);
     }
     expect(getter).not.toHaveBeenCalled();
+  });
+
+  test("rejects cyclic wire, proposal, and typed-value objects", () => {
+    const cyclicWire = wire([]);
+    cyclicWire.cycle = cyclicWire;
+    const cyclicProposal = proposal("b2", "alone");
+    cyclicProposal.cycle = cyclicProposal;
+    const cyclicTypedValue = {} as Record<string, unknown>;
+    cyclicTypedValue.cycle = cyclicTypedValue;
+
+    expectInvalid(cyclicWire);
+    expectInvalid(wire([cyclicProposal]));
+    expectInvalid(wire([proposal("b0", cyclicTypedValue)]));
+  });
+
+  test("rejects throwing Proxy wire, proposal, and typed-value objects without invoking traps", () => {
+    const trap = vi.fn(() => { throw new Error("proxy trap must not run"); });
+    const wireProxy = new Proxy(wire([]), { get: trap, getOwnPropertyDescriptor: trap, getPrototypeOf: trap, ownKeys: trap });
+    const proposalProxy = new Proxy(proposal("b2", "alone"), { get: trap, getOwnPropertyDescriptor: trap, getPrototypeOf: trap, ownKeys: trap });
+    const typedValueProxy = new Proxy({ countryCode: "RS", city: "Белград" }, { get: trap, getOwnPropertyDescriptor: trap, getPrototypeOf: trap, ownKeys: trap });
+
+    expectInvalid(wireProxy);
+    expectInvalid(wire([proposalProxy]));
+    expectInvalid(wire([proposal("b0", typedValueProxy)]));
+    expect(trap).not.toHaveBeenCalled();
+  });
+
+  test("rejects oversized message text and UTF-8 evidence", () => {
+    expectInvalid(wire([]), MESSAGE_ID, "a".repeat(8_193));
+    expectInvalid(wire([proposal("b2", "alone", "€".repeat(2_731))]));
+  });
+
+  test.each([
+    ["Cyrillic", "Я живу в Москве", "в Москве", 7, 15],
+    ["astral UTF-16", "A😀Б", "😀", 1, 3],
+    ["decomposed sequence", "cafe\u0301", "e\u0301", 3, 5],
+  ])("derives exact UTF-16 spans for unique %s evidence", (_name, messageText, t, start, end) => {
+    const result = decode(wire([proposal("b2", "alone", t)]), MESSAGE_ID, messageText);
+    expect(result.proposals[0]).toMatchObject({ sourceSpan: { start, end } });
+    expect(messageText.slice(start, end)).toBe(t);
+    expect(result.proposals[0]).not.toHaveProperty("t");
+  });
+
+  test.each([
+    ["ordinary duplicate", "one one", "one"],
+    ["overlapping", "banana", "ana"],
+    ["visually similar but distinct", "е e", "é"],
+  ])("rejects %s non-unique or non-exact evidence", (_name, messageText, t) => {
+    expectInvalid(wire([proposal("b2", "alone", t)]), MESSAGE_ID, messageText);
   });
 });

@@ -16,12 +16,34 @@ import type { OnboardingModelVersions } from "./onboarding-model-versions";
 
 export type { OnboardingModelVersions } from "./onboarding-model-versions";
 
+export type OnboardingExtractionRetryReason =
+  | "guard_invalid"
+  | "canonical_mismatch"
+  | "evidence_mismatch";
+
+export type OnboardingExtractionAcceptance =
+  | Readonly<{ readonly kind: "accepted" }>
+  | Readonly<{
+      readonly kind: "retryable";
+      readonly reason: OnboardingExtractionRetryReason;
+    }>;
+
+export type OnboardingExtractionAttemptContext = Readonly<{
+  readonly attempt: "initial" | "retry";
+}>;
+
+export type OnboardingExtractionAcceptor = (
+  output: LocalExtractionResult,
+  attempt: OnboardingExtractionAttemptContext,
+) => OnboardingExtractionAcceptance;
+
 export interface OnboardingModelPort {
   readonly versions: OnboardingModelVersions;
   extract(input: {
     readonly message: SessionMessage;
     readonly questionnaire: unknown;
     readonly signal: AbortSignal;
+    readonly acceptExtraction?: OnboardingExtractionAcceptor;
   }): Promise<LocalExtractionResult>;
   review(input: {
     readonly questionnaire: unknown;
@@ -42,10 +64,13 @@ export type OnboardingRuntimeErrorCode =
   | "codex_process_failed"
   | "codex_json_invalid"
   | "codex_temp_root_invalid"
-  | "codex_tool_isolation_unproven";
+  | "codex_tool_isolation_unproven"
+  | "codex_rate_limited"
+  | "codex_provider_transient";
 
 export type OnboardingModelErrorCode =
   | "onboarding_model_aborted"
+  | "onboarding_model_integrity_failed"
   | "onboarding_model_invalid"
   | "onboarding_model_runtime_failed";
 

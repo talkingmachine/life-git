@@ -12,6 +12,7 @@ import type {
   CitySafetySourcePlan,
   OfficialAuthorityDirectory,
 } from "../research/city-safety-source-plan";
+import type { OfficialSourceDiscoveryRuntimeMetadata } from "./official-source-discovery";
 
 export type CitySafetySearchResponse =
   | {
@@ -49,6 +50,7 @@ export interface CitySafetyCandidateInspectionInput {
   readonly cityId: string;
   readonly municipalityCode: string;
   readonly candidateUrl: string;
+  readonly publisherIds: readonly string[];
   readonly publisherContext?: {
     readonly publisherId: string;
     readonly publisherNavigationUrl: string;
@@ -74,7 +76,12 @@ export type CitySafetyCandidateInspection =
 export interface CitySafetyOfficialDocumentPort {
   inspect(input: CitySafetyCandidateInspectionInput): Promise<CitySafetyCandidateInspection>;
 }
-
+export type CitySafetyOfficialDiscoveryResult =
+  | Readonly<{ kind: "candidates"; urls: readonly string[]; metadata: OfficialSourceDiscoveryRuntimeMetadata }>
+  | Readonly<{ kind: "yellow"; reason: "codex_search_not_performed" | "codex_timeout" | "codex_rate_limited" | "codex_provider_transient" }>;
+export interface CitySafetyOfficialDiscoveryPort {
+  discover(input: Readonly<{ runId: string; catalog: CityCatalogRevision; integrity: CityDecisionIntegrity; sourcePlan: CitySafetySourcePlan; authorityDirectory: OfficialAuthorityDirectory; cityId: string; failedUrl: string; reason: "unavailable" | "stale" | "empty" | "semantic_drift" | "not_covering_fact"; round: 1 | 2; signal: AbortSignal }>): Promise<CitySafetyOfficialDiscoveryResult>;
+}
 export interface RunCitySafetyDiscoveryInput {
   readonly runId: string;
   readonly catalog: CityCatalogRevision;
@@ -90,4 +97,5 @@ export interface RunCitySafetyDiscoveryInput {
 export interface CitySafetyDiscoveryResult {
   readonly ledger: CitySafetyAttemptLedger;
   readonly artifacts: readonly LiveCapturedArtifact<"si-city-safety">[];
+  readonly officialDiscoveryAttempts: readonly CitySafetyOfficialDiscoveryResult[];
 }

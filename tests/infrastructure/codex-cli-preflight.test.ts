@@ -4,12 +4,20 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+const reviewedVerifier = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("../../src/infrastructure/codex-cli/reviewed-installation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/infrastructure/codex-cli/reviewed-installation")>()),
+  verifyReviewedLocalCodexInstallation: reviewedVerifier,
+}));
+
 import {
   CODEX_DISABLED_FEATURES,
   CODEX_PREFLIGHT_LIMITS,
   preflightCodexCli,
+  preflightReviewedCodexCli,
   readDisabledFeatureInventory,
 } from "../../src/infrastructure/codex-cli/preflight";
+import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
 import type { CodexProcessSpawner, SpawnedCodexProcess } from "../../src/infrastructure/codex-cli/process";
 
 const encoder = new TextEncoder();
@@ -88,8 +96,38 @@ function realisticFullFeatureInventory(): string {
 }
 
 afterEach(async () => {
+  reviewedVerifier.mockClear();
   vi.useRealTimers();
   await Promise.all(temporaryPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+
+test("reviewed preflight rejects a configured executable other than the reviewed executable before spawning", async () => {
+  const fixture = await executableFixture();
+  const spawner = sequenceSpawner([]);
+
+  await expect(preflightReviewedCodexCli({
+    configuredExecutable: fixture.executable,
+    spawner,
+    childEnv: {},
+    signal: new AbortController().signal,
+  })).rejects.toMatchObject({ code: "codex_version_mismatch" });
+
+  expect(spawner.spawn).not.toHaveBeenCalled();
+  expect(reviewedVerifier).not.toHaveBeenCalled();
+});
+
+test("reviewed preflight attests immediately before each reviewed child spawn", async () => {
+  const order: string[] = [];
+  reviewedVerifier.mockImplementation(async () => { order.push("verify"); });
+  const spawner = sequenceSpawner([]);
+  spawner.spawn.mockImplementationOnce(() => { order.push("version"); return spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output("") }); })
+    .mockImplementationOnce(() => { order.push("login"); return spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }); });
+  await preflightReviewedCodexCli({ configuredExecutable: REVIEWED_CODEX_EXECUTABLE, spawner, childEnv: {}, signal: new AbortController().signal });
+  expect(order).toEqual(["verify", "version", "verify", "login"]);
+  expect(spawner.spawn.mock.calls.map(([request]) => request.executable)).toEqual([
+    REVIEWED_CODEX_EXECUTABLE,
+    REVIEWED_CODEX_EXECUTABLE,
+  ]);
 });
 
 async function executableFixture(): Promise<{ readonly root: string; readonly executable: string }> {
@@ -111,7 +149,7 @@ function spawned(stdout: string, overrides: Partial<SpawnedCodexProcess> = {}): 
     stdout: output(stdout),
     stderr: output("bounded warning"),
     exit: Promise.resolve({ code: 0, signal: null }),
-    kill: vi.fn(),
+    terminateGroup: vi.fn(),
     ...overrides,
   };
 }
@@ -126,7 +164,7 @@ describe("preflightCodexCli", () => {
   test("accepts the exact unsandboxed version and ChatGPT authentication streams", async () => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output("") }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output("") }),
       spawned("", { stderr: output(CHATGPT_LOGIN_STATUS) }),
     ]);
 
@@ -137,7 +175,7 @@ describe("preflightCodexCli", () => {
       signal: new AbortController().signal,
     })).resolves.toEqual({
       executable: fixture.executable,
-      cliVersion: "codex-cli 0.148.0-alpha.15",
+      cliVersion: "codex-cli 0.149.0-alpha.4",
       authenticatedWith: "ChatGPT",
     });
     expect(spawner.spawn).toHaveBeenCalledTimes(2);
@@ -146,7 +184,7 @@ describe("preflightCodexCli", () => {
   test("requires exact pinned version and ChatGPT authentication for the configured executable", async () => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
       spawned("", { stderr: output(KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS) }),
     ]);
     const signal = new AbortController().signal;
@@ -166,7 +204,7 @@ describe("preflightCodexCli", () => {
 
     expect(result).toEqual({
       executable: fixture.executable,
-      cliVersion: "codex-cli 0.148.0-alpha.15",
+      cliVersion: "codex-cli 0.149.0-alpha.4",
       authenticatedWith: "ChatGPT",
     });
     expect(spawner.spawn).toHaveBeenCalledTimes(2);
@@ -195,7 +233,7 @@ describe("preflightCodexCli", () => {
     const explicit = await executableFixture();
     const pathFixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
       spawned("", { stderr: output(KNOWN_PATH_ALIAS_WARNING + CHATGPT_LOGIN_STATUS) }),
     ]);
 
@@ -241,10 +279,11 @@ describe("preflightCodexCli", () => {
   });
 
   test.each([
-    ["a missing line ending", "codex-cli 0.148.0-alpha.15"],
-    ["an extra line ending", "codex-cli 0.148.0-alpha.15\n\n"],
-    ["a different version", "codex-cli 0.148.0-alpha.14\n"],
-  ])("stops after one version spawn for %s", async (_name, versionStdout) => {
+    { name: "a missing line ending", versionStdout: "codex-cli 0.149.0-alpha.4" },
+    { name: "an extra line ending", versionStdout: "codex-cli 0.149.0-alpha.4\n\n" },
+    { name: "a different version", versionStdout: "codex-cli 0.148.0-alpha.99\n" },
+    { name: "a noncanonical alpha ordinal", versionStdout: "codex-cli 0.149.0-alpha.000004\n" },
+  ])("stops after one version spawn for $name", async ({ versionStdout }) => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([spawned(versionStdout, { stderr: output(KNOWN_PATH_ALIAS_WARNING) })]);
 
@@ -263,7 +302,7 @@ describe("preflightCodexCli", () => {
   ])("rejects version stderr containing %s", async (_name, versionStderr) => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(versionStderr) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(versionStderr) }),
     ]);
 
     await expect(preflightCodexCli({
@@ -278,7 +317,7 @@ describe("preflightCodexCli", () => {
   test("rejects a non-ChatGPT login status after exactly two spawns", async () => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
       spawned("", { stderr: output(`${KNOWN_PATH_ALIAS_WARNING}Not logged in\n`) }),
     ]);
 
@@ -302,7 +341,7 @@ describe("preflightCodexCli", () => {
   ])("strictly rejects %s without exposing stderr", async (_name, loginStderr, loginStdout) => {
     const fixture = await executableFixture();
     const spawner = sequenceSpawner([
-      spawned("codex-cli 0.148.0-alpha.15\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
+      spawned("codex-cli 0.149.0-alpha.4\n", { stderr: output(KNOWN_PATH_ALIAS_WARNING) }),
       spawned(loginStdout, { stderr: output(loginStderr) }),
     ]);
 
@@ -332,10 +371,10 @@ describe("preflightCodexCli", () => {
     const exit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
       resolveExit = resolve;
     });
-    const kill = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
+    const terminateGroup = vi.fn((signal: "SIGTERM" | "SIGKILL") => {
       if (signal === "SIGKILL") resolveExit({ code: null, signal });
     });
-    const spawner = sequenceSpawner([spawned("", { exit, kill })]);
+    const spawner = sequenceSpawner([spawned("", { exit, terminateGroup })]);
     const running = preflightCodexCli({
       configuredExecutable: fixture.executable,
       spawner,
@@ -348,11 +387,11 @@ describe("preflightCodexCli", () => {
     }
 
     await vi.advanceTimersByTimeAsync(CODEX_PREFLIGHT_LIMITS.timeoutMs);
-    expect(kill.mock.calls).toEqual([["SIGTERM"]]);
+    expect(terminateGroup.mock.calls).toEqual([["SIGTERM"]]);
     await vi.advanceTimersByTimeAsync(250);
 
     await rejection;
-    expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+    expect(terminateGroup.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
     expect(spawner.spawn).toHaveBeenCalledTimes(1);
     expect(spawner.spawn.mock.calls.some(([request]) => request.args.includes("login"))).toBe(false);
   });

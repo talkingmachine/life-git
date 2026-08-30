@@ -369,7 +369,16 @@ export class SqliteCityFrontierStore implements
 
   appendRevision(input: CityFrontierAppendInput): CityFrontierRevision {
     const candidate = this.ownAppend(input);
-    const transaction = this.database.transaction(() => {
+    return this.database.transaction(() => this.appendOwnedRevisionInTransaction(candidate)).immediate();
+  }
+
+  /** Caller owns the surrounding SQLite immediate transaction. */
+  appendRevisionInTransaction(input: CityFrontierAppendInput): CityFrontierRevision {
+    const candidate = this.ownAppend(input);
+    return this.appendOwnedRevisionInTransaction(candidate);
+  }
+
+  private appendOwnedRevisionInTransaction(candidate: ReturnType<SqliteCityFrontierStore["ownAppend"]>): CityFrontierRevision {
       const commandRow = this.frontierRowByCommand(
         candidate.runId,
         candidate.operation.commandId,
@@ -408,8 +417,6 @@ export class SqliteCityFrontierStore implements
       this.requireSuccessor(predecessor, candidate, ranking);
       this.insertFrontier(candidate, candidate.operation);
       return this.loadRevisionVerified(candidate.id);
-    });
-    return transaction.immediate();
   }
 
   publishStart(

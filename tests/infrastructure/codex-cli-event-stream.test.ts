@@ -1,24 +1,26 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
 import { describe, expect, test, vi } from "vitest";
 
 import { MAX_CODEX_EVENTS, MAX_CODEX_STDOUT_BYTES } from "../../src/infrastructure/codex-cli/contracts";
 import {
-  CODEX_STARTUP_NOTICES,
-  fingerprintCodexNoticeMessage,
   parseCodexEventStream,
   parseCodexEventStreamWithProof,
 } from "../../src/infrastructure/codex-cli/event-stream";
 
-const CODE_MODE_HOST_DISABLED_MESSAGE =
-  "Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.";
-const APPROVAL_POLICY_NOTICE_SHA256 = "dc04a3e848ff580847de6950e6415fe72d1daab7d83336461b55b6fc8355e177";
-const INVALID_APPROVAL_POLICY_MESSAGE = "p".repeat(277);
+const LIMITS = { maxStdoutBytes: 65_536, maxEvents: 16 };
+
+async function fixture(name: string): Promise<AsyncIterable<Uint8Array>> {
+  return streamOf(new TextEncoder().encode(await readFile(resolve("tests/fixtures/codex-cli", name), "utf8")));
+}
 
 function line(value: unknown): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(value)}\n`);
 }
 
 async function* streamOf(...chunks: readonly Uint8Array[]): AsyncGenerator<Uint8Array> {
-  for (const chunk of chunks) yield chunk;
+  yield* chunks;
 }
 
 function completedMessageEvents(message = "completed answer"): Uint8Array[] {
@@ -32,37 +34,68 @@ function completedMessageEvents(message = "completed answer"): Uint8Array[] {
   ];
 }
 
-function startupNotice(
-  id: string,
-  message: string,
-  itemOverrides: Readonly<Record<string, unknown>> = {},
-  eventOverrides: Readonly<Record<string, unknown>> = {},
-): Record<string, unknown> {
+const REVIEWED_NOTICES = [
+  {
+    id: "item_0",
+    message: "Configured value for `approval_policy` is disallowed by requirements; falling back to required value UnlessTrusted. Details: invalid value for `approval_policy`: `Never` is not in the allowed set [UnlessTrusted, OnRequest] (set by MDM com.openai.codex:requirements_toml_base64)",
+  },
+  {
+    id: "item_1",
+    message: "Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.",
+  },
+] as const;
+
+function proofEvents(message = "completed answer"): Uint8Array[] {
+  return [
+    line({ type: "thread.started", thread_id: "thread-1" }),
+    ...REVIEWED_NOTICES.map((notice) => line({ type: "item.completed", item: { ...notice, type: "error" } })),
+    line({ type: "turn.started" }),
+    line({ type: "item.started", item: { type: "reasoning", id: "reasoning-1" } }),
+    line({ type: "item.completed", item: { type: "reasoning", id: "reasoning-1" } }),
+    line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: message } }),
+    line({ type: "turn.completed", usage: validUsage() }),
+  ];
+}
+
+function validUsage(): Record<string, number> {
   return {
-    type: "item.completed",
-    item: {
-      type: "error",
-      id,
-      message,
-      ...itemOverrides,
-    },
-    ...eventOverrides,
+    input_tokens: 1,
+    cached_input_tokens: 0,
+    cache_write_input_tokens: 0,
+    output_tokens: 1,
+    reasoning_output_tokens: 0,
   };
 }
 
-function hostNoticeLine(
-  itemOverrides: Readonly<Record<string, unknown>> = {},
-  eventOverrides: Readonly<Record<string, unknown>> = {},
-): Uint8Array {
-  return line(startupNotice("item_1", CODE_MODE_HOST_DISABLED_MESSAGE, itemOverrides, eventOverrides));
+function webProofEvents(message = "completed answer"): Uint8Array[] {
+  const events = proofEvents(message);
+  return [events[0]!, events[1]!, ...events.slice(3)];
 }
 
-const LIMITS = { maxStdoutBytes: 65_536, maxEvents: 16 };
+function webPrefix(): Uint8Array[] {
+  return [
+    line({ type: "thread.started", thread_id: "thread-1" }),
+    line({ type: "item.completed", item: { ...REVIEWED_NOTICES[0], type: "error" } }),
+    line({ type: "turn.started" }),
+  ];
+}
+
+function webSearch(id: string, query: string): Uint8Array[] {
+  const queries = [query, `${query} official`, `${query} current`, `${query} documentation`];
+  return [
+    line({ type: "item.started", item: { type: "web_search", id, query: "", action: { type: "other" } } }),
+    line({ type: "item.completed", item: { type: "web_search", id, query, action: { type: "search", query, queries } } }),
+  ];
+}
+
+function webTerminal(): Uint8Array[] {
+  return [line({ type: "turn.completed", usage: validUsage() })];
+}
 
 describe("parseCodexEventStream", () => {
-  test("returns the sole completed assistant message", async () => {
-    await expect(parseCodexEventStream(streamOf(...completedMessageEvents()), LIMITS))
-      .resolves.toBe("completed answer");
+  test("returns the sole completed assistant message under the zero-tool policy", async () => {
+    await expect(parseCodexEventStream(streamOf(...completedMessageEvents('{"schemaVersion":"fixture@1"}')), LIMITS))
+      .resolves.toBe('{"schemaVersion":"fixture@1"}');
   });
 
   test("rejects a decorated Uint8Array subclass without executing its accessor", async () => {
@@ -76,63 +109,6 @@ describe("parseCodexEventStream", () => {
     expect(getter).not.toHaveBeenCalled();
   });
 
-  test("accepts the terminal message without reasoning progress", async () => {
-    const events = completedMessageEvents().filter((_, index) => index !== 2 && index !== 3);
-    await expect(parseCodexEventStream(streamOf(...events), LIMITS)).resolves.toBe("completed answer");
-  });
-
-  test("still rejects the exact Code Mode startup notice without the proof opt-in", async () => {
-    const events = [
-      completedMessageEvents()[0],
-      hostNoticeLine(),
-      ...completedMessageEvents().slice(1),
-    ];
-
-    await expect(parseCodexEventStream(streamOf(...events), LIMITS))
-      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
-  });
-
-  test.each([
-    ["a duplicate terminal message", [
-      ...completedMessageEvents().slice(0, 5),
-      line({ type: "item.completed", item: { type: "agent_message", text: "second" } }),
-      line({ type: "turn.completed" }),
-    ]],
-    ["an unpaired reasoning item", [
-      ...completedMessageEvents().slice(0, 3),
-      ...completedMessageEvents().slice(4),
-    ]],
-    ["an event after completion", [
-      ...completedMessageEvents(),
-      line({ type: "item.started", item: { type: "reasoning", id: "late" } }),
-    ]],
-    ["a failed turn", [
-      ...completedMessageEvents().slice(0, 5),
-      line({ type: "turn.failed" }),
-    ]],
-    ["an unknown top-level type", [
-      ...completedMessageEvents().slice(0, 2),
-      line({ type: "turn.progress" }),
-    ]],
-    ["an unknown item type", [
-      ...completedMessageEvents().slice(0, 2),
-      line({ type: "item.started", item: { type: "unrecognized" } }),
-    ]],
-  ])("rejects %s", async (_name, events) => {
-    await expect(parseCodexEventStream(streamOf(...events), LIMITS))
-      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
-  });
-
-  test("rejects a tool call item with the tool-event code", async () => {
-    const events = [
-      ...completedMessageEvents().slice(0, 2),
-      line({ type: "item.completed", item: { type: "command_execution", command: "echo prohibited" } }),
-    ];
-
-    await expect(parseCodexEventStream(streamOf(...events), LIMITS))
-      .rejects.toMatchObject({ code: "codex_tool_event" });
-  });
-
   test("rejects an event count above the closed limit", async () => {
     await expect(parseCodexEventStream(streamOf(...completedMessageEvents()), {
       maxStdoutBytes: 65_536,
@@ -140,37 +116,27 @@ describe("parseCodexEventStream", () => {
     })).rejects.toMatchObject({ code: "codex_event_limit" });
   });
 
-  test("rejects a completed reasoning item with a different ID", async () => {
-    const events = [
-      line({ type: "thread.started", thread_id: "thread-1" }),
-      line({ type: "turn.started" }),
-      line({ type: "item.started", item: { type: "reasoning", id: "reasoning-a" } }),
-      line({ type: "item.completed", item: { type: "reasoning", id: "reasoning-b" } }),
-      line({ type: "item.completed", item: { type: "agent_message", text: "completed answer" } }),
-      line({ type: "turn.completed" }),
-    ];
-
-    await expect(parseCodexEventStream(streamOf(...events), LIMITS))
-      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
-  });
-
-  test("rejects reasoning progress after the terminal assistant message", async () => {
-    const events = [
-      ...completedMessageEvents().slice(0, 5),
-      line({ type: "item.started", item: { type: "reasoning", id: "late" } }),
-      line({ type: "item.completed", item: { type: "reasoning", id: "late" } }),
-      line({ type: "turn.completed" }),
-    ];
-
-    await expect(parseCodexEventStream(streamOf(...events), LIMITS))
-      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  test.each([
+    ["a missing action queries array", { type: "search", query: "synthetic-query" }],
+    ["an extra action field", { type: "search", query: "synthetic-query", queries: ["synthetic-query"], extra: true }],
+    ["more than four action queries", { type: "search", query: "synthetic-query", queries: ["synthetic-query", "other", "third", "fourth", "fifth"] }],
+    ["duplicate action queries", { type: "search", query: "synthetic-query", queries: ["synthetic-query", "synthetic-query"] }],
+    ["an empty action query", { type: "search", query: "", queries: [""] }],
+    ["a mismatched action queries value", { type: "search", query: "synthetic-query", queries: ["other"] }],
+  ])("rejects %s without retaining query text", async (_name, action) => {
+    await expect(parseCodexEventStreamWithProof(streamOf(
+      ...webPrefix(),
+      ...webSearch("search-1", "synthetic-query").slice(0, 1),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "synthetic-query", action } }),
+    ), LIMITS, "codex-tools-web-search@2")).rejects.toMatchObject({ code: "codex_tool_event" });
   });
 
   test.each([
-    ["stdout", { maxStdoutBytes: MAX_CODEX_STDOUT_BYTES + 1, maxEvents: 16 }],
-    ["events", { maxStdoutBytes: 65_536, maxEvents: MAX_CODEX_EVENTS + 1 }],
-  ])("rejects a %s limit above the global cap", async (_name, limits) => {
-    await expect(parseCodexEventStream(streamOf(...completedMessageEvents()), limits))
+    ["invalid UTF-8", [new Uint8Array([0xc3, 0x28, 0x0a])]],
+    ["invalid JSON", [new TextEncoder().encode("not-json\n")]],
+    ["a trailing partial line", [new TextEncoder().encode('{"type":"thread.started"}')]],
+  ])("rejects %s", async (_name, chunks) => {
+    await expect(parseCodexEventStream(streamOf(...chunks), LIMITS))
       .rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 
@@ -182,116 +148,231 @@ describe("parseCodexEventStream", () => {
   });
 
   test.each([
-    ["invalid UTF-8", [new Uint8Array([0xc3, 0x28, 0x0a])]],
-    ["invalid JSON", [new TextEncoder().encode("not-json\n")]],
-    ["a trailing partial line", [new TextEncoder().encode('{"type":"thread.started"}')]],
-  ])("rejects %s", async (_name, chunks) => {
-    await expect(parseCodexEventStream(streamOf(...chunks), LIMITS))
+    ["stdout", { maxStdoutBytes: MAX_CODEX_STDOUT_BYTES + 1, maxEvents: 16 }],
+    ["events", { maxStdoutBytes: 65_536, maxEvents: MAX_CODEX_EVENTS + 1 }],
+  ])("rejects a %s limit above the global cap", async (_name, limits) => {
+    await expect(parseCodexEventStream(streamOf(...completedMessageEvents()), limits))
       .rejects.toMatchObject({ code: "codex_protocol_invalid" });
   });
 });
 
 describe("parseCodexEventStreamWithProof", () => {
-  test("pins the only closed startup-notice proof tuple", () => {
-    expect(CODEX_STARTUP_NOTICES).toEqual([
-      "approval_policy_never_to_unless_trusted",
-      "code_mode_host_disabled",
-    ]);
-  });
+  test("accepts the observed alpha.4 agent ID and final usage shape without retaining either", async () => {
+    const proof = await parseCodexEventStreamWithProof(
+      streamOf(...proofEvents()), LIMITS, "codex-tools-none@2",
+    );
 
-  test("fingerprints raw decoded UTF-8 without normalization", () => {
-    expect(fingerprintCodexNoticeMessage("abc")).toEqual({
-      utf8ByteLength: 3,
-      sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-    });
-    const composed = fingerprintCodexNoticeMessage("é");
-    const decomposed = fingerprintCodexNoticeMessage("e\u0301");
-    expect(composed.utf8ByteLength).toBe(2);
-    expect(decomposed.utf8ByteLength).toBe(3);
-    expect(composed.sha256).not.toBe(decomposed.sha256);
-
-    const unavailablePolicy = fingerprintCodexNoticeMessage(INVALID_APPROVAL_POLICY_MESSAGE);
-    expect(unavailablePolicy.utf8ByteLength).toBe(277);
-    expect(unavailablePolicy.sha256).not.toBe(APPROVAL_POLICY_NOTICE_SHA256);
-  });
-
-  test("pins the exact Code Mode host notice's fixed 157-byte message", () => {
-    expect(fingerprintCodexNoticeMessage(CODE_MODE_HOST_DISABLED_MESSAGE).utf8ByteLength).toBe(157);
+    expect(proof.finalMessage).toBe("completed answer");
+    expect(JSON.stringify(proof)).not.toContain("item_2");
+    expect(JSON.stringify(proof)).not.toContain("input_tokens");
   });
 
   test.each([
-    ["omitted notices", completedMessageEvents()],
-    ["only the host notice", [
-      completedMessageEvents()[0],
-      hostNoticeLine(),
-      ...completedMessageEvents().slice(1),
+    ["missing agent ID", [
+      ...proofEvents().slice(0, 6),
+      line({ type: "item.completed", item: { type: "agent_message", text: "completed answer" } }),
+      proofEvents()[7]!,
     ]],
-    ["only an invalid policy notice", [
-      completedMessageEvents()[0],
-      line(startupNotice("item_0", INVALID_APPROVAL_POLICY_MESSAGE)),
-      ...completedMessageEvents().slice(1),
+    ["a reused agent ID", [
+      ...proofEvents().slice(0, 6),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_1", text: "completed answer" } }),
+      proofEvents()[7]!,
     ]],
-    ["an invalid policy notice followed by the host notice", [
-      completedMessageEvents()[0],
-      line(startupNotice("item_0", INVALID_APPROVAL_POLICY_MESSAGE)),
-      hostNoticeLine(),
-      ...completedMessageEvents().slice(1),
+    ["missing final usage", [...proofEvents().slice(0, 7), line({ type: "turn.completed" })]],
+    ["a mutated final usage value", [
+      ...proofEvents().slice(0, 7),
+      line({ type: "turn.completed", usage: { ...validUsage(), output_tokens: -1 } }),
     ]],
-    ["reordered notices", [
-      completedMessageEvents()[0],
-      hostNoticeLine(),
-      line(startupNotice("item_0", INVALID_APPROVAL_POLICY_MESSAGE)),
-      ...completedMessageEvents().slice(1),
+    ["an extra final usage key", [
+      ...proofEvents().slice(0, 7),
+      line({ type: "turn.completed", usage: { ...validUsage(), future_tokens: 0 } }),
     ]],
-    ["a duplicate host notice", [
-      completedMessageEvents()[0],
-      hostNoticeLine(),
-      hostNoticeLine(),
-      ...completedMessageEvents().slice(1),
+  ])("rejects proof with %s", async (_name, events) => {
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-none@2",
+    )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  });
+
+  test("rejects a web-search startup lifecycle under the zero-tool startup policy", async () => {
+    await expect(parseCodexEventStreamWithProof(
+      await fixture("protocol-v2-web-search.jsonl"), LIMITS, "codex-tools-none@2",
+    )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  });
+
+  test("classifies a new-shape web-search start after a valid no-tool prefix as a tool event", async () => {
+    const events = [
+      ...proofEvents().slice(0, 4),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } }),
+    ];
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-none@2",
+    )).rejects.toMatchObject({ code: "codex_tool_event" });
+  });
+
+  test("proves the reviewed discovery lifecycle without retaining its query", async () => {
+    const proof = await parseCodexEventStreamWithProof(
+      await fixture("protocol-v2-web-search.jsonl"), LIMITS, "codex-tools-web-search@2",
+    );
+
+    expect(proof).toEqual({
+      finalMessage: '{"schemaVersion":"fixture@1"}',
+      eventTypes: [
+        "thread.started", "item.completed", "turn.started", "item.started", "item.completed",
+        "item.completed", "item.started", "item.completed", "item.completed", "turn.completed",
+      ],
+      webSearchCount: 1,
+      toolPolicyProven: true,
+    });
+    expect(JSON.stringify(proof)).not.toContain("official municipal source");
+    expect(JSON.stringify(proof)).not.toContain("approval_policy");
+    expect(JSON.stringify(proof)).not.toContain("code-mode host");
+  });
+
+  test("accepts an other completion without counting a real search", async () => {
+    const proof = await parseCodexEventStreamWithProof(streamOf(
+      ...webPrefix(),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } }),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" } } }),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: "final" } }),
+      ...webTerminal(),
+    ), LIMITS, "codex-tools-web-search@2");
+    expect(proof.webSearchCount).toBe(0);
+  });
+
+  test("counts two matched searches and retains only the final candidate", async () => {
+    const proof = await parseCodexEventStreamWithProof(streamOf(
+      ...webPrefix(),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: "first" } }),
+      ...webSearch("search-1", "synthetic-query-one"),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_3", text: "second" } }),
+      ...webSearch("search-2", "synthetic-query-two"),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_4", text: "final" } }),
+      ...webTerminal(),
+    ), LIMITS, "codex-tools-web-search@2");
+    expect(proof).toMatchObject({ finalMessage: "final", webSearchCount: 2 });
+    expect(JSON.stringify(proof)).not.toContain("synthetic-query");
+  });
+
+  test.each([
+    ["a start/completion ID mismatch", [
+      ...webPrefix(),
+      ...webSearch("search-1", "synthetic-query").slice(0, 1),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-2", query: "synthetic-query", action: { type: "search", query: "synthetic-query", queries: ["synthetic-query"] } } }),
     ]],
-    ["a mutated host message", [
-      completedMessageEvents()[0],
-      hostNoticeLine({ message: `${CODE_MODE_HOST_DISABLED_MESSAGE} ` }),
-      ...completedMessageEvents().slice(1),
+    ["an item/action query mismatch", [
+      ...webPrefix(),
+      ...webSearch("search-1", "synthetic-query").slice(0, 1),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "synthetic-query", action: { type: "search", query: "different-query", queries: ["different-query"] } } }),
     ]],
-    ["an extra host event key", [
-      completedMessageEvents()[0],
-      hostNoticeLine({}, { unexpected: true }),
-      ...completedMessageEvents().slice(1),
-    ]],
-    ["an extra host item key", [
-      completedMessageEvents()[0],
-      hostNoticeLine({ unexpected: true }),
-      ...completedMessageEvents().slice(1),
-    ]],
-    ["a wrong host id", [
-      completedMessageEvents()[0],
-      line(startupNotice("item_0", CODE_MODE_HOST_DISABLED_MESSAGE)),
-      ...completedMessageEvents().slice(1),
-    ]],
-    ["a wrong host event type", [
-      completedMessageEvents()[0],
-      hostNoticeLine({}, { type: "item.started" }),
-      ...completedMessageEvents().slice(1),
-    ]],
-    ["a wrong host item type", [
-      completedMessageEvents()[0],
-      hostNoticeLine({ type: "warning" }),
-      ...completedMessageEvents().slice(1),
-    ]],
-    ["a pre-thread host notice", [hostNoticeLine(), ...completedMessageEvents()]],
-    ["a post-turn-start host notice", [
-      ...completedMessageEvents().slice(0, 2),
-      hostNoticeLine(),
-      ...completedMessageEvents().slice(2),
-    ]],
-    ["a post-turn host notice", [...completedMessageEvents(), hostNoticeLine()]],
-    ["a failed turn", [
-      ...completedMessageEvents().slice(0, 5),
-      line({ type: "turn.failed" }),
+    ["a candidate cleared by a second search without a later candidate", [
+      ...webPrefix(),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_2", text: "first" } }),
+      ...webSearch("search-1", "synthetic-query-one"),
+      line({ type: "item.completed", item: { type: "agent_message", id: "item_3", text: "second" } }),
+      ...webSearch("search-2", "synthetic-query-two"),
+      ...webTerminal(),
     ]],
   ])("rejects %s", async (_name, events) => {
-    await expect(parseCodexEventStreamWithProof(streamOf(...events), LIMITS))
-      .rejects.toMatchObject({ code: "codex_protocol_invalid" });
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-web-search@2",
+    )).rejects.toMatchObject({ code: _name === "an item/action query mismatch" ? "codex_tool_event" : "codex_protocol_invalid" });
+  });
+
+  test.each([
+    ["a web-search completion without a start", [
+      ...completedMessageEvents().slice(0, 4),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),
+      ...completedMessageEvents().slice(4),
+    ]],
+    ["a duplicate web-search ID", [
+      ...completedMessageEvents().slice(0, 4),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),
+      ...completedMessageEvents().slice(4),
+    ]],
+    ["a duplicate reasoning ID", [
+      ...completedMessageEvents().slice(0, 4),
+      line({ type: "item.started", item: { type: "reasoning", id: "reasoning-1" } }),
+      line({ type: "item.completed", item: { type: "reasoning", id: "reasoning-1" } }),
+      ...completedMessageEvents().slice(4),
+    ]],
+    ["a web-search result after the agent message", [
+      ...completedMessageEvents().slice(0, 5),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),
+      line({ type: "item.completed", item: { type: "web_search", id: "search-1", query: "official municipal source" } }),
+      line({ type: "turn.completed" }),
+    ]],
+    ["an unknown item type", [
+      ...completedMessageEvents().slice(0, 2),
+      line({ type: "item.started", item: { type: "unrecognized", id: "unknown-1" } }),
+    ]],
+    ["an unknown event type", [
+      ...completedMessageEvents().slice(0, 2),
+      line({ type: "turn.progress" }),
+    ]],
+  ])("rejects %s", async (_name, events) => {
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-web-search@2",
+    )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  });
+
+  test.each([
+    ["a missing notice", proofEvents().filter((_event, index) => index !== 1)],
+    ["swapped notices", [proofEvents()[0]!, proofEvents()[2]!, proofEvents()[1]!, ...proofEvents().slice(3)]],
+    ["a mutated notice message", [
+      proofEvents()[0]!,
+      line({ type: "item.completed", item: { id: "item_0", type: "error", message: "mutated" } }),
+      ...proofEvents().slice(2),
+    ]],
+    ["a mutated notice key", [
+      proofEvents()[0]!,
+      line({ type: "item.completed", item: { id: "item_0", type: "error", message: REVIEWED_NOTICES[0].message, extra: true } }),
+      ...proofEvents().slice(2),
+    ]],
+    ["a mutated notice ID", [
+      proofEvents()[0]!,
+      line({ type: "item.completed", item: { id: "other", type: "error", message: REVIEWED_NOTICES[0].message } }),
+      ...proofEvents().slice(2),
+    ]],
+    ["a third pre-turn error", [
+      ...proofEvents().slice(0, 3),
+      line({ type: "item.completed", item: { id: "item_2", type: "error", message: "unexpected" } }),
+      ...proofEvents().slice(3),
+    ]],
+    ["an error after turn start", [
+      ...proofEvents().slice(0, 4),
+      line({ type: "item.completed", item: { id: "item_2", type: "error", message: "unexpected" } }),
+      ...proofEvents().slice(4),
+    ]],
+  ])("rejects %s from the reviewed notice prefix", async (_name, events) => {
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-web-search@2",
+    )).rejects.toMatchObject({ code: "codex_protocol_invalid" });
+  });
+
+  test.each(["shell", "command_execution", "mcp_tool_call", "browser", "app", "plugin", "skill", "image", "file_change", "code", "program", "program_output", "code_mode", "exec", "wait", "request_user_input", "update_plan"])(
+    "rejects the prohibited %s item with the tool-event code",
+    async (type) => {
+      const events = [
+        ...webProofEvents().slice(0, 3),
+        line({ type: "item.started", item: { type, id: "tool-1" } }),
+      ];
+      await expect(parseCodexEventStreamWithProof(
+        streamOf(...events), LIMITS, "codex-tools-web-search@2",
+      )).rejects.toMatchObject({ code: "codex_tool_event" });
+    },
+  );
+
+  test("rejects a web-search item with any unreviewed key", async () => {
+    const events = [
+      ...webProofEvents().slice(0, 5),
+      line({ type: "item.started", item: { type: "web_search", id: "search-1", query: "", action: { type: "other" }, result: "no" } }),
+      ...webProofEvents().slice(5),
+    ];
+    await expect(parseCodexEventStreamWithProof(
+      streamOf(...events), LIMITS, "codex-tools-web-search@2",
+    )).rejects.toMatchObject({ code: "codex_tool_event" });
   });
 });

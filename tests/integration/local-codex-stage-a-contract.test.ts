@@ -1,0 +1,1444 @@
+import { describe, expect, test, vi } from "vitest";
+import { chmod, link, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+import {
+  evaluateDiscoveryFixture,
+  evaluateOnboardingFixture,
+  parseDiscoveryFixture,
+  parseLocalCodexStageAArgs,
+  parseOnboardingFixture,
+  createStageAArtifactStore,
+  proveStageAAbort,
+  readOnboardingFixture,
+  runLocalCodexStageA,
+  runLocalCodexStageAEntrypoint,
+  assertGuardedFixtureProposals,
+  initializeReviewedStageARuntimeForTest,
+} from "../../evals/local-codex-stage-a";
+import { CODEX_CLI_VERSION, CodexRuntimeError } from "../../src/infrastructure/codex-cli/contracts";
+import { OnboardingModelError, type OnboardingModelErrorCode, type OnboardingModelPort } from "../../src/application/onboarding-contracts";
+import { OfficialSourceDiscoveryError } from "../../src/application/official-source-discovery";
+import { REVIEWED_CODEX_EXECUTABLE } from "../../src/infrastructure/codex-cli/reviewed-installation";
+import { createOnboardingSession } from "../../src/decision/onboarding-session";
+import { projectQuestionnaireForModel } from "../../src/decision/onboarding-model-contract";
+import { runLocalCodexNegativeCapability } from "../../evals/local-codex-negative-capability";
+import { CODEX_DISABLED_FEATURES } from "../../src/infrastructure/codex-cli/preflight";
+import type { CodexProcessSpawner, SpawnedCodexProcess } from "../../src/infrastructure/codex-cli/process";
+
+const onboardingFixture = {
+  message: { messageId: "00000000-0000-4000-8000-000000000081", role: "user", text: "Я живу в Москве." },
+  expected: {
+    schemaVersion: "onboarding-model-output@1",
+    proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Москва" }, messageId: "00000000-0000-4000-8000-000000000081", sourceSpan: { start: 7, end: 15 }, text: "в Москве" }],
+    nextQuestion: "Какой у вас бюджет?",
+  },
+};
+
+const discoveryFixture = {
+  schemaVersion: "official-source-discovery-request@1",
+  entity: { entityId: "city-belgrade", kind: "city", countryCode: "RS", displayName: "Belgrade" },
+  fact: { factKey: "urban-transit", definitionId: "urban-transit@1", description: "Public municipal transport information" },
+  failedSource: { url: "https://www.beograd.rs/", reason: "stale" },
+  authorityRoots: [{ publisherName: "City of Belgrade", url: "https://www.beograd.rs/" }],
+  localeHints: ["en", "sr"], round: 1, candidateLimit: 5, candidatesUntrusted: true,
+};
+
+describe("local Codex Stage A gate", () => {
+  test.each([
+    [
+      "candidate hints",
+      async () => ({ outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false }),
+      { outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false },
+    ],
+    [
+      "no candidate",
+      async () => ({ outcome: "yellow_no_candidate", candidateCount: 0, allCandidatesUntrusted: true, replacementPublished: false }),
+      { outcome: "yellow_no_candidate", candidateCount: 0, allCandidatesUntrusted: true, replacementPublished: false },
+    ],
+    [
+      "search not performed",
+      async () => { throw new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_search_not_performed"); },
+      { outcome: "yellow_search_not_performed", candidateCount: 0, allCandidatesUntrusted: true, replacementPublished: false },
+    ],
+  ] as const)("writes the content-free %s discovery outcome without publication", async (_name, runDiscovery, expectedDiscovery) => {
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(), runDiscovery: runDiscovery as never, writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 0, stderr: "" });
+    expect(writeArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json", expect.objectContaining({
+      schemaVersion: "local-codex-stage-a@4",
+      discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 },
+      discovery: expectedDiscovery,
+    }));
+  });
+
+  test.each([
+    () => new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_tool_event"),
+    () => new Proxy(new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_search_not_performed"), {}),
+    () => {
+      const error = new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_search_not_performed");
+      Object.defineProperty(error, "runtimeCode", { enumerable: true, get: () => "codex_search_not_performed" });
+      return error;
+    },
+    () => {
+      const error = new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_search_not_performed");
+      Object.defineProperty(error, Symbol("private"), { value: true });
+      return error;
+    },
+  ])("rejects non-exact yellow-search errors, cleans stale artifact, and never writes", async (createError) => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      runDiscovery: async () => { throw createError(); },
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+    expect(cleanupArtifact).toHaveBeenCalledOnce();
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { outcome: "candidate_hints", candidateCount: 0, allCandidatesUntrusted: true, replacementPublished: false },
+    { outcome: "yellow_no_candidate", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false },
+    { outcome: "yellow_search_not_performed", candidateCount: 0, allCandidatesUntrusted: true, replacementPublished: true },
+  ])("rejects impossible discovery outcome/count/publication combinations", async (discovery) => {
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...deterministicDependencies(), runDiscovery: async () => discovery as never,
+    })).rejects.toThrow("local_codex_stage_a_invalid_proof");
+  });
+
+  test.each([
+    ["official_source_discovery_aborted", undefined],
+    ["official_source_discovery_integrity_failed", undefined],
+    ["official_source_discovery_invalid", undefined],
+  ] as const)("diagnostically classifies exact native discovery %s without leaking content", async (code, runtimeCode) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), runDiscovery: async () => { throw new OfficialSourceDiscoveryError(code, runtimeCode); },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:discovery:${code}\n` });
+  });
+
+  test.each([
+    "codex_tool_event",
+    "codex_timeout",
+  ] as const)("diagnostically unwraps exact native discovery runtime reason %s", async (runtimeCode) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runDiscovery: async () => {
+        throw new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", runtimeCode);
+      },
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:discovery:${runtimeCode}\n` });
+  });
+
+  test.each([
+    ["missing runtimeCode", () => {
+      const error = new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout") as { runtimeCode?: unknown };
+      delete error.runtimeCode;
+      return error;
+    }],
+    ["unknown runtimeCode", () => new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_secret_payload" as never)],
+    ["runtimeCode on a non-runtime error", () => new OfficialSourceDiscoveryError("official_source_discovery_invalid", "codex_timeout")],
+  ] as const)("fails closed for discovery errors with %s", async (_case, createError) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), runDiscovery: async () => { throw createError(); },
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:unclassified\n" });
+    expect(result.stderr).not.toMatch(/secret|payload|timeout/i);
+  });
+
+  test("keeps an official discovery failure generic without explicit diagnostic opt-in", async () => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      runDiscovery: async () => { throw new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout"); },
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+    expect(cleanupArtifact).toHaveBeenCalledOnce();
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("reports only discovery_result_invalid for malformed local discovery output and cleans the artifact", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runDiscovery: () => evaluateDiscoveryFixture(fixture, {
+        discover: async () => ({
+          candidates: [{ url: "https://private.example/secret", claimedPublisher: "Private", expectedCoverage: "secret", rationale: "token=credential" }],
+          metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "wrong", schemaVersion: "official-source-candidates@1" },
+        }),
+      }),
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:discovery_result_invalid\n" });
+    expect(result.stderr).not.toMatch(/private|secret|token|credential|https:/i);
+    expect(cleanupArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json");
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("leaves arbitrary discovery-port rejection unclassified and cleans the artifact", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runDiscovery: () => evaluateDiscoveryFixture(fixture, {
+        discover: async () => { throw new Error("https://private.example/query?token=credential"); },
+      }),
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:unclassified\n" });
+    expect(result.stderr).not.toMatch(/private|query|token|credential|https:/i);
+    expect(cleanupArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json");
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("rejects hostile discovery error lookalikes without reading their content", async () => {
+    const getter = new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout");
+    Object.defineProperty(getter, "runtimeCode", {
+      configurable: true,
+      enumerable: true,
+      get: () => { throw new Error("getter token=secret"); },
+    });
+    const prototypeMismatch = new OfficialSourceDiscoveryError("official_source_discovery_invalid");
+    Object.setPrototypeOf(prototypeMismatch, Error.prototype);
+    const symbolBearing = new OfficialSourceDiscoveryError("official_source_discovery_runtime_failed", "codex_timeout");
+    Object.defineProperty(symbolBearing, Symbol("private"), { value: "token=secret" });
+    const nativeSpoof = Object.create(OfficialSourceDiscoveryError.prototype) as object;
+    Object.defineProperties(nativeSpoof, {
+      code: { value: "official_source_discovery_invalid", writable: true, enumerable: true, configurable: true },
+      runtimeCode: { value: undefined, writable: true, enumerable: true, configurable: true },
+      name: { value: "OfficialSourceDiscoveryError", writable: true, enumerable: true, configurable: true },
+      message: { value: "official_source_discovery_invalid", writable: true, enumerable: false, configurable: true },
+    });
+    const proxy = new Proxy(new OfficialSourceDiscoveryError("official_source_discovery_invalid"), {
+      get: () => { throw new Error("proxy token=secret"); },
+      getPrototypeOf: () => { throw new Error("prototype token=secret"); },
+      ownKeys: () => { throw new Error("keys token=secret"); },
+    });
+
+    for (const error of [getter, prototypeMismatch, symbolBearing, nativeSpoof, proxy]) {
+      const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+        ...deterministicDependencies(), runDiscovery: async () => { throw error; },
+      });
+      expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:unclassified\n" });
+      expect(result.stderr).not.toMatch(/secret|token|proxy|prototype|keys/i);
+    }
+  });
+
+  test("rejects a symbol-bearing local discovery diagnostic error", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const localError = await evaluateDiscoveryFixture(fixture, {
+      discover: async () => ({
+        candidates: Array.from({ length: 6 }, () => ({ url: "https://www.beograd.rs/", claimedPublisher: "City", expectedCoverage: "Transit", rationale: "Official" })),
+        metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@1", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.6-terra", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@1", templateVersion: "official-source-discover@2", schemaVersion: "official-source-candidates@1" },
+      }),
+    }).then(
+      () => { throw new Error("expected invalid local discovery result"); },
+      (error: unknown) => error,
+    );
+    Object.defineProperty(localError as object, Symbol("private"), { value: "token=secret" });
+
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), runDiscovery: async () => { throw localError; },
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:discovery:unclassified\n" });
+    expect(result.stderr).not.toMatch(/private|token|secret/i);
+  });
+  test("reports an exact reviewed-installation mismatch without registration, subscription, or artifact write", async () => {
+    const registerRuntime = vi.fn(async () => undefined);
+    const consumeSubscription = vi.fn(async () => deterministicDependencies().initializeRuntime());
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      initializeRuntime: () => initializeReviewedStageARuntimeForTest({
+        executableOverride: undefined,
+        verifyInstallation: async () => { throw new CodexRuntimeError("codex_version_mismatch"); },
+        registerRuntime,
+        consumeSubscription,
+      }),
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:codex_version_mismatch\n" });
+    expect(registerRuntime).not.toHaveBeenCalled();
+    expect(consumeSubscription).not.toHaveBeenCalled();
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("never leaks unrelated failure text through the CLI wrapper", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      initializeRuntime: async () => { throw new Error("/private/path token=secret deliberate trap"); },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  });
+
+  test.each([
+    ["prepare_artifact", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, prepareArtifact: async () => { throw new Error("prompt=https://secret.example/id token=credential"); } })],
+    ["initialize_runtime", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, initializeRuntime: async () => { throw new CodexRuntimeError("codex_not_authenticated"); } })],
+    ["onboarding", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, runOnboarding: async () => { throw new Error("model response: secret"); } })],
+    ["discovery", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, runDiscovery: async () => { throw new Error("https://secret.example/search"); } })],
+    ["concurrency_1", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, measureConcurrency: async () => { throw new Error("stdout private"); } })],
+    ["concurrency_2", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, measureConcurrency: async (requested: 1 | 2 | 5) => requested === 2 ? Promise.reject(new Error("stderr private")) : deterministicDependencies().measureConcurrency(requested) })],
+    ["concurrency_5", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, measureConcurrency: async (requested: 1 | 2 | 5) => requested === 5 ? Promise.reject(new Error("auth private")) : deterministicDependencies().measureConcurrency(requested) })],
+    ["abort", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, proveAbort: async () => { throw new Error("query private"); } })],
+    ["proof_validation", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, runOnboarding: async () => ({ guardedProposalCount: 0, inventedValueCount: 0 }) })],
+    ["artifact_write", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, writeArtifact: async () => { throw new Error("/private/output.json"); } })],
+    ["cleanup", (base: ReturnType<typeof deterministicDependencies>) => ({ ...base, initializeRuntime: async () => { throw new Error("root failure"); }, cleanupArtifact: async () => { throw new Error("cleanup secret"); } })],
+  ] as const)("diagnostic reports only the fixed stage and an allowlisted code for %s", async (stage, configure) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], configure(deterministicDependencies()));
+
+    expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:${stage}:${stage === "initialize_runtime" ? "codex_not_authenticated" : "unclassified"}\n` });
+    expect(result.stderr).not.toMatch(/secret|private|https:|token|credential|stdout|stderr|query|output/i);
+  });
+
+  test("diagnostic preserves generic stderr by default and leaves no failure artifact", async () => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const generic = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(), initializeRuntime: async () => { throw new Error("/private/path token=secret"); }, cleanupArtifact,
+    });
+    expect(generic).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+    expect(cleanupArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json");
+  });
+
+  test("does not invoke cleanup when artifact preparation itself rejects", async () => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      prepareArtifact: async () => { throw new Error("unsafe artifact identity"); },
+      cleanupArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:prepare_artifact:unclassified\n" });
+    expect(cleanupArtifact).not.toHaveBeenCalled();
+  });
+
+  test("cleans a prepared artifact when the first clock read fails", async () => {
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      now: () => { throw new Error("hostile clock payload"); },
+      cleanupArtifact,
+      writeArtifact,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:unclassified\n" });
+    expect(cleanupArtifact).toHaveBeenCalledTimes(1);
+    expect(cleanupArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json");
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("diagnostic safely classifies hostile thrown values without reading their payload", async () => {
+    const payload = new Proxy(Object.create(null), {
+      get: () => { throw new Error("leaked getter payload"); },
+      getPrototypeOf: () => { throw new Error("leaked prototype payload"); },
+      ownKeys: () => { throw new Error("leaked keys payload"); },
+    });
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), initializeRuntime: async () => { throw payload; },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:unclassified\n" });
+    const spoof = Object.create(CodexRuntimeError.prototype) as object;
+    Object.defineProperties(spoof, {
+      code: { value: "codex_timeout", writable: true, enumerable: true, configurable: true },
+      name: { value: "CodexRuntimeError", writable: true, enumerable: true, configurable: true },
+      message: { value: "codex_timeout", writable: true, enumerable: false, configurable: true },
+    });
+    const spoofed = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), initializeRuntime: async () => { throw spoof; },
+    });
+    expect(spoofed).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:unclassified\n" });
+  });
+
+  test("allowlists an invalid negative-capability observation as tool isolation unproven", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runNegativeCapabilityGate: (async () => ({
+        ...(await deterministicDependencies().runNegativeCapabilityGate()),
+        passed: false,
+      })) as never,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+  });
+
+  test("rejects a supplied relay of a real negative-gate witness and preserves generic diagnostic@1", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runNegativeCapabilityGate: async (observer) => {
+        expect(observer).toBeUndefined();
+        return runLocalCodexNegativeCapability(["--", "--live-local-subscription"], {
+          reviewedExecutable: REVIEWED_CODEX_EXECUTABLE,
+          executableOverride: undefined,
+          verifyInstallation: async () => undefined,
+          spawner: Object.freeze({}) as never,
+          signalSource: process,
+          sourceEnvironment: Object.freeze({}),
+          currentUid: undefined,
+          tempRootPath: "/tmp",
+          userHomePath: "/tmp",
+          workspacePath: "/tmp",
+        }, observer);
+      },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+  });
+
+  test("keeps non-diagnostic negative-gate stderr unchanged without observer forwarding", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription"], {
+      ...deterministicDependencies(),
+      runNegativeCapabilityGate: async (observer) => runLocalCodexNegativeCapability(["--", "--live-local-subscription"], {
+        reviewedExecutable: REVIEWED_CODEX_EXECUTABLE, executableOverride: undefined, verifyInstallation: async () => undefined,
+        spawner: Object.freeze({}) as never, signalSource: process, sourceEnvironment: Object.freeze({}), currentUid: undefined,
+        tempRootPath: "/tmp", userHomePath: "/tmp", workspacePath: "/tmp",
+      }, observer),
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  });
+
+  test("rejects a supplied negative-gate diagnostic spoof and preserves generic diagnostic@1", async () => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runNegativeCapabilityGate: async (observer) => {
+        observer?.(Object.freeze({ phase: "patch", reason: "protocol_rejected" }) as never);
+        return { ...(await deterministicDependencies().runNegativeCapabilityGate()), passed: false } as never;
+      },
+    });
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+  });
+
+  test("renders a trusted production capability-phase witness only after initialize-runtime cleanup", async () => {
+    vi.resetModules();
+    const runtime = await import("../../src/infrastructure/codex-cli/runtime");
+    vi.doMock("../../src/infrastructure/codex-cli/runtime", () => ({
+      ...runtime,
+      verifyCodexCliCapabilitiesForStageADiagnostic: (signal: AbortSignal, observer: unknown) =>
+        runTrustedCapabilityFailure(runtime, signal, observer as ((record: unknown) => void) | undefined),
+    }));
+    vi.doMock("../../src/instrumentation-node", () => ({ registerNodeCodexRuntime: async () => undefined }));
+    vi.doMock("../../src/infrastructure/codex-cli/reviewed-installation", async () => ({
+      ...(await vi.importActual<typeof import("../../src/infrastructure/codex-cli/reviewed-installation")>("../../src/infrastructure/codex-cli/reviewed-installation")),
+      verifyReviewedLocalCodexInstallation: async () => undefined,
+    }));
+    try {
+      const stage = await import("../../evals/local-codex-stage-a");
+      const cleanupArtifact = vi.fn(async () => undefined);
+      const runOnboarding = vi.fn(async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }));
+      const writeArtifact = vi.fn(async () => undefined);
+      const { initializeRuntime: _ignoredInitializeRuntime, ...withoutSuppliedInitializer } = deterministicDependencies();
+      void _ignoredInitializeRuntime;
+      const result = await stage.runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+        ...withoutSuppliedInitializer,
+        cleanupArtifact,
+        runOnboarding,
+        writeArtifact,
+      });
+
+      expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@3:initialize_runtime:codex_process_failed:terra_low\n" });
+      expect(cleanupArtifact).toHaveBeenCalledOnce();
+      expect(runOnboarding).not.toHaveBeenCalled();
+      expect(writeArtifact).not.toHaveBeenCalled();
+      expect(result.stderr).not.toMatch(/prompt|schema|query|url|path|payload|pid|timing|argv|auth/i);
+    } finally {
+      vi.doUnmock("../../src/infrastructure/codex-cli/reviewed-installation");
+      vi.doUnmock("../../src/instrumentation-node");
+      vi.doUnmock("../../src/infrastructure/codex-cli/runtime");
+      vi.resetModules();
+    }
+  });
+
+  test("keeps a supplied initializer's genuine runtime-record relay at diagnostic@1", async () => {
+    const runtime = await import("../../src/infrastructure/codex-cli/runtime");
+    const records: unknown[] = [];
+    await runTrustedCapabilityFailure(runtime, new AbortController().signal, (record) => { records.push(record); })
+      .then(
+        () => { throw new Error("expected capability failure"); },
+        () => undefined,
+      );
+    const cleanupArtifact = vi.fn(async () => undefined);
+    const initializeRuntime = vi.fn(async (...arguments_: unknown[]) => {
+      expect(arguments_).toEqual([]);
+      const observer = arguments_[0] as ((record: unknown) => void) | undefined;
+      expect(observer).toBeUndefined();
+      observer?.(records[0]);
+      throw new CodexRuntimeError("codex_process_failed");
+    });
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      initializeRuntime: initializeRuntime as never,
+      cleanupArtifact,
+    });
+
+    expect(records).toHaveLength(1);
+    expect(runtime.isTrustedCodexCliCapabilityDiagnosticRecord(records[0])).toBe(true);
+    expect(initializeRuntime).toHaveBeenCalledOnce();
+    expect(initializeRuntime).toHaveBeenCalledWith();
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:initialize_runtime:codex_process_failed\n" });
+    expect(cleanupArtifact).toHaveBeenCalledOnce();
+  });
+
+  test("rejects the superseded flat negative-capability observation before runtime initialization", async () => {
+    const initializeRuntime = vi.fn(async () => deterministicDependencies().initializeRuntime());
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      initializeRuntime,
+      runNegativeCapabilityGate: (async () => ({
+        schemaVersion: "local-codex-negative-capability-observation@2" as const,
+        model: "gpt-5.4" as const,
+        toolPolicy: "codex-tools-web-search@2" as const,
+        codeModeDisabled: true as const,
+        mode: "strict" as const,
+        stableCode: "codex_negative_capability_passed" as const,
+        passed: true,
+        webSearchCompleted: 1,
+        applyPatchAttempts: 1,
+        writePrevented: true,
+        unknownEventSeen: false,
+        protocolValid: true,
+        canaryUnchanged: true,
+        childExitClean: true,
+        eventTypeCounts: {},
+      })) as never,
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:negative_capability:codex_tool_isolation_unproven\n" });
+    expect(initializeRuntime).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["onboarding_model_output_invalid", async () => ({ schemaVersion: "wrong", payload: "prompt=https://secret.example/id token=credential" })],
+    ["onboarding_guard_invalid", async () => onboardingOutput({ sourceSpan: { start: 0, end: 0 } })],
+    ["onboarding_canonical_mismatch", async () => onboardingOutput({ typedValue: { countryCode: "RU", city: "Тверь" } })],
+    ["onboarding_evidence_mismatch", async () => onboardingOutput({ sourceSpan: { start: 0, end: 6 } })],
+  ] as const)("reports content-free onboarding diagnostic %s through the real evaluator", async (code, extract) => {
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(), runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract }),
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:onboarding:${code}\n` });
+    expect(result.stderr).not.toMatch(/secret|private|https:|token|credential|prompt|response|query|stdout|stderr|path|payload/i);
+  });
+
+  test.each([
+    "onboarding_model_aborted",
+    "onboarding_model_integrity_failed",
+    "onboarding_model_invalid",
+    "onboarding_model_runtime_failed",
+  ] as const)("allowlists exact native typed onboarding error %s", async (code: OnboardingModelErrorCode) => {
+    const typed = new OnboardingModelError(code, code === "onboarding_model_runtime_failed" ? "codex_timeout" : undefined);
+    const diagnosticCode = code === "onboarding_model_runtime_failed" ? "codex_timeout" : code;
+    const dependencies = {
+      ...deterministicDependencies(),
+      runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract: async () => { throw typed; } }),
+    };
+    await expect(runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], dependencies))
+      .resolves.toEqual({ exitCode: 1, stderr: `local_codex_stage_a_failed:diagnostic@1:onboarding:${diagnosticCode}\n` });
+    await expect(runLocalCodexStageAEntrypoint(["--live-local-subscription"], dependencies))
+      .resolves.toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  });
+
+  test("unwraps an exact runtime version mismatch only for explicit diagnostics", async () => {
+    const typed = new OnboardingModelError(
+      "onboarding_model_runtime_failed",
+      "codex_version_mismatch",
+    );
+    const dependencies = {
+      ...deterministicDependencies(),
+      runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), {
+        extract: async () => { throw typed; },
+      }),
+    };
+
+    await expect(runLocalCodexStageAEntrypoint(
+      ["--live-local-subscription", "--diagnostic"],
+      dependencies,
+    )).resolves.toEqual({
+      exitCode: 1,
+      stderr: "local_codex_stage_a_failed:diagnostic@1:onboarding:codex_version_mismatch\n",
+    });
+    await expect(runLocalCodexStageAEntrypoint(
+      ["--live-local-subscription"],
+      dependencies,
+    )).resolves.toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed\n" });
+  });
+
+  test.each([
+    ["runtime code missing", () => ({
+      typed: new OnboardingModelError("onboarding_model_runtime_failed"),
+    })],
+    ["runtime code on non-runtime error", () => ({
+      typed: new OnboardingModelError("onboarding_model_aborted", "codex_timeout"),
+    })],
+    ["runtime code outside allowlist", () => ({
+      typed: new OnboardingModelError("onboarding_model_runtime_failed", "codex_secret_payload" as never),
+    })],
+    ["runtime code accessor", () => {
+      const typed = new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout");
+      const getter = vi.fn(() => { throw new Error("accessor token=secret"); });
+      Object.defineProperty(typed, "runtimeCode", { enumerable: true, get: getter });
+      return { typed, getter };
+    }],
+    ["proxied runtime error", () => ({
+      typed: new Proxy(
+        new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout"),
+        { get: () => { throw new Error("proxy token=secret"); } },
+      ),
+    })],
+    ["symbol-bearing runtime error", () => {
+      const typed = new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout") as
+        OnboardingModelError & Record<symbol, unknown>;
+      typed[Symbol("token=secret")] = true;
+      return { typed };
+    }],
+  ] as const)("classifies typed onboarding error with %s as unclassified", async (_case, create) => {
+    const created = create();
+    const { typed } = created;
+    const getter = "getter" in created ? created.getter : undefined;
+    const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+      ...deterministicDependencies(),
+      runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract: async () => { throw typed; } }),
+    });
+
+    expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:onboarding:unclassified\n" });
+    expect(result.stderr).not.toMatch(/secret|payload/i);
+    if (getter !== undefined) {
+      expect(getter).not.toHaveBeenCalled();
+    }
+  });
+
+  test("rejects hostile onboarding error lookalikes and never leaks their content", async () => {
+    const proxy = new Proxy(Object.create(null), {
+      get: () => { throw new Error("proxy token=secret"); },
+      getPrototypeOf: () => { throw new Error("prototype token=secret"); },
+      ownKeys: () => { throw new Error("keys token=secret"); },
+    });
+    const spoof = Object.create(OnboardingModelError.prototype) as object;
+    Object.defineProperties(spoof, {
+      code: { value: "onboarding_model_invalid", writable: true, enumerable: true, configurable: true },
+      runtimeCode: { value: undefined, writable: true, enumerable: true, configurable: true },
+      name: { value: "OnboardingModelError", writable: true, enumerable: true, configurable: true },
+      message: { value: "onboarding_model_invalid", writable: true, enumerable: false, configurable: true },
+    });
+    for (const error of [new Error("prompt=https://secret.example response token=credential"), proxy, spoof]) {
+      const result = await runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], {
+        ...deterministicDependencies(),
+        runOnboarding: () => evaluateOnboardingFixture(parseOnboardingFixture(onboardingFixture), { extract: async () => { throw error; } }),
+      });
+      expect(result).toEqual({ exitCode: 1, stderr: "local_codex_stage_a_failed:diagnostic@1:onboarding:unclassified\n" });
+      expect(result.stderr).not.toMatch(/secret|https:|token|credential|prompt|response/i);
+    }
+  });
+
+  test("accepts diagnostic only with a single live opt-in and keeps successful output unchanged", async () => {
+    expect(parseLocalCodexStageAArgs(["--live-local-subscription", "--diagnostic"]))
+      .toEqual({ live: true, diagnostic: true, artifactPath: "data/evals/local-codex-stage-a/result.json" });
+    expect(() => parseLocalCodexStageAArgs(["--diagnostic"])).toThrow("local_codex_stage_a_invalid_arguments");
+    expect(() => parseLocalCodexStageAArgs(["--live-local-subscription", "--diagnostic", "--diagnostic"])).toThrow("local_codex_stage_a_invalid_arguments");
+    await expect(runLocalCodexStageAEntrypoint(["--live-local-subscription", "--diagnostic"], deterministicDependencies()))
+      .resolves.toEqual({ exitCode: 0, stderr: "" });
+  });
+
+  test.each([undefined, REVIEWED_CODEX_EXECUTABLE])(
+    "verifies the reviewed installation before registration and subscription for override %s",
+    async (executableOverride) => {
+      const order: string[] = [];
+      const result = await initializeReviewedStageARuntimeForTest({
+        executableOverride,
+        verifyInstallation: async () => { order.push("verify"); },
+        registerRuntime: async () => { order.push("register"); },
+        consumeSubscription: async () => { order.push("subscribe"); return "runtime-proof"; },
+      });
+
+      expect(result).toBe("runtime-proof");
+      expect(order).toEqual(["verify", "register", "subscribe"]);
+    },
+  );
+
+  test("rejects a nonexact executable override before verification, registration, or subscription", async () => {
+    const verifyInstallation = vi.fn(async () => undefined);
+    const registerRuntime = vi.fn(async () => undefined);
+    const consumeSubscription = vi.fn(async () => "must-not-run");
+
+    await expect(initializeReviewedStageARuntimeForTest({
+      executableOverride: `${REVIEWED_CODEX_EXECUTABLE}.alias`,
+      verifyInstallation,
+      registerRuntime,
+      consumeSubscription,
+    })).rejects.toMatchObject({ code: "codex_version_mismatch" });
+    expect(verifyInstallation).not.toHaveBeenCalled();
+    expect(registerRuntime).not.toHaveBeenCalled();
+    expect(consumeSubscription).not.toHaveBeenCalled();
+  });
+
+  test("stops before registration and subscription when installation verification fails", async () => {
+    const mismatch = new CodexRuntimeError("codex_version_mismatch");
+    const registerRuntime = vi.fn(async () => undefined);
+    const consumeSubscription = vi.fn(async () => "must-not-run");
+
+    await expect(initializeReviewedStageARuntimeForTest({
+      executableOverride: undefined,
+      verifyInstallation: async () => { throw mismatch; },
+      registerRuntime,
+      consumeSubscription,
+    })).rejects.toBe(mismatch);
+    expect(registerRuntime).not.toHaveBeenCalled();
+    expect(consumeSubscription).not.toHaveBeenCalled();
+  });
+
+  test("uses provider-compatible typed single-value enums in every live synthetic schema", async () => {
+    const [runtime, stageA] = await Promise.all([
+      readFile(resolve(process.cwd(), "src/infrastructure/codex-cli/runtime.ts"), "utf8"),
+      readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8"),
+    ]);
+    expect(runtime).not.toContain("const:");
+    expect(stageA).not.toContain("const:");
+    expect(runtime).toContain('schemaVersion: { type: "string", enum: ["codex-runtime-smoke@2"] }');
+    expect(runtime).toContain('status: { type: "string", enum: ["ok"] }');
+    expect(stageA).toContain('ok: { type: "boolean", enum: [true] }');
+    expect(stageA).toContain('jobId: { type: "string", enum: [id] }');
+  });
+
+  test("production Stage A reuses capability runtime metadata without a fourth version probe", async () => {
+    const stageA = await readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8");
+    expect(stageA).not.toContain("stage-a-version@1");
+    expect(stageA).toContain("cliVersion: capabilityProof.runtime.cliVersion");
+    expect(stageA).toContain("protocolVersion: capabilityProof.runtime.protocolVersion");
+    expect(stageA).toContain("compatibilityPolicy: capabilityProof.runtime.compatibilityPolicy");
+    expect(stageA).toContain("models: capabilityProof.runtime.models");
+  });
+
+  test("production Stage A forwards its ephemeral negative-gate observer", async () => {
+    const stageA = await readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8");
+    expect(stageA).toMatch(/runNegativeCapabilityGate:\s*\(observer\)\s*=>\s*runLocalCodexNegativeCapability\(\s*\["--", "--live-local-subscription"\],\s*undefined,\s*observer\s*\)/);
+  });
+
+  test("production Stage A forwards its capability observer only through the stage-specific verifier", async () => {
+    const stageA = await readFile(resolve(process.cwd(), "evals/local-codex-stage-a.ts"), "utf8");
+    expect(stageA).toMatch(/async initializeRuntime\(observer\)[\s\S]*consumeSubscription:\s*async \(capabilityObserver\)[\s\S]*verifyCodexCliCapabilitiesForStageADiagnostic\(new AbortController\(\)\.signal, capabilityObserver\)/);
+  });
+
+  test("accepts exactly one leading pnpm separator and preserves passive no-flag parsing", async () => {
+    expect(parseLocalCodexStageAArgs(["--", "--live-local-subscription", "--artifact", "data/evals/local-codex-stage-a/result.json"]))
+      .toEqual({ live: true, artifactPath: "data/evals/local-codex-stage-a/result.json" });
+    expect(parseLocalCodexStageAArgs(["--"])).toEqual({ live: false, artifactPath: "data/evals/local-codex-stage-a/result.json" });
+    expect(() => parseLocalCodexStageAArgs(["--live-local-subscription", "--"])).toThrow("local_codex_stage_a_invalid_arguments");
+    expect(() => parseLocalCodexStageAArgs(["--", "--"])).toThrow("local_codex_stage_a_invalid_arguments");
+  });
+
+  test("requires explicit live opt-in before any dependency or artifact write", async () => {
+    const writeArtifact = vi.fn(async () => undefined);
+    const runtime = vi.fn(async () => { throw new Error("must not run"); });
+
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs([]), {
+      initializeRuntime: runtime,
+      writeArtifact,
+      now: () => 1,
+    })).resolves.toEqual({ exitCode: 1, stderr: "local_codex_live_opt_in_required\n" });
+    expect(runtime).not.toHaveBeenCalled();
+    expect(writeArtifact).not.toHaveBeenCalled();
+  });
+
+  test("writes only the sanitized Stage A artifact from deterministic dependencies", async () => {
+    const writeArtifact = vi.fn(async () => undefined);
+    const result = await runLocalCodexStageA(parseLocalCodexStageAArgs([
+      "--live-local-subscription", "--artifact", "data/evals/local-codex-stage-a/result.json",
+    ]), {
+      ...deterministicDependencies(),
+      runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
+      runDiscovery: async () => ({ outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false }),
+      measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: requested * 1_000_000, effectiveCeiling: 5 }),
+      proveAbort: async () => ({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true }),
+      prepareArtifact: async () => undefined,
+      cleanupArtifact: async () => undefined,
+      writeArtifact,
+      now: () => 1,
+    });
+
+    expect(result).toEqual({ exitCode: 0, stderr: "" });
+    expect(writeArtifact).toHaveBeenCalledWith("data/evals/local-codex-stage-a/result.json", {
+      schemaVersion: "local-codex-stage-a@4",
+      cliVersion: "codex-cli 0.149.0-alpha.4",
+      protocolVersion: "codex-cli-protocol@2",
+      compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2",
+      models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" },
+      writeIsolationProof: validWriteIsolationProof(),
+      effortsProven: ["low", "medium"],
+      noToolProbe: { passed: true, webSearchCount: 0 },
+      discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 },
+      onboarding: { guardedProposalCount: 4, inventedValueCount: 0 },
+      discovery: { outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false },
+      concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false, measurements: [
+        { requested: 1, completed: 1, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
+        { requested: 2, completed: 2, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 2_000_000, effectiveCeiling: 5 },
+        { requested: 5, completed: 5, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 5_000_000, effectiveCeiling: 5 },
+      ] },
+      abort: { processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true },
+    });
+  });
+
+  test("fails closed when an abort proof lacks terminal leader evidence", async () => {
+    const base = deterministicDependencies();
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...base,
+      proveAbort: async () => ({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: false }),
+    })).rejects.toThrow("local_codex_stage_a_invalid_proof");
+  });
+
+  test("fails closed for backwards or unbounded concurrency measurements", async () => {
+    const base = deterministicDependencies();
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...base,
+      measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: -1, p95Ms: 1, throughputMilliJobsPerSecond: 1, effectiveCeiling: 5 }),
+    })).rejects.toThrow("local_codex_stage_a_invalid_proof");
+  });
+
+  test("rejects internally inconsistent bounded measurement claims", async () => {
+    const base = deterministicDependencies();
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...base,
+      measureConcurrency: async (requested) => ({ requested, completed: requested, elapsedMs: 10, p95Ms: 11, throughputMilliJobsPerSecond: requested * 100_000, effectiveCeiling: 5 }),
+    })).rejects.toThrow("local_codex_stage_a_invalid_proof");
+  });
+
+  test("removes stale output before runtime and cleans it on a later failure through owned filesystem seams", async () => {
+    const order: string[] = [];
+    const base = deterministicDependencies();
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), {
+      ...base,
+      prepareArtifact: async () => { order.push("prepare"); },
+      initializeRuntime: async () => { order.push("runtime"); throw new Error("broken"); },
+      cleanupArtifact: async () => { order.push("cleanup"); },
+    })).rejects.toThrow("broken");
+    expect(order).toEqual(["prepare", "runtime", "cleanup"]);
+  });
+
+  test("uses a production monotonic clock when every subscription dependency is faked", async () => {
+    const { now: _ignored, ...withoutClock } = deterministicDependencies();
+    void _ignored;
+    await expect(runLocalCodexStageA(parseLocalCodexStageAArgs(["--live-local-subscription"]), withoutClock)).resolves.toEqual({ exitCode: 0, stderr: "" });
+  });
+
+  test("artifact store rejects lexical aliases and symlinked parents without outside mutation", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "stage-a-store-"));
+    const outside = await mkdtemp(resolve(tmpdir(), "stage-a-outside-"));
+    const store = createStageAArtifactStore({ workspaceRoot: root, randomId: () => "fixed" });
+    await expect(store.prepare("../data/evals/local-codex-stage-a/result.json")).rejects.toThrow("local_codex_stage_a_invalid_artifact_path");
+    await expect(store.prepare("data/evals/local-codex-stage-a/result.json\0suffix")).rejects.toThrow("local_codex_stage_a_invalid_artifact_path");
+    await mkdir(resolve(root, "data/evals"), { recursive: true });
+    await symlink(outside, resolve(root, "data/evals/local-codex-stage-a"));
+    const outsideResult = resolve(outside, "result.json");
+    await writeFile(outsideResult, "protected", { mode: 0o600 });
+    await expect(store.prepare("data/evals/local-codex-stage-a/result.json")).rejects.toThrow("local_codex_stage_a_invalid_artifact_path");
+    expect(await readFile(outsideResult, "utf8")).toBe("protected");
+    expect((await lstat(outsideResult)).mode & 0o777).toBe(0o600);
+  });
+
+  test("artifact store removes a stale regular final only through prepare", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "stage-a-store-"));
+    const target = resolve(root, "data/evals/local-codex-stage-a/result.json");
+    await mkdir(resolve(root, "data/evals/local-codex-stage-a"), { recursive: true });
+    await writeFile(target, "stale", { mode: 0o600 });
+    await createStageAArtifactStore({ workspaceRoot: root }).prepare("data/evals/local-codex-stage-a/result.json");
+    await expect(readFile(target, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("artifact store rejects a hardlinked final without altering its peer", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "stage-a-store-"));
+    const directory = resolve(root, "data/evals/local-codex-stage-a");
+    const target = resolve(directory, "result.json");
+    const peer = resolve(root, "protected-input.json");
+    await mkdir(directory, { recursive: true });
+    await writeFile(peer, "peer-bytes", { mode: 0o600 });
+    await link(peer, target);
+    await expect(createStageAArtifactStore({ workspaceRoot: root }).prepare("data/evals/local-codex-stage-a/result.json")).rejects.toThrow("local_codex_stage_a_invalid_artifact_path");
+    expect(await readFile(peer, "utf8")).toBe("peer-bytes");
+    expect((await lstat(peer)).mode & 0o777).toBe(0o600);
+  });
+
+  test("artifact store writes atomically at mode 0600 and collision cleanup preserves unrelated files", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "stage-a-store-"));
+    const directory = resolve(root, "data/evals/local-codex-stage-a");
+    const path = "data/evals/local-codex-stage-a/result.json";
+    const store = createStageAArtifactStore({ workspaceRoot: root, randomId: () => "unique" });
+    await store.write(path, validArtifact());
+    const target = resolve(directory, "result.json");
+    expect((await lstat(target)).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(await readFile(target, "utf8"))).toMatchObject({ schemaVersion: "local-codex-stage-a@4" });
+    const collision = resolve(directory, ".local-codex-stage-a-fixed.tmp");
+    await writeFile(collision, "unrelated", { mode: 0o600 });
+    await expect(createStageAArtifactStore({ workspaceRoot: root, randomId: () => "fixed" }).write(path, validArtifact())).rejects.toMatchObject({ code: "EEXIST" });
+    expect(await readFile(collision, "utf8")).toBe("unrelated");
+  });
+
+  test("abort proof requires admission, exact waiter reason, terminal handoff, then successor", async () => {
+    let active = 0;
+    const calls: string[] = [];
+    const adapter = {
+      runtimeDiagnostics: () => Object.freeze({ activeLeaders: active, queuedFlights: 0, effectiveCeiling: 5 as const }),
+      invokeJson: (input: { templateVersion: string; signal: AbortSignal }) => {
+        calls.push(input.templateVersion);
+        if (input.templateVersion === "stage-a-abort@1") {
+          active = 1;
+          return new Promise<Readonly<{ value: unknown }>>((_, reject) => input.signal.addEventListener("abort", () => { active = 0; reject(input.signal.reason); }, { once: true }));
+        }
+        expect(active).toBe(0);
+        return Promise.resolve(Object.freeze({ value: Object.freeze({ ok: true }) }));
+      },
+    };
+    const wait = async (predicate: () => boolean) => { if (!predicate()) throw new TypeError("timeout"); };
+    await expect(proveStageAAbort(adapter, wait)).resolves.toEqual({ processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true });
+    expect(calls).toEqual(["stage-a-abort@1", "stage-a-abort-successor@1"]);
+  });
+
+  test("abort proof fails if admission is not observed or original result resolves late", async () => {
+    const idleAdapter = { runtimeDiagnostics: () => Object.freeze({ activeLeaders: 0, queuedFlights: 0, effectiveCeiling: 5 as const }), invokeJson: async () => Object.freeze({ value: Object.freeze({ ok: true }) }) };
+    await expect(proveStageAAbort(idleAdapter, async () => { throw new TypeError("timeout"); })).rejects.toThrow("timeout");
+    let active = 0;
+    const lateAdapter = { runtimeDiagnostics: () => Object.freeze({ activeLeaders: active, queuedFlights: 0, effectiveCeiling: 5 as const }), invokeJson: async () => { active = 1; return Object.freeze({ value: Object.freeze({ ok: true }) }); } };
+    await expect(proveStageAAbort(lateAdapter, async () => undefined)).rejects.toThrow("local_codex_stage_a_late_result");
+  });
+
+  test("rejects hostile onboarding fixtures before invoking the model", async () => {
+    const malicious = structuredClone(onboardingFixture) as Record<string, unknown>;
+    Object.defineProperty((malicious.expected as Record<string, unknown>).proposals as object, "0", {
+      enumerable: true, get: () => onboardingFixture.expected.proposals[0],
+    });
+    const extract = vi.fn();
+    expect(() => parseOnboardingFixture(malicious)).toThrow("local_codex_stage_a_invalid_fixture");
+    expect(extract).not.toHaveBeenCalled();
+  });
+
+  test("accepts recursively null-prototype JSON data but rejects a proxy, symbol and sparse array", () => {
+    const nullPrototype = toNullPrototype(onboardingFixture);
+    expect(parseOnboardingFixture(nullPrototype).expected.proposals).toHaveLength(1);
+    expect(() => parseOnboardingFixture(new Proxy(onboardingFixture, {}))).toThrow("local_codex_stage_a_invalid_fixture");
+    const symbolic = structuredClone(onboardingFixture) as Record<string | symbol, unknown>;
+    symbolic[Symbol("fixture")] = true;
+    expect(() => parseOnboardingFixture(symbolic)).toThrow("local_codex_stage_a_invalid_fixture");
+    const sparse = structuredClone(discoveryFixture) as Record<string, unknown>;
+    sparse.localeHints = new Array(1);
+    expect(() => parseDiscoveryFixture(sparse)).toThrow("local_codex_stage_a_invalid_fixture");
+  });
+
+  test("calls the onboarding port with the canonical projection and rejects an empty evidence span", async () => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const extract = vi.fn<(input: unknown) => Promise<unknown>>(async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Москва" }, messageId: onboardingFixture.message.messageId, sourceSpan: { start: 0, end: 0 } }],
+      nextQuestion: onboardingFixture.expected.nextQuestion,
+    }));
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toThrow("onboarding_guard_invalid");
+    expect(extract).toHaveBeenCalledTimes(1);
+    const input = extract.mock.calls[0]![0] as { questionnaire: unknown; message: unknown };
+    expect(input.message).toEqual(onboardingFixture.message);
+    expect(input.questionnaire).toEqual(projectQuestionnaireForModel(createOnboardingSession({
+      nextParticipantId: () => "00000000-0000-4000-8000-000000000001",
+      nextCompletionCommandId: () => "00000000-0000-4000-8000-000000000002",
+    })));
+  });
+
+  test("deeply owns and freezes the Stage A onboarding oracle", () => {
+    // Break caught: a caller can mutate nested expected values after validation and steer semantic retry.
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const proposal = fixture.expected.proposals[0]!;
+
+    expect(Object.isFrozen(fixture)).toBe(true);
+    expect(Object.isFrozen(fixture.message)).toBe(true);
+    expect(Object.isFrozen(fixture.expected)).toBe(true);
+    expect(Object.isFrozen(fixture.expected.proposals)).toBe(true);
+    expect(Object.isFrozen(proposal)).toBe(true);
+    expect(Object.isFrozen(proposal.typedValue)).toBe(true);
+    expect(Object.isFrozen(proposal.sourceSpan)).toBe(true);
+  });
+
+  test("rejects a defective Stage A oracle before the model call", async () => {
+    // Break caught: invalid expected evidence is mistaken for model ambiguity and consumes subscription calls.
+    const defective = structuredClone(onboardingFixture);
+    defective.expected.proposals[0]!.text = "не тот фрагмент";
+    const extract = vi.fn(async () => onboardingOutput());
+
+    await expect(evaluateOnboardingFixture(defective as never, { extract }))
+      .rejects.toThrow("local_codex_stage_a_invalid_fixture");
+    expect(extract).not.toHaveBeenCalled();
+  });
+
+  test("rejects a nested typed-value proxy without touching its traps or calling the model", async () => {
+    let trapReads = 0;
+    const typedValue = new Proxy({ countryCode: "RU", city: "Москва" }, {
+      get: () => {
+        trapReads += 1;
+        throw new Error("nested fixture getter must not run");
+      },
+    });
+    const defective = {
+      ...onboardingFixture,
+      expected: {
+        ...onboardingFixture.expected,
+        proposals: [{ ...onboardingFixture.expected.proposals[0]!, typedValue }],
+      },
+    };
+    const extract = vi.fn(async () => onboardingOutput());
+
+    await expect(evaluateOnboardingFixture(defective as never, { extract }))
+      .rejects.toThrow("local_codex_stage_a_invalid_fixture");
+    expect(trapReads).toBe(0);
+    expect(extract).not.toHaveBeenCalled();
+  });
+
+  test("supplies a full advisory semantic validator and revalidates its returned output", async () => {
+    // Break caught: Stage A cannot ask the adapter to retry a schema-valid semantic ambiguity.
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const extract = vi.fn(async (input: Parameters<OnboardingModelPort["extract"]>[0]) => {
+      const attempt = Object.freeze({ attempt: "initial" as const });
+      expect(input.acceptExtraction).toBeTypeOf("function");
+      expect(input.acceptExtraction?.(onboardingOutput({ sourceSpan: { start: 0, end: 0 } }) as never, attempt))
+        .toEqual({ kind: "retryable", reason: "guard_invalid" });
+      expect(input.acceptExtraction?.(onboardingOutput({
+        typedValue: { countryCode: "RU", city: "Тверь" },
+      }) as never, attempt)).toEqual({ kind: "retryable", reason: "canonical_mismatch" });
+      expect(input.acceptExtraction?.(onboardingOutput({ sourceSpan: { start: 0, end: 6 } }) as never, attempt))
+        .toEqual({ kind: "retryable", reason: "evidence_mismatch" });
+      expect(input.acceptExtraction?.(onboardingOutput() as never, attempt)).toEqual({ kind: "accepted" });
+      return onboardingOutput();
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract }))
+      .resolves.toEqual({ guardedProposalCount: 1, inventedValueCount: 0 });
+    expect(extract).toHaveBeenCalledOnce();
+  });
+
+  test.each([
+    ["guard_invalid", onboardingOutput({ sourceSpan: { start: 0, end: 0 } }), "onboarding_guard_invalid"],
+    ["canonical_mismatch", onboardingOutput({ typedValue: { countryCode: "RU", city: "Тверь" } }), "onboarding_canonical_mismatch"],
+    ["evidence_mismatch", onboardingOutput({ sourceSpan: { start: 0, end: 6 } }), "onboarding_evidence_mismatch"],
+  ] as const)("preserves exhausted retry reason %s as an exact Stage A diagnostic", async (
+    reason,
+    candidate,
+    diagnostic,
+  ) => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const extract = async (input: Parameters<OnboardingModelPort["extract"]>[0]): Promise<never> => {
+      const initial = Object.freeze({ attempt: "initial" as const });
+      const retry = Object.freeze({ attempt: "retry" as const });
+      expect(input.acceptExtraction?.(candidate as never, initial)).toEqual({ kind: "retryable", reason });
+      expect(input.acceptExtraction?.(candidate as never, retry)).toEqual({ kind: "retryable", reason });
+      throw new OnboardingModelError("onboarding_model_invalid");
+    };
+
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toThrow(diagnostic);
+  });
+
+  test("does not attribute a schema-invalid retry to the initial semantic reason", async () => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const typed = new OnboardingModelError("onboarding_model_invalid");
+    const extract = async (input: Parameters<OnboardingModelPort["extract"]>[0]): Promise<never> => {
+      expect(input.acceptExtraction?.(
+        onboardingOutput({ sourceSpan: { start: 0, end: 0 } }) as never,
+        Object.freeze({ attempt: "initial" as const }),
+      )).toEqual({ kind: "retryable", reason: "guard_invalid" });
+      throw typed;
+    };
+
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toBe(typed);
+  });
+
+  test.each([
+    new OnboardingModelError("onboarding_model_aborted"),
+    new OnboardingModelError("onboarding_model_integrity_failed"),
+    new OnboardingModelError("onboarding_model_runtime_failed", "codex_timeout"),
+  ])("never remaps a non-invalid model failure after a retry semantic rejection", async (typed) => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    const extract = async (input: Parameters<OnboardingModelPort["extract"]>[0]): Promise<never> => {
+      expect(input.acceptExtraction?.(
+        onboardingOutput({ sourceSpan: { start: 0, end: 0 } }) as never,
+        Object.freeze({ attempt: "retry" as const }),
+      )).toEqual({ kind: "retryable", reason: "guard_invalid" });
+      throw typed;
+    };
+
+    await expect(evaluateOnboardingFixture(fixture, { extract })).rejects.toBe(typed);
+  });
+
+  test("accepts canonical guarded facts with alternative valid evidence and a filtered no-op roster", async () => {
+    const fixture = await readOnboardingFixture();
+    const evidence = ["я живу в Москве, Россия", "переезжать одна", "российское гражданство", "опыт — 5 лет"];
+    const proposals = fixture.expected.proposals.map((proposal, index) => {
+      const start = fixture.message.text.indexOf(evidence[index]!);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return {
+        fieldId: proposal.fieldId,
+        typedValue: proposal.typedValue,
+        messageId: fixture.message.messageId,
+        sourceSpan: { start, end: start + evidence[index]!.length },
+      };
+    });
+    proposals.push({
+      fieldId: "participants",
+      typedValue: [{ descriptor: "self", relationship: "self" }],
+      messageId: fixture.message.messageId,
+      sourceSpan: { start: 0, end: 6 },
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).resolves.toEqual({ guardedProposalCount: 4, inventedValueCount: 0 });
+  });
+
+  test("accepts narrower supporting evidence for every canonical fact", async () => {
+    const fixture = await readOnboardingFixture();
+    const evidence = ["Москве", "одна", "российское", "5"];
+    const proposals = fixture.expected.proposals.map((proposal, index) => {
+      const start = fixture.message.text.indexOf(evidence[index]!);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return {
+        fieldId: proposal.fieldId,
+        typedValue: proposal.typedValue,
+        messageId: fixture.message.messageId,
+        sourceSpan: { start, end: start + evidence[index]!.length },
+      };
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).resolves.toEqual({ guardedProposalCount: 4, inventedValueCount: 0 });
+  });
+
+  test("accepts complete overlapping evidence that starts with punctuation beside a prior token", async () => {
+    // Break caught: a punctuation edge is mistaken for a split merely because its outside neighbor is a token.
+    const fixture = await readOnboardingFixture();
+    const proposals = fixture.expected.proposals.map((proposal, index) => ({
+      fieldId: proposal.fieldId,
+      typedValue: proposal.typedValue,
+      messageId: fixture.message.messageId,
+      sourceSpan: index === 0 ? { start: 22, end: 30 } : proposal.sourceSpan,
+    }));
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).resolves.toEqual({ guardedProposalCount: 4, inventedValueCount: 0 });
+  });
+
+  test.each([
+    ["од", "moving_party"],
+    ["россий", "participants.self.citizenships"],
+  ] as const)("rejects split Unicode token %s as evidence", async (fragment, fieldId) => {
+    const fixture = await readOnboardingFixture();
+    const proposals = fixture.expected.proposals.map((proposal) => {
+      const start = proposal.fieldId === fieldId ? fixture.message.text.indexOf(fragment) : proposal.sourceSpan.start;
+      return {
+        fieldId: proposal.fieldId,
+        typedValue: proposal.typedValue,
+        messageId: fixture.message.messageId,
+        sourceSpan: { start, end: proposal.fieldId === fieldId ? start + fragment.length : proposal.sourceSpan.end },
+      };
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).rejects.toThrow("onboarding_evidence_mismatch");
+  });
+
+  test("accepts a complete decomposed Unicode token but rejects a span starting after its combining mark", async () => {
+    const word = "И\u0306ошкаре";
+    const text = `Живу в ${word}.`;
+    const start = text.indexOf(word);
+    const fixture = parseOnboardingFixture({
+      message: { messageId: onboardingFixture.message.messageId, role: "user", text },
+      expected: {
+        schemaVersion: "onboarding-model-output@1",
+        proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Йошкар-Ола" }, messageId: onboardingFixture.message.messageId, sourceSpan: { start, end: start + word.length }, text: word }],
+        nextQuestion: onboardingFixture.expected.nextQuestion,
+      },
+    });
+    const output = (sourceSpan: Readonly<{ start: number; end: number }>) => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Йошкар-Ола" }, messageId: onboardingFixture.message.messageId, sourceSpan }],
+      nextQuestion: onboardingFixture.expected.nextQuestion,
+    });
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => output({ start, end: start + word.length }) }))
+      .resolves.toEqual({ guardedProposalCount: 1, inventedValueCount: 0 });
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => output({ start: start + 2, end: start + word.length }) }))
+      .rejects.toThrow("onboarding_evidence_mismatch");
+  });
+
+  test.each([
+    ["one-letter preposition", { start: 7, end: 8 }],
+    ["tiny overlap of a long unrelated span", { start: 0, end: 8 }],
+  ] as const)("rejects %s as evidence for a canonical fact", async (_case, sourceSpan) => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => onboardingOutput({ sourceSpan }) }))
+      .rejects.toThrow("onboarding_evidence_mismatch");
+  });
+
+  test("rejects canonical facts when every field points to the same unrelated valid evidence", async () => {
+    const fixture = await readOnboardingFixture();
+    const proposals = fixture.expected.proposals.map(({ fieldId, typedValue }) => ({
+      fieldId,
+      typedValue,
+      messageId: fixture.message.messageId,
+      sourceSpan: { start: 0, end: 6 },
+    }));
+
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals,
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).rejects.toThrow("onboarding_evidence_mismatch");
+  });
+
+  test.each([
+    ["missing", (proposals: Record<string, unknown>[]) => proposals.slice(0, -1)],
+    ["extra", (proposals: Record<string, unknown>[]) => [...proposals, {
+      fieldId: "move_horizon", typedValue: "within_3_months", messageId: "00000000-0000-4000-8000-000000000081", sourceSpan: { start: 32, end: 40 },
+    }]],
+    ["wrong value", (proposals: Record<string, unknown>[]) => proposals.map((proposal) => proposal.fieldId === "current_location"
+      ? { ...proposal, typedValue: { countryCode: "RU", city: "Тверь" } }
+      : proposal)],
+  ] as const)("rejects %s retained canonical guarded proposals", async (_case, mutate) => {
+    const fixture = await readOnboardingFixture();
+    const proposals = fixture.expected.proposals.map(({ fieldId, typedValue, messageId, sourceSpan }) => structuredClone({ fieldId, typedValue, messageId, sourceSpan }) as Record<string, unknown>);
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1", proposals: mutate(proposals), nextQuestion: fixture.expected.nextQuestion,
+    }) })).rejects.toThrow("onboarding_canonical_mismatch");
+  });
+
+  test.each([
+    ["out-of-bounds", { messageId: onboardingFixture.message.messageId, sourceSpan: { start: 0, end: onboardingFixture.message.text.length + 1 } }],
+    ["non-current message", { messageId: "00000000-0000-4000-8000-000000000082", sourceSpan: { start: 0, end: 8 } }],
+  ] as const)("rejects %s evidence before canonical guarded acceptance", async (_case, evidence) => {
+    const fixture = parseOnboardingFixture(onboardingFixture);
+    await expect(evaluateOnboardingFixture(fixture, { extract: async () => ({
+      schemaVersion: "onboarding-model-output@1",
+      proposals: [{ fieldId: "current_location", typedValue: { countryCode: "RU", city: "Москва" }, ...evidence }],
+      nextQuestion: fixture.expected.nextQuestion,
+    }) })).rejects.toThrow();
+  });
+
+  test("rejects a same-count guarded projection with one altered normalized value", async () => {
+    const fixture = await readOnboardingFixture();
+    const guarded = fixture.expected.proposals.map((proposal) => proposal.fieldId === "current_location"
+      ? { kind: "non_participant_field", fieldId: proposal.fieldId, normalizedValue: { countryCode: "RU", city: "Тверь" } }
+      : proposal.fieldId === "participants"
+        ? { kind: "participant_roster", roster: proposal.typedValue }
+        : proposal.fieldId.startsWith("participants.")
+          ? participantGuardedProposal(proposal)
+          : { kind: "non_participant_field", fieldId: proposal.fieldId, normalizedValue: proposal.typedValue });
+    expect(guarded).toHaveLength(fixture.expected.proposals.length);
+    expect(() => assertGuardedFixtureProposals(fixture, guarded)).toThrow("local_codex_stage_a_onboarding_invalid");
+  });
+
+  test("rejects a malformed discovery fixture before calling the discovery port", async () => {
+    const malformed = { ...discoveryFixture, authorityRoots: ["not-an-authority"] };
+    const discover = vi.fn();
+    expect(() => parseDiscoveryFixture(malformed)).toThrow("local_codex_stage_a_invalid_fixture");
+    expect(discover).not.toHaveBeenCalled();
+  });
+
+  test("requires exact discovery metadata and bounded untrusted candidates", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const discover = vi.fn(async () => ({
+      candidates: [{ url: "https://www.beograd.rs/transport/", claimedPublisher: "City", expectedCoverage: "Transit", rationale: "Official" }],
+      metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2", templateVersion: "wrong", schemaVersion: "official-source-candidates@1" },
+    }));
+    await expect(evaluateDiscoveryFixture(fixture, { discover })).rejects.toThrow("discovery_result_invalid");
+    expect(discover).toHaveBeenCalledTimes(1);
+  });
+
+  test("accepts only the current compact discovery template version", async () => {
+    const fixture = parseDiscoveryFixture(discoveryFixture);
+    const result = (templateVersion: string) => ({
+      candidates: [{ url: "https://www.beograd.rs/transport/", claimedPublisher: "City", expectedCoverage: "Transit", rationale: "Official" }],
+      metadata: { invocationVersion: "codex-cli-invocation@2", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", cliVersion: "codex-cli 0.149.0-alpha.4", model: "gpt-5.4", reasoningEffort: "medium", toolPolicy: "codex-tools-web-search@2", templateVersion, schemaVersion: "official-source-candidates@1" },
+    });
+
+    await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result("official-source-discover@4") })).resolves.toEqual({
+      outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false,
+    });
+    for (const templateVersion of ["official-source-discover@1", "official-source-discover@3", "official-source-discover@999"]) {
+      await expect(evaluateDiscoveryFixture(fixture, { discover: async () => result(templateVersion) })).rejects.toThrow("discovery_result_invalid");
+    }
+  });
+});
+
+function onboardingOutput(overrides: Readonly<{ typedValue?: unknown; sourceSpan?: Readonly<{ start: number; end: number }> }> = {}) {
+  return {
+    schemaVersion: "onboarding-model-output@1",
+    proposals: [{
+      fieldId: "current_location",
+      typedValue: overrides.typedValue ?? { countryCode: "RU", city: "Москва" },
+      messageId: onboardingFixture.message.messageId,
+      sourceSpan: overrides.sourceSpan ?? onboardingFixture.expected.proposals[0]!.sourceSpan,
+    }],
+    nextQuestion: onboardingFixture.expected.nextQuestion,
+  };
+}
+
+function deterministicDependencies() {
+  return {
+    runNegativeCapabilityGate: async () => validNegativeCapabilityObservation(),
+    initializeRuntime: async () => ({ cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2" as const, compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2" as const, models: { extraction: "gpt-5.6-terra" as const, discovery: "gpt-5.4" as const }, noToolProbe: { passed: true as const, webSearchCount: 0 as const }, discoveryProbe: { availability: "available" as const, selection: "model-selected" as const, webSearchCount: 1 } }),
+    runOnboarding: async () => ({ guardedProposalCount: 4, inventedValueCount: 0 }),
+    runDiscovery: async () => ({ outcome: "candidate_hints" as const, candidateCount: 1, allCandidatesUntrusted: true as const, replacementPublished: false as const }),
+    measureConcurrency: async (requested: 1 | 2 | 5) => ({ requested, completed: requested, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: requested * 1_000_000, effectiveCeiling: 5 as const }),
+    proveAbort: async () => ({ processGroupTerminated: true as const, lateResultAccepted: false as const, waiterRejected: true as const, leaderTerminalObserved: true as const }),
+    prepareArtifact: async () => undefined,
+    cleanupArtifact: async () => undefined,
+    writeArtifact: async () => undefined,
+    now: () => 1,
+  };
+}
+
+async function runTrustedCapabilityFailure(
+  runtime: typeof import("../../src/infrastructure/codex-cli/runtime"),
+  signal: AbortSignal,
+  observer: ((record: unknown) => void) | undefined,
+): Promise<never> {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "stage-a-capability-diagnostic-")));
+  try {
+    const executable = join(root, "codex");
+    const tempRoot = join(root, "tmp");
+    await writeFile(executable, "fixture", { mode: 0o700 });
+    await chmod(executable, 0o700);
+    await mkdir(tempRoot, { mode: 0o700 });
+    const currentUid = process.getuid?.();
+    if (typeof currentUid !== "number" || !Number.isSafeInteger(currentUid)) throw new Error("missing current uid");
+    let calls = 0;
+    const spawner: CodexProcessSpawner = {
+      spawn: (input) => {
+        calls += 1;
+        if (input.args.length === 1 && input.args[0] === "--version") return stageAProcess(`${CODEX_CLI_VERSION}\n`, "", 0);
+        if (input.args.length === 2 && input.args[0] === "login" && input.args[1] === "status") return stageAProcess("", "Logged in using ChatGPT\n", 0);
+        if (input.args.at(-2) === "features" && input.args.at(-1) === "list") {
+          return stageAProcess(`${CODEX_DISABLED_FEATURES.map((feature) => `${feature} stable false`).join("\n")}\n`, "", 0);
+        }
+        return stageAProcess("", "", 1);
+      },
+    };
+    const isolated = runtime.createCodexCliRuntimeForTest();
+    await isolated.initializeCodexCliRuntime({
+      tempRootPath: tempRoot,
+      currentUid,
+      childEnv: Object.freeze({ CODEX_HOME: join(root, "codex-home"), TMPDIR: tempRoot, LANG: "C", LC_ALL: "C" }),
+      spawner,
+      clock: () => new Date(0),
+      signal,
+    });
+    if (calls !== 3) throw new Error("unexpected setup calls");
+    await isolated.verifyCodexCliCapabilities(signal, observer as never);
+    throw new Error("expected capability failure");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function stageAProcess(stdout: string, stderr: string, code: number): SpawnedCodexProcess {
+  return Object.freeze({
+    pid: 17,
+    stdout: stageAChunks(stdout),
+    stderr: stageAChunks(stderr),
+    exit: Promise.resolve({ code, signal: null }),
+    terminateGroup: () => undefined,
+  });
+}
+
+async function* stageAChunks(value: string): AsyncGenerator<Uint8Array> {
+  if (value.length > 0) yield new TextEncoder().encode(value);
+}
+
+function validArtifact(): Parameters<ReturnType<typeof createStageAArtifactStore>["write"]>[1] {
+  return {
+    schemaVersion: "local-codex-stage-a@4", cliVersion: "codex-cli 0.149.0-alpha.4", protocolVersion: "codex-cli-protocol@2", compatibilityPolicy: "codex-cli-0.149.0-alpha.4-plus@2", models: { extraction: "gpt-5.6-terra", discovery: "gpt-5.4" }, writeIsolationProof: validWriteIsolationProof(), effortsProven: ["low", "medium"],
+    noToolProbe: { passed: true, webSearchCount: 0 }, discoveryProbe: { availability: "available", selection: "model-selected", webSearchCount: 1 }, onboarding: { guardedProposalCount: 4, inventedValueCount: 0 }, discovery: { outcome: "candidate_hints", candidateCount: 1, allCandidatesUntrusted: true, replacementPublished: false },
+    concurrency: { requested: [1, 2, 5], completed: [1, 2, 5], crossJobLeakage: false, measurements: [
+      { requested: 1, completed: 1, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 1_000_000, effectiveCeiling: 5 },
+      { requested: 2, completed: 2, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 2_000_000, effectiveCeiling: 5 },
+      { requested: 5, completed: 5, elapsedMs: 1, p95Ms: 1, throughputMilliJobsPerSecond: 5_000_000, effectiveCeiling: 5 },
+    ] }, abort: { processGroupTerminated: true, lateResultAccepted: false, waiterRejected: true, leaderTerminalObserved: true },
+  };
+}
+
+function validNegativeCapabilityObservation() {
+  return {
+    schemaVersion: "local-codex-negative-capability-observation@3" as const,
+    proofMode: "patch-denial-then-search@1" as const,
+    model: "gpt-5.4" as const,
+    toolPolicy: "codex-tools-web-search@2" as const,
+    codeModeDisabled: true as const,
+    mode: "strict" as const,
+    stableCode: "codex_negative_capability_passed" as const,
+    passed: true,
+    patchDenial: validPhaseProof("local-codex-negative-patch-denial@1", 0, 1, 2, true),
+    searchOnly: validPhaseProof("local-codex-negative-search-only@1", 1, 0, 0, false),
+  };
+}
+
+function validWriteIsolationProof() {
+  const observation = validNegativeCapabilityObservation();
+  return {
+    model: observation.model,
+    toolPolicy: observation.toolPolicy,
+    codeModeDisabled: observation.codeModeDisabled,
+    proofMode: observation.proofMode,
+    patchDenial: observation.patchDenial,
+    searchOnly: observation.searchOnly,
+  };
+}
+
+function validPhaseProof(templateVersion: "local-codex-negative-patch-denial@1" | "local-codex-negative-search-only@1", webSearchCompleted: 0 | 1, applyPatchAttempts: 0 | 1, fileChangeSeen: 0 | 2, writePrevented: boolean) {
+  return {
+    templateVersion,
+    schemaVersion: "local-codex-negative-capability-phase-result@1" as const,
+    protocolValid: true,
+    unknownEventSeen: false,
+    webSearchCompleted,
+    applyPatchAttempts,
+    fileChangeSeen,
+    writePrevented,
+    canaryUnchanged: true,
+    childExitClean: true,
+    eventTypeCounts: { "thread.started": 1, "turn.started": 1, "item.started": 1, "item.completed": 1, "turn.completed": 1 },
+  };
+}
+
+function toNullPrototype(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(toNullPrototype);
+  if (value !== null && typeof value === "object") return Object.assign(Object.create(null), Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, toNullPrototype(nested)])));
+  return value;
+}
+
+function participantGuardedProposal(proposal: { readonly fieldId: string; readonly typedValue: unknown }) {
+  const match = /^participants\.(self|companion\.\d+)\.([a-z_]+)$/.exec(proposal.fieldId);
+  if (match === null) throw new Error("invalid test fixture");
+  return { kind: "participant_leaf", descriptor: match[1]!, leafId: match[2]!, normalizedValue: proposal.typedValue };
+}
