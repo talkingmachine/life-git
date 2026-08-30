@@ -12,6 +12,7 @@
     "eval:codex-runtime-feasibility": "node --import tsx evals/codex-cli-feasibility.ts",
     "eval:local-codex-negative-capability": "node --import tsx evals/local-codex-negative-capability.ts",
     "eval:local-codex-stage-a": "node --import tsx evals/local-codex-stage-a.ts",
+    "prepare:si-demo-package": "node --import tsx evals/prepare-slovenia-demo-package.ts",
     "eval:onboarding-journey-timing": "node --import tsx evals/onboarding-journey-timing.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
