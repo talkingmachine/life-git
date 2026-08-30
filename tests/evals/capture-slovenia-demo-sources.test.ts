@@ -115,6 +115,7 @@ describe("capture Slovenia demo sources", () => {
     await expect(runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], {
       readInput: async () => input(), capture: capture as never,
       createRunId: () => "00000000-0000-4000-8000-000000000001",
+      writeFailure: async () => undefined,
       store: { prepare: async () => undefined, cleanup, write: async () => undefined },
     })).resolves.toEqual({ exitCode: 1, stderr: "capture_slovenia_demo_sources_failed\n" });
     expect(capture.mock.calls.map(([request]) => request.url)).toEqual(SLOVENIA_OFFICIAL_DIRECTORY_BOOTSTRAP.routes.map((policy) => policy.url));
@@ -157,7 +158,7 @@ describe("capture Slovenia demo sources", () => {
 
   test("stops after one invalid returned capture", async () => {
     const capture = vi.fn(async (request: { sourceId: string; role: string; url: string }) => ({ artifact: { artifactId: "wrong", runId: "00000000-0000-4000-8000-000000000001", sourceId: request.sourceId, role: request.role, url: request.url, mediaType: "text/html", sha256: digest("x"), bytes: new TextEncoder().encode("x"), origin: "live", capturedAt: "2026-08-30T00:00:00.000Z", responseStatus: 200, responseUrl: request.url, request: { method: "GET", url: request.url } }, redirectChain: [request.url] }));
-    await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], { readInput: async () => input(), capture: capture as never, createRunId: () => "00000000-0000-4000-8000-000000000001", store: { prepare: async () => undefined, cleanup: async () => undefined, write: async () => undefined } });
+    await runCaptureSloveniaDemoSourcesEntrypoint(["--live-official-sources"], { readInput: async () => input(), capture: capture as never, createRunId: () => "00000000-0000-4000-8000-000000000001", writeFailure: async () => undefined, store: { prepare: async () => undefined, cleanup: async () => undefined, write: async () => undefined } });
     expect(capture).toHaveBeenCalledTimes(1);
   });
 
