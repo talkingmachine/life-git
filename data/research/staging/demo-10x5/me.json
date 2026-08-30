@@ -208,52 +208,51 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of Montenegro",
+          "publisher": "Ministry of Interior of Montenegro / Police Administration",
           "publisherType": "national_police",
           "authorityRootUrl": "https://www.gov.me/",
-          "sourceUrl": "https://www.gov.me/en/mup",
-          "finalUrl": "https://www.gov.me/en/mup",
+          "sourceUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
+          "finalUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
           "factKey": "safety",
           "cityId": "podgorica",
-          "officialStatus": "national police portal",
-          "period": null,
-          "geographicScope": "National; city-level scope not established",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
-          "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
-        },
-        "longTermRent": {
-          "publisher": "Podgorica municipal administration",
-          "publisherType": "municipality",
-          "authorityRootUrl": "https://podgorica.me/",
-          "sourceUrl": "https://podgorica.me/",
-          "finalUrl": "https://podgorica.me/",
-          "factKey": "long-term-rent",
-          "cityId": "podgorica",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Podgorica",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Odjeljenja bezbjednosti list: PODGORICA",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official police department explicitly assigned to the municipality."
+        },
+        "longTermRent": {
+          "publisher": "Statistical Office of Montenegro (MONSTAT) and Podgorica municipal administration",
+          "publisherType": "national_statistics_office_and_municipality",
+          "authorityRootUrl": "https://www.monstat.org/",
+          "sourceUrl": "https://www.monstat.org/uploads/files/cijene/CPI/2025/3/CPI_CG_Mart_2025.pdf",
+          "finalUrl": null,
+          "factKey": "long-term-rent",
+          "cityId": "podgorica",
+          "officialStatus": "official alternatives exhausted; city series not published",
+          "period": "2025 CPI release and current official portals",
+          "geographicScope": "Montenegro national rent CPI; Podgorica city alternatives checked",
+          "format": "PDF/HTML",
+          "language": "en/sr",
+          "exactLocator": "MONSTAT CPI actual rents paid by tenants; MONSTAT housing releases; CBCG real-estate analysis; Real Estate Administration and Podgorica Property Directorate",
           "accessedAt": "2026-08-30",
           "candidateStatus": "not_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "MONSTAT publishes actual-rent inflation only for Montenegro as a whole; no public Podgorica residential rent result was identified."
           ],
           "rejectedAlternatives": [
-            "Listing-platform prices were not used."
+            "MONSTAT Podgorica housing tables: rejected because they report sale prices for new dwellings, not rents.",
+            "CBCG real-estate material: rejected because the located series concerns sale prices.",
+            "Municipal property leases and housing support: rejected because they do not measure the general long-term residential rental market.",
+            "Commercial listing platforms: rejected as non-official."
           ],
-          "notes": "No observed value."
+          "notes": "Kept incomplete after expanded official-source exhaustion; no national, sale-price, public-property or commercial proxy substituted."
         },
         "urbanTransit": {
           "publisher": "Glavni grad Podgorica",
@@ -278,28 +277,24 @@
           "notes": "First-party municipal route and timetable evidence."
         },
         "fixedBroadband": {
-          "publisher": "EKIP",
+          "publisher": "Agency for Electronic Communications and Postal Services (EKIP)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://ekip.me/",
-          "sourceUrl": "https://ekip.me/",
-          "finalUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
+          "finalUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
           "factKey": "fixed-broadband",
           "cityId": "podgorica",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Podgorica municipality",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "Accessibility of services: municipality selector / Širokopojasni pristup internetu / Podgorica",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
-          ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official regulator page states that operator-submitted availability is published by municipality."
         }
       }
     },
@@ -382,100 +377,91 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of Montenegro",
+          "publisher": "Ministry of Interior of Montenegro / Police Administration",
           "publisherType": "national_police",
           "authorityRootUrl": "https://www.gov.me/",
-          "sourceUrl": "https://www.gov.me/en/mup",
-          "finalUrl": "https://www.gov.me/en/mup",
+          "sourceUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
+          "finalUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
           "factKey": "safety",
           "cityId": "budva",
-          "officialStatus": "national police portal",
-          "period": null,
-          "geographicScope": "National; city-level scope not established",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
-          "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
-        },
-        "longTermRent": {
-          "publisher": "Budva municipal administration",
-          "publisherType": "municipality",
-          "authorityRootUrl": "https://budva.me/",
-          "sourceUrl": "https://budva.me/",
-          "finalUrl": "https://budva.me/",
-          "factKey": "long-term-rent",
-          "cityId": "budva",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Budva",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Odjeljenja bezbjednosti list: BUDVA",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official police department explicitly assigned to the municipality."
+        },
+        "longTermRent": {
+          "publisher": "Statistical Office of Montenegro (MONSTAT) and Budva municipal administration",
+          "publisherType": "national_statistics_office_and_municipality",
+          "authorityRootUrl": "https://www.monstat.org/",
+          "sourceUrl": "https://www.monstat.org/uploads/files/cijene/CPI/2025/3/CPI_CG_Mart_2025.pdf",
+          "finalUrl": null,
+          "factKey": "long-term-rent",
+          "cityId": "budva",
+          "officialStatus": "official alternatives exhausted; city series not published",
+          "period": "2025 CPI release and current official portals",
+          "geographicScope": "Montenegro national rent CPI; Budva/coastal alternatives checked",
+          "format": "PDF/HTML",
+          "language": "en/sr",
+          "exactLocator": "MONSTAT CPI actual rents paid by tenants; MONSTAT coastal housing releases; CBCG real-estate analysis; Real Estate Administration and Budva citizen/property pages",
           "accessedAt": "2026-08-30",
           "candidateStatus": "not_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "MONSTAT publishes actual-rent inflation only for Montenegro as a whole; no public Budva residential rent result was identified."
           ],
           "rejectedAlternatives": [
-            "Listing-platform prices were not used."
+            "MONSTAT coastal-region housing tables: rejected because they report sale prices for new dwellings, not rents.",
+            "CBCG real-estate material: rejected because the located series concerns sale prices.",
+            "Municipal property leases and housing support: rejected because they do not measure the general long-term residential rental market.",
+            "Commercial listing platforms: rejected as non-official."
           ],
-          "notes": "No observed value."
+          "notes": "Kept incomplete after expanded official-source exhaustion; no national, sale-price, public-property or commercial proxy substituted."
         },
         "urbanTransit": {
-          "publisher": "Budva municipal administration",
-          "publisherType": "municipality",
-          "authorityRootUrl": "https://budva.me/",
-          "sourceUrl": "https://budva.me/",
-          "finalUrl": "https://budva.me/",
+          "publisher": "Tourist Organization of Budva",
+          "publisherType": "municipal_tourism_body",
+          "authorityRootUrl": "https://budva.travel/",
+          "sourceUrl": "https://api.budva.me/media/files/PDF/Novosti/2018-10-12-plan-linija.pdf",
+          "finalUrl": "https://api.budva.me/media/files/PDF/Novosti/2018-10-12-plan-linija.pdf",
           "factKey": "urban-transit",
           "cityId": "budva",
-          "officialStatus": "municipality portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "Budva",
-          "format": "HTML",
+          "geographicScope": "Budva municipality",
+          "format": "PDF",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Municipality of Budva Plan of Lines: urban/suburban routes and minimum departures",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No operator or route source with a stable official URL was identified."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official municipal candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official municipal/public transport candidate."
         },
         "fixedBroadband": {
-          "publisher": "EKIP",
+          "publisher": "Agency for Electronic Communications and Postal Services (EKIP)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://ekip.me/",
-          "sourceUrl": "https://ekip.me/",
-          "finalUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
+          "finalUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
           "factKey": "fixed-broadband",
           "cityId": "budva",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Budva municipality",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "Accessibility of services: municipality selector / Širokopojasni pristup internetu / Budva",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
-          ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official regulator page states that operator-submitted availability is published by municipality."
         }
       }
     },
@@ -558,100 +544,88 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of Montenegro",
+          "publisher": "Ministry of Interior of Montenegro / Police Administration",
           "publisherType": "national_police",
           "authorityRootUrl": "https://www.gov.me/",
-          "sourceUrl": "https://www.gov.me/en/mup",
-          "finalUrl": "https://www.gov.me/en/mup",
+          "sourceUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
+          "finalUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
           "factKey": "safety",
           "cityId": "bar",
-          "officialStatus": "national police portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Bar",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
+          "language": "sr",
+          "exactLocator": "Odjeljenja bezbjednosti list: BAR",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official police department explicitly assigned to the municipality."
         },
         "longTermRent": {
-          "publisher": "Bar municipal administration",
+          "publisher": "Bar municipal authority",
           "publisherType": "municipality",
           "authorityRootUrl": "https://bar.me/",
-          "sourceUrl": "https://bar.me/",
-          "finalUrl": "https://bar.me/",
+          "sourceUrl": "https://bar.me/lokalna-uprava/sekretarijati/sekretarijat-za-imovinu-zastupanje-i-investicije/nadleznosti/",
+          "finalUrl": "https://bar.me/lokalna-uprava/sekretarijati/sekretarijat-za-imovinu-zastupanje-i-investicije/nadleznosti/",
           "factKey": "long-term-rent",
           "cityId": "bar",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Bar",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Responsibilities: housing questions and processing apartment lease agreements",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "Covers municipal/public leasing, not a citywide private-market rent price series."
           ],
-          "rejectedAlternatives": [
-            "Listing-platform prices were not used."
-          ],
-          "notes": "No observed value."
+          "rejectedAlternatives": [],
+          "notes": "Official municipal tenancy candidate."
         },
         "urbanTransit": {
-          "publisher": "Bar municipal administration",
-          "publisherType": "municipality",
+          "publisher": "Municipality of Bar",
+          "publisherType": "municipal_transport_authority",
           "authorityRootUrl": "https://bar.me/",
-          "sourceUrl": "https://bar.me/",
-          "finalUrl": "https://bar.me/",
+          "sourceUrl": "https://bar.me/wp-content/uploads/2022/12/Odluka-o-izmjeni-i-dopuni-Plana-linija_decembar-2022_compressed.pdf",
+          "finalUrl": null,
           "factKey": "urban-transit",
           "cityId": "bar",
-          "officialStatus": "municipality portal",
-          "period": null,
-          "geographicScope": "Bar",
-          "format": "HTML",
+          "officialStatus": "official candidate",
+          "period": "2022 amendment",
+          "geographicScope": "Bar municipal urban and suburban network",
+          "format": "PDF",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Decision amending the line plan; route 1-A Stari Bar–Čanj with route, ordered stops and departures",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No operator or route source with a stable official URL was identified."
+            "Plan amendment is authoritative network evidence; current live timetable should be reconciled before production import."
           ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official municipal candidate only."
+          "rejectedAlternatives": [],
+          "notes": "Official municipal line-plan document replaces the generic-homepage placeholder."
         },
         "fixedBroadband": {
-          "publisher": "EKIP",
+          "publisher": "Agency for Electronic Communications and Postal Services (EKIP)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://ekip.me/",
-          "sourceUrl": "https://ekip.me/",
-          "finalUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
+          "finalUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
           "factKey": "fixed-broadband",
           "cityId": "bar",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Bar municipality",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "Accessibility of services: municipality selector / Širokopojasni pristup internetu / Bar",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
-          ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official regulator page states that operator-submitted availability is published by municipality."
         }
       }
     },
@@ -734,52 +708,46 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of Montenegro",
+          "publisher": "Ministry of Interior of Montenegro / Police Administration",
           "publisherType": "national_police",
           "authorityRootUrl": "https://www.gov.me/",
-          "sourceUrl": "https://www.gov.me/en/mup",
-          "finalUrl": "https://www.gov.me/en/mup",
+          "sourceUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
+          "finalUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
           "factKey": "safety",
           "cityId": "herceg-novi",
-          "officialStatus": "national police portal",
-          "period": null,
-          "geographicScope": "National; city-level scope not established",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
-          "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
-        },
-        "longTermRent": {
-          "publisher": "Herceg Novi municipal administration",
-          "publisherType": "municipality",
-          "authorityRootUrl": "https://hercegnovi.me/",
-          "sourceUrl": "https://hercegnovi.me/",
-          "finalUrl": "https://hercegnovi.me/",
-          "factKey": "long-term-rent",
-          "cityId": "herceg-novi",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Herceg Novi",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Odjeljenja bezbjednosti list: HERCEG NOVI",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official police department explicitly assigned to the municipality."
+        },
+        "longTermRent": {
+          "publisher": "Herceg Novi municipal authority",
+          "publisherType": "municipality",
+          "authorityRootUrl": "https://www.hercegnovi.me/",
+          "sourceUrl": "https://www.hercegnovi.me/sr-yu/meni/menidmz",
+          "finalUrl": "https://www.hercegnovi.me/sr-yu/meni/menidmz",
+          "factKey": "long-term-rent",
+          "cityId": "herceg-novi",
+          "officialStatus": "official city/municipality-scope candidate",
+          "period": null,
+          "geographicScope": "Herceg Novi",
+          "format": "HTML",
+          "language": "sr",
+          "exactLocator": "Property Directorate: 2026 public calls for residential-space leasing",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "Covers municipal/public leasing, not a citywide private-market rent price series."
           ],
-          "rejectedAlternatives": [
-            "Listing-platform prices were not used."
-          ],
-          "notes": "No observed value."
+          "rejectedAlternatives": [],
+          "notes": "Official municipal tenancy candidate."
         },
         "urbanTransit": {
           "publisher": "Blue Line Herceg Novi",
@@ -804,28 +772,24 @@
           "notes": "The municipal source proves the operator relationship; the operator's own domain was not relied on as authority evidence."
         },
         "fixedBroadband": {
-          "publisher": "EKIP",
+          "publisher": "Agency for Electronic Communications and Postal Services (EKIP)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://ekip.me/",
-          "sourceUrl": "https://ekip.me/",
-          "finalUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
+          "finalUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
           "factKey": "fixed-broadband",
           "cityId": "herceg-novi",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Herceg Novi municipality",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "Accessibility of services: municipality selector / Širokopojasni pristup internetu / Herceg Novi",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
-          ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official regulator page states that operator-submitted availability is published by municipality."
         }
       }
     },
@@ -908,100 +872,86 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of Montenegro",
+          "publisher": "Ministry of Interior of Montenegro / Police Administration",
           "publisherType": "national_police",
           "authorityRootUrl": "https://www.gov.me/",
-          "sourceUrl": "https://www.gov.me/en/mup",
-          "finalUrl": "https://www.gov.me/en/mup",
+          "sourceUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
+          "finalUrl": "https://www.gov.me/mup/policija/centri-bezbjednosti",
           "factKey": "safety",
           "cityId": "tivat",
-          "officialStatus": "national police portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Tivat",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
+          "language": "sr",
+          "exactLocator": "Odjeljenja bezbjednosti list: TIVAT",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official police department explicitly assigned to the municipality."
         },
         "longTermRent": {
-          "publisher": "Tivat municipal administration",
+          "publisher": "Tivat municipal authority",
           "publisherType": "municipality",
           "authorityRootUrl": "https://opstinativat.me/",
-          "sourceUrl": "https://opstinativat.me/",
-          "finalUrl": "https://opstinativat.me/",
+          "sourceUrl": "https://opstinativat.me/direkcija-za-imovinu-i-pravno-zastupanje/",
+          "finalUrl": "https://opstinativat.me/direkcija-za-imovinu-i-pravno-zastupanje/",
           "factKey": "long-term-rent",
           "cityId": "tivat",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Tivat",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Property Directorate: leases of municipal apartments and contracts",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "Covers municipal/public leasing, not a citywide private-market rent price series."
           ],
-          "rejectedAlternatives": [
-            "Listing-platform prices were not used."
-          ],
-          "notes": "No observed value."
+          "rejectedAlternatives": [],
+          "notes": "Official municipal tenancy candidate."
         },
         "urbanTransit": {
-          "publisher": "Tivat municipal administration",
+          "publisher": "Municipality of Tivat",
           "publisherType": "municipality",
           "authorityRootUrl": "https://opstinativat.me/",
-          "sourceUrl": "https://opstinativat.me/",
-          "finalUrl": "https://opstinativat.me/",
+          "sourceUrl": "https://opstinativat.me/gradski-info/transport/",
+          "finalUrl": "https://opstinativat.me/gradski-info/transport/",
           "factKey": "urban-transit",
           "cityId": "tivat",
-          "officialStatus": "municipality portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "Tivat",
+          "geographicScope": "Tivat municipality",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Transport: municipal urban/suburban stops and timetables; Blue Line attachment",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No operator or route source with a stable official URL was identified."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official municipal candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official municipal/public transport candidate."
         },
         "fixedBroadband": {
-          "publisher": "EKIP",
+          "publisher": "Agency for Electronic Communications and Postal Services (EKIP)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://ekip.me/",
-          "sourceUrl": "https://ekip.me/",
-          "finalUrl": "https://ekip.me/",
+          "sourceUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
+          "finalUrl": "https://ekip.me/page/electronic-communications/ec-networks/accessibility-of-services/content",
           "factKey": "fixed-broadband",
           "cityId": "tivat",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Tivat municipality",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "Accessibility of services: municipality selector / Širokopojasni pristup internetu / Tivat",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
-          ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official regulator page states that operator-submitted availability is published by municipality."
         }
       }
     }

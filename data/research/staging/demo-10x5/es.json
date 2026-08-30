@@ -283,23 +283,25 @@
           "publisher": "National Markets and Competition Commission (CNMC)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.cnmc.es/",
-          "sourceUrl": "https://www.cnmc.es/en/ambitos-de-actuacion/promocion-de-la-competencia/estadisticas-y-biblioteca",
+          "sourceUrl": "https://www.cnmc.es/sites/default/files/5645013.pdf",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "madrid",
-          "officialStatus": "official candidate",
-          "period": "December 2024",
-          "geographicScope": "Spain; report offers geographic analysis",
-          "format": "HTML/report",
+          "officialStatus": "official_geographic_broadband_report",
+          "period": "December 2023",
+          "geographicScope": "municipality; 8,131 municipalities covered",
+          "format": "pdf/report",
           "language": "en",
-          "exactLocator": "ESTAD/CNMC/003/25; locate Madrid municipal record",
+          "exactLocator": "ESTAD/CNMC/001/24, section 4 Fuente de datos y metodología: street/portal data aggregated at municipal level; select INE municipality code for Madrid",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "The reviewed regulator landing page did not expose a stable Madrid-level table locator."
+            "A report/table parser is required to recover a municipality value; this staging record does not infer one."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No broadband value inferred from national or provincial aggregates."
+          "rejectedAlternatives": [
+            "Commercial ISP availability checkers were excluded."
+          ],
+          "notes": "CNMC describes source data at street/portal level and municipal aggregation; Madrid and Barcelona are also explicitly discussed in the report."
         }
       }
     },
@@ -437,23 +439,25 @@
           "publisher": "CNMC",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.cnmc.es/",
-          "sourceUrl": "https://www.cnmc.es/en/ambitos-de-actuacion/promocion-de-la-competencia/estadisticas-y-biblioteca",
+          "sourceUrl": "https://www.cnmc.es/sites/default/files/5645013.pdf",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "barcelona",
-          "officialStatus": "official candidate",
-          "period": "December 2024",
-          "geographicScope": "Spain",
-          "format": "HTML/report",
+          "officialStatus": "official_geographic_broadband_report",
+          "period": "December 2023",
+          "geographicScope": "municipality; 8,131 municipalities covered",
+          "format": "pdf/report",
           "language": "en",
-          "exactLocator": "ESTAD/CNMC/003/25; locate Barcelona municipal record",
+          "exactLocator": "ESTAD/CNMC/001/24, section 4 Fuente de datos y metodología: street/portal data aggregated at municipal level; select INE municipality code for Barcelona",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable city table locator observed."
+            "A report/table parser is required to recover a municipality value; this staging record does not infer one."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No value extracted."
+          "rejectedAlternatives": [
+            "Commercial ISP availability checkers were excluded."
+          ],
+          "notes": "CNMC describes source data at street/portal level and municipal aggregation; Madrid and Barcelona are also explicitly discussed in the report."
         }
       }
     },
@@ -591,23 +595,25 @@
           "publisher": "CNMC",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.cnmc.es/",
-          "sourceUrl": "https://www.cnmc.es/en/ambitos-de-actuacion/promocion-de-la-competencia/estadisticas-y-biblioteca",
+          "sourceUrl": "https://www.cnmc.es/sites/default/files/5645013.pdf",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "valencia",
-          "officialStatus": "official candidate",
-          "period": "December 2024",
-          "geographicScope": "Spain",
-          "format": "HTML/report",
+          "officialStatus": "official_geographic_broadband_report",
+          "period": "December 2023",
+          "geographicScope": "municipality; 8,131 municipalities covered",
+          "format": "pdf/report",
           "language": "en",
-          "exactLocator": "ESTAD/CNMC/003/25; locate Valencia municipal record",
+          "exactLocator": "ESTAD/CNMC/001/24, section 4 Fuente de datos y metodología: street/portal data aggregated at municipal level; select INE municipality code for Valencia",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable city table locator observed."
+            "A report/table parser is required to recover a municipality value; this staging record does not infer one."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No value extracted."
+          "rejectedAlternatives": [
+            "Commercial ISP availability checkers were excluded."
+          ],
+          "notes": "CNMC describes source data at street/portal level and municipal aggregation; Madrid and Barcelona are also explicitly discussed in the report."
         }
       }
     },
@@ -744,23 +750,25 @@
           "publisher": "CNMC",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.cnmc.es/",
-          "sourceUrl": "https://www.cnmc.es/en/ambitos-de-actuacion/promocion-de-la-competencia/estadisticas-y-biblioteca",
+          "sourceUrl": "https://www.cnmc.es/sites/default/files/5645013.pdf",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "alicante",
-          "officialStatus": "official candidate",
-          "period": "December 2024",
-          "geographicScope": "Spain",
-          "format": "HTML/report",
+          "officialStatus": "official_geographic_broadband_report",
+          "period": "December 2023",
+          "geographicScope": "municipality; 8,131 municipalities covered",
+          "format": "pdf/report",
           "language": "en",
-          "exactLocator": "ESTAD/CNMC/003/25; locate Alicante/Alacant municipal record",
+          "exactLocator": "ESTAD/CNMC/001/24, section 4 Fuente de datos y metodología: street/portal data aggregated at municipal level; select INE municipality code for Alicante",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable city table locator observed."
+            "A report/table parser is required to recover a municipality value; this staging record does not infer one."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No value extracted."
+          "rejectedAlternatives": [
+            "Commercial ISP availability checkers were excluded."
+          ],
+          "notes": "CNMC describes source data at street/portal level and municipal aggregation; Madrid and Barcelona are also explicitly discussed in the report."
         }
       }
     },
@@ -897,23 +905,25 @@
           "publisher": "CNMC",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.cnmc.es/",
-          "sourceUrl": "https://www.cnmc.es/en/ambitos-de-actuacion/promocion-de-la-competencia/estadisticas-y-biblioteca",
+          "sourceUrl": "https://www.cnmc.es/sites/default/files/5645013.pdf",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "malaga",
-          "officialStatus": "official candidate",
-          "period": "December 2024",
-          "geographicScope": "Spain",
-          "format": "HTML/report",
+          "officialStatus": "official_geographic_broadband_report",
+          "period": "December 2023",
+          "geographicScope": "municipality; 8,131 municipalities covered",
+          "format": "pdf/report",
           "language": "en",
-          "exactLocator": "ESTAD/CNMC/003/25; locate Málaga municipal record",
+          "exactLocator": "ESTAD/CNMC/001/24, section 4 Fuente de datos y metodología: street/portal data aggregated at municipal level; select INE municipality code for Malaga",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable city table locator observed."
+            "A report/table parser is required to recover a municipality value; this staging record does not infer one."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No value extracted."
+          "rejectedAlternatives": [
+            "Commercial ISP availability checkers were excluded."
+          ],
+          "notes": "CNMC describes source data at street/portal level and municipal aggregation; Madrid and Barcelona are also explicitly discussed in the report."
         }
       }
     }

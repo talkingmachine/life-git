@@ -230,51 +230,50 @@
       "facts": {
         "safety": {
           "publisher": "Ministry of Internal Affairs of Georgia",
-          "publisherType": "national_police",
+          "publisherType": "national_police_and_interior_ministry",
           "authorityRootUrl": "https://info.police.ge/",
-          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
-          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "sourceUrl": "https://info.police.ge/uploads/5a90001f27496.pdf",
+          "finalUrl": null,
           "factKey": "safety",
           "cityId": "tbilisi",
-          "officialStatus": "official police publication",
-          "period": "2024",
-          "geographicScope": "Georgia",
-          "format": "HTML/PDF",
+          "officialStatus": "official candidate",
+          "period": "2016",
+          "geographicScope": "Tbilisi",
+          "format": "PDF/chart",
           "language": "ka",
-          "exactLocator": "Registered Crime Statistics 2024",
+          "exactLocator": "Territorial distribution chart: Tbilisi",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Located publication is national; city-level extraction not established."
+            "Historical source; use a newer territorial release when published."
           ],
           "rejectedAlternatives": [
-            "Non-official safety rankings were excluded."
+            "National-only 2024 registered-crime table was rejected for city use because it has no territorial split."
           ],
-          "notes": "No city value recorded."
+          "notes": "Official MIA subject profile publishes territorial shares of registered crime."
         },
         "longTermRent": {
-          "publisher": "National Agency of Public Registry",
-          "publisherType": "national_cadastre",
-          "authorityRootUrl": "https://www.napr.gov.ge/",
-          "sourceUrl": "https://www.napr.gov.ge/",
-          "finalUrl": "https://www.napr.gov.ge/",
-          "factKey": "long_term_rent",
+          "publisher": "National Bank of Georgia",
+          "publisherType": "central_bank",
+          "authorityRootUrl": "https://nbg.gov.ge/",
+          "sourceUrl": "https://nbg.gov.ge/en/media/news/the-national-bank-of-georgia-starts-to-publish-residential-real-estate-price-and-rent-indi",
+          "finalUrl": null,
+          "factKey": "longTermRent",
           "cityId": "tbilisi",
-          "officialStatus": "official property agency portal",
-          "period": null,
-          "geographicScope": "city",
+          "officialStatus": "official candidate",
+          "period": "monthly; series collected since 2006, publication launched 2024",
+          "geographicScope": "Tbilisi, Saburtalo and Varketili segments",
           "format": "HTML",
-          "language": "ka",
-          "exactLocator": "agency homepage",
+          "language": "en",
+          "exactLocator": "Residential Real Estate Price and Rent Indices launch notice; methodology and interactive-statistics publication paragraphs",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No public official long-term residential-rent series located."
+            "Covers two major Tbilisi segments and typical one- and three-room apartments, not the entire city.",
+            "Index uses regularly collected open-source offer prices."
           ],
-          "rejectedAlternatives": [
-            "Commercial listing portals and price aggregators were excluded."
-          ],
-          "notes": "No rent value recorded."
+          "rejectedAlternatives": [],
+          "notes": "Official central-bank monthly residential rent index candidate."
         },
         "urbanTransit": {
           "publisher": "Tbilisi Transport Company",
@@ -397,27 +396,28 @@
       "facts": {
         "safety": {
           "publisher": "Ministry of Internal Affairs of Georgia",
-          "publisherType": "national_police",
+          "publisherType": "national_police_and_interior_ministry",
           "authorityRootUrl": "https://info.police.ge/",
-          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
-          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "sourceUrl": "https://info.police.ge/uploads/5a90001f27496.pdf",
+          "finalUrl": null,
           "factKey": "safety",
           "cityId": "batumi",
-          "officialStatus": "official police publication",
-          "period": "2024",
-          "geographicScope": "Georgia",
-          "format": "HTML/PDF",
+          "officialStatus": "official candidate",
+          "period": "2016",
+          "geographicScope": "Adjara region proxy",
+          "format": "PDF/chart",
           "language": "ka",
-          "exactLocator": "Registered Crime Statistics 2024",
+          "exactLocator": "Territorial distribution chart: Adjara",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-level extraction established."
+            "Regional proxy includes areas outside the seed city.",
+            "Historical source; use a newer territorial release when published."
           ],
           "rejectedAlternatives": [
-            "Non-official rankings excluded."
+            "National-only 2024 registered-crime table was rejected for city use because it has no territorial split."
           ],
-          "notes": "No city value."
+          "notes": "Official MIA subject profile publishes territorial shares of registered crime."
         },
         "longTermRent": {
           "publisher": "National Agency of Public Registry",
@@ -436,34 +436,37 @@
           "accessedAt": "2026-08-30",
           "candidateStatus": "not_found",
           "limitations": [
-            "No public official long-term rent series located."
+            "No public official city residential rent index, rent register extract, or city rent-price table was found after checking Geostat CPI and household-expenditure outputs, National Bank real-estate indices, NAPR/cadastre material, and municipal housing/property pages.",
+            "Geostat collects apartment-rent prices in this CPI city, but the public release located exposes only the aggregated national subgroup, not a city result."
           ],
           "rejectedAlternatives": [
-            "Commercial portals excluded."
+            "Geostat national actual-rent CPI: rejected for city use because the published result is national.",
+            "Commercial listing and offer-price portals: rejected as non-official.",
+            "Municipal housing support/property-allocation records: rejected as assistance or public-property administration, not a city rental-market fact."
           ],
-          "notes": "No rent value."
+          "notes": "Kept incomplete after expanded official-source exhaustion; no commercial or national proxy substituted."
         },
         "urbanTransit": {
           "publisher": "Batumi City Hall",
           "publisherType": "municipality",
           "authorityRootUrl": "https://batumi.ge/",
-          "sourceUrl": "https://batumi.ge/",
-          "finalUrl": "https://batumi.ge/",
+          "sourceUrl": "https://batumi.ge/ge/upload/4._prioritetebis_dokument_2023-2026.pdf",
+          "finalUrl": "https://batumi.ge/ge/upload/4._prioritetebis_dokument_2023-2026.pdf",
           "factKey": "urban_transit",
           "cityId": "batumi",
           "officialStatus": "municipal official portal",
           "period": null,
           "geographicScope": "Batumi",
-          "format": "HTML",
+          "format": "PDF",
           "language": "ka",
-          "exactLocator": "homepage; transport section requires follow-up",
+          "exactLocator": "2023-2026 priority document; municipal transport and bus-priority project section",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Dedicated public operator dataset not established."
+            "Planning document establishes city transit, but is not a timetable or GTFS feed."
           ],
           "rejectedAlternatives": [],
-          "notes": "Municipal source candidate only."
+          "notes": "Official city-scope municipal transit programme located."
         },
         "fixedBroadband": {
           "publisher": "Georgian National Communications Commission (ComCom)",
@@ -564,27 +567,28 @@
       "facts": {
         "safety": {
           "publisher": "Ministry of Internal Affairs of Georgia",
-          "publisherType": "national_police",
+          "publisherType": "national_police_and_interior_ministry",
           "authorityRootUrl": "https://info.police.ge/",
-          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
-          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "sourceUrl": "https://info.police.ge/uploads/5a90001f27496.pdf",
+          "finalUrl": null,
           "factKey": "safety",
           "cityId": "kutaisi",
-          "officialStatus": "official police publication",
-          "period": "2024",
-          "geographicScope": "Georgia",
-          "format": "HTML/PDF",
+          "officialStatus": "official candidate",
+          "period": "2016",
+          "geographicScope": "Imereti, Racha-Lechkhumi and Kvemo Svaneti regional proxy",
+          "format": "PDF/chart",
           "language": "ka",
-          "exactLocator": "Registered Crime Statistics 2024",
+          "exactLocator": "Territorial distribution chart: Imereti/Racha-Lechkhumi/Kvemo Svaneti",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-level extraction established."
+            "Regional proxy includes areas outside the seed city.",
+            "Historical source; use a newer territorial release when published."
           ],
           "rejectedAlternatives": [
-            "Non-official rankings excluded."
+            "National-only 2024 registered-crime table was rejected for city use because it has no territorial split."
           ],
-          "notes": "No city value."
+          "notes": "Official MIA subject profile publishes territorial shares of registered crime."
         },
         "longTermRent": {
           "publisher": "National Agency of Public Registry",
@@ -603,19 +607,22 @@
           "accessedAt": "2026-08-30",
           "candidateStatus": "not_found",
           "limitations": [
-            "No public official long-term rent series located."
+            "No public official city residential rent index, rent register extract, or city rent-price table was found after checking Geostat CPI and household-expenditure outputs, National Bank real-estate indices, NAPR/cadastre material, and municipal housing/property pages.",
+            "Geostat collects apartment-rent prices in this CPI city, but the public release located exposes only the aggregated national subgroup, not a city result."
           ],
           "rejectedAlternatives": [
-            "Commercial portals excluded."
+            "Geostat national actual-rent CPI: rejected for city use because the published result is national.",
+            "Commercial listing and offer-price portals: rejected as non-official.",
+            "Municipal housing support/property-allocation records: rejected as assistance or public-property administration, not a city rental-market fact."
           ],
-          "notes": "No rent value."
+          "notes": "Kept incomplete after expanded official-source exhaustion; no commercial or national proxy substituted."
         },
         "urbanTransit": {
           "publisher": "Kutaisi City Hall",
           "publisherType": "municipality",
           "authorityRootUrl": "https://kutaisi.gov.ge/",
-          "sourceUrl": "https://kutaisi.gov.ge/",
-          "finalUrl": "https://kutaisi.gov.ge/",
+          "sourceUrl": "https://kutaisi.gov.ge/open_news/1159",
+          "finalUrl": "https://kutaisi.gov.ge/open_news/1159",
           "factKey": "urban_transit",
           "cityId": "kutaisi",
           "officialStatus": "municipal official portal",
@@ -623,14 +630,14 @@
           "geographicScope": "Kutaisi",
           "format": "HTML",
           "language": "ka",
-          "exactLocator": "homepage; transport section requires follow-up",
+          "exactLocator": "News 1159; Kutaisi Transport Company route changes and listed city-bus routes",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Dedicated public operator dataset not established."
+            "Published route-change notice is dated; current timetable extraction remains required."
           ],
           "rejectedAlternatives": [],
-          "notes": "Municipal source candidate only."
+          "notes": "Official city-scope route evidence located."
         },
         "fixedBroadband": {
           "publisher": "Georgian National Communications Commission (ComCom)",
@@ -731,27 +738,28 @@
       "facts": {
         "safety": {
           "publisher": "Ministry of Internal Affairs of Georgia",
-          "publisherType": "national_police",
+          "publisherType": "national_police_and_interior_ministry",
           "authorityRootUrl": "https://info.police.ge/",
-          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
-          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "sourceUrl": "https://info.police.ge/uploads/5a90001f27496.pdf",
+          "finalUrl": null,
           "factKey": "safety",
           "cityId": "rustavi",
-          "officialStatus": "official police publication",
-          "period": "2024",
-          "geographicScope": "Georgia",
-          "format": "HTML/PDF",
+          "officialStatus": "official candidate",
+          "period": "2016",
+          "geographicScope": "Kvemo Kartli regional proxy",
+          "format": "PDF/chart",
           "language": "ka",
-          "exactLocator": "Registered Crime Statistics 2024",
+          "exactLocator": "Territorial distribution chart: Kvemo Kartli",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-level extraction established."
+            "Regional proxy includes areas outside the seed city.",
+            "Historical source; use a newer territorial release when published."
           ],
           "rejectedAlternatives": [
-            "Non-official rankings excluded."
+            "National-only 2024 registered-crime table was rejected for city use because it has no territorial split."
           ],
-          "notes": "No city value."
+          "notes": "Official MIA subject profile publishes territorial shares of registered crime."
         },
         "longTermRent": {
           "publisher": "National Agency of Public Registry",
@@ -770,19 +778,22 @@
           "accessedAt": "2026-08-30",
           "candidateStatus": "not_found",
           "limitations": [
-            "No public official long-term rent series located."
+            "No public official city residential rent index, rent register extract, or city rent-price table was found after checking Geostat CPI and household-expenditure outputs, National Bank real-estate indices, NAPR/cadastre material, and municipal housing/property pages.",
+            "The city is not among the six CPI price-collection cities named in the official methodology."
           ],
           "rejectedAlternatives": [
-            "Commercial portals excluded."
+            "Geostat national actual-rent CPI: rejected for city use because the published result is national.",
+            "Commercial listing and offer-price portals: rejected as non-official.",
+            "Municipal housing support/property-allocation records: rejected as assistance or public-property administration, not a city rental-market fact."
           ],
-          "notes": "No rent value."
+          "notes": "Kept incomplete after expanded official-source exhaustion; no commercial or national proxy substituted."
         },
         "urbanTransit": {
           "publisher": "Rustavi City Hall",
           "publisherType": "municipality",
           "authorityRootUrl": "https://rustavi.gov.ge/",
-          "sourceUrl": "https://rustavi.gov.ge/",
-          "finalUrl": "https://rustavi.gov.ge/",
+          "sourceUrl": "https://rustavi.gov.ge/%E1%83%A2%E1%83%A0%E1%83%90%E1%83%9C%E1%83%A1%E1%83%9E%E1%83%9D%E1%83%A0%E1%83%A2%E1%83%98/",
+          "finalUrl": "https://rustavi.gov.ge/%E1%83%A2%E1%83%A0%E1%83%90%E1%83%9C%E1%83%A1%E1%83%9E%E1%83%9D%E1%83%A0%E1%83%A2%E1%83%98/",
           "factKey": "urban_transit",
           "cityId": "rustavi",
           "officialStatus": "municipal official portal",
@@ -790,14 +801,14 @@
           "geographicScope": "Rustavi",
           "format": "HTML",
           "language": "ka",
-          "exactLocator": "homepage; transport section requires follow-up",
+          "exactLocator": "Transport page; Rustavi municipal transport enterprise and Rustavi Transport application",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Dedicated public operator dataset not established."
+            "No machine-readable route/timetable export was identified."
           ],
           "rejectedAlternatives": [],
-          "notes": "Municipal source candidate only."
+          "notes": "Official municipal transport-operator evidence located."
         },
         "fixedBroadband": {
           "publisher": "Georgian National Communications Commission (ComCom)",
@@ -898,27 +909,28 @@
       "facts": {
         "safety": {
           "publisher": "Ministry of Internal Affairs of Georgia",
-          "publisherType": "national_police",
+          "publisherType": "national_police_and_interior_ministry",
           "authorityRootUrl": "https://info.police.ge/",
-          "sourceUrl": "https://info.police.ge/page?id=884&parent_id=115",
-          "finalUrl": "https://info.police.ge/page?id=884&parent_id=115",
+          "sourceUrl": "https://info.police.ge/uploads/5a90001f27496.pdf",
+          "finalUrl": null,
           "factKey": "safety",
           "cityId": "poti",
-          "officialStatus": "official police publication",
-          "period": "2024",
-          "geographicScope": "Georgia",
-          "format": "HTML/PDF",
+          "officialStatus": "official candidate",
+          "period": "2016",
+          "geographicScope": "Samegrelo-Zemo Svaneti regional proxy",
+          "format": "PDF/chart",
           "language": "ka",
-          "exactLocator": "Registered Crime Statistics 2024",
+          "exactLocator": "Territorial distribution chart: Samegrelo-Zemo Svaneti",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-level extraction established."
+            "Regional proxy includes areas outside the seed city.",
+            "Historical source; use a newer territorial release when published."
           ],
           "rejectedAlternatives": [
-            "Non-official rankings excluded."
+            "National-only 2024 registered-crime table was rejected for city use because it has no territorial split."
           ],
-          "notes": "No city value."
+          "notes": "Official MIA subject profile publishes territorial shares of registered crime."
         },
         "longTermRent": {
           "publisher": "National Agency of Public Registry",
@@ -937,34 +949,37 @@
           "accessedAt": "2026-08-30",
           "candidateStatus": "not_found",
           "limitations": [
-            "No public official long-term rent series located."
+            "No public official city residential rent index, rent register extract, or city rent-price table was found after checking Geostat CPI and household-expenditure outputs, National Bank real-estate indices, NAPR/cadastre material, and municipal housing/property pages.",
+            "The city is not among the six CPI price-collection cities named in the official methodology."
           ],
           "rejectedAlternatives": [
-            "Commercial portals excluded."
+            "Geostat national actual-rent CPI: rejected for city use because the published result is national.",
+            "Commercial listing and offer-price portals: rejected as non-official.",
+            "Municipal housing support/property-allocation records: rejected as assistance or public-property administration, not a city rental-market fact."
           ],
-          "notes": "No rent value."
+          "notes": "Kept incomplete after expanded official-source exhaustion; no commercial or national proxy substituted."
         },
         "urbanTransit": {
-          "publisher": "Poti City Hall",
-          "publisherType": "municipality",
-          "authorityRootUrl": "https://poti.gov.ge/",
-          "sourceUrl": "https://poti.gov.ge/",
-          "finalUrl": "https://poti.gov.ge/",
-          "factKey": "urban_transit",
+          "publisher": "Poti Transport Company",
+          "publisherType": "municipality_founded_transport_company",
+          "authorityRootUrl": "https://potitransport.ge/",
+          "sourceUrl": "https://potitransport.ge/services/",
+          "finalUrl": null,
+          "factKey": "urbanTransit",
           "cityId": "poti",
-          "officialStatus": "municipal official portal",
-          "period": null,
-          "geographicScope": "Poti",
+          "officialStatus": "official candidate",
+          "period": "current page observed 2026-08-30",
+          "geographicScope": "Poti municipal routes",
           "format": "HTML",
           "language": "ka",
-          "exactLocator": "homepage; transport section requires follow-up",
+          "exactLocator": "Services page: municipality-founded legal entity organizing service on municipality-approved intra-city routes",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Dedicated public operator dataset not established."
+            "Timetable is linked to the company social page; route/timetable values were not copied."
           ],
           "rejectedAlternatives": [],
-          "notes": "Municipal source candidate only."
+          "notes": "Ownership and route mandate are corroborated by the official legislative register and 2026 municipal budget."
         },
         "fixedBroadband": {
           "publisher": "Georgian National Communications Commission (ComCom)",

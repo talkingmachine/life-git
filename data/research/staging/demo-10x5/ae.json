@@ -90,7 +90,7 @@
         "publisher": "Telecommunications and Digital Government Regulatory Authority (TDRA)",
         "publisherType": "telecom_regulator",
         "authorityRootUrl": "https://tdra.gov.ae/",
-        "sourceUrl": "https://u.ae/en/help",
+        "sourceUrl": "https://tdra.gov.ae/en/About/initiatives/telecom/service-coverage-interactive-maps",
         "finalUrl": null,
         "factKey": "fixed_broadband",
         "cityId": null,
@@ -99,12 +99,12 @@
         "geographicScope": "United Arab Emirates",
         "format": "HTML",
         "language": "en",
-        "exactLocator": "U.ae help identifies TDRA as the portal operator",
+        "exactLocator": "Service Coverage Interactive Maps: fiber coverage for fixed services at a specific location",
         "accessedAt": "2026-08-30",
         "candidateStatus": "official_candidate_found",
         "limitations": [],
         "rejectedAlternatives": [],
-        "notes": "TDRA is recorded as regulatory authority; no city coverage series was located."
+        "notes": "TDRA instructs both licensees to publish and maintain up-to-date point-specific fixed-fiber coverage maps."
       },
       {
         "publisher": "Dubai Land Department",
@@ -221,26 +221,26 @@
           "notes": "Official police source candidate; no comparable crime statistic extracted."
         },
         "longTermRent": {
-          "publisher": "Relevant emirate housing/land authority",
-          "publisherType": "emirate_housing_authority",
-          "authorityRootUrl": "https://www.dmt.gov.ae/",
-          "sourceUrl": null,
+          "publisher": "Abu Dhabi Real Estate Centre (ADREC)",
+          "publisherType": "emirate_real_estate_regulator",
+          "authorityRootUrl": "https://adrec.gov.ae/",
+          "sourceUrl": "https://adrec.gov.ae/en/news/newsitem7-adrec-launches-first-residential",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "abu-dhabi",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city/emirate",
-          "format": "HTML",
+          "officialStatus": "official candidate",
+          "period": "quarterly; launched 2024",
+          "geographicScope": "Abu Dhabi areas",
+          "format": "HTML/interactive index",
           "language": "en",
-          "exactLocator": null,
+          "exactLocator": "Launch notice paragraphs 1-2: indicative quarterly residential rental pricing for areas across Abu Dhabi",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term city-rent statistic or rent-index locator was found without submitting a form."
+            "Interactive index output requires an area/property selection; no value was inferred without executing the tool."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial portal substituted."
+          "notes": "Direct official residential rental-index candidate; ADREC identifies itself as the sector custodian and regulator."
         },
         "urbanTransit": {
           "publisher": "Abu Dhabi Mobility",
@@ -266,23 +266,23 @@
           "publisher": "Telecommunications and Digital Government Regulatory Authority (TDRA)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://tdra.gov.ae/",
-          "sourceUrl": "https://u.ae/en/help",
+          "sourceUrl": "https://tdra.gov.ae/en/About/initiatives/telecom/service-coverage-interactive-maps",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "abu-dhabi",
-          "officialStatus": null,
+          "officialStatus": "official candidate",
           "period": null,
-          "geographicScope": "United Arab Emirates",
-          "format": "HTML",
+          "geographicScope": "Abu Dhabi, point-specific coverage",
+          "format": "HTML/interactive maps",
           "language": "en",
-          "exactLocator": "U.ae identifies TDRA as operator of UAE government platform",
+          "exactLocator": "Service Coverage Interactive Maps: select a licensed operator map, search the location, and inspect fiber coverage for fixed double/triple-play services",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No public, stable city-level fixed-broadband coverage locator was found."
+            "Interactive map is operator-maintained and needs a location query; no coverage value was inferred."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "TDRA requires both licensees to publish and maintain up-to-date maps for service coverage at a specific UAE location."
         }
       }
     },
@@ -378,26 +378,26 @@
           "notes": "Official police source candidate; no comparable crime statistic extracted."
         },
         "longTermRent": {
-          "publisher": "Relevant emirate housing/land authority",
-          "publisherType": "emirate_housing_authority",
-          "authorityRootUrl": "https://www.dm.gov.ae/",
-          "sourceUrl": null,
+          "publisher": "Dubai Land Department",
+          "publisherType": "emirate_land_regulator",
+          "authorityRootUrl": "https://dubailand.gov.ae/",
+          "sourceUrl": "https://dubailand.gov.ae/en/eservices/rental-index/rental-index",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "dubai",
-          "officialStatus": null,
+          "officialStatus": "official candidate",
           "period": null,
-          "geographicScope": "city/emirate",
-          "format": "HTML",
+          "geographicScope": "Dubai areas",
+          "format": "HTML/interactive index",
           "language": "en",
-          "exactLocator": null,
+          "exactLocator": "Rental Index: residential tab; area, property type, bedrooms and annual-rent inputs",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term city-rent statistic or rent-index locator was found without submitting a form."
+            "Result requires user-selected inputs and CAPTCHA; no form was submitted and no value was inferred."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial portal substituted."
+          "notes": "Direct official Dubai residential rental-index candidate."
         },
         "urbanTransit": {
           "publisher": "Roads and Transport Authority (RTA)",
@@ -423,23 +423,23 @@
           "publisher": "Telecommunications and Digital Government Regulatory Authority (TDRA)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://tdra.gov.ae/",
-          "sourceUrl": "https://u.ae/en/help",
+          "sourceUrl": "https://tdra.gov.ae/en/About/initiatives/telecom/service-coverage-interactive-maps",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "dubai",
-          "officialStatus": null,
+          "officialStatus": "official candidate",
           "period": null,
-          "geographicScope": "United Arab Emirates",
-          "format": "HTML",
+          "geographicScope": "Dubai, point-specific coverage",
+          "format": "HTML/interactive maps",
           "language": "en",
-          "exactLocator": "U.ae identifies TDRA as operator of UAE government platform",
+          "exactLocator": "Service Coverage Interactive Maps: select a licensed operator map, search the location, and inspect fiber coverage for fixed double/triple-play services",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No public, stable city-level fixed-broadband coverage locator was found."
+            "Interactive map is operator-maintained and needs a location query; no coverage value was inferred."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "TDRA requires both licensees to publish and maintain up-to-date maps for service coverage at a specific UAE location."
         }
       }
     },
@@ -535,26 +535,26 @@
           "notes": "Official police source candidate; no comparable crime statistic extracted."
         },
         "longTermRent": {
-          "publisher": "Relevant emirate housing/land authority",
-          "publisherType": "emirate_housing_authority",
+          "publisher": "Sharjah City Municipality",
+          "publisherType": "municipal_rent_regulator",
           "authorityRootUrl": "https://portal.shjmun.gov.ae/",
-          "sourceUrl": null,
+          "sourceUrl": "https://portal.shjmun.gov.ae/en/eservices/Pages/Services.aspx?sercatid=223",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "sharjah",
-          "officialStatus": null,
+          "officialStatus": "official candidate",
           "period": null,
-          "geographicScope": "city/emirate",
-          "format": "HTML",
+          "geographicScope": "Sharjah city and emirate regions",
+          "format": "HTML/interactive rental map",
           "language": "en",
-          "exactLocator": null,
+          "exactLocator": "Rental Indicators Inquiry Service: highest and lowest rental value by contract type, property type and region",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term city-rent statistic or rent-index locator was found without submitting a form."
+            "Interactive result requires filter selection; no value was inferred."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial portal substituted."
+          "notes": "Municipal rental map is based on attested tenancy contracts and is updated daily."
         },
         "urbanTransit": {
           "publisher": "Sharjah Roads and Transport Authority",
@@ -580,23 +580,23 @@
           "publisher": "Telecommunications and Digital Government Regulatory Authority (TDRA)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://tdra.gov.ae/",
-          "sourceUrl": "https://u.ae/en/help",
+          "sourceUrl": "https://tdra.gov.ae/en/About/initiatives/telecom/service-coverage-interactive-maps",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "sharjah",
-          "officialStatus": null,
+          "officialStatus": "official candidate",
           "period": null,
-          "geographicScope": "United Arab Emirates",
-          "format": "HTML",
+          "geographicScope": "Sharjah, point-specific coverage",
+          "format": "HTML/interactive maps",
           "language": "en",
-          "exactLocator": "U.ae identifies TDRA as operator of UAE government platform",
+          "exactLocator": "Service Coverage Interactive Maps: select a licensed operator map, search the location, and inspect fiber coverage for fixed double/triple-play services",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No public, stable city-level fixed-broadband coverage locator was found."
+            "Interactive map is operator-maintained and needs a location query; no coverage value was inferred."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "TDRA requires both licensees to publish and maintain up-to-date maps for service coverage at a specific UAE location."
         }
       }
     },
@@ -692,26 +692,26 @@
           "notes": "Official police source candidate; no comparable crime statistic extracted."
         },
         "longTermRent": {
-          "publisher": "Relevant emirate housing/land authority",
-          "publisherType": "emirate_housing_authority",
-          "authorityRootUrl": "https://www.am.gov.ae/",
-          "sourceUrl": null,
+          "publisher": "Ajman Statistics and Competitiveness Center",
+          "publisherType": "emirate_statistics_office",
+          "authorityRootUrl": "https://scc.ajman.ae/",
+          "sourceUrl": "https://scc.ajman.ae/sites/default/files/publications/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8%20%D8%A7%D9%84%D8%A7%D8%AD%D8%B5%D8%A7%D8%A6%D9%8A%20%D8%A7%D9%84%D8%B3%D9%86%D9%88%D9%8A%202016.pdf",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "ajman",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city/emirate",
-          "format": "HTML",
+          "officialStatus": "official candidate",
+          "period": "2016",
+          "geographicScope": "Ajman Emirate",
+          "format": "PDF",
           "language": "en",
-          "exactLocator": null,
+          "exactLocator": "Consumer-price tables, Actual rentals for housing / Rental actually paid section",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term city-rent statistic or rent-index locator was found without submitting a form."
+            "Historical source is old and published rent categories require table parsing before a comparable value can be retained."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial portal substituted."
+          "notes": "Official yearbook contains a direct actual-housing-rent series; no unlabeled search-snippet value was copied."
         },
         "urbanTransit": {
           "publisher": "Ajman Transport Authority",
@@ -737,23 +737,23 @@
           "publisher": "Telecommunications and Digital Government Regulatory Authority (TDRA)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://tdra.gov.ae/",
-          "sourceUrl": "https://u.ae/en/help",
+          "sourceUrl": "https://tdra.gov.ae/en/About/initiatives/telecom/service-coverage-interactive-maps",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "ajman",
-          "officialStatus": null,
+          "officialStatus": "official candidate",
           "period": null,
-          "geographicScope": "United Arab Emirates",
-          "format": "HTML",
+          "geographicScope": "Ajman, point-specific coverage",
+          "format": "HTML/interactive maps",
           "language": "en",
-          "exactLocator": "U.ae identifies TDRA as operator of UAE government platform",
+          "exactLocator": "Service Coverage Interactive Maps: select a licensed operator map, search the location, and inspect fiber coverage for fixed double/triple-play services",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No public, stable city-level fixed-broadband coverage locator was found."
+            "Interactive map is operator-maintained and needs a location query; no coverage value was inferred."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "TDRA requires both licensees to publish and maintain up-to-date maps for service coverage at a specific UAE location."
         }
       }
     },
@@ -849,26 +849,26 @@
           "notes": "Official police source candidate; no comparable crime statistic extracted."
         },
         "longTermRent": {
-          "publisher": "Relevant emirate housing/land authority",
-          "publisherType": "emirate_housing_authority",
-          "authorityRootUrl": "https://mun.rak.ae/",
-          "sourceUrl": null,
+          "publisher": "Ras Al Khaimah Statistics Centre",
+          "publisherType": "emirate_statistics_office",
+          "authorityRootUrl": "https://css.rak.ae/",
+          "sourceUrl": "https://css.rak.ae/en/Pages/statistical-themes.aspx?catId=1&subcatId=2",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "ras-al-khaimah",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city/emirate",
+          "officialStatus": "official candidate",
+          "period": "quarterly",
+          "geographicScope": "Ras Al Khaimah Emirate",
           "format": "HTML",
           "language": "en",
-          "exactLocator": null,
+          "exactLocator": "Consumer Price Index methodology, Exhaustiveness & Coverage: rent prices collected quarterly",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term city-rent statistic or rent-index locator was found without submitting a form."
+            "Public page exposes grouped CPI series; a dedicated rent subseries/value still requires extraction from related tables."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial portal substituted."
+          "notes": "Official statistics methodology directly identifies quarterly rent-price collection in the emirate."
         },
         "urbanTransit": {
           "publisher": "RAK Transport Authority",
@@ -894,23 +894,23 @@
           "publisher": "Telecommunications and Digital Government Regulatory Authority (TDRA)",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://tdra.gov.ae/",
-          "sourceUrl": "https://u.ae/en/help",
+          "sourceUrl": "https://tdra.gov.ae/en/About/initiatives/telecom/service-coverage-interactive-maps",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "ras-al-khaimah",
-          "officialStatus": null,
+          "officialStatus": "official candidate",
           "period": null,
-          "geographicScope": "United Arab Emirates",
-          "format": "HTML",
+          "geographicScope": "Ras Al Khaimah, point-specific coverage",
+          "format": "HTML/interactive maps",
           "language": "en",
-          "exactLocator": "U.ae identifies TDRA as operator of UAE government platform",
+          "exactLocator": "Service Coverage Interactive Maps: select a licensed operator map, search the location, and inspect fiber coverage for fixed double/triple-play services",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No public, stable city-level fixed-broadband coverage locator was found."
+            "Interactive map is operator-maintained and needs a location query; no coverage value was inferred."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "TDRA requires both licensees to publish and maintain up-to-date maps for service coverage at a specific UAE location."
         }
       }
     }

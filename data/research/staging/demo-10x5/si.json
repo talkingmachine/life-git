@@ -237,52 +237,53 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Police of the Republic of Slovenia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.policija.si/",
-          "sourceUrl": "https://www.policija.si/images/stories/Publikacije/RKK/PDF/2025/03/RKK2025-03_MatjazJerkic_Kriminaliteta2024.pdf",
+          "publisher": "Mestna občina Ljubljana",
+          "publisherType": "municipal_public_safety_authority",
+          "authorityRootUrl": "https://www.ljubljana.si/",
+          "sourceUrl": "https://www.ljubljana.si/assets/Uploads/LETNO-POROCILO-O-DELU-INSPEKTORATA-2024-v2.docx-3-P.pdf",
           "finalUrl": null,
           "factKey": "city.safety",
           "cityId": "ljubljana",
-          "officialStatus": "official_source_scope_mismatch",
-          "period": "2015-2024",
-          "geographicScope": "Police Directorate Ljubljana, broader than municipality",
-          "format": "pdf/table",
+          "officialStatus": "official_city_safety_report_candidate",
+          "period": "2024",
+          "geographicScope": "Mestna občina Ljubljana",
+          "format": "pdf",
           "language": "sl",
-          "exactLocator": "Table 5, row Policijska uprava Ljubljana",
+          "exactLocator": "Poročilo o delu Inšpektorata MU MOL v letu 2024",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Police-directorate counts cannot be attributed to Ljubljana municipality without a separately verified municipal extract and denominator."
+            "Source is a city-level public-safety/police or enforcement report; comparability to a national crime rate requires a separate methodology check."
           ],
           "rejectedAlternatives": [
-            "Numbeo and media crime rankings were excluded."
+            "Police-directorate totals were rejected as municipality-scope mismatches.",
+            "Commercial safety rankings were excluded."
           ],
-          "notes": "Stage B already treats exact-municipality safety as a separate unresolved acquisition requirement."
+          "notes": "Municipal inspector annual report is an official city-level public-order/enforcement source; it is not a police crime series."
         },
         "longTermRent": {
           "publisher": "Surveying and Mapping Authority of the Republic of Slovenia (GURS)",
           "publisherType": "national_geospatial_cadastral_authority",
           "authorityRootUrl": "https://www.e-prostor.gov.si/",
-          "sourceUrl": "https://www.e-prostor.gov.si/fileadmin/Podrocja/Trg_vrednosti_nep/Trg_nepremicnin/Porocila_o_trgu_nepremicnin/2025/Letno_porocilo_za_leto_2025.pdf",
+          "sourceUrl": "https://www.e-prostor.gov.si/podrocja/trg-in-vrednosti-nepremicnin/trg-nepremicnin/",
           "finalUrl": null,
           "factKey": "city.long_term_rent",
           "cityId": "ljubljana",
-          "officialStatus": "official_source_quality_warning",
-          "period": "2025",
-          "geographicScope": "Slovenia; selected-market reporting",
-          "format": "pdf",
+          "officialStatus": "official_public_transaction_register_candidate",
+          "period": "current data; leases at least six months",
+          "geographicScope": "municipality; select Ljubljana",
+          "format": "html/interactive_public_data",
           "language": "sl",
-          "exactLocator": "Introduction and rental-market limitations discussing ETN reporting completeness",
+          "exactLocator": "Javni podatki evidence trga nepremičnin; Vpogled v aktualne cene nepremičnin; filter municipality Ljubljana",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "GURS explicitly says available data are insufficient for satisfactory rental-market monitoring; no unambiguous city value is staged."
+            "A dedicated public-data/map parser and record-date handling are required before importing a rent value."
           ],
           "rejectedAlternatives": [
             "Commercial listing portals and rental aggregators were excluded."
           ],
-          "notes": "The official source is retained because it documents why a city value must not be fabricated."
+          "notes": "GURS says ETN records leases of buildings/parts for at least six months and makes raw transaction data public; do not infer a value without parsing the municipal extract."
         },
         "urbanTransit": {
           "publisher": "Ljubljanski potniški promet (LPP)",
@@ -421,52 +422,53 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Police of the Republic of Slovenia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.policija.si/",
-          "sourceUrl": "https://www.policija.si/images/stories/Publikacije/RKK/PDF/2025/03/RKK2025-03_MatjazJerkic_Kriminaliteta2024.pdf",
+          "publisher": "Mestna občina Maribor / Policijska uprava Maribor",
+          "publisherType": "municipal_and_police_authority",
+          "authorityRootUrl": "https://maribor.si/",
+          "sourceUrl": "https://maribor.si/wp-content/uploads/2025/05/Informacija-za-MOM-2024.pdf",
           "finalUrl": null,
           "factKey": "city.safety",
           "cityId": "maribor",
-          "officialStatus": "official_source_scope_mismatch",
-          "period": "2015-2024",
-          "geographicScope": "Police Directorate Maribor",
-          "format": "pdf/table",
+          "officialStatus": "official_city_safety_report_candidate",
+          "period": "2024",
+          "geographicScope": "Mestna občina Maribor",
+          "format": "pdf",
           "language": "sl",
-          "exactLocator": "Table 5, row Policijska uprava Maribor",
+          "exactLocator": "II. Število varnostnih pojavov; 1 Kriminaliteta",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Directorate is broader than municipality."
+            "Source is a city-level public-safety/police or enforcement report; comparability to a national crime rate requires a separate methodology check."
           ],
           "rejectedAlternatives": [
-            "Aggregators excluded."
+            "Police-directorate totals were rejected as municipality-scope mismatches.",
+            "Commercial safety rankings were excluded."
           ],
-          "notes": "Needs municipal extract."
+          "notes": "Official municipality-hosted police information explicitly reports crime for MO Maribor."
         },
         "longTermRent": {
           "publisher": "Surveying and Mapping Authority of the Republic of Slovenia (GURS)",
           "publisherType": "national_geospatial_cadastral_authority",
           "authorityRootUrl": "https://www.e-prostor.gov.si/",
-          "sourceUrl": "https://www.e-prostor.gov.si/fileadmin/Podrocja/Trg_vrednosti_nep/Trg_nepremicnin/Porocila_o_trgu_nepremicnin/2025/Letno_porocilo_za_leto_2025.pdf",
+          "sourceUrl": "https://www.e-prostor.gov.si/podrocja/trg-in-vrednosti-nepremicnin/trg-nepremicnin/",
           "finalUrl": null,
           "factKey": "city.long_term_rent",
           "cityId": "maribor",
-          "officialStatus": "official_source_quality_warning",
-          "period": "2025",
-          "geographicScope": "Slovenia; selected-market reporting",
-          "format": "pdf",
+          "officialStatus": "official_public_transaction_register_candidate",
+          "period": "current data; leases at least six months",
+          "geographicScope": "municipality; select Maribor",
+          "format": "html/interactive_public_data",
           "language": "sl",
-          "exactLocator": "Rental-market data quality discussion",
+          "exactLocator": "Javni podatki evidence trga nepremičnin; Vpogled v aktualne cene nepremičnin; filter municipality Maribor",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No reliable city value established."
+            "A dedicated public-data/map parser and record-date handling are required before importing a rent value."
           ],
           "rejectedAlternatives": [
-            "Commercial listings excluded."
+            "Commercial listing portals and rental aggregators were excluded."
           ],
-          "notes": "Official limitation retained."
+          "notes": "GURS says ETN records leases of buildings/parts for at least six months and makes raw transaction data public; do not infer a value without parsing the municipal extract."
         },
         "urbanTransit": {
           "publisher": "Javno podjetje Marprom d.o.o.",
@@ -609,49 +611,50 @@
           "publisher": "Police of the Republic of Slovenia",
           "publisherType": "national_police",
           "authorityRootUrl": "https://www.policija.si/",
-          "sourceUrl": "https://www.policija.si/images/stories/Publikacije/RKK/PDF/2025/03/RKK2025-03_MatjazJerkic_Kriminaliteta2024.pdf",
+          "sourceUrl": "https://www.policija.si/images/stories/PUKP/Statistika/pdf/PUKP_StatisticnaPriloga2022.pdf",
           "finalUrl": null,
           "factKey": "city.safety",
           "cityId": "koper",
-          "officialStatus": "official_source_scope_mismatch",
-          "period": "2015-2024",
-          "geographicScope": "Police Directorate Koper",
-          "format": "pdf/table",
+          "officialStatus": "official candidate",
+          "period": "2013-2022",
+          "geographicScope": "Police Station Koper area",
+          "format": "PDF/table",
           "language": "sl",
-          "exactLocator": "Table 5, row Policijska uprava Koper",
+          "exactLocator": "Number of criminal offences by units; row PP Koper",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Directorate broader than municipality."
+            "Police-station jurisdiction may not be perfectly coterminous with the municipality.",
+            "Latest directly pinned station table ends in 2022."
           ],
           "rejectedAlternatives": [
-            "Aggregators excluded."
+            "Koper municipal budget and civil-protection plans were rejected because they are expenditure/preparedness records, not safety outcomes."
           ],
-          "notes": "Needs municipal extract."
+          "notes": "Official police annual statistical appendix directly reports offences for PP Koper."
         },
         "longTermRent": {
           "publisher": "Surveying and Mapping Authority of the Republic of Slovenia (GURS)",
           "publisherType": "national_geospatial_cadastral_authority",
           "authorityRootUrl": "https://www.e-prostor.gov.si/",
-          "sourceUrl": "https://www.e-prostor.gov.si/fileadmin/Podrocja/Trg_vrednosti_nep/Trg_nepremicnin/Porocila_o_trgu_nepremicnin/2025/Letno_porocilo_za_leto_2025.pdf",
+          "sourceUrl": "https://www.e-prostor.gov.si/podrocja/trg-in-vrednosti-nepremicnin/trg-nepremicnin/",
           "finalUrl": null,
           "factKey": "city.long_term_rent",
           "cityId": "koper",
-          "officialStatus": "official_source_quality_warning",
-          "period": "2025",
-          "geographicScope": "Slovenia; selected-market reporting",
-          "format": "pdf",
+          "officialStatus": "official_public_transaction_register_candidate",
+          "period": "current data; leases at least six months",
+          "geographicScope": "municipality; select Koper",
+          "format": "html/interactive_public_data",
           "language": "sl",
-          "exactLocator": "Rental-market data quality discussion",
+          "exactLocator": "Javni podatki evidence trga nepremičnin; Vpogled v aktualne cene nepremičnin; filter municipality Koper",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No reliable city value."
+            "A dedicated public-data/map parser and record-date handling are required before importing a rent value."
           ],
           "rejectedAlternatives": [
-            "Commercial listings excluded."
+            "Commercial listing portals and rental aggregators were excluded."
           ],
-          "notes": "Official limitation retained."
+          "notes": "GURS says ETN records leases of buildings/parts for at least six months and makes raw transaction data public; do not infer a value without parsing the municipal extract."
         },
         "urbanTransit": {
           "publisher": "Arriva Slovenija d.o.o.",
@@ -790,52 +793,53 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Police of the Republic of Slovenia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.policija.si/",
-          "sourceUrl": "https://www.policija.si/images/stories/Publikacije/RKK/PDF/2025/03/RKK2025-03_MatjazJerkic_Kriminaliteta2024.pdf",
+          "publisher": "Mestna občina Celje / Policijska postaja Celje",
+          "publisherType": "municipal_and_police_authority",
+          "authorityRootUrl": "https://moc.celje.si/",
+          "sourceUrl": "https://moc.celje.si/okolje/8-staticne-strani",
           "finalUrl": null,
           "factKey": "city.safety",
           "cityId": "celje",
-          "officialStatus": "official_source_scope_mismatch",
-          "period": "2015-2024",
-          "geographicScope": "Police Directorate Celje",
-          "format": "pdf/table",
+          "officialStatus": "official_city_safety_report_candidate",
+          "period": "2024",
+          "geographicScope": "Mestna občina Celje",
+          "format": "html/pdf",
           "language": "sl",
-          "exactLocator": "Table 5, row Policijska uprava Celje",
+          "exactLocator": "18. redna seja Mestnega sveta: Poročilo o delovanju Policijske postaje Celje za leto 2024",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Directorate broader than municipality."
+            "Source is a city-level public-safety/police or enforcement report; comparability to a national crime rate requires a separate methodology check."
           ],
           "rejectedAlternatives": [
-            "Aggregators excluded."
+            "Police-directorate totals were rejected as municipality-scope mismatches.",
+            "Commercial safety rankings were excluded."
           ],
-          "notes": "Needs municipal extract."
+          "notes": "Official city council agenda publishes the city police-station annual report."
         },
         "longTermRent": {
           "publisher": "Surveying and Mapping Authority of the Republic of Slovenia (GURS)",
           "publisherType": "national_geospatial_cadastral_authority",
           "authorityRootUrl": "https://www.e-prostor.gov.si/",
-          "sourceUrl": "https://www.e-prostor.gov.si/fileadmin/Podrocja/Trg_vrednosti_nep/Trg_nepremicnin/Porocila_o_trgu_nepremicnin/2025/Letno_porocilo_za_leto_2025.pdf",
+          "sourceUrl": "https://www.e-prostor.gov.si/podrocja/trg-in-vrednosti-nepremicnin/trg-nepremicnin/",
           "finalUrl": null,
           "factKey": "city.long_term_rent",
           "cityId": "celje",
-          "officialStatus": "official_source_quality_warning",
-          "period": "2025",
-          "geographicScope": "Slovenia; selected-market reporting",
-          "format": "pdf",
+          "officialStatus": "official_public_transaction_register_candidate",
+          "period": "current data; leases at least six months",
+          "geographicScope": "municipality; select Celje",
+          "format": "html/interactive_public_data",
           "language": "sl",
-          "exactLocator": "Rental-market data quality discussion",
+          "exactLocator": "Javni podatki evidence trga nepremičnin; Vpogled v aktualne cene nepremičnin; filter municipality Celje",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No reliable city value."
+            "A dedicated public-data/map parser and record-date handling are required before importing a rent value."
           ],
           "rejectedAlternatives": [
-            "Commercial listings excluded."
+            "Commercial listing portals and rental aggregators were excluded."
           ],
-          "notes": "Official limitation retained."
+          "notes": "GURS says ETN records leases of buildings/parts for at least six months and makes raw transaction data public; do not infer a value without parsing the municipal extract."
         },
         "urbanTransit": {
           "publisher": "Mestna občina Celje",
@@ -973,52 +977,53 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Police of the Republic of Slovenia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.policija.si/",
-          "sourceUrl": "https://www.policija.si/images/stories/Publikacije/RKK/PDF/2025/03/RKK2025-03_MatjazJerkic_Kriminaliteta2024.pdf",
+          "publisher": "Mestna občina Kranj",
+          "publisherType": "municipal_public_safety_authority",
+          "authorityRootUrl": "https://www.kranj.si/",
+          "sourceUrl": "https://www.kranj.si/files/novice/2024/fotografije-pr-za-spletno-stran/5-obrazlozitve-zr-2023.pdf",
           "finalUrl": null,
           "factKey": "city.safety",
           "cityId": "kranj",
-          "officialStatus": "official_source_scope_mismatch",
-          "period": "2015-2024",
-          "geographicScope": "Police Directorate Kranj",
-          "format": "pdf/table",
+          "officialStatus": "official_city_safety_report_candidate",
+          "period": "2023",
+          "geographicScope": "Mestna občina Kranj",
+          "format": "pdf",
           "language": "sl",
-          "exactLocator": "Table 5, row Policijska uprava Kranj",
+          "exactLocator": "Obrazložitve zaključnega računa 2023: Medobčinsko redarstvo, prekrškovni postopki",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Directorate broader than municipality."
+            "Source is a city-level public-safety/police or enforcement report; comparability to a national crime rate requires a separate methodology check."
           ],
           "rejectedAlternatives": [
-            "Aggregators excluded."
+            "Police-directorate totals were rejected as municipality-scope mismatches.",
+            "Commercial safety rankings were excluded."
           ],
-          "notes": "Needs municipal extract."
+          "notes": "Official municipality report gives local public-order/enforcement activity; not a police crime series."
         },
         "longTermRent": {
           "publisher": "Surveying and Mapping Authority of the Republic of Slovenia (GURS)",
           "publisherType": "national_geospatial_cadastral_authority",
           "authorityRootUrl": "https://www.e-prostor.gov.si/",
-          "sourceUrl": "https://www.e-prostor.gov.si/fileadmin/Podrocja/Trg_vrednosti_nep/Trg_nepremicnin/Porocila_o_trgu_nepremicnin/2025/Letno_porocilo_za_leto_2025.pdf",
+          "sourceUrl": "https://www.e-prostor.gov.si/podrocja/trg-in-vrednosti-nepremicnin/trg-nepremicnin/",
           "finalUrl": null,
           "factKey": "city.long_term_rent",
           "cityId": "kranj",
-          "officialStatus": "official_source_quality_warning",
-          "period": "2025",
-          "geographicScope": "Slovenia; selected-market reporting",
-          "format": "pdf",
+          "officialStatus": "official_public_transaction_register_candidate",
+          "period": "current data; leases at least six months",
+          "geographicScope": "municipality; select Kranj",
+          "format": "html/interactive_public_data",
           "language": "sl",
-          "exactLocator": "Rental-market data quality discussion",
+          "exactLocator": "Javni podatki evidence trga nepremičnin; Vpogled v aktualne cene nepremičnin; filter municipality Kranj",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No reliable city value."
+            "A dedicated public-data/map parser and record-date handling are required before importing a rent value."
           ],
           "rejectedAlternatives": [
-            "Commercial listings excluded."
+            "Commercial listing portals and rental aggregators were excluded."
           ],
-          "notes": "Official limitation retained."
+          "notes": "GURS says ETN records leases of buildings/parts for at least six months and makes raw transaction data public; do not infer a value without parsing the municipal extract."
         },
         "urbanTransit": {
           "publisher": "Arriva Slovenija d.o.o.",

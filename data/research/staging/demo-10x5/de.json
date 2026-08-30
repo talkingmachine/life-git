@@ -261,26 +261,28 @@
           "notes": "No service value extracted."
         },
         "fixedBroadband": {
-          "publisher": "Bundesnetzagentur",
+          "publisher": "Federal Network Agency (Bundesnetzagentur), Zentrale Informationsstelle des Bundes",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.bundesnetzagentur.de/",
-          "sourceUrl": "https://www.bundesnetzagentur.de/GIGA/DE/Breitbandatlas/Vollbild/start.html",
+          "sourceUrl": "https://gigabitgrundbuch.bund.de/GIGA/DE/Downloads_Suche/start.html?gtp=1021482_list%253D5",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "berlin",
-          "officialStatus": "official atlas",
-          "period": null,
-          "geographicScope": "Berlin / 100m raster",
-          "format": "interactive map",
+          "officialStatus": "official_broadband_atlas_download",
+          "period": "2024-12-31",
+          "geographicScope": "Germany; municipality selectable, map to district/address",
+          "format": "xlsx/interactive_map",
           "language": "de",
-          "exactLocator": "Breitbandatlas; select Berlin and fixed network layer",
+          "exactLocator": "Downloads: Daten zur Breitbandverfügbarkeit in Deutschland aus dem Breitbandatlas; Stand Ende 2024 (xlsx); select AGS / municipality Berlin",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Interactive map was not queried; no reproducible city aggregate retained."
+            "A dedicated XLSX parser is required to recover the municipality record; no availability value is inferred in staging."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "rejectedAlternatives": [
+            "Commercial address availability checkers were excluded."
+          ],
+          "notes": "Bundesnetzagentur FAQ says processed broadband-atlas data are available aggregated to municipality level; help documents selection of Gemeinden."
         }
       }
     },
@@ -414,26 +416,28 @@
           "notes": "No service value extracted."
         },
         "fixedBroadband": {
-          "publisher": "Bundesnetzagentur",
+          "publisher": "Federal Network Agency (Bundesnetzagentur), Zentrale Informationsstelle des Bundes",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.bundesnetzagentur.de/",
-          "sourceUrl": "https://www.bundesnetzagentur.de/GIGA/DE/Breitbandatlas/Vollbild/start.html",
+          "sourceUrl": "https://gigabitgrundbuch.bund.de/GIGA/DE/Downloads_Suche/start.html?gtp=1021482_list%253D5",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "munich",
-          "officialStatus": "official atlas",
-          "period": null,
-          "geographicScope": "Munich / 100m raster",
-          "format": "interactive map",
+          "officialStatus": "official_broadband_atlas_download",
+          "period": "2024-12-31",
+          "geographicScope": "Germany; municipality selectable, map to district/address",
+          "format": "xlsx/interactive_map",
           "language": "de",
-          "exactLocator": "select München and fixed network layer",
+          "exactLocator": "Downloads: Daten zur Breitbandverfügbarkeit in Deutschland aus dem Breitbandatlas; Stand Ende 2024 (xlsx); select AGS / municipality Munich",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No reproducible city aggregate extracted."
+            "A dedicated XLSX parser is required to recover the municipality record; no availability value is inferred in staging."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No value inferred."
+          "rejectedAlternatives": [
+            "Commercial address availability checkers were excluded."
+          ],
+          "notes": "Bundesnetzagentur FAQ says processed broadband-atlas data are available aggregated to municipality level; help documents selection of Gemeinden."
         }
       }
     },
@@ -567,26 +571,28 @@
           "notes": "No service value extracted."
         },
         "fixedBroadband": {
-          "publisher": "Bundesnetzagentur",
+          "publisher": "Federal Network Agency (Bundesnetzagentur), Zentrale Informationsstelle des Bundes",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.bundesnetzagentur.de/",
-          "sourceUrl": "https://www.bundesnetzagentur.de/GIGA/DE/Breitbandatlas/Vollbild/start.html",
+          "sourceUrl": "https://gigabitgrundbuch.bund.de/GIGA/DE/Downloads_Suche/start.html?gtp=1021482_list%253D5",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "hamburg",
-          "officialStatus": "official atlas",
-          "period": null,
-          "geographicScope": "Hamburg / 100m raster",
-          "format": "interactive map",
+          "officialStatus": "official_broadband_atlas_download",
+          "period": "2024-12-31",
+          "geographicScope": "Germany; municipality selectable, map to district/address",
+          "format": "xlsx/interactive_map",
           "language": "de",
-          "exactLocator": "select Hamburg and fixed network layer",
+          "exactLocator": "Downloads: Daten zur Breitbandverfügbarkeit in Deutschland aus dem Breitbandatlas; Stand Ende 2024 (xlsx); select AGS / municipality Hamburg",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No reproducible city aggregate extracted."
+            "A dedicated XLSX parser is required to recover the municipality record; no availability value is inferred in staging."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No value inferred."
+          "rejectedAlternatives": [
+            "Commercial address availability checkers were excluded."
+          ],
+          "notes": "Bundesnetzagentur FAQ says processed broadband-atlas data are available aggregated to municipality level; help documents selection of Gemeinden."
         }
       }
     },
@@ -720,26 +726,28 @@
           "notes": "No service value extracted."
         },
         "fixedBroadband": {
-          "publisher": "Bundesnetzagentur",
+          "publisher": "Federal Network Agency (Bundesnetzagentur), Zentrale Informationsstelle des Bundes",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.bundesnetzagentur.de/",
-          "sourceUrl": "https://www.bundesnetzagentur.de/GIGA/DE/Breitbandatlas/Vollbild/start.html",
+          "sourceUrl": "https://gigabitgrundbuch.bund.de/GIGA/DE/Downloads_Suche/start.html?gtp=1021482_list%253D5",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "frankfurt-am-main",
-          "officialStatus": "official atlas",
-          "period": null,
-          "geographicScope": "Frankfurt am Main / 100m raster",
-          "format": "interactive map",
+          "officialStatus": "official_broadband_atlas_download",
+          "period": "2024-12-31",
+          "geographicScope": "Germany; municipality selectable, map to district/address",
+          "format": "xlsx/interactive_map",
           "language": "de",
-          "exactLocator": "select Frankfurt am Main and fixed network layer",
+          "exactLocator": "Downloads: Daten zur Breitbandverfügbarkeit in Deutschland aus dem Breitbandatlas; Stand Ende 2024 (xlsx); select AGS / municipality Frankfurt am Main",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No reproducible city aggregate extracted."
+            "A dedicated XLSX parser is required to recover the municipality record; no availability value is inferred in staging."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No value inferred."
+          "rejectedAlternatives": [
+            "Commercial address availability checkers were excluded."
+          ],
+          "notes": "Bundesnetzagentur FAQ says processed broadband-atlas data are available aggregated to municipality level; help documents selection of Gemeinden."
         }
       }
     },
@@ -873,26 +881,28 @@
           "notes": "No service value extracted."
         },
         "fixedBroadband": {
-          "publisher": "Bundesnetzagentur",
+          "publisher": "Federal Network Agency (Bundesnetzagentur), Zentrale Informationsstelle des Bundes",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.bundesnetzagentur.de/",
-          "sourceUrl": "https://www.bundesnetzagentur.de/GIGA/DE/Breitbandatlas/Vollbild/start.html",
+          "sourceUrl": "https://gigabitgrundbuch.bund.de/GIGA/DE/Downloads_Suche/start.html?gtp=1021482_list%253D5",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "dusseldorf",
-          "officialStatus": "official atlas",
-          "period": null,
-          "geographicScope": "Düsseldorf / 100m raster",
-          "format": "interactive map",
+          "officialStatus": "official_broadband_atlas_download",
+          "period": "2024-12-31",
+          "geographicScope": "Germany; municipality selectable, map to district/address",
+          "format": "xlsx/interactive_map",
           "language": "de",
-          "exactLocator": "select Düsseldorf and fixed network layer",
+          "exactLocator": "Downloads: Daten zur Breitbandverfügbarkeit in Deutschland aus dem Breitbandatlas; Stand Ende 2024 (xlsx); select AGS / municipality Dusseldorf",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No reproducible city aggregate extracted."
+            "A dedicated XLSX parser is required to recover the municipality record; no availability value is inferred in staging."
           ],
-          "rejectedAlternatives": [],
-          "notes": "No value inferred."
+          "rejectedAlternatives": [
+            "Commercial address availability checkers were excluded."
+          ],
+          "notes": "Bundesnetzagentur FAQ says processed broadband-atlas data are available aggregated to municipality level; help documents selection of Gemeinden."
         }
       }
     }

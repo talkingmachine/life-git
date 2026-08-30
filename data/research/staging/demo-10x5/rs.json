@@ -205,52 +205,46 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of the Republic of Serbia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.mup.gov.rs/",
-          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
-          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "publisher": "Road Traffic Safety Agency of the Republic of Serbia",
+          "publisherType": "national_safety_agency",
+          "authorityRootUrl": "https://www.abs.gov.rs/",
+          "sourceUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
+          "finalUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
           "factKey": "safety",
           "cityId": "belgrade",
-          "officialStatus": "national police portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Police administration covering Belgrade",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
+          "language": "sr",
+          "exactLocator": "2025 safety indicators; Belgrade police-administration brochure link",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official city-area safety indicator candidate."
         },
         "longTermRent": {
-          "publisher": "Belgrade municipal administration",
+          "publisher": "Belgrade municipal authority",
           "publisherType": "municipality",
           "authorityRootUrl": "https://www.beograd.rs/",
-          "sourceUrl": "https://www.beograd.rs/",
-          "finalUrl": "https://www.beograd.rs/",
+          "sourceUrl": "https://www.beograd.rs/lat/gradski-oglasi-i-konkursi/a71823/Konacna-lista-reda-prvenstva-na-konkursu-za-resavanje-stambenih-potreba-kupovinom-i-davanjem-stanova-u-zakup-na-lokaciji-Kamendin-2.html",
+          "finalUrl": "https://www.beograd.rs/lat/gradski-oglasi-i-konkursi/a71823/Konacna-lista-reda-prvenstva-na-konkursu-za-resavanje-stambenih-potreba-kupovinom-i-davanjem-stanova-u-zakup-na-lokaciji-Kamendin-2.html",
           "factKey": "long-term-rent",
           "cityId": "belgrade",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Belgrade",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "City public apartments offered for rental",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "Covers municipal/public leasing, not a citywide private-market price series."
           ],
-          "rejectedAlternatives": [
-            "Listing-platform prices were not used."
-          ],
-          "notes": "No observed value."
+          "rejectedAlternatives": [],
+          "notes": "Official public-housing tenancy candidate."
         },
         "urbanTransit": {
           "publisher": "GSP Beograd",
@@ -278,25 +272,23 @@
           "publisher": "RATEL",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.ratel.rs/",
-          "sourceUrl": "https://www.ratel.rs/en/",
-          "finalUrl": "https://www.ratel.rs/en/",
+          "sourceUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
+          "finalUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
           "factKey": "fixed-broadband",
           "cityId": "belgrade",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Belgrade",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "RATEL NetTest fixed-access map: filter by location and access type",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
+            "Interactive map needs parser/API recovery for city-specific output."
           ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "rejectedAlternatives": [],
+          "notes": "Official regulator-operated fixed-broadband tool."
         }
       }
     },
@@ -376,52 +368,46 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of the Republic of Serbia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.mup.gov.rs/",
-          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
-          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "publisher": "Road Traffic Safety Agency of the Republic of Serbia",
+          "publisherType": "national_safety_agency",
+          "authorityRootUrl": "https://www.abs.gov.rs/",
+          "sourceUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
+          "finalUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
           "factKey": "safety",
           "cityId": "novi-sad",
-          "officialStatus": "national police portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Police administration covering Novi Sad",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
+          "language": "sr",
+          "exactLocator": "2025 safety indicators; Novi Sad police-administration brochure link",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official city-area safety indicator candidate."
         },
         "longTermRent": {
-          "publisher": "Novi Sad municipal administration",
+          "publisher": "Novi Sad municipal authority",
           "publisherType": "municipality",
-          "authorityRootUrl": "https://novisad.rs/",
-          "sourceUrl": "https://novisad.rs/",
-          "finalUrl": "https://novisad.rs/",
+          "authorityRootUrl": "https://skupstina.novisad.rs/",
+          "sourceUrl": "https://skupstina.novisad.rs/2026/06/26/sednica-saveta-za-urbanizam-poslovni-prostor-i-stambenu-podrsku-69/?lang=lat",
+          "finalUrl": "https://skupstina.novisad.rs/2026/06/26/sednica-saveta-za-urbanizam-poslovni-prostor-i-stambenu-podrsku-69/?lang=lat",
           "factKey": "long-term-rent",
           "cityId": "novi-sad",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Novi Sad",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "City apartments: fixed- and indefinite-term leasing",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "Covers municipal/public leasing, not a citywide private-market price series."
           ],
-          "rejectedAlternatives": [
-            "Listing-platform prices were not used."
-          ],
-          "notes": "No observed value."
+          "rejectedAlternatives": [],
+          "notes": "Official public-housing tenancy candidate."
         },
         "urbanTransit": {
           "publisher": "JGSP Novi Sad",
@@ -449,25 +435,23 @@
           "publisher": "RATEL",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.ratel.rs/",
-          "sourceUrl": "https://www.ratel.rs/en/",
-          "finalUrl": "https://www.ratel.rs/en/",
+          "sourceUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
+          "finalUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
           "factKey": "fixed-broadband",
           "cityId": "novi-sad",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Novi Sad",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "RATEL NetTest fixed-access map: filter by location and access type",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
+            "Interactive map needs parser/API recovery for city-specific output."
           ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "rejectedAlternatives": [],
+          "notes": "Official regulator-operated fixed-broadband tool."
         }
       }
     },
@@ -547,100 +531,88 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of the Republic of Serbia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.mup.gov.rs/",
-          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
-          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "publisher": "Road Traffic Safety Agency of the Republic of Serbia",
+          "publisherType": "national_safety_agency",
+          "authorityRootUrl": "https://www.abs.gov.rs/",
+          "sourceUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
+          "finalUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
           "factKey": "safety",
           "cityId": "nis",
-          "officialStatus": "national police portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Police administration covering Niš",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
+          "language": "sr",
+          "exactLocator": "2025 safety indicators; Niš police-administration brochure link",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official city-area safety indicator candidate."
         },
         "longTermRent": {
-          "publisher": "Niš municipal administration",
+          "publisher": "Niš municipal authority",
           "publisherType": "municipality",
           "authorityRootUrl": "https://www.ni.rs/",
-          "sourceUrl": "https://www.ni.rs/",
-          "finalUrl": "https://www.ni.rs/",
+          "sourceUrl": "https://www.ni.rs/wp-content/uploads/2025/08/%D0%9E%D0%B4%D0%BB%D1%83%D0%BA%D0%B0-%D0%BE-%D0%BF%D1%80%D0%B8%D0%B1%D0%B0%D0%B2%D1%99%D0%B0%D1%9A%D1%83-%D1%80%D0%B0%D1%81%D0%BF%D0%BE%D0%BB%D0%B0%D0%B3%D0%B0%D1%9A%D1%83-%D0%B8-%D1%83%D0%BF%D1%80%D0%B0%D0%B2%D1%99%D0%B0%D1%9A%D1%83-%D1%81%D1%82%D0%B2%D0%B0%D1%80%D0%B8%D0%BC%D0%B0-%D1%83-%D1%98%D0%B0%D0%B2%D0%BD%D0%BE%D1%98-%D1%81%D0%B2%D0%BE%D1%98%D0%B8%D0%BD%D0%B8-%D0%93-4.pdf",
+          "finalUrl": "https://www.ni.rs/wp-content/uploads/2025/08/%D0%9E%D0%B4%D0%BB%D1%83%D0%BA%D0%B0-%D0%BE-%D0%BF%D1%80%D0%B8%D0%B1%D0%B0%D0%B2%D1%99%D0%B0%D1%9A%D1%83-%D1%80%D0%B0%D1%81%D0%BF%D0%BE%D0%BB%D0%B0%D0%B3%D0%B0%D1%9A%D1%83-%D0%B8-%D1%83%D0%BF%D1%80%D0%B0%D0%B2%D1%99%D0%B0%D1%9A%D1%83-%D1%81%D1%82%D0%B2%D0%B0%D1%80%D0%B8%D0%BC%D0%B0-%D1%83-%D1%98%D0%B0%D0%B2%D0%BD%D0%BE%D1%98-%D1%81%D0%B2%D0%BE%D1%98%D0%B8%D0%BD%D0%B8-%D0%93-4.pdf",
           "factKey": "long-term-rent",
           "cityId": "nis",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Niš",
-          "format": "HTML",
+          "format": "PDF",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "City public-property decision: housing rental criteria/procedure",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "Covers municipal/public leasing, not a citywide private-market price series."
           ],
-          "rejectedAlternatives": [
-            "Listing-platform prices were not used."
-          ],
-          "notes": "No observed value."
+          "rejectedAlternatives": [],
+          "notes": "Official public-housing tenancy candidate."
         },
         "urbanTransit": {
-          "publisher": "Niš municipal administration",
-          "publisherType": "municipality",
+          "publisher": "City of Niš",
+          "publisherType": "municipal_transit_operator",
           "authorityRootUrl": "https://www.ni.rs/",
-          "sourceUrl": "https://www.ni.rs/",
-          "finalUrl": "https://www.ni.rs/",
+          "sourceUrl": "https://www.ni.rs/direkcija-za-javni-prevoz-grada-nisa-informativni-centar-2/",
+          "finalUrl": "https://www.ni.rs/direkcija-za-javni-prevoz-grada-nisa-informativni-centar-2/",
           "factKey": "urban-transit",
           "cityId": "nis",
-          "officialStatus": "municipality portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Niš",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "City public-transport Directorate information centre",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No operator or route source with a stable official URL was identified."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official municipal candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official city/operator transport source."
         },
         "fixedBroadband": {
           "publisher": "RATEL",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.ratel.rs/",
-          "sourceUrl": "https://www.ratel.rs/en/",
-          "finalUrl": "https://www.ratel.rs/en/",
+          "sourceUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
+          "finalUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
           "factKey": "fixed-broadband",
           "cityId": "nis",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Niš",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "RATEL NetTest fixed-access map: filter by location and access type",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
+            "Interactive map needs parser/API recovery for city-specific output."
           ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "rejectedAlternatives": [],
+          "notes": "Official regulator-operated fixed-broadband tool."
         }
       }
     },
@@ -720,52 +692,48 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of the Republic of Serbia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.mup.gov.rs/",
-          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
-          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "publisher": "Road Traffic Safety Agency of the Republic of Serbia",
+          "publisherType": "national_safety_agency",
+          "authorityRootUrl": "https://www.abs.gov.rs/",
+          "sourceUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
+          "finalUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
           "factKey": "safety",
           "cityId": "subotica",
-          "officialStatus": "national police portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
-          "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
-        },
-        "longTermRent": {
-          "publisher": "Subotica municipal administration",
-          "publisherType": "municipality",
-          "authorityRootUrl": "https://subotica.ls.gov.rs/",
-          "sourceUrl": "https://subotica.ls.gov.rs/",
-          "finalUrl": "https://subotica.ls.gov.rs/",
-          "factKey": "long-term-rent",
-          "cityId": "subotica",
-          "officialStatus": "municipality portal searched",
-          "period": null,
-          "geographicScope": "Subotica",
+          "geographicScope": "Police administration covering Subotica",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "2025 safety indicators; Subotica police-administration brochure link",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official city-area safety indicator candidate."
+        },
+        "longTermRent": {
+          "publisher": "Republic Geodetic Authority of Serbia (RGZ)",
+          "publisherType": "national_cadastre_and_real_estate_market_registry",
+          "authorityRootUrl": "https://www.rgz.gov.rs/",
+          "sourceUrl": "https://www.rgz.gov.rs/content/pages/usluge/masovna-procena/izvestaji/2Polugodisnji%20izvestaj%20-%20Trziste%20nepokretnosti%202016%20-20170421.pdf",
+          "finalUrl": null,
+          "factKey": "long-term-rent",
+          "cityId": "subotica",
+          "officialStatus": "official candidate",
+          "period": "2014-H1 2016",
+          "geographicScope": "City of Subotica",
+          "format": "PDF/table",
+          "language": "sr",
+          "exactLocator": "Municipality transaction table, row SUBOTICA-GRAD, lease (Zakupi) columns",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "Historical report exposes lease transaction counts rather than a current comparable monthly rent value."
           ],
           "rejectedAlternatives": [
-            "Listing-platform prices were not used."
+            "Municipal public-property and social-housing rules were rejected as non-market rent facts."
           ],
-          "notes": "No observed value."
+          "notes": "Official real-estate register report directly confirms city-scoped lease transactions; a price metric still requires a newer registry extract."
         },
         "urbanTransit": {
           "publisher": "Subotica-trans",
@@ -793,25 +761,23 @@
           "publisher": "RATEL",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.ratel.rs/",
-          "sourceUrl": "https://www.ratel.rs/en/",
-          "finalUrl": "https://www.ratel.rs/en/",
+          "sourceUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
+          "finalUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
           "factKey": "fixed-broadband",
           "cityId": "subotica",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Subotica",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "RATEL NetTest fixed-access map: filter by location and access type",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
+            "Interactive map needs parser/API recovery for city-specific output."
           ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "rejectedAlternatives": [],
+          "notes": "Official regulator-operated fixed-broadband tool."
         }
       }
     },
@@ -891,100 +857,88 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Ministry of Interior of the Republic of Serbia",
-          "publisherType": "national_police",
-          "authorityRootUrl": "https://www.mup.gov.rs/",
-          "sourceUrl": "https://www.mup.gov.rs/wps/portal/en",
-          "finalUrl": "https://www.mup.gov.rs/wps/portal/en",
+          "publisher": "Road Traffic Safety Agency of the Republic of Serbia",
+          "publisherType": "national_safety_agency",
+          "authorityRootUrl": "https://www.abs.gov.rs/",
+          "sourceUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
+          "finalUrl": "https://www.abs.gov.rs/rsc/indikatori-bezbednosti-saobracaja-po-policijskim-upravama",
           "factKey": "safety",
           "cityId": "kragujevac",
-          "officialStatus": "national police portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Police administration covering Kragujevac",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Portal homepage",
+          "language": "sr",
+          "exactLocator": "2025 safety indicators; Kragujevac police-administration brochure link",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No city-comparable safety metric was identified on the public portal."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official police authority candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official city-area safety indicator candidate."
         },
         "longTermRent": {
-          "publisher": "Kragujevac municipal administration",
+          "publisher": "Kragujevac municipal authority",
           "publisherType": "municipality",
           "authorityRootUrl": "https://kragujevac.ls.gov.rs/",
-          "sourceUrl": "https://kragujevac.ls.gov.rs/",
-          "finalUrl": "https://kragujevac.ls.gov.rs/",
+          "sourceUrl": "https://kragujevac.ls.gov.rs/tekst/sr/2161/gu-za-imovinske-poslove-urbanizam-izgradnju-i-ozakonjenje.php",
+          "finalUrl": "https://kragujevac.ls.gov.rs/tekst/sr/2161/gu-za-imovinske-poslove-urbanizam-izgradnju-i-ozakonjenje.php",
           "factKey": "long-term-rent",
           "cityId": "kragujevac",
-          "officialStatus": "municipality portal searched",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Kragujevac",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Housing conditions, rent subsidy and non-profit apartment leasing",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No official long-term private-rent price series was identified."
+            "Covers municipal/public leasing, not a citywide private-market price series."
           ],
-          "rejectedAlternatives": [
-            "Listing-platform prices were not used."
-          ],
-          "notes": "No observed value."
+          "rejectedAlternatives": [],
+          "notes": "Official public-housing tenancy candidate."
         },
         "urbanTransit": {
-          "publisher": "Kragujevac municipal administration",
-          "publisherType": "municipality",
-          "authorityRootUrl": "https://kragujevac.ls.gov.rs/",
-          "sourceUrl": "https://kragujevac.ls.gov.rs/",
-          "finalUrl": "https://kragujevac.ls.gov.rs/",
+          "publisher": "JKP Šumadija Kragujevac",
+          "publisherType": "municipal_transit_operator",
+          "authorityRootUrl": "https://www.jkpsumadija.rs/",
+          "sourceUrl": "https://www.jkpsumadija.rs/sr/usluge/sektor-javnog-transporta-putnika.html",
+          "finalUrl": "https://www.jkpsumadija.rs/sr/usluge/sektor-javnog-transporta-putnika.html",
           "factKey": "urban-transit",
           "cityId": "kragujevac",
-          "officialStatus": "municipality portal",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
           "geographicScope": "Kragujevac",
           "format": "HTML",
           "language": "sr",
-          "exactLocator": "Homepage/public notices",
+          "exactLocator": "Public Transport Sector: 36 city/suburban lines",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "No operator or route source with a stable official URL was identified."
-          ],
-          "rejectedAlternatives": [
-            "Commercial aggregators were not used."
-          ],
-          "notes": "Official municipal candidate only."
+          "candidateStatus": "official_candidate_found",
+          "limitations": [],
+          "rejectedAlternatives": [],
+          "notes": "Official city/operator transport source."
         },
         "fixedBroadband": {
           "publisher": "RATEL",
           "publisherType": "telecom_regulator",
           "authorityRootUrl": "https://www.ratel.rs/",
-          "sourceUrl": "https://www.ratel.rs/en/",
-          "finalUrl": "https://www.ratel.rs/en/",
+          "sourceUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
+          "finalUrl": "https://www.ratel.rs/sr/alati-za-korisnike",
           "factKey": "fixed-broadband",
           "cityId": "kragujevac",
-          "officialStatus": "national regulator",
+          "officialStatus": "official city/municipality-scope candidate",
           "period": null,
-          "geographicScope": "National; city-level scope not established",
+          "geographicScope": "Kragujevac",
           "format": "HTML",
-          "language": "en",
-          "exactLocator": "Regulator homepage",
+          "language": "sr",
+          "exactLocator": "RATEL NetTest fixed-access map: filter by location and access type",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No city-specific fixed-broadband coverage measure was extracted."
+            "Interactive map needs parser/API recovery for city-specific output."
           ],
-          "rejectedAlternatives": [
-            "Provider marketing coverage claims were not used as evidence."
-          ],
-          "notes": "Official regulator candidate only."
+          "rejectedAlternatives": [],
+          "notes": "Official regulator-operated fixed-broadband tool."
         }
       }
     }

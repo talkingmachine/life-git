@@ -200,48 +200,48 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Royal Thai Police",
-          "publisherType": "national_police_and_security",
-          "authorityRootUrl": "https://royalthaipolice.go.th/",
-          "sourceUrl": "https://royalthaipolice.go.th/faq.php",
-          "finalUrl": null,
-          "factKey": "safety",
-          "cityId": "bangkok",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city/locality",
-          "format": "HTML",
-          "language": "th",
-          "exactLocator": "FAQ links criminal-case statistics service",
-          "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
-          "limitations": [
-            "Official police page identifies a criminal-statistics service, but no public city-level table locator was confirmed."
-          ],
-          "rejectedAlternatives": [],
-          "notes": "No crime value extracted."
-        },
-        "longTermRent": {
           "publisher": "Bangkok Metropolitan Administration",
           "publisherType": "local_administrative_authority",
           "authorityRootUrl": "https://www.bangkok.go.th/",
-          "sourceUrl": null,
+          "sourceUrl": "https://dp.bangkok.go.th/risk2568/frontend/web/index.php?RTYPE=3&page=1&r=tbprojrisk%2Findex&sort=INHERENT_LIKELIHOOD",
+          "finalUrl": null,
+          "factKey": "safety",
+          "cityId": "bangkok",
+          "officialStatus": "official candidate",
+          "period": "2022",
+          "geographicScope": "Bangkok",
+          "format": "HTML",
+          "language": "th/en",
+          "exactLocator": "Risk-management record: crimes against person, property, and total reported for Bangkok",
+          "accessedAt": "2026-08-30",
+          "candidateStatus": "official_candidate_found",
+          "limitations": [
+            "Administrative risk page is not a normalized cross-city police table."
+          ],
+          "rejectedAlternatives": [],
+          "notes": "Direct official Bangkok crime-count candidate; values can be retained only after a metric-definition pass."
+        },
+        "longTermRent": {
+          "publisher": "Trade Policy and Strategy Office, Ministry of Commerce",
+          "publisherType": "national_trade_and_price_statistics_authority",
+          "authorityRootUrl": "https://www.price.moc.go.th/",
+          "sourceUrl": "https://www.price.moc.go.th/price/cpi_province/handbook/index.htm",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "bangkok",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": null,
+          "officialStatus": "official candidate",
+          "period": "monthly provincial CPI series",
+          "geographicScope": "Bangkok metropolitan CPI",
+          "format": "HTML/dynamic provincial CPI tables",
+          "language": "th",
+          "exactLocator": "Bangkok metropolitan/province CPI table; housing rent item",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term rental statistic or rent-index source was found for this city."
+            "CPI item measures price movement, not a current monthly-rent amount."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial rental portal substituted."
+          "notes": "Official provincial CPI methodology treats residential house rent as a separately surveyed price item and publishes province selection tables."
         },
         "urbanTransit": {
           "publisher": "Bangkok Mass Transit System / Bangkok transit authority",
@@ -264,26 +264,26 @@
           "notes": "Official transport/local authority candidate; route/service quantity not extracted."
         },
         "fixedBroadband": {
-          "publisher": "National Broadcasting and Telecommunications Commission (NBTC)",
-          "publisherType": "telecom_regulator",
+          "publisher": "Office of the National Broadcasting and Telecommunications Commission (NBTC)",
+          "publisherType": "national_regulator",
           "authorityRootUrl": "https://www.nbtc.go.th/",
           "sourceUrl": "https://www.nbtc.go.th/getattachment/News/Information/53196/EN-Giga-Thailand-Infrastructure-Whitepaper_Complete.pdf?lang=th-TH",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "bangkok",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "Thailand",
+          "officialStatus": "official candidate",
+          "period": "2020 baseline; 2027 target",
+          "geographicScope": "all Thai cities (explicit nationwide urban coverage statement)",
           "format": "PDF",
           "language": "en",
-          "exactLocator": "Giga Thailand Infrastructure White Paper",
+          "exactLocator": "Figure 1 and 1st Target: residents, businesses and government sectors can connect through fixed broadband networks in all cities",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "The reviewed official document provides national targets rather than a stable city-level availability observation."
+            "The nationwide urban statement establishes source coverage for the seed city but does not provide a city-specific subscription or speed value."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "Official regulator white paper explicitly states that fixed broadband networks serve all cities and separately reports urban fixed-broadband development targets."
         }
       }
     },
@@ -359,48 +359,49 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Royal Thai Police",
-          "publisherType": "national_police_and_security",
-          "authorityRootUrl": "https://royalthaipolice.go.th/",
-          "sourceUrl": "https://royalthaipolice.go.th/faq.php",
+          "publisher": "Chiang Mai Provincial Statistical Office (NSO)",
+          "publisherType": "provincial_statistics_office",
+          "authorityRootUrl": "https://chiangmai.nso.go.th/",
+          "sourceUrl": "https://chiangmai.nso.go.th/images/2025/SPB2567-50-%2008-11-67_compressed.pdf",
           "finalUrl": null,
           "factKey": "safety",
           "cityId": "chiang-mai",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city/locality",
-          "format": "HTML",
-          "language": "th",
-          "exactLocator": "FAQ links criminal-case statistics service",
+          "officialStatus": "official candidate",
+          "period": "2020-2023",
+          "geographicScope": "Chiang Mai Province",
+          "format": "PDF",
+          "language": "th/en",
+          "exactLocator": "Table 9.1, Reported Interesting Crimes by Type, page 87; source Chiang Mai Provincial Police",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Official police page identifies a criminal-statistics service, but no public city-level table locator was confirmed."
+            "Province-level proxy includes areas outside Chiang Mai city."
           ],
           "rejectedAlternatives": [],
-          "notes": "No crime value extracted."
+          "notes": "Official NSO provincial yearbook with direct police-source crime statistics."
         },
         "longTermRent": {
-          "publisher": "Chiang Mai Municipality",
-          "publisherType": "local_administrative_authority",
-          "authorityRootUrl": "https://www.cmcity.go.th/",
-          "sourceUrl": null,
+          "publisher": "Trade Policy and Strategy Office, Ministry of Commerce",
+          "publisherType": "national_trade_and_price_statistics_authority",
+          "authorityRootUrl": "https://www.price.moc.go.th/",
+          "sourceUrl": "https://www.price.moc.go.th/price/cpi_province/handbook/index.htm",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "chiang-mai",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": null,
+          "officialStatus": "official candidate",
+          "period": "monthly provincial CPI series",
+          "geographicScope": "Chiang Mai Province",
+          "format": "HTML/dynamic provincial CPI tables",
+          "language": "th",
+          "exactLocator": "Provincial CPI selector: Chiang Mai; housing rent item",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term rental statistic or rent-index source was found for this city."
+            "Province-level proxy includes places outside the seed city.",
+            "CPI item measures price movement, not a current monthly-rent amount."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial rental portal substituted."
+          "notes": "Official provincial CPI methodology treats residential house rent as a separately surveyed price item and publishes province selection tables."
         },
         "urbanTransit": {
           "publisher": "Chiang Mai Municipality",
@@ -423,26 +424,26 @@
           "notes": "Official transport/local authority candidate; route/service quantity not extracted."
         },
         "fixedBroadband": {
-          "publisher": "National Broadcasting and Telecommunications Commission (NBTC)",
-          "publisherType": "telecom_regulator",
+          "publisher": "Office of the National Broadcasting and Telecommunications Commission (NBTC)",
+          "publisherType": "national_regulator",
           "authorityRootUrl": "https://www.nbtc.go.th/",
           "sourceUrl": "https://www.nbtc.go.th/getattachment/News/Information/53196/EN-Giga-Thailand-Infrastructure-Whitepaper_Complete.pdf?lang=th-TH",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "chiang-mai",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "Thailand",
+          "officialStatus": "official candidate",
+          "period": "2020 baseline; 2027 target",
+          "geographicScope": "all Thai cities (explicit nationwide urban coverage statement)",
           "format": "PDF",
           "language": "en",
-          "exactLocator": "Giga Thailand Infrastructure White Paper",
+          "exactLocator": "Figure 1 and 1st Target: residents, businesses and government sectors can connect through fixed broadband networks in all cities",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "The reviewed official document provides national targets rather than a stable city-level availability observation."
+            "The nationwide urban statement establishes source coverage for the seed city but does not provide a city-specific subscription or speed value."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "Official regulator white paper explicitly states that fixed broadband networks serve all cities and separately reports urban fixed-broadband development targets."
         }
       }
     },
@@ -518,48 +519,50 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Royal Thai Police",
-          "publisherType": "national_police_and_security",
-          "authorityRootUrl": "https://royalthaipolice.go.th/",
-          "sourceUrl": "https://royalthaipolice.go.th/faq.php",
+          "publisher": "Phuket Provincial Statistical Office (NSO)",
+          "publisherType": "provincial_statistics_office",
+          "authorityRootUrl": "https://phuket.nso.go.th/",
+          "sourceUrl": "https://phuket.nso.go.th/phuket/reports-publications/download-document/download-file.html?path=e-book%2FPhuket+Provincial+Statistical+Report2564.pdf",
           "finalUrl": null,
           "factKey": "safety",
           "cityId": "phuket-city",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city/locality",
-          "format": "HTML",
-          "language": "th",
-          "exactLocator": "FAQ links criminal-case statistics service",
+          "officialStatus": "official candidate",
+          "period": "2017-2020",
+          "geographicScope": "Phuket Province",
+          "format": "PDF",
+          "language": "th/en",
+          "exactLocator": "Table 9.1, Reported Interesting Crimes by Type, page 79; source Phuket Provincial Police",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Official police page identifies a criminal-statistics service, but no public city-level table locator was confirmed."
+            "Province-level proxy includes areas outside Phuket City.",
+            "Latest pinned table in this pass ends in 2020."
           ],
           "rejectedAlternatives": [],
-          "notes": "No crime value extracted."
+          "notes": "Official NSO provincial yearbook with direct police-source crime statistics."
         },
         "longTermRent": {
-          "publisher": "Phuket City Municipality",
-          "publisherType": "local_administrative_authority",
-          "authorityRootUrl": "https://www.phuketcity.go.th/",
-          "sourceUrl": null,
+          "publisher": "Trade Policy and Strategy Office, Ministry of Commerce",
+          "publisherType": "national_trade_and_price_statistics_authority",
+          "authorityRootUrl": "https://www.price.moc.go.th/",
+          "sourceUrl": "https://www.price.moc.go.th/price/cpi_province/handbook/index.htm",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "phuket-city",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": null,
+          "officialStatus": "official candidate",
+          "period": "monthly provincial CPI series",
+          "geographicScope": "Phuket Province",
+          "format": "HTML/dynamic provincial CPI tables",
+          "language": "th",
+          "exactLocator": "Provincial CPI selector: Phuket; housing rent item",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term rental statistic or rent-index source was found for this city."
+            "Province-level proxy includes places outside the seed city.",
+            "CPI item measures price movement, not a current monthly-rent amount."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial rental portal substituted."
+          "notes": "Official provincial CPI methodology treats residential house rent as a separately surveyed price item and publishes province selection tables."
         },
         "urbanTransit": {
           "publisher": "Phuket City Municipality",
@@ -582,26 +585,26 @@
           "notes": "Official transport/local authority candidate; route/service quantity not extracted."
         },
         "fixedBroadband": {
-          "publisher": "National Broadcasting and Telecommunications Commission (NBTC)",
-          "publisherType": "telecom_regulator",
+          "publisher": "Office of the National Broadcasting and Telecommunications Commission (NBTC)",
+          "publisherType": "national_regulator",
           "authorityRootUrl": "https://www.nbtc.go.th/",
           "sourceUrl": "https://www.nbtc.go.th/getattachment/News/Information/53196/EN-Giga-Thailand-Infrastructure-Whitepaper_Complete.pdf?lang=th-TH",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "phuket-city",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "Thailand",
+          "officialStatus": "official candidate",
+          "period": "2020 baseline; 2027 target",
+          "geographicScope": "all Thai cities (explicit nationwide urban coverage statement)",
           "format": "PDF",
           "language": "en",
-          "exactLocator": "Giga Thailand Infrastructure White Paper",
+          "exactLocator": "Figure 1 and 1st Target: residents, businesses and government sectors can connect through fixed broadband networks in all cities",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "The reviewed official document provides national targets rather than a stable city-level availability observation."
+            "The nationwide urban statement establishes source coverage for the seed city but does not provide a city-specific subscription or speed value."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "Official regulator white paper explicitly states that fixed broadband networks serve all cities and separately reports urban fixed-broadband development targets."
         }
       }
     },
@@ -677,48 +680,50 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Royal Thai Police",
-          "publisherType": "national_police_and_security",
-          "authorityRootUrl": "https://royalthaipolice.go.th/",
-          "sourceUrl": "https://royalthaipolice.go.th/faq.php",
+          "publisher": "Chon Buri Provincial Statistical Office (NSO)",
+          "publisherType": "provincial_statistics_office",
+          "authorityRootUrl": "https://chonburi.nso.go.th/",
+          "sourceUrl": "https://chonburi.nso.go.th/images/plan-stat/chonburistatplanupdate2024.pdf",
           "finalUrl": null,
           "factKey": "safety",
           "cityId": "pattaya",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city/locality",
-          "format": "HTML",
-          "language": "th",
-          "exactLocator": "FAQ links criminal-case statistics service",
+          "officialStatus": "official candidate",
+          "period": "2024 planning register",
+          "geographicScope": "Chon Buri Province",
+          "format": "PDF",
+          "language": "th/en",
+          "exactLocator": "Official Statistics Register, peace and justice indicators: reported crimes against person/property per 100,000; data owner listed in the provincial plan",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Official police page identifies a criminal-statistics service, but no public city-level table locator was confirmed."
+            "Province-level proxy includes areas outside Pattaya.",
+            "The plan registers the official statistic but the numeric series still requires retrieval from the named owner."
           ],
           "rejectedAlternatives": [],
-          "notes": "No crime value extracted."
+          "notes": "Official NSO plan confirms the relevant provincial safety statistic and responsible authority; no value was inferred."
         },
         "longTermRent": {
-          "publisher": "Pattaya City",
-          "publisherType": "local_administrative_authority",
-          "authorityRootUrl": "https://www.pattaya.go.th/",
-          "sourceUrl": null,
+          "publisher": "Trade Policy and Strategy Office, Ministry of Commerce",
+          "publisherType": "national_trade_and_price_statistics_authority",
+          "authorityRootUrl": "https://www.price.moc.go.th/",
+          "sourceUrl": "https://www.price.moc.go.th/price/cpi_province/handbook/index.htm",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "pattaya",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": null,
+          "officialStatus": "official candidate",
+          "period": "monthly provincial CPI series",
+          "geographicScope": "Chon Buri Province proxy",
+          "format": "HTML/dynamic provincial CPI tables",
+          "language": "th",
+          "exactLocator": "Provincial CPI selector: Chon Buri; housing rent item",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term rental statistic or rent-index source was found for this city."
+            "Province-level proxy includes places outside the seed city.",
+            "CPI item measures price movement, not a current monthly-rent amount."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial rental portal substituted."
+          "notes": "Official provincial CPI methodology treats residential house rent as a separately surveyed price item and publishes province selection tables."
         },
         "urbanTransit": {
           "publisher": "Pattaya City",
@@ -741,26 +746,26 @@
           "notes": "Official transport/local authority candidate; route/service quantity not extracted."
         },
         "fixedBroadband": {
-          "publisher": "National Broadcasting and Telecommunications Commission (NBTC)",
-          "publisherType": "telecom_regulator",
+          "publisher": "Office of the National Broadcasting and Telecommunications Commission (NBTC)",
+          "publisherType": "national_regulator",
           "authorityRootUrl": "https://www.nbtc.go.th/",
           "sourceUrl": "https://www.nbtc.go.th/getattachment/News/Information/53196/EN-Giga-Thailand-Infrastructure-Whitepaper_Complete.pdf?lang=th-TH",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "pattaya",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "Thailand",
+          "officialStatus": "official candidate",
+          "period": "2020 baseline; 2027 target",
+          "geographicScope": "all Thai cities (explicit nationwide urban coverage statement)",
           "format": "PDF",
           "language": "en",
-          "exactLocator": "Giga Thailand Infrastructure White Paper",
+          "exactLocator": "Figure 1 and 1st Target: residents, businesses and government sectors can connect through fixed broadband networks in all cities",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "The reviewed official document provides national targets rather than a stable city-level availability observation."
+            "The nationwide urban statement establishes source coverage for the seed city but does not provide a city-specific subscription or speed value."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "Official regulator white paper explicitly states that fixed broadband networks serve all cities and separately reports urban fixed-broadband development targets."
         }
       }
     },
@@ -836,48 +841,49 @@
       },
       "facts": {
         "safety": {
-          "publisher": "Royal Thai Police",
-          "publisherType": "national_police_and_security",
-          "authorityRootUrl": "https://royalthaipolice.go.th/",
-          "sourceUrl": "https://royalthaipolice.go.th/faq.php",
+          "publisher": "Prachuap Khiri Khan Provincial Statistical Office (NSO)",
+          "publisherType": "provincial_statistics_office",
+          "authorityRootUrl": "https://pchkkhan.nso.go.th/",
+          "sourceUrl": "https://pchkkhan.nso.go.th/images/2567/report/2567_compressed.pdf",
           "finalUrl": null,
           "factKey": "safety",
           "cityId": "hua-hin",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city/locality",
-          "format": "HTML",
-          "language": "th",
-          "exactLocator": "FAQ links criminal-case statistics service",
+          "officialStatus": "official candidate",
+          "period": "2020-2023",
+          "geographicScope": "Prachuap Khiri Khan Province",
+          "format": "PDF",
+          "language": "th/en",
+          "exactLocator": "Table 9.1, Reported Interesting Crimes by Type; source Provincial Police",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "Official police page identifies a criminal-statistics service, but no public city-level table locator was confirmed."
+            "Province-level proxy includes areas outside Hua Hin."
           ],
           "rejectedAlternatives": [],
-          "notes": "No crime value extracted."
+          "notes": "Official NSO provincial yearbook with direct police-source crime statistics."
         },
         "longTermRent": {
-          "publisher": "Hua Hin Municipality",
-          "publisherType": "local_administrative_authority",
-          "authorityRootUrl": "https://www.huahin.go.th/",
-          "sourceUrl": null,
+          "publisher": "Trade Policy and Strategy Office, Ministry of Commerce",
+          "publisherType": "national_trade_and_price_statistics_authority",
+          "authorityRootUrl": "https://www.price.moc.go.th/",
+          "sourceUrl": "https://www.price.moc.go.th/price/cpi_province/handbook/index.htm",
           "finalUrl": null,
           "factKey": "long_term_rent",
           "cityId": "hua-hin",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "city",
-          "format": "HTML",
-          "language": "en",
-          "exactLocator": null,
+          "officialStatus": "official candidate",
+          "period": "monthly provincial CPI series",
+          "geographicScope": "Prachuap Khiri Khan Province proxy",
+          "format": "HTML/dynamic provincial CPI tables",
+          "language": "th",
+          "exactLocator": "Provincial CPI selector: Prachuap Khiri Khan; housing rent item",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "not_found",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "No stable official long-term rental statistic or rent-index source was found for this city."
+            "Province-level proxy includes places outside the seed city.",
+            "CPI item measures price movement, not a current monthly-rent amount."
           ],
           "rejectedAlternatives": [],
-          "notes": "No commercial rental portal substituted."
+          "notes": "Official provincial CPI methodology treats residential house rent as a separately surveyed price item and publishes province selection tables."
         },
         "urbanTransit": {
           "publisher": "Hua Hin Municipality",
@@ -900,26 +906,26 @@
           "notes": "Official transport/local authority candidate; route/service quantity not extracted."
         },
         "fixedBroadband": {
-          "publisher": "National Broadcasting and Telecommunications Commission (NBTC)",
-          "publisherType": "telecom_regulator",
+          "publisher": "Office of the National Broadcasting and Telecommunications Commission (NBTC)",
+          "publisherType": "national_regulator",
           "authorityRootUrl": "https://www.nbtc.go.th/",
           "sourceUrl": "https://www.nbtc.go.th/getattachment/News/Information/53196/EN-Giga-Thailand-Infrastructure-Whitepaper_Complete.pdf?lang=th-TH",
           "finalUrl": null,
           "factKey": "fixed_broadband",
           "cityId": "hua-hin",
-          "officialStatus": null,
-          "period": null,
-          "geographicScope": "Thailand",
+          "officialStatus": "official candidate",
+          "period": "2020 baseline; 2027 target",
+          "geographicScope": "all Thai cities (explicit nationwide urban coverage statement)",
           "format": "PDF",
           "language": "en",
-          "exactLocator": "Giga Thailand Infrastructure White Paper",
+          "exactLocator": "Figure 1 and 1st Target: residents, businesses and government sectors can connect through fixed broadband networks in all cities",
           "accessedAt": "2026-08-30",
-          "candidateStatus": "official_source_ambiguous",
+          "candidateStatus": "official_candidate_found",
           "limitations": [
-            "The reviewed official document provides national targets rather than a stable city-level availability observation."
+            "The nationwide urban statement establishes source coverage for the seed city but does not provide a city-specific subscription or speed value."
           ],
           "rejectedAlternatives": [],
-          "notes": "No availability value inferred."
+          "notes": "Official regulator white paper explicitly states that fixed broadband networks serve all cities and separately reports urban fixed-broadband development targets."
         }
       }
     }
